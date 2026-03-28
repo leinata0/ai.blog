@@ -1,1 +1,14 @@
 .worktrees/
+backend/.pytest_cache/
+backend/__pycache__/
+backend/**/*.pyc
+backend/**/*.pyo
+backend/**/*.pyd
+backend/**/*.egg-info/
+backend/app/__pycache__/
+backend/app/routers/__pycache__/
+backend/tests/__pycache__/
+blog.db
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

@@ -22,11 +22,14 @@ beforeEach(() => {
 })
 
 it('renders post detail', async () => {
-  render(<PostDetailPage slug="hello-react" />)
+  const { container } = render(<PostDetailPage slug="hello-react" />)
   expect(await screen.findByRole('heading', { name: /hello react/i })).toBeInTheDocument()
+  expect(container.querySelector('[data-ui="detail-shell"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="detail-article"]')).toBeTruthy()
 })
 
 it('shows not found message on404', async () => {
-  render(<PostDetailPage slug="missing" />)
+  const { container } = render(<PostDetailPage slug="missing" />)
   expect(await screen.findByText(/not found/i)).toBeInTheDocument()
+  expect(container.querySelector('[data-ui="detail-error"]')).toBeTruthy()
 })

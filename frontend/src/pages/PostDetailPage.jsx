@@ -34,7 +34,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-zinc-950 px-6 py-16 text-zinc-100">
+      <main data-ui="detail-shell" className="min-h-screen px-6 py-20" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
         <div className="mx-auto max-w-3xl">
           <ArticleSkeleton />
         </div>
@@ -44,8 +44,16 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-zinc-950 px-6 py-16 text-zinc-100">
-        <div className="mx-auto max-w-3xl rounded-2xl border border-red-500/30 bg-red-500/10 p-8 text-red-200">
+      <main data-ui="detail-shell" className="min-h-screen px-6 py-20" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+        <div
+          data-ui="detail-error"
+          className="mx-auto max-w-3xl rounded-[28px] border p-8"
+          style={{
+            borderColor: 'var(--danger-border)',
+            backgroundColor: 'var(--danger-soft)',
+            color: 'var(--text-primary)',
+          }}
+        >
           {error}
         </div>
       </main>
@@ -53,21 +61,37 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-6 py-16 text-zinc-100">
-      <article className="mx-auto flex max-w-3xl flex-col gap-6 rounded-3xl border border-zinc-800 bg-zinc-900/70 p-8">
+    <main data-ui="detail-shell" className="min-h-screen px-6 py-20" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+      <article
+        data-ui="detail-article"
+        className="mx-auto flex max-w-3xl flex-col gap-8 rounded-[32px] border p-10 sm:p-12"
+        style={{
+          borderColor: 'var(--border-muted)',
+          backgroundColor: 'var(--bg-surface)',
+        }}
+      >
         <div className="flex flex-wrap gap-2">
           {post.tags.map((tag) => (
             <span
               key={tag.slug}
-              className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs uppercase tracking-[0.24em] text-emerald-300"
+              className="rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em]"
+              style={{
+                borderColor: 'rgba(143, 170, 122, 0.28)',
+                backgroundColor: 'var(--accent-soft)',
+                color: 'var(--accent-strong)',
+              }}
             >
               {tag.name}
             </span>
           ))}
         </div>
-        <h1 className="text-4xl font-semibold tracking-tight">{post.title}</h1>
-        <p className="text-sm leading-7 text-zinc-400">{post.summary}</p>
-        <div className="prose prose-invert max-w-none whitespace-pre-wrap text-zinc-200">{post.content_md}</div>
+        <div className="space-y-4">
+          <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">{post.title}</h1>
+          <p className="max-w-2xl text-base leading-8" style={{ color: 'var(--text-secondary)' }}>{post.summary}</p>
+        </div>
+        <div className="max-w-none whitespace-pre-wrap text-[15px] leading-8 sm:text-base" style={{ color: 'var(--text-secondary)' }}>
+          {post.content_md}
+        </div>
       </article>
     </main>
   )

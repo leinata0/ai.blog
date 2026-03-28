@@ -1,9 +1,15 @@
 export default function ArticleSkeleton() {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 animate-pulse">
-      <div className="mb-4 h-7 w-1/3 rounded bg-zinc-800" />
-      <div className="mb-2 h-4 w-full rounded bg-zinc-800" />
-      <div className="h-4 w-2/3 rounded bg-zinc-800" />
+    <div
+      className="animate-pulse rounded-[28px] border p-8"
+      style={{
+        borderColor: 'var(--border-muted)',
+        backgroundColor: 'var(--bg-surface)',
+      }}
+    >
+      <div className="mb-5 h-7 w-1/3 rounded" style={{ backgroundColor: 'var(--bg-surface-alt)' }} />
+      <div className="mb-3 h-4 w-full rounded" style={{ backgroundColor: 'var(--bg-surface-alt)' }} />
+      <div className="h-4 w-2/3 rounded" style={{ backgroundColor: 'var(--bg-surface-alt)' }} />
     </div>
   )
 }

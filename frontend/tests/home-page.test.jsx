@@ -28,8 +28,11 @@ beforeEach(() => {
 })
 
 it('renders posts and filters by tag click', async () => {
-  render(<HomePage />)
+  const { container } = render(<HomePage />)
   expect(await screen.findByText(/hello react/i)).toBeInTheDocument()
+  expect(container.querySelector('[data-ui="home-shell"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="post-card"]')).toBeTruthy()
   await userEvent.click(screen.getByRole('button', { name: /react/i }))
   expect(await screen.findByText(/hello react/i)).toBeInTheDocument()
   expect(screen.queryByText(/fastapi guide/i)).not.toBeInTheDocument()

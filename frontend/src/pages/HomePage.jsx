@@ -31,19 +31,19 @@ export default function HomePage() {
   }, [posts])
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-6 py-16 text-zinc-100">
-      <div className="mx-auto flex max-w-4xl flex-col gap-8">
-        <header className="space-y-4">
-          <p className="text-xs uppercase tracking-[0.32em] text-emerald-400">AI DEV LOG</p>
-          <h1 className="text-5xl font-semibold tracking-tight">Minimal blog for builders</h1>
-          <p className="max-w-2xl text-sm leading-7 text-zinc-400">
+    <main data-ui="home-shell" className="min-h-screen px-6 py-20" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+      <div className="mx-auto flex max-w-5xl flex-col gap-10">
+        <header className="space-y-5">
+          <p className="text-xs font-medium uppercase tracking-[0.32em]" style={{ color: 'var(--accent-strong)' }}>AI DEV LOG</p>
+          <h1 className="max-w-3xl text-5xl font-semibold tracking-[-0.04em] sm:text-6xl">Minimal blog for builders</h1>
+          <p className="max-w-2xl text-base leading-8" style={{ color: 'var(--text-secondary)' }}>
             Notes on React, FastAPI, and the systems behind AI-native products.
           </p>
         </header>
 
         <TagFilterBar tags={tags} activeTag={tag} onTagSelect={setTag} />
 
-        <section className="grid gap-5">
+        <section className="grid gap-6 sm:gap-7">
           {loading ? (
             <>
               <ArticleSkeleton />
