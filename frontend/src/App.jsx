@@ -1,3 +1,12 @@
+import { Routes, Route } from 'react-router-dom'
+import HomePage from './pages/HomePage'
+import PostDetailPage from './pages/PostDetailPage'
+
 export default function App() {
-  return <main className="min-h-screen bg-zinc-950 text-zinc-100" />
+  return (
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/posts/:slug" element={<PostDetailPage />} />
+    </Routes>
+  )
 }
