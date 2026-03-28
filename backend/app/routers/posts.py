@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 
@@ -33,4 +33,20 @@ def list_posts(tag: str | None = Query(default=None), db: Session = Depends(get_
             }
             for post in posts
         ]
+    }
+
+
+@router.get("/{slug}")
+def get_post_detail(slug: str, db: Session = Depends(get_db)):
+    stmt = select(Post).options(selectinload(Post.tags)).where(Post.slug == slug)
+    post = db.execute(stmt).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    return {
+        "title": post.title,
+        "slug": post.slug,
+        "summary": post.summary,
+        "content_md": post.content_md,
+        "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
     }
