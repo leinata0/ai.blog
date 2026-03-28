@@ -7,11 +7,11 @@ def test_list_posts_returns_items(client, seeded_db):
 
 
 def test_list_posts_filter_by_tag(client, seeded_db):
-    resp = client.get("/api/posts", params={"tag": "react"})
+    resp = client.get("/api/posts", params={"tag": "python"})
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["items"]) >= 1
-    assert all(any(t["slug"] == "react" for t in p["tags"]) for p in body["items"])
+    assert all(any(t["slug"] == "python" for t in p["tags"]) for p in body["items"])
 
 
 def test_post_tag_relationship(db_session):

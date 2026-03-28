@@ -8,11 +8,11 @@ vi.mock('../src/api/posts', () => ({
       return Promise.reject(new Error('HTTP 404'))
     }
     return Promise.resolve({
-      title: 'Hello React',
-      slug: 'hello-react',
-      summary: 'A post about React',
-      content_md: '# Hello React\n\nThis is a post about React.',
-      tags: [{ name: 'React', slug: 'react' }],
+      title: 'Python 自动化实战：Selenium 与 Pandas 结合',
+      slug: 'python-automation-selenium-pandas',
+      summary: '从页面抓取到表格清洗，串起 Selenium 与 Pandas 的一套高频自动化工作流。',
+      content_md: '# Python 自动化实战：Selenium 与 Pandas 结合\n\n结合 Selenium 的页面操作能力与 Pandas 的数据整理能力，可以快速搭建抓取、清洗、导出一体化的自动化脚本。',
+      tags: [{ name: 'Python', slug: 'python' }],
     })
   }),
 }))
@@ -22,8 +22,8 @@ beforeEach(() => {
 })
 
 it('renders post detail', async () => {
-  const { container } = render(<PostDetailPage slug="hello-react" />)
-  expect(await screen.findByRole('heading', { name: /hello react/i })).toBeInTheDocument()
+  const { container } = render(<PostDetailPage slug="python-automation-selenium-pandas" />)
+  expect(await screen.findByRole('heading', { name: /python 自动化实战/i })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="detail-shell"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="detail-article"]')).toBeTruthy()
 })

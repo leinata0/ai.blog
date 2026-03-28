@@ -27,16 +27,14 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         setLoading(false)
       })
 
-    return () => {
-      active = false
-    }
+    return () => { active = false }
   }, [slug])
 
   if (loading) {
     return (
-      <main data-ui="detail-shell" className="min-h-screen px-6 py-20" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
-        <div className="mx-auto max-w-3xl">
-          <ArticleSkeleton />
+      <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+        <div className="mx-auto max-w-3xl px-6 sm:px-10 pt-22 sm:pt-30">
+          <ArticleSkeleton size="hero" />
         </div>
       </main>
     )
@@ -44,55 +42,100 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
   if (error) {
     return (
-      <main data-ui="detail-shell" className="min-h-screen px-6 py-20" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
-        <div
-          data-ui="detail-error"
-          className="mx-auto max-w-3xl rounded-[28px] border p-8"
-          style={{
-            borderColor: 'var(--danger-border)',
-            backgroundColor: 'var(--danger-soft)',
-            color: 'var(--text-primary)',
-          }}
-        >
-          {error}
+      <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+        <div className="mx-auto max-w-3xl px-6 sm:px-10 pt-22 sm:pt-30">
+          <div
+            data-ui="detail-error"
+            className="rounded-sharp px-8 py-6"
+            style={{
+              backgroundColor: 'var(--danger-soft)',
+              border: '1px solid var(--danger-border)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <span className="font-terminal text-fluid-xs tracking-mono-normal" style={{ color: 'var(--text-faint)' }}>
+              error: {' '}
+            </span>
+            {error}
+          </div>
         </div>
       </main>
     )
   }
 
   return (
-    <main data-ui="detail-shell" className="min-h-screen px-6 py-20" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
-      <article
-        data-ui="detail-article"
-        className="mx-auto flex max-w-3xl flex-col gap-8 rounded-[32px] border p-10 sm:p-12"
+    <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+      {/* Nav */}
+      <nav
+        className="sticky top-0 z-50 flex items-center px-6 sm:px-10"
         style={{
-          borderColor: 'var(--border-muted)',
-          backgroundColor: 'var(--bg-surface)',
+          height: '52px',
+          borderBottom: '1px solid var(--border-muted)',
+          backgroundColor: 'var(--bg-canvas)',
         }}
       >
-        <div className="flex flex-wrap gap-2">
+        <a
+          href="/"
+          className="font-terminal text-fluid-sm font-medium tracking-mono-normal"
+          style={{ color: 'var(--accent)' }}
+        >
+          <span style={{ color: 'var(--text-faint)' }}>~/</span>back
+        </a>
+      </nav>
+
+      <article
+        data-ui="detail-article"
+        className="mx-auto max-w-3xl px-6 sm:px-10 pt-18 sm:pt-26 pb-26 sm:pb-38"
+      >
+        {/* Tags — monospace */}
+        <div className="flex flex-wrap gap-2 mb-6">
           {post.tags.map((tag) => (
-            <span
-              key={tag.slug}
-              className="rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em]"
-              style={{
-                borderColor: 'rgba(143, 170, 122, 0.28)',
-                backgroundColor: 'var(--accent-soft)',
-                color: 'var(--accent-strong)',
-              }}
-            >
+            <span key={tag.slug} className="term-tag">
               {tag.name}
             </span>
           ))}
         </div>
-        <div className="space-y-4">
-          <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">{post.title}</h1>
-          <p className="max-w-2xl text-base leading-8" style={{ color: 'var(--text-secondary)' }}>{post.summary}</p>
-        </div>
-        <div className="max-w-none whitespace-pre-wrap text-[15px] leading-8 sm:text-base" style={{ color: 'var(--text-secondary)' }}>
+
+        {/* Title */}
+        <h1
+          className="text-fluid-3xl font-extrabold tracking-tight mb-5"
+          style={{ letterSpacing: '-0.025em' }}
+        >
+          {post.title}
+        </h1>
+
+        {/* Summary */}
+        <p
+          className="max-w-2xl text-fluid-lg leading-relaxed mb-10 pb-10"
+          style={{
+            color: 'var(--text-secondary)',
+            borderBottom: '1px solid var(--border-muted)',
+          }}
+        >
+          {post.summary}
+        </p>
+
+        {/* Content body */}
+        <div
+          className="max-w-none whitespace-pre-wrap text-fluid-base leading-relaxed"
+          style={{ color: 'var(--text-secondary)' }}
+        >
           {post.content_md}
         </div>
       </article>
+
+      {/* Footer */}
+      <footer
+        className="border-t px-6 sm:px-10 py-6"
+        style={{ borderColor: 'var(--border-muted)' }}
+      >
+        <span
+          className="font-terminal text-fluid-xs tracking-mono-normal"
+          style={{ color: 'var(--accent)' }}
+        >
+          [EOF]
+        </span>
+      </footer>
     </main>
   )
 }

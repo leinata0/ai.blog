@@ -1,8 +1,9 @@
 def test_get_post_detail_by_slug(client, seeded_db):
-    resp = client.get("/api/posts/hello-react")
+    resp = client.get("/api/posts/python-automation-selenium-pandas")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["slug"] == "hello-react"
+    assert body["slug"] == "python-automation-selenium-pandas"
+    assert body["title"] == "Python 自动化实战：Selenium 与 Pandas 结合"
     assert "content_md" in body
 
 

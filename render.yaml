@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ai-dev-blog-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: oregon
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:////data/blog.db
+    disk:
+      name: blog-data
+      mountPath: /data
+      sizeGB: 1
