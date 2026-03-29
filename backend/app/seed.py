@@ -104,8 +104,18 @@ def seed_data(db_session):
     )
     post3.tags.extend([tag_devops, tag_openclaw])
 
+    db_session.add_all([post1, post2, post3])
+    db_session.commit()
+
+    # Insert last to guarantee highest id -> appears first on homepage
     tag_ai = Tag(name="AI", slug="ai")
     tag_fullstack = Tag(name="全栈", slug="fullstack")
+
+    # Re-fetch tags that were already committed
+    from sqlalchemy import select
+    from app.models import Tag as TagModel
+    tag_python_ref = db_session.execute(select(TagModel).where(TagModel.slug == "python")).scalar_one()
+    tag_devops_ref = db_session.execute(select(TagModel).where(TagModel.slug == "devops")).scalar_one()
 
     post4 = Post(
         title="大一新生的全栈破局：AI 辅助构建极客博客的实战复盘",
@@ -113,7 +123,7 @@ def seed_data(db_session):
         summary="从零到公网上线，一个大一新生用 Claude Code 辅助搭建 React + FastAPI 全栈博客的完整复盘。",
         content_md=FULLSTACK_ARTICLE,
     )
-    post4.tags.extend([tag_ai, tag_fullstack, tag_python, tag_devops])
+    post4.tags.extend([tag_ai, tag_fullstack, tag_python_ref, tag_devops_ref])
 
-    db_session.add_all([post1, post2, post3, post4])
+    db_session.add(post4)
     db_session.commit()
