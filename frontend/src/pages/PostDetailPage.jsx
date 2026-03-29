@@ -67,84 +67,88 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   }
 
   return (
-    <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+    <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: '#F4F5F7' }}>
       <Navbar />
 
-      {/* Hero Section */}
+      {/* Hero Banner */}
       <div
-        className="relative px-6 sm:px-10 py-12 sm:py-16"
-        style={{ backgroundColor: 'var(--bg-canvas-deep)', borderBottom: '1px solid var(--border-muted)' }}
+        className="relative px-20 py-24"
+        style={{
+          background: 'linear-gradient(to bottom, #E8EAED, #D6D9DD)',
+          minHeight: '400px'
+        }}
       >
-        <div className="mx-auto max-w-6xl">
-          <div className="flex flex-wrap gap-2 mb-4">
-            {post.tags.map((tag) => (
-              <span key={tag.slug} className="term-tag">{tag.name}</span>
-            ))}
+        <div className="mx-auto max-w-7xl flex items-center justify-between">
+          <div className="flex-1 max-w-3xl">
+            <h1 className="text-5xl font-bold tracking-tight mb-5 leading-tight" style={{ color: '#1A1A1A' }}>
+              {post.title}
+            </h1>
+            <p className="text-xl mb-5" style={{ color: '#5F6368' }}>
+              {post.summary}
+            </p>
+            <div className="flex items-center gap-5 text-sm" style={{ color: '#5F6368' }}>
+              <span>📅 发表于 2024-05-28</span>
+              <span>📁 Docs 文档</span>
+              <span>⏱️ 阅读时长: 5分钟</span>
+            </div>
           </div>
-          <h1 className="text-fluid-3xl font-extrabold tracking-tight mb-4" style={{ letterSpacing: '-0.025em' }}>
-            {post.title}
-          </h1>
-          <p className="text-fluid-lg leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>
-            {post.summary}
-          </p>
-          <div className="flex items-center gap-4 text-fluid-xs" style={{ color: 'var(--text-faint)' }}>
-            <span>📅 2026-03-29</span>
-            <span>⏱️ 阅读时长: 5分钟</span>
+          <div className="w-[280px] h-[280px] rounded-full bg-white flex items-center justify-center" style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid #FFFFFF' }}>
+            <span className="text-8xl">🦋</span>
           </div>
         </div>
       </div>
 
       {/* Main Content + Sidebar Layout */}
-      <div className="mx-auto max-w-6xl px-6 sm:px-10 py-10 sm:py-14">
-        <div className="flex flex-col lg:flex-row gap-8">
+      <div className="mx-auto max-w-7xl px-20 py-12">
+        <div className="flex gap-10">
           {/* Left: Article Content */}
           <article className="flex-1 min-w-0">
-            <div className="prose prose-invert max-w-none text-fluid-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code({ node, inline, className, children, ...props }) {
-                    const match = /language-(\w+)/.exec(className || '')
-                    return !inline && match ? (
-                      <SyntaxHighlighter
-                        style={vscDarkPlus}
-                        language={match[1]}
-                        PreTag="div"
-                        customStyle={{ borderRadius: '6px', border: '1px solid #2a2a2a' }}
-                        {...props}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className="px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-inset)', color: 'var(--accent)' }} {...props}>
+            <div
+              className="bg-white rounded-xl p-10 transition-all duration-300"
+              style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.07), 0 1px 4px rgba(0, 0, 0, 0.03)' }}
+            >
+              <div className="prose max-w-none" style={{ color: '#4C4948' }}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    code({ node, inline, className, children, ...props }) {
+                      const match = /language-(\w+)/.exec(className || '')
+                      return !inline && match ? (
+                        <SyntaxHighlighter
+                          style={vscDarkPlus}
+                          language={match[1]}
+                          PreTag="div"
+                          customStyle={{ borderRadius: '8px', border: '1px solid #E5E7EB' }}
+                          {...props}
+                        >
+                          {String(children).replace(/\n$/, '')}
+                        </SyntaxHighlighter>
+                      ) : (
+                        <code className="px-2 py-1 rounded text-sm" style={{ backgroundColor: '#F3F4F6', color: '#49B1F5' }} {...props}>
+                          {children}
+                        </code>
+                      )
+                    },
+                    h1: ({ children }) => <h1 className="text-3xl font-bold mt-8 mb-4" style={{ color: '#2C3E50' }}>{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-2xl font-bold mt-6 mb-3" style={{ color: '#2C3E50' }}>{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-xl font-semibold mt-5 mb-2" style={{ color: '#2C3E50' }}>{children}</h3>,
+                    p: ({ children }) => <p className="my-4 leading-relaxed text-base">{children}</p>,
+                    blockquote: ({ children }) => (
+                      <blockquote className="border-l-4 pl-4 my-4 italic" style={{ borderColor: '#49B1F5', color: '#7F8C8D' }}>
                         {children}
-                      </code>
-                    )
-                  },
-                  h1: ({ children }) => <h1 className="text-fluid-2xl font-bold mt-10 mb-4" style={{ color: 'var(--text-primary)' }}>{children}</h1>,
-                  h2: ({ children }) => <h2 className="text-fluid-xl font-bold mt-8 mb-3" style={{ color: 'var(--text-primary)' }}>{children}</h2>,
-                  h3: ({ children }) => <h3 className="text-fluid-lg font-semibold mt-6 mb-2" style={{ color: 'var(--text-primary)' }}>{children}</h3>,
-                  blockquote: ({ children }) => (
-                    <blockquote className="border-l-4 pl-4 my-4 italic" style={{ borderColor: 'var(--accent)', color: 'var(--text-tertiary)' }}>
-                      {children}
-                    </blockquote>
-                  ),
-                  table: ({ children }) => <table className="w-full my-6 border-collapse rounded-lg overflow-hidden" style={{ border: '1px solid #2a2a2a' }}>{children}</table>,
-                  th: ({ children }) => <th className="border px-4 py-2 text-left font-semibold" style={{ borderColor: '#2a2a2a', backgroundColor: 'var(--bg-inset)' }}>{children}</th>,
-                  td: ({ children }) => <td className="border px-4 py-2" style={{ borderColor: '#2a2a2a' }}>{children}</td>,
-                  ul: ({ children }) => <ul className="list-disc list-inside my-4 space-y-2">{children}</ul>,
-                  ol: ({ children }) => <ol className="list-decimal list-inside my-4 space-y-2">{children}</ol>,
-                  p: ({ children }) => <p className="my-4">{children}</p>,
-                }}
-              >
-                {post.content_md}
-              </ReactMarkdown>
+                      </blockquote>
+                    ),
+                  }}
+                >
+                  {post.content_md}
+                </ReactMarkdown>
+              </div>
             </div>
           </article>
 
           {/* Right: Sidebar */}
-          <div className="lg:w-80 flex-shrink-0">
-            <div className="lg:sticky lg:top-20">
+          <div className="w-[380px] flex-shrink-0">
+            <div className="sticky top-20">
               <Sidebar />
             </div>
           </div>

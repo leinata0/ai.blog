@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "figma": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-figma"],
+      "env": {},
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}

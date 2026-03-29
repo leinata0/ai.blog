@@ -37,33 +37,42 @@ export default function HomePage() {
     <main
       data-ui="home-shell"
       className="min-h-screen"
-      style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}
+      style={{ backgroundColor: '#F4F5F7' }}
     >
       <Navbar />
 
-      {/* Hero Section */}
+      {/* Hero Banner */}
       <div
-        className="relative px-6 sm:px-10 py-16 sm:py-24"
-        style={{ backgroundColor: 'var(--bg-canvas-deep)', borderBottom: '1px solid var(--border-muted)' }}
+        className="relative px-20 py-32"
+        style={{
+          background: 'linear-gradient(to bottom, #E8EAED, #D6D9DD)',
+          minHeight: '400px'
+        }}
       >
-        <div className="mx-auto max-w-6xl">
-          <h1 className="text-fluid-4xl font-extrabold tracking-tight mb-4" style={{ letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>
-            极客开发日志
-          </h1>
-          <p className="text-fluid-lg mb-2" style={{ color: 'var(--text-secondary)' }}>
-            记录 Python 自动化、C/C++ 核心概念与 OpenClaw 部署实践
-          </p>
-          <div className="flex items-center gap-4 text-fluid-xs" style={{ color: 'var(--text-faint)' }}>
-            <span>📅 更新于 2026</span>
-            <span>📚 Docs文档</span>
-            <span>👁️ 浏览量: 72236</span>
+        <div className="mx-auto max-w-7xl flex items-center justify-between">
+          <div className="flex-1 max-w-3xl">
+            <h1 className="text-6xl font-bold tracking-tight mb-5 leading-tight" style={{ color: '#1A1A1A' }}>
+              BUTTERFLY 安装文档(一)
+            </h1>
+            <p className="text-2xl mb-5" style={{ color: '#5F6368' }}>
+              Butterfly 文档(一) 快速开始
+            </p>
+            <div className="flex items-center gap-5 text-sm" style={{ color: '#5F6368' }}>
+              <span>📅 发表于 2024-05-28</span>
+              <span>📁 Docs 文档</span>
+              <span>✍️ 字数统计: 2.9k</span>
+              <span>⏱️ 阅读时长: 7分钟</span>
+            </div>
+          </div>
+          <div className="w-[280px] h-[280px] rounded-full bg-white flex items-center justify-center" style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid #FFFFFF' }}>
+            <span className="text-8xl">🦋</span>
           </div>
         </div>
       </div>
 
       {/* Main Content + Sidebar Layout */}
-      <div className="mx-auto max-w-6xl px-6 sm:px-10 py-10 sm:py-14">
-        <div className="flex flex-col lg:flex-row gap-8">
+      <div className="mx-auto max-w-7xl px-20 py-12">
+        <div className="flex gap-10">
           {/* Left: Main Content */}
           <div className="flex-1 min-w-0">
             <div className="mb-8">
@@ -74,39 +83,53 @@ export default function HomePage() {
               {loading ? (
                 <div>
                   <div className="mb-6"><ArticleSkeleton size="hero" /></div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-6">
                     <ArticleSkeleton size="grid" />
                     <ArticleSkeleton size="grid" />
                   </div>
                 </div>
               ) : posts.length === 0 ? (
-                <p className="text-fluid-sm pt-4" style={{ color: 'var(--text-tertiary)' }}>
+                <p className="text-sm pt-4" style={{ color: '#7F8C8D' }}>
                   暂无匹配的文章
                 </p>
               ) : (
-                <div>
-                  {hero && (
-                    <div className="mb-6" data-ui="post-card">
-                      <HeroCard post={hero} />
-                    </div>
-                  )}
-                  {rest.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {rest.map((post) => (
-                        <div key={post.slug} data-ui="post-card">
-                          <GridCard post={post} />
+                <div className="space-y-6">
+                  {posts.map((post) => (
+                    <article
+                      key={post.slug}
+                      className="bg-white rounded-xl p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl"
+                      style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.07), 0 1px 4px rgba(0, 0, 0, 0.03)' }}
+                    >
+                      <a href={`/posts/${post.slug}`} className="block">
+                        <h2 className="text-2xl font-semibold mb-4" style={{ color: '#111111' }}>
+                          {post.title}
+                        </h2>
+                        <p className="text-[15px] leading-relaxed mb-4" style={{ color: '#666666' }}>
+                          {post.summary}
+                        </p>
+                        <div className="flex items-center gap-4">
+                          <span className="text-[13px]" style={{ color: '#999999' }}>2026-03-25</span>
+                          {post.tags.map((tag) => (
+                            <span
+                              key={tag.slug}
+                              className="px-3 py-1.5 rounded-md text-xs font-medium"
+                              style={{ backgroundColor: '#E3F2FD', color: '#49B1F5' }}
+                            >
+                              {tag.name}
+                            </span>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      </a>
+                    </article>
+                  ))}
                 </div>
               )}
             </section>
           </div>
 
           {/* Right: Sidebar */}
-          <div className="lg:w-80 flex-shrink-0">
-            <div className="lg:sticky lg:top-20">
+          <div className="w-[380px] flex-shrink-0">
+            <div className="sticky top-20">
               <Sidebar />
             </div>
           </div>
