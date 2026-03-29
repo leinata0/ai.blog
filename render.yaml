@@ -5,12 +5,5 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     region: oregon
-    plan: starter
+    plan: free
     healthCheckPath: /health
-    envVars:
-      - key: DATABASE_URL
-        value: sqlite:////data/blog.db
-    disk:
-      name: blog-data
-      mountPath: /data
-      sizeGB: 1
