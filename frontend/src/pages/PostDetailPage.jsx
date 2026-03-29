@@ -80,7 +80,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       >
         <a
           href="/"
-          className="font-terminal text-fluid-sm font-medium tracking-mono-normal"
+          className="font-terminal text-fluid-sm font-medium tracking-mono-normal transition-colors hover:text-emerald-300"
           style={{ color: 'var(--accent)' }}
         >
           <span style={{ color: 'var(--text-faint)' }}>~/</span>back
@@ -121,7 +121,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
         {/* Content body */}
         <div
-          className="prose-geek max-w-none text-fluid-base leading-relaxed"
+          className="prose prose-invert max-w-none text-fluid-base leading-relaxed"
           style={{ color: 'var(--text-secondary)' }}
         >
           <ReactMarkdown
@@ -134,6 +134,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                     style={vscDarkPlus}
                     language={match[1]}
                     PreTag="div"
+                    customStyle={{ borderRadius: '6px', border: '1px solid #2a2a2a' }}
                     {...props}
                   >
                     {String(children).replace(/\n$/, '')}
@@ -152,9 +153,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                   {children}
                 </blockquote>
               ),
-              table: ({ children }) => <table className="w-full my-6 border-collapse" style={{ borderColor: 'var(--border-muted)' }}>{children}</table>,
-              th: ({ children }) => <th className="border px-4 py-2 text-left font-semibold" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-inset)' }}>{children}</th>,
-              td: ({ children }) => <td className="border px-4 py-2" style={{ borderColor: 'var(--border-muted)' }}>{children}</td>,
+              table: ({ children }) => <table className="w-full my-6 border-collapse rounded-lg overflow-hidden" style={{ border: '1px solid #2a2a2a' }}>{children}</table>,
+              th: ({ children }) => <th className="border px-4 py-2 text-left font-semibold" style={{ borderColor: '#2a2a2a', backgroundColor: 'var(--bg-inset)' }}>{children}</th>,
+              td: ({ children }) => <td className="border px-4 py-2" style={{ borderColor: '#2a2a2a' }}>{children}</td>,
               ul: ({ children }) => <ul className="list-disc list-inside my-4 space-y-2">{children}</ul>,
               ol: ({ children }) => <ol className="list-decimal list-inside my-4 space-y-2">{children}</ol>,
               p: ({ children }) => <p className="my-4">{children}</p>,

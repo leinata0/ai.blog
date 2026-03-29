@@ -3,44 +3,44 @@
 @tailwind utilities;
 
 /* ════════════════════════════════════════════════════════
-   TERMINAL CHIC — Cold Tinted Grays + Terminal Green
-   Constraint: NO #000, NO #fff. Monospace-forward UI.
+   DARK GEEK — Deep Black + Emerald Hacker Green
    ════════════════════════════════════════════════════════ */
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  /* Canvas — cold warm-gray */
-  --bg-canvas:       #f6f5f3;
-  --bg-canvas-deep:  #eeecea;
-  --bg-surface:      #e8e6e3;
-  --bg-surface-alt:  #dddad6;
-  --bg-hover:        #d3d0cb;
+  /* Canvas — deep black */
+  --bg-canvas:       #0a0a0a;
+  --bg-canvas-deep:  #121212;
+  --bg-surface:      #1a1a1a;
+  --bg-surface-alt:  #242424;
+  --bg-hover:        #2a2a2a;
+  --bg-inset:        #161616;
 
   /* Borders */
-  --border-muted:    #d5d2cd;
-  --border-strong:   #b5b1ab;
+  --border-muted:    #2a2a2a;
+  --border-strong:   #404040;
 
-  /* Ink — near-black but NOT #000 */
-  --text-primary:    #1a1918;
-  --text-secondary:  #5c5955;
-  --text-tertiary:   #8a8680;
-  --text-faint:      #b5b1ab;
+  /* Text — high contrast light grays */
+  --text-primary:    #e5e5e5;
+  --text-secondary:  #a3a3a3;
+  --text-tertiary:   #737373;
+  --text-faint:      #525252;
 
-  /* Accent — terminal green */
-  --accent:          #3d9a5f;
-  --accent-dim:      #2d7a48;
-  --accent-bright:   #4ec97a;
-  --accent-soft:     rgba(61, 154, 95, 0.07);
-  --accent-border:   rgba(61, 154, 95, 0.20);
-  --accent-glow:     rgba(78, 201, 122, 0.12);
+  /* Accent — emerald hacker green */
+  --accent:          #34d399;
+  --accent-dim:      #10b981;
+  --accent-bright:   #6ee7b7;
+  --accent-soft:     rgba(52, 211, 153, 0.1);
+  --accent-border:   rgba(52, 211, 153, 0.3);
+  --accent-glow:     rgba(52, 211, 153, 0.15);
 
   /* Danger */
-  --danger-soft:     rgba(180, 70, 50, 0.08);
-  --danger-border:   rgba(180, 70, 50, 0.25);
+  --danger-soft:     rgba(239, 68, 68, 0.1);
+  --danger-border:   rgba(239, 68, 68, 0.3);
 
   /* Selection */
-  --selection:       rgba(61, 154, 95, 0.16);
+  --selection:       rgba(52, 211, 153, 0.2);
 }
 
 /* ── Reset ─────────────────────────────────────────── */
