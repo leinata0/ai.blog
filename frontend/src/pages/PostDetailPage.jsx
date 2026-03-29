@@ -93,7 +93,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             </div>
           </div>
           <div className="w-[280px] h-[280px] rounded-full bg-white flex items-center justify-center" style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid #FFFFFF' }}>
-            <span className="text-8xl">🦋</span>
+            <span className="text-8xl">👨‍💻</span>
           </div>
         </div>
       </div>

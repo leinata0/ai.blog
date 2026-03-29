@@ -52,20 +52,19 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl flex items-center justify-between">
           <div className="flex-1 max-w-3xl">
             <h1 className="text-6xl font-bold tracking-tight mb-5 leading-tight" style={{ color: '#1A1A1A' }}>
-              BUTTERFLY 安装文档(一)
+              极客开发日志
             </h1>
             <p className="text-2xl mb-5" style={{ color: '#5F6368' }}>
-              Butterfly 文档(一) 快速开始
+              记录 Python 自动化、C/C++ 核心概念与 OpenClaw 部署实践
             </p>
             <div className="flex items-center gap-5 text-sm" style={{ color: '#5F6368' }}>
-              <span>📅 发表于 2024-05-28</span>
-              <span>📁 Docs 文档</span>
-              <span>✍️ 字数统计: 2.9k</span>
-              <span>⏱️ 阅读时长: 7分钟</span>
+              <span>📅 更新于 2026</span>
+              <span>📁 Docs文档</span>
+              <span>👁️ 浏览量: 72236</span>
             </div>
           </div>
           <div className="w-[280px] h-[280px] rounded-full bg-white flex items-center justify-center" style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid #FFFFFF' }}>
-            <span className="text-8xl">🦋</span>
+            <span className="text-8xl">👨‍💻</span>
           </div>
         </div>
       </div>

@@ -10,7 +10,7 @@ export default function Navbar() {
       }}
     >
       <a href="/" className="text-xl font-semibold transition-colors duration-200 hover:text-[#49B1F5]" style={{ color: '#49B1F5' }}>
-        Butterfly
+        极客开发日志
       </a>
 
       <div className="flex items-center gap-8 text-[15px]">

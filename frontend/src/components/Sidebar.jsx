@@ -10,10 +10,10 @@ export default function Sidebar() {
         }}
       >
         <div className="w-[100px] h-[100px] mx-auto mb-5 rounded-full bg-gradient-to-br from-[#E3F2FD] to-[#BBDEFB] flex items-center justify-center" style={{ boxShadow: '0 2px 8px rgba(73, 177, 245, 0.13)' }}>
-          <span className="text-5xl">🦋</span>
+          <span className="text-5xl">👨‍💻</span>
         </div>
-        <h3 className="font-semibold text-[22px] mb-2" style={{ color: '#2C3E50' }}>Jerry</h3>
-        <p className="text-[13px] mb-5 leading-relaxed" style={{ color: '#7F8C8D' }}>A Simple and Card UI Design theme for Hexo</p>
+        <h3 className="font-semibold text-[22px] mb-2" style={{ color: '#2C3E50' }}>极客新生</h3>
+        <p className="text-[13px] mb-5 leading-relaxed" style={{ color: '#7F8C8D' }}>大一 CS 学生 / Python & C++ 爱好者</p>
 
         <div className="flex justify-around mb-5">
           <div className="flex-1 py-4">
