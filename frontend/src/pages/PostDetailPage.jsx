@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { fetchPostDetail } from '../api/posts'
 import ArticleSkeleton from '../components/ArticleSkeleton'
 
@@ -117,10 +121,47 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
         {/* Content body */}
         <div
-          className="max-w-none whitespace-pre-wrap text-fluid-base leading-relaxed"
+          className="prose-geek max-w-none text-fluid-base leading-relaxed"
           style={{ color: 'var(--text-secondary)' }}
         >
-          {post.content_md}
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code({ node, inline, className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || '')
+                return !inline && match ? (
+                  <SyntaxHighlighter
+                    style={vscDarkPlus}
+                    language={match[1]}
+                    PreTag="div"
+                    {...props}
+                  >
+                    {String(children).replace(/\n$/, '')}
+                  </SyntaxHighlighter>
+                ) : (
+                  <code className="px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-inset)', color: 'var(--accent)' }} {...props}>
+                    {children}
+                  </code>
+                )
+              },
+              h1: ({ children }) => <h1 className="text-fluid-2xl font-bold mt-10 mb-4" style={{ color: 'var(--text-primary)' }}>{children}</h1>,
+              h2: ({ children }) => <h2 className="text-fluid-xl font-bold mt-8 mb-3" style={{ color: 'var(--text-primary)' }}>{children}</h2>,
+              h3: ({ children }) => <h3 className="text-fluid-lg font-semibold mt-6 mb-2" style={{ color: 'var(--text-primary)' }}>{children}</h3>,
+              blockquote: ({ children }) => (
+                <blockquote className="border-l-4 pl-4 my-4 italic" style={{ borderColor: 'var(--accent)', color: 'var(--text-tertiary)' }}>
+                  {children}
+                </blockquote>
+              ),
+              table: ({ children }) => <table className="w-full my-6 border-collapse" style={{ borderColor: 'var(--border-muted)' }}>{children}</table>,
+              th: ({ children }) => <th className="border px-4 py-2 text-left font-semibold" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-inset)' }}>{children}</th>,
+              td: ({ children }) => <td className="border px-4 py-2" style={{ borderColor: 'var(--border-muted)' }}>{children}</td>,
+              ul: ({ children }) => <ul className="list-disc list-inside my-4 space-y-2">{children}</ul>,
+              ol: ({ children }) => <ol className="list-decimal list-inside my-4 space-y-2">{children}</ol>,
+              p: ({ children }) => <p className="my-4">{children}</p>,
+            }}
+          >
+            {post.content_md}
+          </ReactMarkdown>
         </div>
       </article>
 
