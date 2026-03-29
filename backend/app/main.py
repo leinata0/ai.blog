@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from app.db import Base, SessionLocal, engine
 from app.models import Post, Tag, post_tags
@@ -11,11 +11,13 @@ app.include_router(posts_router)
 
 
 def _ensure_new_posts(db):
-    """Insert posts that don't yet exist (by slug)."""
+    """Upsert the fullstack article: delete old version and re-insert to get highest id."""
     slug = "freshman-fullstack-ai-blog"
-    exists = db.execute(select(Post.id).where(Post.slug == slug)).first()
-    if exists:
-        return
+    old = db.execute(select(Post).where(Post.slug == slug)).scalar_one_or_none()
+    if old is not None:
+        db.execute(delete(post_tags).where(post_tags.c.post_id == old.id))
+        db.delete(old)
+        db.flush()
 
     def get_or_create_tag(name, tag_slug):
         tag = db.execute(select(Tag).where(Tag.slug == tag_slug)).scalar_one_or_none()
