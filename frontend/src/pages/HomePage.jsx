@@ -47,13 +47,13 @@ export default function HomePage() {
         style={{ backgroundColor: 'var(--bg-canvas-deep)', borderBottom: '1px solid var(--border-muted)' }}
       >
         <div className="mx-auto max-w-6xl">
-          <h1 className="text-fluid-4xl font-extrabold tracking-tight mb-4" style={{ letterSpacing: '-0.03em' }}>
+          <h1 className="text-fluid-4xl font-extrabold tracking-tight mb-4" style={{ letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>
             极客开发日志
           </h1>
           <p className="text-fluid-lg mb-2" style={{ color: 'var(--text-secondary)' }}>
             记录 Python 自动化、C/C++ 核心概念与 OpenClaw 部署实践
           </p>
-          <div className="flex items-center gap-4 font-terminal text-fluid-xs" style={{ color: 'var(--text-faint)' }}>
+          <div className="flex items-center gap-4 text-fluid-xs" style={{ color: 'var(--text-faint)' }}>
             <span>📅 更新于 2026</span>
             <span>📚 Docs文档</span>
             <span>👁️ 浏览量: 72236</span>
@@ -80,8 +80,8 @@ export default function HomePage() {
                   </div>
                 </div>
               ) : posts.length === 0 ? (
-                <p className="font-terminal text-fluid-sm pt-4" style={{ color: 'var(--text-tertiary)' }}>
-                  // no posts match this filter
+                <p className="text-fluid-sm pt-4" style={{ color: 'var(--text-tertiary)' }}>
+                  暂无匹配的文章
                 </p>
               ) : (
                 <div>
@@ -116,13 +116,13 @@ export default function HomePage() {
       {/* Footer */}
       <footer
         className="border-t px-6 sm:px-10 py-6 flex items-center justify-between"
-        style={{ borderColor: 'var(--border-muted)' }}
+        style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-surface)' }}
       >
-        <span className="font-terminal text-fluid-xs tracking-mono-normal" style={{ color: 'var(--text-faint)' }}>
-          极客开发日志
+        <span className="text-fluid-xs" style={{ color: 'var(--text-faint)' }}>
+          © 2026 极客开发日志
         </span>
-        <span className="font-terminal text-fluid-xs tracking-mono-normal" style={{ color: 'var(--accent)' }}>
-          [EOF]
+        <span className="text-fluid-xs" style={{ color: 'var(--text-tertiary)' }}>
+          Built with React
         </span>
       </footer>
     </main>

@@ -55,9 +55,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
         <Navbar />
         <div className="mx-auto max-w-6xl px-6 sm:px-10 py-10">
-          <div className="rounded-lg px-8 py-6" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)' }}>
-            <span className="font-terminal text-fluid-xs tracking-mono-normal" style={{ color: 'var(--text-faint)' }}>
-              error: {' '}
+          <div className="rounded-2xl px-8 py-6 shadow-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)' }}>
+            <span className="text-fluid-xs font-semibold" style={{ color: 'var(--text-faint)' }}>
+              错误: {' '}
             </span>
             {error}
           </div>
@@ -87,7 +87,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
           <p className="text-fluid-lg leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>
             {post.summary}
           </p>
-          <div className="flex items-center gap-4 font-terminal text-fluid-xs" style={{ color: 'var(--text-faint)' }}>
+          <div className="flex items-center gap-4 text-fluid-xs" style={{ color: 'var(--text-faint)' }}>
             <span>📅 2026-03-29</span>
             <span>⏱️ 阅读时长: 5分钟</span>
           </div>

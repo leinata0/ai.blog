@@ -3,10 +3,10 @@ export default function Sidebar() {
     <aside className="space-y-6">
       {/* Author Card */}
       <div
-        className="rounded-lg p-6 text-center"
+        className="rounded-2xl p-6 text-center shadow-sm"
         style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-muted)' }}
       >
-        <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
+        <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center">
           <span className="text-4xl">👨‍💻</span>
         </div>
         <h3 className="font-bold text-fluid-lg mb-2" style={{ color: 'var(--text-primary)' }}>极客新生</h3>
@@ -27,8 +27,10 @@ export default function Sidebar() {
           href="https://github.com"
           target="_blank"
           rel="noopener noreferrer"
-          className="block w-full py-2 rounded font-terminal text-fluid-sm font-medium transition-all hover:brightness-110"
-          style={{ backgroundColor: 'var(--accent)', color: '#0a0a0a' }}
+          className="block w-full py-2 rounded-lg text-fluid-sm font-medium transition-all shadow-sm"
+          style={{ backgroundColor: 'var(--accent)', color: '#ffffff' }}
+          onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--accent-dim)'}
+          onMouseLeave={(e) => e.target.style.backgroundColor = 'var(--accent)'}
         >
           GitHub
         </a>
@@ -36,12 +38,12 @@ export default function Sidebar() {
 
       {/* Announcement */}
       <div
-        className="rounded-lg p-5"
+        className="rounded-2xl p-5 shadow-sm"
         style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-muted)' }}
       >
         <div className="flex items-center gap-2 mb-3">
           <span className="text-xl">📢</span>
-          <h4 className="font-terminal font-semibold text-fluid-sm" style={{ color: 'var(--accent)' }}>公告</h4>
+          <h4 className="font-semibold text-fluid-sm" style={{ color: 'var(--accent)' }}>公告</h4>
         </div>
         <p className="text-fluid-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
           持续更新 Python、C/C++ 与开源项目实践笔记

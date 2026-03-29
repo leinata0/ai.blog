@@ -5,17 +5,17 @@ export default function Navbar() {
       style={{
         height: '60px',
         borderBottom: '1px solid var(--border-muted)',
-        backgroundColor: 'var(--bg-canvas)',
+        backgroundColor: 'rgba(248, 250, 252, 0.8)',
         backdropFilter: 'blur(12px)',
       }}
     >
-      <a href="/" className="font-terminal text-fluid-lg font-bold tracking-mono-normal" style={{ color: 'var(--text-primary)' }}>
-        <span style={{ color: 'var(--accent)' }}>~/</span>极客开发日志
+      <a href="/" className="text-fluid-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+        极客开发日志
       </a>
 
-      <div className="flex items-center gap-6 font-terminal text-fluid-sm" style={{ color: 'var(--text-secondary)' }}>
-        <a href="/" className="hover:text-emerald-400 transition-colors">首页</a>
-        <span style={{ color: 'var(--text-faint)' }}>dev.log v2026</span>
+      <div className="flex items-center gap-6 text-fluid-sm" style={{ color: 'var(--text-secondary)' }}>
+        <a href="/" className="transition-colors" style={{ color: 'var(--text-secondary)' }} onMouseEnter={(e) => e.target.style.color = 'var(--accent)'} onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}>首页</a>
+        <span style={{ color: 'var(--text-faint)' }}>v2026</span>
       </div>
     </nav>
   )
