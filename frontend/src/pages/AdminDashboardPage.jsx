@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MDEditor from '@uiw/react-md-editor'
-import { Pencil, Trash2, Plus, LogOut, ArrowLeft } from 'lucide-react'
+import { Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings } from 'lucide-react'
 import { getToken, clearToken } from '../api/auth'
 import { fetchPosts } from '../api/posts'
-import { adminCreatePost, adminUpdatePost, adminDeletePost } from '../api/admin'
+import { adminCreatePost, adminUpdatePost, adminDeletePost, fetchSettings, updateSettings } from '../api/admin'
 
 const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '' }
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate()
   const token = getToken()
+  const [tab, setTab] = useState('posts') // 'posts' | 'settings'
   const [posts, setPosts] = useState([])
   const [view, setView] = useState('list') // 'list' | 'editor'
   const [editingId, setEditingId] = useState(null)
@@ -18,13 +19,39 @@ export default function AdminDashboardPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // Settings state
+  const [siteSettings, setSiteSettings] = useState({
+    author_name: '', bio: '', avatar_url: '', github_link: '', announcement: '',
+  })
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsMsg, setSettingsMsg] = useState('')
+
   useEffect(() => {
     if (!token) { navigate('/admin/login'); return }
     loadPosts()
+    loadSettings()
   }, [])
 
   async function loadPosts() {
     try { setPosts(await fetchPosts()) } catch { /* ignore */ }
+  }
+
+  async function loadSettings() {
+    try { setSiteSettings(await fetchSettings()) } catch { /* ignore */ }
+  }
+
+  async function handleSaveSettings() {
+    setSettingsSaving(true)
+    setSettingsMsg('')
+    try {
+      const updated = await updateSettings(siteSettings)
+      setSiteSettings(updated)
+      setSettingsMsg('保存成功')
+    } catch (err) {
+      setSettingsMsg(err.message)
+    } finally {
+      setSettingsSaving(false)
+    }
   }
 
   function handleLogout() {
@@ -92,14 +119,28 @@ export default function AdminDashboardPage() {
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       {/* Header */}
-      <header className="sticky top-0 z-50 flex items-center justify-between px-6 sm:px-10 py-4"
+      <header className="sticky top-0 z-50 px-6 sm:px-10"
         style={{ backgroundColor: 'rgba(255,255,255,0.87)', backdropFilter: 'blur(10px)', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--accent)' }}>控制台</h1>
-        <button onClick={handleLogout}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200"
-          style={{ color: 'var(--text-secondary)' }}>
-          <LogOut size={16} /> 退出登录
-        </button>
+        <div className="flex items-center justify-between py-4">
+          <h1 className="text-xl font-semibold" style={{ color: 'var(--accent)' }}>控制台</h1>
+          <button onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200"
+            style={{ color: 'var(--text-secondary)' }}>
+            <LogOut size={16} /> 退出登录
+          </button>
+        </div>
+        <div className="flex gap-6 -mb-px">
+          <button onClick={() => { setTab('posts'); setView('list') }}
+            className="flex items-center gap-2 pb-3 text-sm font-medium transition-colors duration-200"
+            style={{ color: tab === 'posts' ? 'var(--accent)' : 'var(--text-tertiary)', borderBottom: tab === 'posts' ? '2px solid var(--accent)' : '2px solid transparent' }}>
+            <FileText size={15} /> 文章管理
+          </button>
+          <button onClick={() => setTab('settings')}
+            className="flex items-center gap-2 pb-3 text-sm font-medium transition-colors duration-200"
+            style={{ color: tab === 'settings' ? 'var(--accent)' : 'var(--text-tertiary)', borderBottom: tab === 'settings' ? '2px solid var(--accent)' : '2px solid transparent' }}>
+            <Settings size={15} /> 站点设置
+          </button>
+        </div>
       </header>
 
       <div className="max-w-6xl mx-auto px-6 sm:px-10 py-8">
@@ -109,7 +150,7 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {view === 'list' ? (
+        {tab === 'posts' && view === 'list' ? (
           <>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>文章管理</h2>
@@ -159,7 +200,7 @@ export default function AdminDashboardPage() {
               </table>
             </div>
           </>
-        ) : (
+        ) : tab === 'posts' && view === 'editor' ? (
           <div>
             <button onClick={() => setView('list')}
               className="flex items-center gap-2 mb-6 text-sm font-medium transition-colors duration-200"
@@ -219,7 +260,55 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           </div>
-        )}
+        ) : tab === 'settings' ? (
+          <div className="rounded-xl p-6 sm:p-8 space-y-5"
+            style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>站点设置</h2>
+
+            {settingsMsg && (
+              <div className="text-sm py-2 px-4 rounded-lg"
+                style={{ backgroundColor: settingsMsg === '保存成功' ? 'var(--accent-soft)' : 'var(--danger-soft)', color: settingsMsg === '保存成功' ? 'var(--accent)' : '#ef4444' }}>
+                {settingsMsg}
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>博主名称</label>
+              <input value={siteSettings.author_name} onChange={(e) => setSiteSettings({ ...siteSettings, author_name: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>个人简介</label>
+              <input value={siteSettings.bio} onChange={(e) => setSiteSettings({ ...siteSettings, bio: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>头像 URL</label>
+              <input value={siteSettings.avatar_url} onChange={(e) => setSiteSettings({ ...siteSettings, avatar_url: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://..." />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>GitHub 链接</label>
+              <input value={siteSettings.github_link} onChange={(e) => setSiteSettings({ ...siteSettings, github_link: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>公告内容</label>
+              <textarea value={siteSettings.announcement} onChange={(e) => setSiteSettings({ ...siteSettings, announcement: e.target.value })}
+                rows={3} className="w-full px-4 py-2.5 rounded-lg text-sm outline-none resize-none" style={inputStyle} />
+            </div>
+
+            <button onClick={handleSaveSettings} disabled={settingsSaving}
+              className="px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50"
+              style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
+              {settingsSaving ? '保存中...' : '保存设置'}
+            </button>
+          </div>
+        ) : null}
       </div>
     </main>
   )

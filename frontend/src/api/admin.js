@@ -43,3 +43,19 @@ export async function adminDeletePost(token, id) {
   if (!resp.ok) throw new Error(`删除失败: ${resp.status}`)
   return resp.json()
 }
+
+export async function fetchSettings() {
+  const resp = await fetch('/api/settings')
+  if (!resp.ok) throw new Error(`获取设置失败: ${resp.status}`)
+  return resp.json()
+}
+
+export async function updateSettings(data) {
+  const resp = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!resp.ok) throw new Error(`保存设置失败: ${resp.status}`)
+  return resp.json()
+}
