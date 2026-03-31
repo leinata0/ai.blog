@@ -23,7 +23,8 @@
       "Bash(claude plugin:*)",
       "Bash(claude mcp:*)",
       "Bash(npx -y @modelcontextprotocol/server-figma --help)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

@@ -23,3 +23,40 @@ class PostDetailOut(BaseModel):
     summary: str
     content_md: str
     tags: list[TagOut]
+
+
+# ── Admin schemas ──────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class PostCreateRequest(BaseModel):
+    title: str
+    slug: str
+    summary: str
+    content_md: str
+    tags: list[str] = []
+
+
+class PostUpdateRequest(BaseModel):
+    title: str | None = None
+    slug: str | None = None
+    summary: str | None = None
+    content_md: str | None = None
+    tags: list[str] | None = None
+
+
+class PostAdminOut(BaseModel):
+    id: int
+    title: str
+    slug: str
+    summary: str
+    content_md: str
+    tags: list[TagOut]

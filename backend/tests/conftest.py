@@ -69,12 +69,14 @@ def seeded_db(db_session):
 @pytest.fixture
 def client(db_session):
     from app.routers import posts as posts_router_mod
+    from app.routers import admin as admin_router_mod
     from app.main import app
 
     def _get_test_db():
         yield db_session
 
     app.dependency_overrides[posts_router_mod.get_db] = _get_test_db
+    app.dependency_overrides[admin_router_mod.get_db] = _get_test_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
