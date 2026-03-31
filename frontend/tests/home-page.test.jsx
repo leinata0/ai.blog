@@ -47,7 +47,7 @@ it('renders posts and filters by tag click', async () => {
   expect(container.querySelector('[data-ui="home-shell"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="post-card"]')).toBeTruthy()
-  await userEvent.click(screen.getByRole('button', { name: /python/i }))
+  await userEvent.click(screen.getAllByRole('button', { name: /python/i })[0])
   expect(await screen.findByText(/python 自动化实战/i)).toBeInTheDocument()
   expect(screen.queryByText(/c\/c\+\+ 核心概念学习与排坑记录/i)).not.toBeInTheDocument()
 })

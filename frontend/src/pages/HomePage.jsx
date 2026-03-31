@@ -18,6 +18,12 @@ const cardVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
 }
 
+const hoverGlow = {
+  y: -5,
+  boxShadow: '0 8px 30px rgba(73,177,245,0.12), 0 2px 8px rgba(0,0,0,0.06)',
+  transition: { duration: 0.2 },
+}
+
 export default function HomePage() {
   const [tag, setTag] = useState('')
   const [posts, setPosts] = useState([])
@@ -80,9 +86,14 @@ export default function HomePage() {
               <span className="flex items-center gap-1.5"><Eye size={14} className="text-gray-400" /> 浏览量: 72236</span>
             </div>
           </div>
-          <div className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid var(--bg-surface)' }}>
+          <motion.div
+            className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center"
+            style={{ backgroundColor: 'var(--bg-surface)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid var(--bg-surface)' }}
+            animate={{ y: [0, -10, 0] }}
+            transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
+          >
             <span className="text-8xl">👨‍💻</span>
-          </div>
+          </motion.div>
         </div>
       </div>
 
@@ -122,7 +133,8 @@ export default function HomePage() {
                       key={post.slug}
                       data-ui="post-card"
                       variants={cardVariants}
-                      className="rounded-xl p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl"
+                      whileHover={hoverGlow}
+                      className="rounded-xl p-8 cursor-pointer"
                       style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
                     >
                       <Link to={`/posts/${post.slug}`} className="block">
@@ -132,21 +144,22 @@ export default function HomePage() {
                         <p className="text-[15px] leading-relaxed mb-4" style={{ color: 'var(--text-secondary)' }}>
                           {post.summary}
                         </p>
-                        <div className="flex items-center gap-4">
-                          <span className="flex items-center gap-1.5 text-[13px]" style={{ color: 'var(--text-faint)' }}>
-                            <Calendar size={13} className="text-gray-400" /> 2026-03-25
-                          </span>
-                          {post.tags.map((t) => (
-                            <span
-                              key={t.slug}
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium"
-                              style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
-                            >
-                              <Tag size={12} /> {t.name}
-                            </span>
-                          ))}
-                        </div>
                       </Link>
+                      <div className="flex items-center gap-4">
+                        <span className="flex items-center gap-1.5 text-[13px]" style={{ color: 'var(--text-faint)' }}>
+                          <Calendar size={13} className="text-gray-400" /> 2026-03-25
+                        </span>
+                        {post.tags.map((t) => (
+                          <button
+                            key={t.slug}
+                            onClick={() => setTag(t.slug)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors duration-200 hover:text-[var(--accent)] hover:bg-[rgba(73,177,245,0.1)]"
+                            style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+                          >
+                            <Tag size={12} /> {t.name}
+                          </button>
+                        ))}
+                      </div>
                     </motion.article>
                   ))}
                 </motion.div>

@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Calendar, FolderOpen, Clock } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { fetchPostDetail } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
@@ -93,9 +94,14 @@ export default function PostDetailPage({ slug: overrideSlug }) {
               <span className="flex items-center gap-1.5"><Clock size={14} className="text-gray-400" /> 阅读时长: 5分钟</span>
             </div>
           </div>
-          <div className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid var(--bg-surface)' }}>
+          <motion.div
+            className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center"
+            style={{ backgroundColor: 'var(--bg-surface)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid var(--bg-surface)' }}
+            animate={{ y: [0, -10, 0] }}
+            transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
+          >
             <span className="text-8xl">👨‍💻</span>
-          </div>
+          </motion.div>
         </div>
       </div>
 

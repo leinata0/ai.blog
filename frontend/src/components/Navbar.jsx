@@ -1,5 +1,20 @@
 import { Link } from 'react-router-dom'
 
+function NavLink({ to, href, active, children }) {
+  const cls = 'relative font-medium transition-colors duration-200 pb-1 group'
+  const style = { color: active ? 'var(--accent)' : 'var(--text-secondary)' }
+  const underline = (
+    <span
+      className="absolute left-0 bottom-0 h-[2px] w-0 group-hover:w-full transition-all duration-300"
+      style={{ backgroundColor: 'var(--accent)' }}
+    />
+  )
+  if (to) {
+    return <Link to={to} className={cls} style={style}>{children}{underline}</Link>
+  }
+  return <a href={href} className={cls} style={style}>{children}{underline}</a>
+}
+
 export default function Navbar() {
   return (
     <nav
@@ -16,11 +31,11 @@ export default function Navbar() {
       </Link>
 
       <div className="flex items-center gap-8 text-[15px]">
-        <Link to="/" className="font-medium transition-colors duration-200" style={{ color: 'var(--accent)' }}>首页</Link>
-        <a href="#" className="transition-colors duration-200 hover:text-[#49B1F5]" style={{ color: 'var(--text-secondary)' }}>归档</a>
-        <a href="#" className="transition-colors duration-200 hover:text-[#49B1F5]" style={{ color: 'var(--text-secondary)' }}>分类</a>
-        <a href="#" className="transition-colors duration-200 hover:text-[#49B1F5]" style={{ color: 'var(--text-secondary)' }}>标签</a>
-        <a href="#" className="transition-colors duration-200 hover:text-[#49B1F5]" style={{ color: 'var(--text-secondary)' }}>留言板</a>
+        <NavLink to="/" active>首页</NavLink>
+        <NavLink href="#">归档</NavLink>
+        <NavLink href="#">分类</NavLink>
+        <NavLink href="#">标签</NavLink>
+        <NavLink href="#">留言板</NavLink>
       </div>
     </nav>
   )
