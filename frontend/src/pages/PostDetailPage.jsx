@@ -114,24 +114,30 @@ export default function PostDetailPage({ slug: overrideSlug }) {
               className="rounded-xl p-6 sm:p-10 transition-all duration-300"
               style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
             >
-              <div className="prose max-w-none" style={{ color: 'var(--text-secondary)' }}>
+              <div className="prose prose-slate max-w-none prose-code:before:content-none prose-code:after:content-none prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0" style={{ color: 'var(--text-secondary)' }}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    code({ node, inline, className, children, ...props }) {
+                    pre({ children }) {
+                      return <div className="not-prose my-6 rounded-xl overflow-hidden">{children}</div>
+                    },
+                    code({ className, children, ...props }) {
                       const match = /language-(\w+)/.exec(className || '')
-                      return !inline && match ? (
-                        <SyntaxHighlighter
-                          style={vscDarkPlus}
-                          language={match[1]}
-                          PreTag="div"
-                          customStyle={{ borderRadius: '8px', border: '1px solid var(--border-muted)' }}
-                          {...props}
-                        >
-                          {String(children).replace(/\n$/, '')}
-                        </SyntaxHighlighter>
-                      ) : (
-                        <code className="px-2 py-1 rounded text-sm" style={{ backgroundColor: 'var(--bg-canvas-deep)', color: 'var(--accent)' }} {...props}>
+                      if (match) {
+                        return (
+                          <SyntaxHighlighter
+                            style={vscDarkPlus}
+                            language={match[1]}
+                            PreTag="div"
+                            customStyle={{ borderRadius: '12px', margin: 0, fontSize: '14px' }}
+                            {...props}
+                          >
+                            {String(children).replace(/\n$/, '')}
+                          </SyntaxHighlighter>
+                        )
+                      }
+                      return (
+                        <code className="px-1.5 py-0.5 rounded text-[13px] font-mono" style={{ backgroundColor: '#f1f5f9', color: '#3b82f6' }} {...props}>
                           {children}
                         </code>
                       )
@@ -141,7 +147,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                     h3: ({ children }) => <h3 className="text-xl font-semibold mt-5 mb-2" style={{ color: 'var(--text-primary)' }}>{children}</h3>,
                     p: ({ children }) => <p className="my-4 leading-relaxed text-base">{children}</p>,
                     blockquote: ({ children }) => (
-                      <blockquote className="border-l-4 pl-4 my-4 italic" style={{ borderColor: 'var(--accent)', color: 'var(--text-tertiary)' }}>
+                      <blockquote className="border-l-4 border-blue-400 bg-blue-50/80 rounded-r-lg pl-5 pr-4 py-3 my-5 italic not-prose" style={{ color: '#64748b' }}>
                         {children}
                       </blockquote>
                     ),
