@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"C:/Users/56311/Desktop/cc_test\" check-ignore -q .worktrees)",
+      "Bash(git:*)",
+      "Bash(python:*)",
+      "Bash(npm:*)",
+      "Bash(cd:*)",
+      "Bash(curl:*)",
+      "Bash(netstat -ano)",
+      "Bash(findstr :8000)",
+      "Bash(findstr :5173)",
+      "Bash(tasklist:*)",
+      "Bash(findstr :5174)",
+      "Bash(findstr :5175)",
+      "Bash(powershell.exe -Command \"Stop-Process -Id 378792,386700,393684,396968 -Force\")",
+      "Bash(powershell.exe -Command \"Get-Process -Id 378792 | Stop-Process -Force\")",
+      "Bash(cmd.exe /c taskkill /PID 378792 /F /T)",
+      "Bash(powershell.exe -Command \"Get-Process -Name python,python3,uvicorn,node -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, Path | Format-Table -AutoSize\")",
+      "Bash(powershell.exe -Command \"Stop-Process -Id 391624,393240,321760,343436 -Force -ErrorAction SilentlyContinue\")",
+      "Bash(if exist:*)",
+      "WebSearch",
+      "Bash(claude plugin:*)",
+      "Bash(claude mcp:*)",
+      "Bash(npx -y @modelcontextprotocol/server-figma --help)",
+      "Bash(npx vitest:*)"
+    ]
+  }
+}

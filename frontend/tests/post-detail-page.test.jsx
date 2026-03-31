@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import PostDetailPage from '../src/pages/PostDetailPage'
 
 vi.mock('../src/api/posts', () => ({
@@ -22,14 +23,15 @@ beforeEach(() => {
 })
 
 it('renders post detail', async () => {
-  const { container } = render(<PostDetailPage slug="python-automation-selenium-pandas" />)
-  expect(await screen.findByRole('heading', { name: /python 自动化实战/i })).toBeInTheDocument()
+  const { container } = render(<MemoryRouter><PostDetailPage slug="python-automation-selenium-pandas" /></MemoryRouter>)
+  const headings = await screen.findAllByRole('heading', { name: /python 自动化实战/i })
+  expect(headings.length).toBeGreaterThan(0)
   expect(container.querySelector('[data-ui="detail-shell"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="detail-article"]')).toBeTruthy()
 })
 
 it('shows not found message on404', async () => {
-  const { container } = render(<PostDetailPage slug="missing" />)
+  const { container } = render(<MemoryRouter><PostDetailPage slug="missing" /></MemoryRouter>)
   expect(await screen.findByText(/not found/i)).toBeInTheDocument()
   expect(container.querySelector('[data-ui="detail-error"]')).toBeTruthy()
 })

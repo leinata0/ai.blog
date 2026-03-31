@@ -55,7 +55,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
         <Navbar />
         <div className="mx-auto max-w-6xl px-6 sm:px-10 py-10">
-          <div className="rounded-2xl px-8 py-6 shadow-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)' }}>
+          <div data-ui="detail-error" className="rounded-2xl px-8 py-6 shadow-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)' }}>
             <span className="text-fluid-xs font-semibold" style={{ color: 'var(--text-faint)' }}>
               错误: {' '}
             </span>
@@ -67,47 +67,47 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   }
 
   return (
-    <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: '#F4F5F7' }}>
+    <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <Navbar />
 
       {/* Hero Banner */}
       <div
-        className="relative px-20 py-24"
+        className="relative px-6 sm:px-10 lg:px-20 py-16 sm:py-24"
         style={{
-          background: 'linear-gradient(to bottom, #E8EAED, #D6D9DD)',
+          background: 'linear-gradient(to bottom, var(--bg-canvas-deep), var(--border-strong))',
           minHeight: '400px'
         }}
       >
         <div className="mx-auto max-w-7xl flex items-center justify-between">
           <div className="flex-1 max-w-3xl">
-            <h1 className="text-5xl font-bold tracking-tight mb-5 leading-tight" style={{ color: '#1A1A1A' }}>
+            <h1 className="text-fluid-3xl font-bold tracking-tight mb-5 leading-tight" style={{ color: 'var(--text-primary)' }}>
               {post.title}
             </h1>
-            <p className="text-xl mb-5" style={{ color: '#5F6368' }}>
+            <p className="text-fluid-lg mb-5" style={{ color: 'var(--text-secondary)' }}>
               {post.summary}
             </p>
-            <div className="flex items-center gap-5 text-sm" style={{ color: '#5F6368' }}>
+            <div className="flex items-center gap-5 text-fluid-xs" style={{ color: 'var(--text-secondary)' }}>
               <span>📅 发表于 2024-05-28</span>
               <span>📁 Docs 文档</span>
               <span>⏱️ 阅读时长: 5分钟</span>
             </div>
           </div>
-          <div className="w-[280px] h-[280px] rounded-full bg-white flex items-center justify-center" style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid #FFFFFF' }}>
+          <div className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid var(--bg-surface)' }}>
             <span className="text-8xl">👨‍💻</span>
           </div>
         </div>
       </div>
 
       {/* Main Content + Sidebar Layout */}
-      <div className="mx-auto max-w-7xl px-20 py-12">
-        <div className="flex gap-10">
+      <div className="mx-auto max-w-7xl px-6 sm:px-10 lg:px-20 py-12">
+        <div className="flex flex-col lg:flex-row gap-10">
           {/* Left: Article Content */}
-          <article className="flex-1 min-w-0">
+          <article data-ui="detail-article" className="flex-1 min-w-0">
             <div
-              className="bg-white rounded-xl p-10 transition-all duration-300"
-              style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.07), 0 1px 4px rgba(0, 0, 0, 0.03)' }}
+              className="rounded-xl p-6 sm:p-10 transition-all duration-300"
+              style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
             >
-              <div className="prose max-w-none" style={{ color: '#4C4948' }}>
+              <div className="prose max-w-none" style={{ color: 'var(--text-secondary)' }}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -118,23 +118,23 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                           style={vscDarkPlus}
                           language={match[1]}
                           PreTag="div"
-                          customStyle={{ borderRadius: '8px', border: '1px solid #E5E7EB' }}
+                          customStyle={{ borderRadius: '8px', border: '1px solid var(--border-muted)' }}
                           {...props}
                         >
                           {String(children).replace(/\n$/, '')}
                         </SyntaxHighlighter>
                       ) : (
-                        <code className="px-2 py-1 rounded text-sm" style={{ backgroundColor: '#F3F4F6', color: '#49B1F5' }} {...props}>
+                        <code className="px-2 py-1 rounded text-sm" style={{ backgroundColor: 'var(--bg-canvas-deep)', color: 'var(--accent)' }} {...props}>
                           {children}
                         </code>
                       )
                     },
-                    h1: ({ children }) => <h1 className="text-3xl font-bold mt-8 mb-4" style={{ color: '#2C3E50' }}>{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-2xl font-bold mt-6 mb-3" style={{ color: '#2C3E50' }}>{children}</h2>,
-                    h3: ({ children }) => <h3 className="text-xl font-semibold mt-5 mb-2" style={{ color: '#2C3E50' }}>{children}</h3>,
+                    h1: ({ children }) => <h1 className="text-3xl font-bold mt-8 mb-4" style={{ color: 'var(--text-primary)' }}>{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-2xl font-bold mt-6 mb-3" style={{ color: 'var(--text-primary)' }}>{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-xl font-semibold mt-5 mb-2" style={{ color: 'var(--text-primary)' }}>{children}</h3>,
                     p: ({ children }) => <p className="my-4 leading-relaxed text-base">{children}</p>,
                     blockquote: ({ children }) => (
-                      <blockquote className="border-l-4 pl-4 my-4 italic" style={{ borderColor: '#49B1F5', color: '#7F8C8D' }}>
+                      <blockquote className="border-l-4 pl-4 my-4 italic" style={{ borderColor: 'var(--accent)', color: 'var(--text-tertiary)' }}>
                         {children}
                       </blockquote>
                     ),
@@ -147,7 +147,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
           </article>
 
           {/* Right: Sidebar */}
-          <div className="w-[380px] flex-shrink-0">
+          <div className="lg:w-[380px] flex-shrink-0">
             <div className="sticky top-20">
               <Sidebar />
             </div>
@@ -156,8 +156,8 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       </div>
 
       {/* Footer */}
-      <footer className="border-t px-6 sm:px-10 py-6" style={{ borderColor: 'var(--border-muted)' }}>
-        <span className="font-terminal text-fluid-xs tracking-mono-normal" style={{ color: 'var(--accent)' }}>
+      <footer className="border-t px-6 sm:px-10 py-6" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-surface)' }}>
+        <span className="text-fluid-xs" style={{ color: 'var(--accent)' }}>
           [EOF]
         </span>
       </footer>

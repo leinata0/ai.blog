@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import HomePage from '../src/pages/HomePage'
 
 vi.mock('../src/api/posts', () => ({
@@ -40,7 +41,7 @@ beforeEach(() => {
 })
 
 it('renders posts and filters by tag click', async () => {
-  const { container } = render(<HomePage />)
+  const { container } = render(<MemoryRouter><HomePage /></MemoryRouter>)
   expect(await screen.findByText(/python 自动化实战/i)).toBeInTheDocument()
   expect(await screen.findByRole('heading', { name: /极客开发日志/i })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="home-shell"]')).toBeTruthy()
