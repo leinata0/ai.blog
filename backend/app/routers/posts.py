@@ -26,9 +26,11 @@ def list_posts(tag: str | None = Query(default=None), db: Session = Depends(get_
     return {
         "items": [
             {
+                "id": post.id,
                 "title": post.title,
                 "slug": post.slug,
                 "summary": post.summary,
+                "content_md": post.content_md,
                 "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
             }
             for post in posts
@@ -44,6 +46,7 @@ def get_post_detail(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Post not found")
 
     return {
+        "id": post.id,
         "title": post.title,
         "slug": post.slug,
         "summary": post.summary,

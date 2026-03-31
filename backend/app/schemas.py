@@ -60,3 +60,29 @@ class PostAdminOut(BaseModel):
     summary: str
     content_md: str
     tags: list[TagOut]
+
+
+# ── Settings schemas ──────────────────────────────
+
+class SiteSettingsOut(BaseModel):
+    author_name: str
+    bio: str
+    avatar_url: str
+    github_link: str
+    announcement: str
+
+
+class SiteSettingsUpdate(BaseModel):
+    author_name: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
+    github_link: str | None = None
+    announcement: str | None = None
+
+
+# ── Stats schemas ─────────────────────────────────
+
+class StatsOut(BaseModel):
+    post_count: int
+    tag_count: int
+    category_count: int

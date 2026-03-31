@@ -26,3 +26,13 @@ class Tag(Base):
     name = Column(String(80), nullable=False)
     slug = Column(String(80), unique=True, nullable=False, index=True)
     posts = relationship("Post", secondary=post_tags, back_populates="tags")
+
+
+class SiteSettings(Base):
+    __tablename__ = "site_settings"
+    id = Column(Integer, primary_key=True, default=1)
+    author_name = Column(String(100), nullable=False, default="极客新生")
+    bio = Column(String(300), nullable=False, default="大一 CS 学生 / Python & C++ 爱好者")
+    avatar_url = Column(String(500), nullable=False, default="")
+    github_link = Column(String(500), nullable=False, default="https://github.com")
+    announcement = Column(Text, nullable=False, default="欢迎来到我的技术博客！这里分享前端开发、全栈技术和编程心得。")

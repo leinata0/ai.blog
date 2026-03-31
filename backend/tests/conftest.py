@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.main import app
 from app.db import Base
-from app.models import Post, Tag
+from app.models import Post, Tag, SiteSettings
 
 
 @pytest.fixture
@@ -70,13 +70,19 @@ def seeded_db(db_session):
 def client(db_session):
     from app.routers import posts as posts_router_mod
     from app.routers import admin as admin_router_mod
-    from app.main import app
+    import app.main as main_mod
 
     def _get_test_db():
         yield db_session
 
+    # Seed default SiteSettings for tests
+    if db_session.query(SiteSettings).count() == 0:
+        db_session.add(SiteSettings(id=1))
+        db_session.commit()
+
     app.dependency_overrides[posts_router_mod.get_db] = _get_test_db
     app.dependency_overrides[admin_router_mod.get_db] = _get_test_db
+    app.dependency_overrides[main_mod.get_db] = _get_test_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
