@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { Calendar, FolderOpen, Eye, Tag } from 'lucide-react'
 import { fetchPosts } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
 import TagFilterBar from '../components/TagFilterBar'
 import ArticleSkeleton from '../components/ArticleSkeleton'
+
+const containerVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.12 } },
+}
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+}
 
 export default function HomePage() {
   const [tag, setTag] = useState('')
@@ -63,9 +75,9 @@ export default function HomePage() {
               记录 Python 自动化、C/C++ 核心概念与 OpenClaw 部署实践
             </p>
             <div className="flex items-center gap-5 text-fluid-xs" style={{ color: 'var(--text-secondary)' }}>
-              <span>📅 更新于 2026</span>
-              <span>📁 Docs文档</span>
-              <span>👁️ 浏览量: 72236</span>
+              <span className="flex items-center gap-1.5"><Calendar size={14} className="text-gray-400" /> 更新于 2026</span>
+              <span className="flex items-center gap-1.5"><FolderOpen size={14} className="text-gray-400" /> Docs文档</span>
+              <span className="flex items-center gap-1.5"><Eye size={14} className="text-gray-400" /> 浏览量: 72236</span>
             </div>
           </div>
           <div className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid var(--bg-surface)' }}>
@@ -99,11 +111,17 @@ export default function HomePage() {
                   暂无匹配的文章
                 </p>
               ) : (
-                <div className="space-y-6">
+                <motion.div
+                  className="space-y-6"
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
                   {posts.map((post) => (
-                    <article
+                    <motion.article
                       key={post.slug}
                       data-ui="post-card"
+                      variants={cardVariants}
                       className="rounded-xl p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl"
                       style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
                     >
@@ -115,21 +133,23 @@ export default function HomePage() {
                           {post.summary}
                         </p>
                         <div className="flex items-center gap-4">
-                          <span className="text-[13px]" style={{ color: 'var(--text-faint)' }}>2026-03-25</span>
+                          <span className="flex items-center gap-1.5 text-[13px]" style={{ color: 'var(--text-faint)' }}>
+                            <Calendar size={13} className="text-gray-400" /> 2026-03-25
+                          </span>
                           {post.tags.map((t) => (
                             <span
                               key={t.slug}
-                              className="px-3 py-1.5 rounded-md text-xs font-medium"
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium"
                               style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
                             >
-                              {t.name}
+                              <Tag size={12} /> {t.name}
                             </span>
                           ))}
                         </div>
                       </Link>
-                    </article>
+                    </motion.article>
                   ))}
-                </div>
+                </motion.div>
               )}
             </section>
           </div>

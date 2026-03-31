@@ -1,8 +1,13 @@
+import { motion } from 'framer-motion'
+
 export default function Sidebar() {
   return (
     <aside className="space-y-6">
       {/* Author Card */}
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
         className="rounded-xl p-8 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl"
         style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
       >
@@ -44,10 +49,13 @@ export default function Sidebar() {
           <svg className="w-5 h-5" style={{ color: 'var(--text-faint)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
           <svg className="w-5 h-5" style={{ color: 'var(--text-faint)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 5c7.18 0 13 5.82 13 13M6 11a7 7 0 017 7m-6 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
         </div>
-      </div>
+      </motion.div>
 
       {/* Announcement */}
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.4 }}
         className="rounded-xl p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl"
         style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
       >
@@ -58,7 +66,7 @@ export default function Sidebar() {
         <p className="text-sm leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
           欢迎来到我的技术博客！这里分享前端开发、全栈技术和编程心得。
         </p>
-      </div>
+      </motion.div>
     </aside>
   )
 }

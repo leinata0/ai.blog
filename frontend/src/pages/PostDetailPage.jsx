@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { Calendar, FolderOpen, Clock } from 'lucide-react'
 import { fetchPostDetail } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
@@ -87,9 +88,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
               {post.summary}
             </p>
             <div className="flex items-center gap-5 text-fluid-xs" style={{ color: 'var(--text-secondary)' }}>
-              <span>📅 发表于 2024-05-28</span>
-              <span>📁 Docs 文档</span>
-              <span>⏱️ 阅读时长: 5分钟</span>
+              <span className="flex items-center gap-1.5"><Calendar size={14} className="text-gray-400" /> 发表于 2024-05-28</span>
+              <span className="flex items-center gap-1.5"><FolderOpen size={14} className="text-gray-400" /> Docs 文档</span>
+              <span className="flex items-center gap-1.5"><Clock size={14} className="text-gray-400" /> 阅读时长: 5分钟</span>
             </div>
           </div>
           <div className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid var(--bg-surface)' }}>
