@@ -115,7 +115,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
               style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
             >
               <div
-                className="prose prose-slate max-w-none prose-headings:scroll-mt-24 prose-code:before:content-none prose-code:after:content-none prose-code:bg-gray-100 prose-code:text-blue-500 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-medium prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0 prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 prose-blockquote:py-4 prose-blockquote:px-5 prose-blockquote:rounded-r-xl prose-blockquote:text-slate-500 prose-blockquote:italic"
+                className="prose max-w-none"
                 style={{ color: 'var(--text-secondary)' }}
               >
                 <ReactMarkdown
@@ -124,37 +124,25 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                     pre({ children }) {
                       return <div className="not-prose my-6 overflow-hidden rounded-xl shadow-lg ring-1 ring-slate-800/60">{children}</div>
                     },
-                    code({ inline, className, children, ...props }) {
+                    code({ node, inline, className, children, ...props }) {
                       const match = /language-(\w+)/.exec(className || '')
-                      const content = String(children).replace(/\n$/, '')
-
-                      if (inline) {
+                      if (!inline && match) {
                         return (
-                          <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[13px] text-blue-500" {...props}>
-                            {children}
-                          </code>
+                          <SyntaxHighlighter
+                            style={vscDarkPlus}
+                            language={match[1]}
+                            PreTag="div"
+                            className="rounded-xl my-4"
+                            {...props}
+                          >
+                            {String(children).replace(/\n$/, '')}
+                          </SyntaxHighlighter>
                         )
                       }
-
                       return (
-                        <SyntaxHighlighter
-                          style={vscDarkPlus}
-                          language={match?.[1] || 'text'}
-                          PreTag="div"
-                          className="!m-0 !rounded-xl !bg-slate-950"
-                          customStyle={{
-                            margin: 0,
-                            borderRadius: '0.75rem',
-                            padding: '1.25rem',
-                            fontSize: '14px',
-                            background: '#020617',
-                            color: '#e2e8f0',
-                          }}
-                          codeTagProps={{ style: { fontFamily: 'inherit' } }}
-                          {...props}
-                        >
-                          {content}
-                        </SyntaxHighlighter>
+                        <code className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md text-sm font-mono whitespace-nowrap" {...props}>
+                          {children}
+                        </code>
                       )
                     },
                     h1: ({ children }) => <h1 className="text-3xl font-bold mt-8 mb-4" style={{ color: 'var(--text-primary)' }}>{children}</h1>,
