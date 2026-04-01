@@ -76,3 +76,36 @@ def test_delete_post(client):
 
     resp = client.delete(f"/api/admin/posts/{post_id}", headers=_auth(token))
     assert resp.status_code == 404
+
+
+def test_upload_requires_auth(client):
+    resp = client.post(
+        "/api/admin/upload",
+        files={"file": ("demo.png", b"png-bytes", "image/png")},
+    )
+    assert resp.status_code in (401, 403)
+
+
+def test_upload_image_success(client, upload_dir):
+    token = _login(client)
+    resp = client.post(
+        "/api/admin/upload",
+        files={"file": ("demo.png", b"png-bytes", "image/png")},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["url"].startswith("/uploads/")
+    saved_name = data["url"].split("/")[-1]
+    assert saved_name != "demo.png"
+    assert (upload_dir / saved_name).exists()
+
+
+def test_upload_rejects_non_image(client):
+    token = _login(client)
+    resp = client.post(
+        "/api/admin/upload",
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 400

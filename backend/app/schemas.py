@@ -62,6 +62,10 @@ class PostAdminOut(BaseModel):
     tags: list[TagOut]
 
 
+class UploadOut(BaseModel):
+    url: str
+
+
 # ── Settings schemas ──────────────────────────────
 
 class SiteSettingsOut(BaseModel):

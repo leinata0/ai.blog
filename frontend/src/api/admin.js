@@ -15,6 +15,12 @@ function authHeaders(token) {
   }
 }
 
+function authOnlyHeaders(token) {
+  return {
+    Authorization: `Bearer ${token}`,
+  }
+}
+
 export async function adminCreatePost(token, data) {
   const resp = await fetch('/api/admin/posts', {
     method: 'POST',
@@ -41,6 +47,19 @@ export async function adminDeletePost(token, id) {
     headers: authHeaders(token),
   })
   if (!resp.ok) throw new Error(`删除失败: ${resp.status}`)
+  return resp.json()
+}
+
+export async function adminUploadImage(token, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const resp = await fetch('/api/admin/upload', {
+    method: 'POST',
+    headers: authOnlyHeaders(token),
+    body: formData,
+  })
+  if (!resp.ok) throw new Error(`上传图片失败: ${resp.status}`)
   return resp.json()
 }
 

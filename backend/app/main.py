@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,7 @@ from app.routers.posts import router as posts_router
 from app.routers.admin import router as admin_router
 from app.schemas import SiteSettingsOut, SiteSettingsUpdate, StatsOut
 from app.seed import seed_data
+from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
 
 
 def get_db():
@@ -23,6 +25,7 @@ def get_db():
 
 @asynccontextmanager
 async def lifespan(app):
+    get_uploads_dir().mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         if db.query(Post).count() == 0:
@@ -35,6 +38,8 @@ async def lifespan(app):
 
 app = FastAPI(title="AI Dev Blog API", lifespan=lifespan)
 
+get_uploads_dir().mkdir(parents=True, exist_ok=True)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -42,6 +47,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount(UPLOADS_URL_PREFIX, StaticFiles(directory=get_uploads_dir()), name="uploads")
 
 app.include_router(posts_router)
 app.include_router(admin_router)

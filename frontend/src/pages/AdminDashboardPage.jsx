@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MDEditor from '@uiw/react-md-editor'
 import { Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings } from 'lucide-react'
 import { getToken, clearToken } from '../api/auth'
 import { fetchPosts } from '../api/posts'
-import { adminCreatePost, adminUpdatePost, adminDeletePost, fetchSettings, updateSettings } from '../api/admin'
+import { adminCreatePost, adminUpdatePost, adminDeletePost, adminUploadImage, fetchSettings, updateSettings } from '../api/admin'
 
 const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '' }
 
@@ -18,6 +18,10 @@ export default function AdminDashboardPage() {
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const editorRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   // Settings state
   const [siteSettings, setSiteSettings] = useState({
@@ -63,6 +67,7 @@ export default function AdminDashboardPage() {
     setEditingId(null)
     setForm(emptyForm)
     setError('')
+    setUploadError('')
     setView('editor')
   }
 
@@ -76,6 +81,7 @@ export default function AdminDashboardPage() {
       tags: (post.tags || []).map((t) => t.slug || t.name).join(', '),
     })
     setError('')
+    setUploadError('')
     setView('editor')
   }
   async function handleDelete(post) {
@@ -108,6 +114,46 @@ export default function AdminDashboardPage() {
       setError(err.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  function insertMarkdownAtCursor(markdown) {
+    const textarea = editorRef.current?.querySelector('textarea')
+    const currentValue = form.content_md || ''
+
+    if (!textarea) {
+      setForm((prev) => ({ ...prev, content_md: `${currentValue}${markdown}` }))
+      return
+    }
+
+    const start = textarea.selectionStart ?? currentValue.length
+    const end = textarea.selectionEnd ?? currentValue.length
+    const nextValue = `${currentValue.slice(0, start)}${markdown}${currentValue.slice(end)}`
+    const nextCursor = start + markdown.length
+
+    setForm((prev) => ({ ...prev, content_md: nextValue }))
+    requestAnimationFrame(() => {
+      const nextTextarea = editorRef.current?.querySelector('textarea')
+      if (!nextTextarea) return
+      nextTextarea.focus()
+      nextTextarea.setSelectionRange(nextCursor, nextCursor)
+    })
+  }
+
+  async function handleImageUpload(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploadError('')
+    setUploadingImage(true)
+    try {
+      const { url } = await adminUploadImage(token, file)
+      insertMarkdownAtCursor(`![image](${url})`)
+    } catch (err) {
+      setUploadError(err.message)
+    } finally {
+      event.target.value = ''
+      setUploadingImage(false)
     }
   }
 
@@ -240,8 +286,33 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>内容（Markdown）</label>
-                <div data-color-mode="light">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>内容（Markdown）</label>
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleImageUpload}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingImage}
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200 disabled:opacity-50"
+                      style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}
+                    >
+                      {uploadingImage ? '上传中...' : '上传图片'}
+                    </button>
+                  </>
+                </div>
+                {uploadError && (
+                  <div className="text-sm py-2 px-3 rounded-lg" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>
+                    {uploadError}
+                  </div>
+                )}
+                <div ref={editorRef} data-color-mode="light">
                   <MDEditor value={form.content_md} onChange={(v) => setForm({ ...form, content_md: v || '' })} height={400} />
                 </div>
               </div>

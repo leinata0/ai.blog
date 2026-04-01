@@ -1,4 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+import shutil
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 
@@ -7,8 +11,9 @@ from app.db import SessionLocal
 from app.models import Post, Tag
 from app.schemas import (
     LoginRequest, LoginResponse,
-    PostCreateRequest, PostUpdateRequest, PostAdminOut, TagOut,
+    PostCreateRequest, PostUpdateRequest, PostAdminOut, TagOut, UploadOut,
 )
+from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -42,6 +47,12 @@ def _resolve_tags(db: Session, tag_slugs: list[str]) -> list[Tag]:
             db.flush()
         tags.append(tag)
     return tags
+
+
+def _build_upload_path(filename: str) -> Path:
+    extension = Path(filename).suffix.lower()
+    safe_extension = extension if extension and len(extension) <= 10 else ""
+    return get_uploads_dir() / f"{uuid4().hex}{safe_extension}"
 
 
 # ── Login (no auth required) ──
@@ -116,3 +127,23 @@ def delete_post(
     db.delete(post)
     db.commit()
     return {"detail": "deleted"}
+
+
+@router.post("/upload", response_model=UploadOut)
+def upload_image(
+    file: UploadFile = File(...),
+    _admin: str = Depends(get_current_admin),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image uploads are allowed")
+
+    uploads_dir = get_uploads_dir()
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    target_path = _build_upload_path(file.filename)
+
+    with target_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return {"url": f"{UPLOADS_URL_PREFIX}/{target_path.name}"}

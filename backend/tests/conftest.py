@@ -29,6 +29,15 @@ def db_session():
 
 
 @pytest.fixture
+def upload_dir(tmp_path, monkeypatch):
+    from app import uploads as uploads_mod
+
+    test_upload_dir = tmp_path / "uploads"
+    monkeypatch.setattr(uploads_mod, "UPLOADS_DIR", test_upload_dir)
+    return test_upload_dir
+
+
+@pytest.fixture
 def seeded_db(db_session):
     tag_python = Tag(name="Python", slug="python")
     tag_automation = Tag(name="Automation", slug="automation")
@@ -67,7 +76,7 @@ def seeded_db(db_session):
 
 
 @pytest.fixture
-def client(db_session):
+def client(db_session, upload_dir):
     from app.routers import posts as posts_router_mod
     from app.routers import admin as admin_router_mod
     import app.main as main_mod
