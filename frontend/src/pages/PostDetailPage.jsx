@@ -123,6 +123,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                     },
                     code({ className, children, ...props }) {
                       const match = /language-(\w+)/.exec(className || '')
+                      const content = String(children).replace(/\n$/, '')
+                      const isBlock = content.includes('\n')
+
                       if (match) {
                         return (
                           <SyntaxHighlighter
@@ -132,10 +135,25 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                             customStyle={{ borderRadius: '12px', margin: 0, fontSize: '14px' }}
                             {...props}
                           >
-                            {String(children).replace(/\n$/, '')}
+                            {content}
                           </SyntaxHighlighter>
                         )
                       }
+
+                      if (isBlock) {
+                        return (
+                          <SyntaxHighlighter
+                            style={vscDarkPlus}
+                            language="text"
+                            PreTag="div"
+                            customStyle={{ borderRadius: '12px', margin: 0, fontSize: '14px' }}
+                            {...props}
+                          >
+                            {content}
+                          </SyntaxHighlighter>
+                        )
+                      }
+
                       return (
                         <code className="px-1.5 py-0.5 rounded text-[13px] font-mono" style={{ backgroundColor: '#f1f5f9', color: '#3b82f6' }} {...props}>
                           {children}
@@ -147,7 +165,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                     h3: ({ children }) => <h3 className="text-xl font-semibold mt-5 mb-2" style={{ color: 'var(--text-primary)' }}>{children}</h3>,
                     p: ({ children }) => <p className="my-4 leading-relaxed text-base">{children}</p>,
                     blockquote: ({ children }) => (
-                      <blockquote className="border-l-4 border-blue-400 bg-blue-50/80 rounded-r-lg pl-5 pr-4 py-3 my-5 italic not-prose" style={{ color: '#64748b' }}>
+                      <blockquote className="border-l-4 border-blue-500 bg-blue-50 rounded-r-lg pl-5 pr-4 py-3 my-5 italic not-prose" style={{ color: '#64748b' }}>
                         {children}
                       </blockquote>
                     ),
