@@ -114,50 +114,47 @@ export default function PostDetailPage({ slug: overrideSlug }) {
               className="rounded-xl p-6 sm:p-10 transition-all duration-300"
               style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
             >
-              <div className="prose prose-slate max-w-none prose-code:before:content-none prose-code:after:content-none prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0" style={{ color: 'var(--text-secondary)' }}>
+              <div
+                className="prose prose-slate max-w-none prose-headings:scroll-mt-24 prose-code:before:content-none prose-code:after:content-none prose-code:bg-gray-100 prose-code:text-blue-500 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-medium prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0 prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 prose-blockquote:py-4 prose-blockquote:px-5 prose-blockquote:rounded-r-xl prose-blockquote:text-slate-500 prose-blockquote:italic"
+                style={{ color: 'var(--text-secondary)' }}
+              >
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
                     pre({ children }) {
-                      return <div className="not-prose my-6 rounded-xl overflow-hidden">{children}</div>
+                      return <div className="not-prose my-6 overflow-hidden rounded-xl shadow-lg ring-1 ring-slate-800/60">{children}</div>
                     },
-                    code({ className, children, ...props }) {
+                    code({ inline, className, children, ...props }) {
                       const match = /language-(\w+)/.exec(className || '')
                       const content = String(children).replace(/\n$/, '')
-                      const isBlock = content.includes('\n')
 
-                      if (match) {
+                      if (inline) {
                         return (
-                          <SyntaxHighlighter
-                            style={vscDarkPlus}
-                            language={match[1]}
-                            PreTag="div"
-                            customStyle={{ borderRadius: '12px', margin: 0, fontSize: '14px' }}
-                            {...props}
-                          >
-                            {content}
-                          </SyntaxHighlighter>
-                        )
-                      }
-
-                      if (isBlock) {
-                        return (
-                          <SyntaxHighlighter
-                            style={vscDarkPlus}
-                            language="text"
-                            PreTag="div"
-                            customStyle={{ borderRadius: '12px', margin: 0, fontSize: '14px' }}
-                            {...props}
-                          >
-                            {content}
-                          </SyntaxHighlighter>
+                          <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[13px] text-blue-500" {...props}>
+                            {children}
+                          </code>
                         )
                       }
 
                       return (
-                        <code className="px-1.5 py-0.5 rounded text-[13px] font-mono" style={{ backgroundColor: '#f1f5f9', color: '#3b82f6' }} {...props}>
-                          {children}
-                        </code>
+                        <SyntaxHighlighter
+                          style={vscDarkPlus}
+                          language={match?.[1] || 'text'}
+                          PreTag="div"
+                          className="!m-0 !rounded-xl !bg-slate-950"
+                          customStyle={{
+                            margin: 0,
+                            borderRadius: '0.75rem',
+                            padding: '1.25rem',
+                            fontSize: '14px',
+                            background: '#020617',
+                            color: '#e2e8f0',
+                          }}
+                          codeTagProps={{ style: { fontFamily: 'inherit' } }}
+                          {...props}
+                        >
+                          {content}
+                        </SyntaxHighlighter>
                       )
                     },
                     h1: ({ children }) => <h1 className="text-3xl font-bold mt-8 mb-4" style={{ color: 'var(--text-primary)' }}>{children}</h1>,
@@ -165,7 +162,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                     h3: ({ children }) => <h3 className="text-xl font-semibold mt-5 mb-2" style={{ color: 'var(--text-primary)' }}>{children}</h3>,
                     p: ({ children }) => <p className="my-4 leading-relaxed text-base">{children}</p>,
                     blockquote: ({ children }) => (
-                      <blockquote className="border-l-4 border-blue-500 bg-blue-50 rounded-r-lg pl-5 pr-4 py-3 my-5 italic not-prose" style={{ color: '#64748b' }}>
+                      <blockquote className="my-6 rounded-r-xl border-l-4 border-blue-500 bg-blue-50 px-5 py-4 italic" style={{ color: '#64748b' }}>
                         {children}
                       </blockquote>
                     ),
