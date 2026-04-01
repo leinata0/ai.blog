@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Calendar, FolderOpen, Clock } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, useScroll, useSpring } from 'framer-motion'
 import { fetchPostDetail } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
@@ -17,6 +17,13 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   const [post, setPost] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [copiedCode, setCopiedCode] = useState('')
+  const { scrollYProgress } = useScroll()
+  const progressScaleX = useSpring(scrollYProgress, {
+    stiffness: 140,
+    damping: 30,
+    mass: 0.2,
+  })
 
   useEffect(() => {
     let active = true
@@ -37,6 +44,14 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
     return () => { active = false }
   }, [slug])
+
+  async function handleCopy(code) {
+    await navigator.clipboard.writeText(code)
+    setCopiedCode(code)
+    window.setTimeout(() => {
+      setCopiedCode((current) => (current === code ? '' : current))
+    }, 1500)
+  }
 
   if (loading) {
     return (
@@ -70,6 +85,10 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
   return (
     <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <motion.div
+        className="fixed top-0 left-0 right-0 h-1 origin-left"
+        style={{ scaleX: progressScaleX, backgroundColor: '#38bdf8', zIndex: 70 }}
+      />
       <Navbar />
 
       {/* Hero Banner */}
@@ -126,17 +145,27 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                     },
                     code({ node, inline, className, children, ...props }) {
                       const match = /language-(\w+)/.exec(className || '')
+                      const code = String(children).replace(/\n$/, '')
                       if (!inline && match) {
                         return (
-                          <SyntaxHighlighter
-                            style={vscDarkPlus}
-                            language={match[1]}
-                            PreTag="div"
-                            className="rounded-xl my-4"
-                            {...props}
-                          >
-                            {String(children).replace(/\n$/, '')}
-                          </SyntaxHighlighter>
+                          <div className="relative group my-4">
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(code)}
+                              className="absolute right-3 top-3 z-10 rounded-md bg-slate-900/80 px-2.5 py-1 text-xs font-medium text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                            >
+                              {copiedCode === code ? 'Copied!' : 'Copy'}
+                            </button>
+                            <SyntaxHighlighter
+                              style={vscDarkPlus}
+                              language={match[1]}
+                              PreTag="div"
+                              className="rounded-xl my-0"
+                              {...props}
+                            >
+                              {code}
+                            </SyntaxHighlighter>
+                          </div>
                         )
                       }
                       return (
