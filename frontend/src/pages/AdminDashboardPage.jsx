@@ -29,7 +29,7 @@ export default function AdminDashboardPage() {
   const fileInputRef = useRef(null)
 
   const [siteSettings, setSiteSettings] = useState({
-    author_name: '', bio: '', avatar_url: '', github_link: '', announcement: '',
+    author_name: '', bio: '', avatar_url: '', hero_image: '', github_link: '', announcement: '',
   })
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsMsg, setSettingsMsg] = useState('')
@@ -419,9 +419,15 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>头像 URL</label>
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>头像 URL（侧边栏）</label>
               <input value={siteSettings.avatar_url} onChange={(e) => setSiteSettings({ ...siteSettings, avatar_url: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://..." />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Hero 浮动图片 URL（首页顶部）</label>
+              <input value={siteSettings.hero_image} onChange={(e) => setSiteSettings({ ...siteSettings, hero_image: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://... 留空则使用头像" />
             </div>
 
             <div className="space-y-1">

@@ -53,5 +53,6 @@ class SiteSettings(Base):
     author_name = Column(String(100), nullable=False, default="极客新生")
     bio = Column(String(300), nullable=False, default="大一 CS 学生 / Python & C++ 爱好者")
     avatar_url = Column(String(500), nullable=False, default="")
+    hero_image = Column(String(500), nullable=False, default="")
     github_link = Column(String(500), nullable=False, default="https://github.com")
     announcement = Column(Text, nullable=False, default="欢迎来到我的技术博客！这里分享前端开发、全栈技术和编程心得。")

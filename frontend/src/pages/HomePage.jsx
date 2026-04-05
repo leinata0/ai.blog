@@ -43,10 +43,10 @@ export default function HomePage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [pageSize] = useState(10)
-  const [avatarUrl, setAvatarUrl] = useState('')
+  const [heroImage, setHeroImage] = useState('')
 
   useEffect(() => {
-    apiGet('/api/settings').then((s) => setAvatarUrl(s.avatar_url || '')).catch(() => {})
+    apiGet('/api/settings').then((s) => setHeroImage(s.hero_image || s.avatar_url || '')).catch(() => {})
   }, [])
 
   const loadPosts = useCallback(() => {
@@ -157,8 +157,8 @@ export default function HomePage() {
             animate={{ y: [0, -10, 0] }}
             transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
           >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            {heroImage ? (
+              <img src={heroImage} alt="hero" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (
               <span className="text-8xl">👨‍💻</span>
             )}

@@ -97,6 +97,7 @@ class SiteSettingsOut(BaseModel):
     author_name: str
     bio: str
     avatar_url: str
+    hero_image: str
     github_link: str
     announcement: str
 
@@ -105,6 +106,7 @@ class SiteSettingsUpdate(BaseModel):
     author_name: str | None = None
     bio: str | None = None
     avatar_url: str | None = None
+    hero_image: str | None = None
     github_link: str | None = None
     announcement: str | None = None
 

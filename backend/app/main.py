@@ -20,8 +20,14 @@ def _needs_migration(db) -> bool:
     try:
         from sqlalchemy import inspect as sa_inspect
         inspector = sa_inspect(engine)
-        columns = {c["name"] for c in inspector.get_columns("posts")}
-        return "created_at" not in columns or "is_published" not in columns
+        post_cols = {c["name"] for c in inspector.get_columns("posts")}
+        if "created_at" not in post_cols or "is_published" not in post_cols:
+            return True
+        if inspector.has_table("site_settings"):
+            settings_cols = {c["name"] for c in inspector.get_columns("site_settings")}
+            if "hero_image" not in settings_cols:
+                return True
+        return False
     except Exception:
         return False
 
@@ -82,6 +88,7 @@ def get_settings(db: Session = Depends(get_db)):
         "author_name": s.author_name,
         "bio": s.bio,
         "avatar_url": s.avatar_url,
+        "hero_image": s.hero_image,
         "github_link": s.github_link,
         "announcement": s.announcement,
     }
@@ -90,7 +97,7 @@ def get_settings(db: Session = Depends(get_db)):
 @app.put("/api/settings", response_model=SiteSettingsOut)
 def update_settings(body: SiteSettingsUpdate, db: Session = Depends(get_db)):
     s = db.query(SiteSettings).first()
-    for field in ("author_name", "bio", "avatar_url", "github_link", "announcement"):
+    for field in ("author_name", "bio", "avatar_url", "hero_image", "github_link", "announcement"):
         val = getattr(body, field)
         if val is not None:
             setattr(s, field, val)
@@ -100,6 +107,7 @@ def update_settings(body: SiteSettingsUpdate, db: Session = Depends(get_db)):
         "author_name": s.author_name,
         "bio": s.bio,
         "avatar_url": s.avatar_url,
+        "hero_image": s.hero_image,
         "github_link": s.github_link,
         "announcement": s.announcement,
     }
