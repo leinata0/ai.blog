@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import MDEditor from '@uiw/react-md-editor'
 import { Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings, Eye, EyeOff } from 'lucide-react'
 import { getToken, clearToken } from '../api/auth'
-import { fetchPosts } from '../api/posts'
+import { fetchPosts, fetchPostDetail } from '../api/posts'
 import { adminCreatePost, adminUpdatePost, adminDeletePost, adminUploadImage, fetchSettings, updateSettings } from '../api/admin'
 
 const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '', cover_image: '', is_published: true }
@@ -78,20 +78,25 @@ export default function AdminDashboardPage() {
     setView('editor')
   }
 
-  function handleEdit(post) {
+  async function handleEdit(post) {
     setEditingId(post.id)
-    setForm({
-      title: post.title,
-      slug: post.slug,
-      summary: post.summary || '',
-      content_md: post.content_md || '',
-      tags: (post.tags || []).map((t) => t.slug || t.name).join(', '),
-      cover_image: post.cover_image || '',
-      is_published: post.is_published !== false,
-    })
     setError('')
     setUploadError('')
     setView('editor')
+    try {
+      const detail = await fetchPostDetail(post.slug)
+      setForm({
+        title: detail.title,
+        slug: detail.slug,
+        summary: detail.summary || '',
+        content_md: detail.content_md || '',
+        tags: (detail.tags || []).map((t) => t.slug || t.name).join(', '),
+        cover_image: detail.cover_image || '',
+        is_published: detail.is_published !== false,
+      })
+    } catch {
+      setError('加载文章内容失败')
+    }
   }
 
   async function handleDelete(post) {
