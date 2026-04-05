@@ -242,7 +242,7 @@ export default function AdminDashboardPage() {
                       <td className="px-6 py-4 font-medium" style={{ color: 'var(--text-primary)' }}>
                         <div className="flex items-center gap-2">
                           {post.cover_image && (
-                            <img src={post.cover_image} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />
+                            <img src={post.cover_image} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                           )}
                           <span>{post.title}</span>
                         </div>

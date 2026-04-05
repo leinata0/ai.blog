@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Calendar, Eye, Tag, Search, X } from 'lucide-react'
 import { fetchPosts } from '../api/posts'
+import { apiGet } from '../api/client'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
 import TagFilterBar from '../components/TagFilterBar'
@@ -42,6 +43,11 @@ export default function HomePage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [pageSize] = useState(10)
+  const [avatarUrl, setAvatarUrl] = useState('')
+
+  useEffect(() => {
+    apiGet('/api/settings').then((s) => setAvatarUrl(s.avatar_url || '')).catch(() => {})
+  }, [])
 
   const loadPosts = useCallback(() => {
     setLoading(true)
@@ -146,12 +152,16 @@ export default function HomePage() {
             </form>
           </div>
           <motion.div
-            className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center"
+            className="hidden lg:flex w-[280px] h-[280px] rounded-full items-center justify-center overflow-hidden"
             style={{ backgroundColor: 'var(--bg-surface)', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)', border: '4px solid var(--bg-surface)' }}
             animate={{ y: [0, -10, 0] }}
             transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
           >
-            <span className="text-8xl">👨‍💻</span>
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="text-8xl">👨‍💻</span>
+            )}
           </motion.div>
         </div>
       </div>
@@ -217,6 +227,7 @@ export default function HomePage() {
                               alt={post.title}
                               className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
                               loading="lazy"
+                              referrerPolicy="no-referrer"
                             />
                           </div>
                         </Link>

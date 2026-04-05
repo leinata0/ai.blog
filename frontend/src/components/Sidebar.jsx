@@ -40,7 +40,7 @@ export default function Sidebar() {
       >
         <div className="w-[100px] h-[100px] mx-auto mb-5 rounded-full bg-gradient-to-br from-[#E3F2FD] to-[#BBDEFB] flex items-center justify-center overflow-hidden" style={{ boxShadow: '0 2px 8px var(--accent-border)' }}>
           {avatarUrl ? (
-            <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
+            <img src={avatarUrl} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
           ) : (
             <span className="text-5xl">👨‍💻</span>
           )}
