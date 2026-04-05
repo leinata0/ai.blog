@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MDEditor from '@uiw/react-md-editor'
-import { Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings } from 'lucide-react'
+import { Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings, Eye, EyeOff } from 'lucide-react'
 import { getToken, clearToken } from '../api/auth'
 import { fetchPosts } from '../api/posts'
 import { adminCreatePost, adminUpdatePost, adminDeletePost, adminUploadImage, fetchSettings, updateSettings } from '../api/admin'
 
-const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '' }
+const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '', cover_image: '', is_published: true }
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleDateString('zh-CN')
+}
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate()
   const token = getToken()
-  const [tab, setTab] = useState('posts') // 'posts' | 'settings'
+  const [tab, setTab] = useState('posts')
   const [posts, setPosts] = useState([])
-  const [view, setView] = useState('list') // 'list' | 'editor'
+  const [view, setView] = useState('list')
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
@@ -23,7 +28,6 @@ export default function AdminDashboardPage() {
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
 
-  // Settings state
   const [siteSettings, setSiteSettings] = useState({
     author_name: '', bio: '', avatar_url: '', github_link: '', announcement: '',
   })
@@ -37,7 +41,10 @@ export default function AdminDashboardPage() {
   }, [])
 
   async function loadPosts() {
-    try { setPosts(await fetchPosts()) } catch { /* ignore */ }
+    try {
+      const result = await fetchPosts({ pageSize: 100 })
+      setPosts(result.items)
+    } catch { /* ignore */ }
   }
 
   async function loadSettings() {
@@ -79,11 +86,14 @@ export default function AdminDashboardPage() {
       summary: post.summary || '',
       content_md: post.content_md || '',
       tags: (post.tags || []).map((t) => t.slug || t.name).join(', '),
+      cover_image: post.cover_image || '',
+      is_published: post.is_published !== false,
     })
     setError('')
     setUploadError('')
     setView('editor')
   }
+
   async function handleDelete(post) {
     if (!window.confirm(`确定删除「${post.title}」？`)) return
     try {
@@ -100,6 +110,8 @@ export default function AdminDashboardPage() {
       slug: form.slug,
       summary: form.summary,
       content_md: form.content_md,
+      cover_image: form.cover_image,
+      is_published: form.is_published,
       tags: form.tags.split(',').map((s) => s.trim()).filter(Boolean),
     }
     try {
@@ -162,11 +174,12 @@ export default function AdminDashboardPage() {
     border: '1px solid var(--border-muted)',
     color: 'var(--text-primary)',
   }
+
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       {/* Header */}
       <header className="sticky top-0 z-50 px-6 sm:px-10"
-        style={{ backgroundColor: 'rgba(255,255,255,0.87)', backdropFilter: 'blur(10px)', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+        style={{ backgroundColor: 'var(--bg-surface)', backdropFilter: 'blur(10px)', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
         <div className="flex items-center justify-between py-4">
           <h1 className="text-xl font-semibold" style={{ color: 'var(--accent)' }}>控制台</h1>
           <button onClick={handleLogout}
@@ -211,7 +224,9 @@ export default function AdminDashboardPage() {
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-muted)' }}>
                     <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>标题</th>
-                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>Slug</th>
+                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>状态</th>
+                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>浏览</th>
+                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>日期</th>
                     <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>标签</th>
                     <th className="text-right px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>操作</th>
                   </tr>
@@ -219,8 +234,27 @@ export default function AdminDashboardPage() {
                 <tbody>
                   {posts.map((post) => (
                     <tr key={post.slug} style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                      <td className="px-6 py-4 font-medium" style={{ color: 'var(--text-primary)' }}>{post.title}</td>
-                      <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{post.slug}</td>
+                      <td className="px-6 py-4 font-medium" style={{ color: 'var(--text-primary)' }}>
+                        <div className="flex items-center gap-2">
+                          {post.cover_image && (
+                            <img src={post.cover_image} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />
+                          )}
+                          <span>{post.title}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {post.is_published !== false ? (
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                            <Eye size={12} /> 已发布
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>
+                            <EyeOff size={12} /> 草稿
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{post.view_count || 0}</td>
+                      <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{formatDate(post.created_at)}</td>
                       <td className="px-6 py-4">
                         <div className="flex gap-1 flex-wrap">
                           {(post.tags || []).map((t) => (
@@ -240,7 +274,7 @@ export default function AdminDashboardPage() {
                     </tr>
                   ))}
                   {posts.length === 0 && (
-                    <tr><td colSpan={4} className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>暂无文章</td></tr>
+                    <tr><td colSpan={6} className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>暂无文章</td></tr>
                   )}
                 </tbody>
               </table>
@@ -279,10 +313,34 @@ export default function AdminDashboardPage() {
                   className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="简短描述" />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>标签（逗号分隔）</label>
-                <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="python, devops" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>标签（逗号分隔）</label>
+                  <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })}
+                    className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="python, devops" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>封面图 URL</label>
+                  <input value={form.cover_image} onChange={(e) => setForm({ ...form, cover_image: e.target.value })}
+                    className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://... 或留空" />
+                </div>
+              </div>
+
+              {/* 发布状态 */}
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>发布状态：</label>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, is_published: !form.is_published })}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
+                  style={{
+                    backgroundColor: form.is_published ? 'var(--accent-soft)' : 'var(--danger-soft)',
+                    color: form.is_published ? 'var(--accent)' : '#ef4444',
+                    border: `1px solid ${form.is_published ? 'var(--accent-border)' : 'var(--danger-border)'}`,
+                  }}
+                >
+                  {form.is_published ? <><Eye size={14} /> 公开发布</> : <><EyeOff size={14} /> 保存为草稿</>}
+                </button>
               </div>
 
               <div className="space-y-1">
@@ -321,7 +379,7 @@ export default function AdminDashboardPage() {
                 <button onClick={handleSave} disabled={saving}
                   className="px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50"
                   style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
-                  {saving ? '保存中...' : editingId ? '保存修改' : '发布文章'}
+                  {saving ? '保存中...' : editingId ? '保存修改' : form.is_published ? '发布文章' : '保存草稿'}
                 </button>
                 <button onClick={() => setView('list')}
                   className="px-6 py-2.5 rounded-lg text-sm font-medium transition-colors duration-200"

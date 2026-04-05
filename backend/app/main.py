@@ -6,21 +6,13 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db import Base, SessionLocal, engine
-from app.models import Post, Tag, SiteSettings
+from app.db import Base, SessionLocal, engine, get_db
+from app.models import Post, Tag, Comment, SiteSettings
 from app.routers.posts import router as posts_router
 from app.routers.admin import router as admin_router
 from app.schemas import SiteSettingsOut, SiteSettingsUpdate, StatsOut
 from app.seed import seed_data
 from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @asynccontextmanager

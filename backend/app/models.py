@@ -1,5 +1,8 @@
-from sqlalchemy import Column, Integer, String, Table, ForeignKey, Text
+from datetime import datetime, timezone
+
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.orm import relationship
+
 from app.db import Base
 
 post_tags = Table(
@@ -17,7 +20,13 @@ class Post(Base):
     slug = Column(String(200), unique=True, nullable=False, index=True)
     summary = Column(String(300), nullable=False)
     content_md = Column(Text, nullable=False)
+    cover_image = Column(String(500), nullable=False, default="")
+    view_count = Column(Integer, nullable=False, default=0)
+    is_published = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     tags = relationship("Tag", secondary=post_tags, back_populates="posts")
+    comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
 
 
 class Tag(Base):
@@ -26,6 +35,16 @@ class Tag(Base):
     name = Column(String(80), nullable=False)
     slug = Column(String(80), unique=True, nullable=False, index=True)
     posts = relationship("Post", secondary=post_tags, back_populates="tags")
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id"), nullable=False, index=True)
+    nickname = Column(String(50), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    post = relationship("Post", back_populates="comments")
 
 
 class SiteSettings(Base):

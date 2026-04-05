@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 
 from app.auth import verify_admin, create_access_token, get_current_admin
-from app.db import SessionLocal
+from app.db import get_db
 from app.models import Post, Tag
 from app.schemas import (
     LoginRequest, LoginResponse,
@@ -18,14 +18,6 @@ from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 def _post_to_dict(post: Post) -> dict:
     return {
         "id": post.id,
@@ -33,6 +25,11 @@ def _post_to_dict(post: Post) -> dict:
         "slug": post.slug,
         "summary": post.summary,
         "content_md": post.content_md,
+        "cover_image": post.cover_image or "",
+        "view_count": post.view_count or 0,
+        "is_published": post.is_published if post.is_published is not None else True,
+        "created_at": post.created_at.isoformat() if post.created_at else None,
+        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
         "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
     }
 
@@ -78,6 +75,8 @@ def create_post(
         slug=body.slug,
         summary=body.summary,
         content_md=body.content_md,
+        cover_image=body.cover_image,
+        is_published=body.is_published,
     )
     post.tags = _resolve_tags(db, body.tags)
     db.add(post)
@@ -107,6 +106,10 @@ def update_post(
         post.summary = body.summary
     if body.content_md is not None:
         post.content_md = body.content_md
+    if body.cover_image is not None:
+        post.cover_image = body.cover_image
+    if body.is_published is not None:
+        post.is_published = body.is_published
     if body.tags is not None:
         post.tags = _resolve_tags(db, body.tags)
 

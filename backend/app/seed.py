@@ -1,3 +1,5 @@
+from datetime import datetime, timezone, timedelta
+
 from app.models import Post, Tag
 
 PYTHON_ARTICLE = """\
@@ -754,11 +756,15 @@ def seed_data(db_session):
     tag_devops = Tag(name="DevOps", slug="devops")
     tag_openclaw = Tag(name="OpenClaw", slug="openclaw")
 
+    now = datetime.now(timezone.utc)
+
     post1 = Post(
         title="Python 自动化实战：Selenium 与 Pandas 结合",
         slug="python-automation-selenium-pandas",
         summary="从页面抓取到表格清洗，串起 Selenium 与 Pandas 的一套高频自动化工作流。",
         content_md=PYTHON_ARTICLE,
+        created_at=now - timedelta(days=10),
+        updated_at=now - timedelta(days=10),
     )
     post1.tags.extend([tag_python, tag_automation])
 
@@ -767,6 +773,8 @@ def seed_data(db_session):
         slug="cpp-core-concepts-notes",
         summary="围绕指针、内存管理、对象生命周期与编译链接问题的持续学习笔记。",
         content_md=CPP_ARTICLE,
+        created_at=now - timedelta(days=7),
+        updated_at=now - timedelta(days=5),
     )
     post2.tags.extend([tag_cpp, tag_notes])
 
@@ -775,6 +783,8 @@ def seed_data(db_session):
         slug="openclaw-deployment-guide",
         summary="手把手教你用 Docker Compose 部署 OpenClaw，涵盖环境准备、配置调优与常见问题排查。",
         content_md=OPENCLAW_ARTICLE,
+        created_at=now - timedelta(days=3),
+        updated_at=now - timedelta(days=2),
     )
     post3.tags.extend([tag_devops, tag_openclaw])
 
@@ -796,6 +806,8 @@ def seed_data(db_session):
         slug="freshman-fullstack-ai-blog",
         summary="从零到公网上线，一个大一新生用 Claude Code 辅助搭建 React + FastAPI 全栈博客的完整复盘。",
         content_md=FULLSTACK_ARTICLE,
+        created_at=now - timedelta(hours=6),
+        updated_at=now - timedelta(hours=2),
     )
     post4.tags.extend([tag_ai, tag_fullstack, tag_python_ref, tag_devops_ref])
 
