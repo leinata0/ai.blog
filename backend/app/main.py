@@ -15,10 +15,34 @@ from app.seed import seed_data
 from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
 
 
+def _needs_migration(db) -> bool:
+    """检测旧表是否缺少新字段，如果缺少则需要重建"""
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        inspector = sa_inspect(engine)
+        columns = {c["name"] for c in inspector.get_columns("posts")}
+        return "created_at" not in columns or "is_published" not in columns
+    except Exception:
+        return False
+
+
 @asynccontextmanager
 async def lifespan(app):
     get_uploads_dir().mkdir(parents=True, exist_ok=True)
+
+    needs_rebuild = False
+    try:
+        if engine.dialect.has_table(engine.connect(), "posts"):
+            with SessionLocal() as db:
+                needs_rebuild = _needs_migration(db)
+    except Exception:
+        needs_rebuild = True
+
+    if needs_rebuild:
+        Base.metadata.drop_all(bind=engine)
+
     Base.metadata.create_all(bind=engine)
+
     with SessionLocal() as db:
         if db.query(Post).count() == 0:
             seed_data(db)
