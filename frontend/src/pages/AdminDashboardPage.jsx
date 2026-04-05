@@ -42,7 +42,7 @@ export default function AdminDashboardPage() {
 
   async function loadPosts() {
     try {
-      const result = await fetchPosts({ pageSize: 100 })
+      const result = await fetchPosts({ pageSize: 50 })
       setPosts(result.items)
     } catch { /* ignore */ }
   }
