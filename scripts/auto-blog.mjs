@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 /**
  * 自动博客生成脚本
- * 使用 aread 搜索 + 读取 AI 热点，通过 OpenRouter Qwen3.6 Plus 生成文章，自动发布到博客
+ * 使用 aread 搜索 + 读取 AI 热点，通过 LLM 生成文章并发布。
+ * LLM：优先 Google AI Studio「Gemini 1.5 Flash」（GEMINI_API_KEY），失败则 OpenRouter（OPENROUTER_API_KEY）。
+ * 环境变量见文末说明。
  */
 
 import { execSync } from "child_process"
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim()
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim()
+/** AI Studio 模型 id，默认 gemini-1.5-flash；若提示模型不可用可改为 gemini-2.0-flash 等 */
+const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-1.5-flash"
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin"
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const BLOG_API_BASE = process.env.BLOG_API_BASE || "https://api.563118077.xyz"
@@ -132,6 +137,8 @@ function resolveModelList() {
 }
 
 async function callQwen(systemPrompt, userPrompt) {
+  if (!OPENROUTER_API_KEY) throw new Error("未配置 OPENROUTER_API_KEY")
+
   const models = resolveModelList()
   let lastError = ""
 
@@ -202,8 +209,135 @@ async function callQwen(systemPrompt, userPrompt) {
   }
 
   throw new Error(
-    `OpenRouter 全部模型失败（常为免费层 429 上游限流）。可稍后再跑，或在仓库 Secrets 之外于脚本环境设置 OPENROUTER_MODEL 为付费/其它模型。最后错误: ${lastError.slice(0, 500)}`
+    `OpenRouter 全部模型失败（常为免费层 429 上游限流）。最后错误: ${lastError.slice(0, 500)}`
   )
+}
+
+/** Google AI Studio Gemini generateContent（与 OpenRouter 返回同一 JSON 结构） */
+async function callGemini15Flash(systemPrompt, userPrompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`
+
+  let lastError = ""
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    if (attempt > 1) {
+      const sec = [0, 15, 45, 90][attempt - 1]
+      console.log(`   ⏳ Gemini 第 ${attempt} 次尝试，等待 ${sec}s…`)
+      await sleep(sec * 1000)
+    }
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+        },
+      }),
+    })
+
+    const errText = await resp.clone().text()
+
+    if (resp.status === 429 || resp.status === 503) {
+      lastError = errText
+      console.log(`   Gemini HTTP ${resp.status}，将重试…`)
+      continue
+    }
+
+    if (!resp.ok) {
+      lastError = errText
+      throw new Error(`Gemini API ${resp.status}: ${errText.slice(0, 400)}`)
+    }
+
+    const data = await resp.json()
+    const cand = data.candidates?.[0]
+    const reason = cand?.finishReason
+    if (reason && reason !== "STOP" && reason !== "MAX_TOKENS") {
+      lastError = `Gemini finishReason=${reason}`
+      console.log(`   ⚠️ ${lastError}`)
+      continue
+    }
+
+    let raw = cand?.content?.parts?.map((p) => p.text || "").join("") || ""
+    if (!raw) {
+      lastError = JSON.stringify(data).slice(0, 300)
+      continue
+    }
+
+    raw = raw.trim()
+    if (raw.startsWith("```")) {
+      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/m, "")
+    }
+    try {
+      console.log(`   ✓ Gemini 成功: ${GEMINI_MODEL}`)
+      return JSON.parse(raw)
+    } catch {
+      lastError = `Gemini JSON 解析失败: ${raw.slice(0, 200)}`
+    }
+  }
+
+  throw new Error(`Gemini 多次重试仍失败: ${lastError.slice(0, 500)}`)
+}
+
+/**
+ * 生成博文 JSON：默认先试 Gemini（若配置了 GEMINI_API_KEY），再试 OpenRouter。
+ * LLM_ORDER=gemini,openrouter | openrouter,gemini | gemini | openrouter
+ */
+async function generatePostJson(systemPrompt, userPrompt) {
+  const explicit = process.env.LLM_ORDER?.split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s === "gemini" || s === "openrouter")
+
+  let order
+  if (explicit?.length) {
+    order = explicit
+  } else if (GEMINI_API_KEY && OPENROUTER_API_KEY) {
+    order = ["gemini", "openrouter"]
+  } else if (GEMINI_API_KEY) {
+    order = ["gemini"]
+  } else if (OPENROUTER_API_KEY) {
+    order = ["openrouter"]
+  } else {
+    throw new Error("请至少配置 GEMINI_API_KEY（Google AI Studio）或 OPENROUTER_API_KEY 之一")
+  }
+
+  const ready = order.filter((p) => {
+    if (p === "gemini") return !!GEMINI_API_KEY
+    if (p === "openrouter") return !!OPENROUTER_API_KEY
+    return false
+  })
+  if (!ready.length) {
+    throw new Error("LLM_ORDER 中的提供方与已配置的密钥不匹配（例如要求 gemini 但未设置 GEMINI_API_KEY）")
+  }
+
+  let last = ""
+  for (const p of ready) {
+    try {
+      if (p === "gemini") {
+        console.log(`🌟 LLM: Google Gemini (${GEMINI_MODEL})`)
+        return await callGemini15Flash(systemPrompt, userPrompt)
+      }
+      console.log("🤖 LLM: OpenRouter")
+      return await callQwen(systemPrompt, userPrompt)
+    } catch (e) {
+      last = e.message
+      console.log(`↪️ ${p} 未成功: ${e.message.slice(0, 180)}`)
+    }
+  }
+  throw new Error(`所有已配置的 LLM 均失败。最后错误: ${last}`)
 }
 
 // ── 博客 API ──
@@ -243,7 +377,7 @@ function normalizeForApi(post, fixedSlug) {
   if (summary.length < 1) summary = "今日 AI 领域热点摘要（自动生成）。".slice(0, 300)
 
   let content_md = String(post.content_md || "")
-  if (content_md.length < 1) content_md = "## 内容\n\n（正文生成失败，请检查 OpenRouter 返回。）"
+  if (content_md.length < 1) content_md = "## 内容\n\n（正文生成失败，请检查 LLM 返回。）"
 
   const rawTags = Array.isArray(post.tags) ? post.tags : ["ai", "daily"]
   const tags = rawTags
@@ -291,7 +425,9 @@ async function main() {
   console.log("🚀 自动博客生成开始")
   console.log(`📅 日期: ${new Date().toISOString().split("T")[0]}`)
 
-  if (!OPENROUTER_API_KEY) throw new Error("缺少 OPENROUTER_API_KEY 环境变量")
+  if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
+    throw new Error("请至少配置 GEMINI_API_KEY 或 OPENROUTER_API_KEY")
+  }
   if (!ADMIN_PASSWORD) throw new Error("缺少 ADMIN_PASSWORD 环境变量")
 
   const today = new Date().toISOString().split("T")[0]
@@ -337,7 +473,7 @@ async function main() {
 
   console.log(`📊 采集到 ${newsContent.length} 字符新闻内容`)
 
-  // 步骤2：调用 Qwen 3.6 Plus 生成文章
+  // 步骤2：调用 Gemini / OpenRouter 生成文章
   const systemPrompt = `你是一个专业的 AI 技术博客作者，博客名为"极客开发日志"。请根据提供的今日 AI 领域资讯，撰写一篇高质量的中文技术博客文章。
 
 要求：
@@ -363,7 +499,7 @@ async function main() {
 
 ${newsContent}`
 
-  const post = await callQwen(systemPrompt, userPrompt)
+  const post = await generatePostJson(systemPrompt, userPrompt)
   console.log(`✅ AI 生成完成: ${post.title}`)
 
   const apiBody = normalizeForApi(post, slug)

@@ -31,12 +31,13 @@ jobs:
 
       - name: 检查仓库机密（不输出具体值）
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
-          if [ -z "$OPENROUTER_API_KEY" ]; then echo "::error::缺少 OPENROUTER_API_KEY，请在 Settings → Secrets → Actions 添加"; exit 1; fi
+          if [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then echo "::error::请至少配置 GEMINI_API_KEY（Google AI Studio）或 OPENROUTER_API_KEY 之一"; exit 1; fi
           if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::缺少 ADMIN_PASSWORD，请在仓库机密中添加"; exit 1; fi
-          echo "机密已配置（已打码）"
+          echo "LLM 与管理员机密已配置"
 
       # 勿使用 | head：GitHub Actions 默认 pipefail，会导致 npx 侧 SIGPIPE 非零退出
       - name: 验证 aread（npx，与脚本一致）
@@ -44,6 +45,9 @@ jobs:
 
       - name: 生成并发布 AI 日报
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          LLM_ORDER: ${{ vars.LLM_ORDER }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
