@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Calendar, FileText } from 'lucide-react'
+import { Calendar, FileText, Pin } from 'lucide-react'
 import { fetchArchive } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
@@ -104,7 +104,12 @@ export default function ArchivePage() {
                           <Calendar size={12} />
                           {formatDate(post.created_at)}
                         </span>
-                        <span className="font-medium text-[15px] group-hover:text-[var(--accent)] transition-colors duration-200" style={{ color: 'var(--text-primary)' }}>
+                        <span className="font-medium text-[15px] group-hover:text-[var(--accent)] transition-colors duration-200 inline-flex items-center gap-1.5 flex-wrap" style={{ color: 'var(--text-primary)' }}>
+                          {post.is_pinned && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }} title="置顶">
+                              <Pin size={10} /> 置顶
+                            </span>
+                          )}
                           {post.title}
                         </span>
                       </Link>

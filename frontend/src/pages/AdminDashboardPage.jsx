@@ -42,6 +42,8 @@ export default function AdminDashboardPage() {
   const [autoSaveMsg, setAutoSaveMsg] = useState('')
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
+  const avatarFileRef = useRef(null)
+  const heroFileRef = useRef(null)
 
   // 站点设置
   const [siteSettings, setSiteSettings] = useState({
@@ -49,6 +51,7 @@ export default function AdminDashboardPage() {
   })
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsMsg, setSettingsMsg] = useState('')
+  const [settingsAssetUploading, setSettingsAssetUploading] = useState(false)
 
   // 评论管理
   const [comments, setComments] = useState([])
@@ -298,6 +301,24 @@ export default function AdminDashboardPage() {
     } finally {
       event.target.value = ''
       setUploadingImage(false)
+    }
+  }
+
+  /** 站点头像 / Hero：上传到本站，避免外链图床失效 */
+  async function handleSiteAssetUpload(field, event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setSettingsAssetUploading(true)
+    setSettingsMsg('')
+    try {
+      const { url } = await adminUploadImage(token, file)
+      setSiteSettings((prev) => ({ ...prev, [field]: url }))
+      setSettingsMsg('图片已上传并写入地址，请点击下方「保存设置」持久化。')
+    } catch (err) {
+      setSettingsMsg(err.message || '图片上传失败')
+    } finally {
+      event.target.value = ''
+      setSettingsAssetUploading(false)
     }
   }
 
@@ -667,7 +688,10 @@ export default function AdminDashboardPage() {
 
             {settingsMsg && (
               <div className="text-sm py-2 px-4 rounded-lg"
-                style={{ backgroundColor: settingsMsg === '保存成功' ? 'var(--accent-soft)' : 'var(--danger-soft)', color: settingsMsg === '保存成功' ? 'var(--accent)' : '#ef4444' }}>
+                style={{
+                  backgroundColor: (settingsMsg === '保存成功' || settingsMsg.includes('图片已上传并写入地址')) ? 'var(--accent-soft)' : 'var(--danger-soft)',
+                  color: (settingsMsg === '保存成功' || settingsMsg.includes('图片已上传并写入地址')) ? 'var(--accent)' : '#ef4444',
+                }}>
                 {settingsMsg}
               </div>
             )}
@@ -691,15 +715,45 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>头像 URL（侧边栏）</label>
-              <input value={siteSettings.avatar_url} onChange={(e) => setSiteSettings({ ...siteSettings, avatar_url: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://..." />
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>头像（侧边栏）</label>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>
+                外链图片链接常因防盗链、图床清理而失效。推荐点击「上传图片」写入本站 <code className="text-[11px]">/uploads/...</code> 路径，稳定可用。
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <input value={siteSettings.avatar_url} onChange={(e) => setSiteSettings({ ...siteSettings, avatar_url: e.target.value })}
+                  className="w-full flex-1 px-4 py-2.5 rounded-lg text-sm outline-none min-w-0" style={inputStyle} placeholder="https://... 或 /uploads/..." />
+                <input ref={avatarFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleSiteAssetUpload('avatar_url', e)} />
+                <button
+                  type="button"
+                  disabled={settingsAssetUploading}
+                  onClick={() => avatarFileRef.current?.click()}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors duration-200 disabled:opacity-50"
+                  style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}
+                >
+                  <Image size={16} />
+                  {settingsAssetUploading ? '上传中…' : '上传头像'}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Hero 浮动图片 URL（首页顶部）</label>
-              <input value={siteSettings.hero_image} onChange={(e) => setSiteSettings({ ...siteSettings, hero_image: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://... 留空则使用头像" />
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Hero 浮动图片（首页顶部）</label>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>同上，可上传或手动填写 URL；留空则使用头像。</p>
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <input value={siteSettings.hero_image} onChange={(e) => setSiteSettings({ ...siteSettings, hero_image: e.target.value })}
+                  className="w-full flex-1 px-4 py-2.5 rounded-lg text-sm outline-none min-w-0" style={inputStyle} placeholder="https://... 留空则使用头像" />
+                <input ref={heroFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleSiteAssetUpload('hero_image', e)} />
+                <button
+                  type="button"
+                  disabled={settingsAssetUploading}
+                  onClick={() => heroFileRef.current?.click()}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors duration-200 disabled:opacity-50"
+                  style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}
+                >
+                  <Image size={16} />
+                  {settingsAssetUploading ? '上传中…' : '上传 Hero 图'}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-1">

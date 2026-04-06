@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * 自动博客生成脚本
- * 使用 aread 搜索 + 读取 AI 热点，通过 LLM 生成文章并发布。
- * LLM：优先 Google AI Studio「Gemini 1.5 Flash」（GEMINI_API_KEY），失败则 OpenRouter（OPENROUTER_API_KEY）。
+ * 架构：aread「搜索 + 阅读」（必要时降级仅搜索）→ 汇总素材 → LLM API 生成中文 Markdown 博文 → 管理端发布。
+ * LLM：优先 Gemini（GEMINI_API_KEY），失败则 OpenRouter（OPENROUTER_API_KEY）。
  * 环境变量见文末说明。
  */
 
@@ -26,6 +26,10 @@ const SEARCH_QUERIES = [
   "multimodal AI model progress 2026",
   "AI startup funding product launch",
 ]
+
+/** 第二路「搜索+阅读」查询：计算机 / 工程 / 安全 / 云计算 / 算力等（与主路 AI 素材分列，仍走 aread --read） */
+const CS_TECH_SEARCH_READ_QUERY =
+  "cloud computing cybersecurity software engineering devops semiconductor data center tech news 2026"
 
 // ── aread（与 Crosery/aread 同源：Jina Reader + DuckDuckGo）──
 // 使用 npx，避免 GitHub Actions 全局安装后 PATH 找不到 aread-cli
@@ -439,20 +443,23 @@ async function main() {
     return
   }
 
-  // 步骤1：用 aread 搜索+阅读 AI 新闻
+  // 步骤1：aread 搜索+阅读（主架构）→ 失败则降级仅搜索；第二路仍用搜索+阅读以覆盖工程/云安全等
   const queryIndex = new Date().getDate() % SEARCH_QUERIES.length
-  const query = SEARCH_QUERIES[queryIndex]
+  const queryPrimary = SEARCH_QUERIES[queryIndex]
 
-  // 先搜索+阅读前 3 条结果（最核心的信息）
-  let newsContent = areadSearchAndRead(query, 3)
+  let newsContent = areadSearchAndRead(queryPrimary, 3)
 
-  // 如果搜索+阅读失败，退级为仅搜索
   if (!newsContent || newsContent.length < 200) {
-    console.log("⚠️ 搜索+阅读结果不足，尝试仅搜索...")
-    newsContent = areadSearch(query, 8)
+    console.log("⚠️ 搜索+阅读结果不足，尝试仅搜索（降级）...")
+    newsContent = areadSearch(queryPrimary, 8)
   }
 
-  // 补充：直接阅读 TechCrunch AI 页面获取最新头条
+  const csRead = areadSearchAndRead(CS_TECH_SEARCH_READ_QUERY, 2)
+  if (csRead && csRead.length > 80) {
+    newsContent += `\n\n=== aread 搜索+阅读（计算机 / 工程 / 安全 / 云计算与算力）===\n\n${csRead}`
+  }
+
+  // 补充：aread 直接阅读固定资讯页（与上同属「阅读」管线）
   const techcrunchContent = areadRead("https://techcrunch.com/category/artificial-intelligence/")
   if (techcrunchContent) {
     newsContent += "\n\n=== TechCrunch AI 最新文章 ===\n\n" + techcrunchContent.slice(0, 4000)
@@ -474,28 +481,45 @@ async function main() {
   console.log(`📊 采集到 ${newsContent.length} 字符新闻内容`)
 
   // 步骤2：调用 Gemini / OpenRouter 生成文章
-  const systemPrompt = `你是一个专业的 AI 技术博客作者，博客名为"极客开发日志"。请根据提供的今日 AI 领域资讯，撰写一篇高质量的中文技术博客文章。
+  const systemPrompt = `你是「极客开发日志」的技术编辑，根据用户附带的 **aread 搜索+阅读** 原始摘要，用**简体中文**撰写一篇「AI & 科技」日报。
 
-要求：
-1. 标题格式："AI 日报 | YYYY-MM-DD：2-3个核心关键词"
-2. 从原始资料中提取 3-5 个最重要的 AI 热点
-3. 每个热点用二级标题，包含：事件概述 → 技术要点 → 影响分析
-4. 开头写一段 50-80 字的总览概述
-5. 结尾写"总结与展望"
-6. Markdown 格式，善用加粗、列表、引用块、代码块
-7. 文末"参考来源"标题下列出来源链接
-8. 总字数 1500-3000
+## 内容范围（须覆盖，尽量从素材中取材）
+- **人工智能 / 大模型 / 智能应用** 等与 AI 直接相关的话题；
+- **计算机与软件工程、基础设施、网络安全、云计算与算力** 等（可与 AI 弱相关，但须是素材中可支撑的点）。
+若某类素材薄弱，可简短一笔带过并加一句「公开信息有限，待后续验证」，禁止编造具体数字、产品版本或「内部消息」。
 
-返回严格 JSON（不要 markdown 代码块包裹）：
-{
-  "title": "AI 日报 | ${today}：核心关键词",
-  "slug": "ai-daily-${today}",
-  "summary": "80字以内中文摘要",
-  "content_md": "完整 Markdown 正文",
-  "tags": ["ai", "daily", "其他1-2个标签"]
-}`
+## 文章结构（对应字段 content_md）
+1. **今日速览**：1 个短段落（约 80～120 字），不加 # 级标题，段后空一行。
+2. **3～4 条独立快讯**：每条必须与其它条在主题/事件上不重复。依次使用二级标题：
+   - \`## 快讯一：……\`、\`## 快讯二：……\`（依此类推，最多到「快讯四」）。
+   - 每条下固定三个 **三级标题**（必须按顺序出现）：
+     - \`### 事件概述\`：2～4 句；
+     - \`### 要点梳理\`：3～6 条无序列表（\`-\` 开头，每行一条）；
+     - \`### 可能影响\`：1～3 句。
+3. \`## 总结与展望\`：一段话收束，可含对读者的简要建议（如关注合规、观测后续发布等）。
+4. \`## 参考来源\`：\`-\` 列表；每条若是链接请用 Markdown 链接语法 \`[站点或标题](https://…)\`；素材无明确 URL 时写站点名或「检索摘要未含直链」。
 
-  const userPrompt = `今天是 ${today}，以下是通过 aread 工具搜索和阅读获取的 AI 领域最新资讯：
+## Markdown 严格规范（违反则视为不合格输出）
+- 正文 **仅使用** CommonMark 风格 Markdown：**不要**输出 HTML 标签（禁止 \`<div>\`、\`<br>\` 等）。
+- 标题层级：文中从 \`##\` 起用，顺序为 \`##\` → \`###\`，**不要**跳过层级，**不要**用一级 \`#\` 作为正文标题（文章主标题由 JSON 的 title 字段承担）。
+- 列表：无序列表行首必须是 \`-\` 后接空格；列举用列表，不要伪造成段落里的「1)」混排。
+- 强调：关键术语用 \`**加粗**\`，勿整段加粗。
+- 引用：需要批注时使用 \`>\` 引用块，单独成段，前后各空一行。
+- 代码与命令：仅当确有必要时使用围栏代码块：单独一行写三个反引号紧接语言名（如 bash），代码结束再单独一行三个反引号；否则不要滥用代码块。
+- 链接：**裸露 URL 禁止单独成行**（除参考来源列表内外层已用链接语法）；正文叙述中链接一律 \`[说明](url)\`。
+- 空白：每个 \`##\` / \`###\` 标题前后各空一行；段落之间空一行。
+
+## JSON 输出（仅输出一个 JSON 对象，不要用 markdown 代码围栏包裹整个 JSON）
+- \`title\`：格式严格为 \`AI 日报 | ${today}：关键词1、关键词2\`（2～4 个短语，逗号分隔，与正文快讯呼应）。
+- \`slug\`：必须为 \`ai-daily-${today}\`。
+- \`summary\`：80 字以内中文，概括 3～4 条快讯，无换行。
+- \`content_md\`：符合上文结构与 Markdown 规范的正文全文。
+- \`tags\`：小写英文 slug，含 \`ai\`、\`daily\`，并酌情添加如 \`llm\`、\`cloud\`、\`security\` 等，最多 8 个。
+
+输出示例结构（示意，勿照抄措辞）：
+{"title":"…","slug":"ai-daily-${today}","summary":"…","content_md":"…","tags":["ai","daily",…]}`
+
+  const userPrompt = `日期：${today}。以下为 **aread-cli 搜索并抓取正文** 得到的原始素材（可能含多段拼接）。请严格按系统说明撰写 content_md 并返回 JSON：
 
 ${newsContent}`
 

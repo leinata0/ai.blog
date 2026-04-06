@@ -263,6 +263,7 @@ def get_archive(db: Session = Depends(get_db)):
             "title": p.title,
             "slug": p.slug,
             "created_at": p.created_at.isoformat() if p.created_at else None,
+            "is_pinned": bool(p.is_pinned),
         })
     return [{"year": y, "posts": items} for y, items in sorted(groups.items(), reverse=True)]
 

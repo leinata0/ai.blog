@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { Calendar, Clock, Eye, ArrowLeft, Heart } from 'lucide-react'
+import { Calendar, Clock, Eye, ArrowLeft, Heart, Pin } from 'lucide-react'
 import { motion, useScroll, useSpring } from 'framer-motion'
 import { fetchPostDetail, likePost, fetchRelatedPosts } from '../api/posts'
 import { formatDate } from '../utils/date'
@@ -161,6 +161,23 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                   <img src={proxyImageUrl(post.cover_image)} alt={post.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 </div>
               )}
+              <div className="flex flex-wrap items-center gap-3 mb-4">
+                {post.is_pinned && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.92 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-sm"
+                    style={{
+                      background: 'linear-gradient(135deg, #FEF3C7 0%, #FBBF24 100%)',
+                      color: '#78350F',
+                      border: '1px solid rgba(180,83,9,0.35)',
+                    }}
+                  >
+                    <Pin size={13} style={{ transform: 'rotate(-12deg)' }} />
+                    置顶推荐
+                  </motion.span>
+                )}
+              </div>
               <h1 className="text-fluid-3xl font-bold tracking-tight mb-5 leading-tight" style={{ color: 'var(--text-primary)' }}>
                 {post.title}
               </h1>

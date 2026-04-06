@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Calendar, Eye, Tag, Search, X } from 'lucide-react'
+import { Calendar, Eye, Tag, Search, X, Pin } from 'lucide-react'
 import { fetchPosts } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
@@ -233,11 +233,27 @@ export default function HomePage() {
                     <motion.article
                       key={post.slug}
                       data-ui="post-card"
+                      data-pinned={post.is_pinned ? 'true' : undefined}
                       variants={cardVariants}
                       whileHover={hoverGlow}
-                      className="rounded-xl overflow-hidden cursor-pointer"
+                      className={`relative rounded-xl overflow-hidden cursor-pointer ${post.is_pinned ? 'ring-2 ring-[rgba(73,177,245,0.65)] ring-offset-2 ring-offset-[var(--bg-canvas)]' : ''}`}
                       style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
+                      animate={post.is_pinned ? { boxShadow: ['0 0 24px rgba(73,177,245,0.2), var(--card-shadow)', '0 0 36px rgba(73,177,245,0.35), var(--card-shadow)', '0 0 24px rgba(73,177,245,0.2), var(--card-shadow)'] } : undefined}
+                      transition={post.is_pinned ? { duration: 2.8, repeat: Infinity, ease: 'easeInOut' } : undefined}
                     >
+                      {post.is_pinned && (
+                        <div
+                          className="absolute top-4 right-4 z-10 flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold shadow-md"
+                          style={{
+                            background: 'linear-gradient(135deg, #FEF3C7 0%, #FBBF24 50%, #F59E0B 100%)',
+                            color: '#78350F',
+                            border: '1px solid rgba(180,83,9,0.35)',
+                          }}
+                        >
+                          <Pin size={12} className="shrink-0" style={{ transform: 'rotate(-12deg)' }} />
+                          置顶
+                        </div>
+                      )}
                       {post.cover_image && (
                         <Link to={`/posts/${post.slug}`} className="block">
                           <div className="w-full h-48 overflow-hidden">

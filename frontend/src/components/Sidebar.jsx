@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useSite } from '../contexts/SiteContext'
@@ -11,10 +12,15 @@ const hoverGlow = {
 
 export default function Sidebar() {
   const { settings, stats } = useSite()
+  const [avatarBroken, setAvatarBroken] = useState(false)
 
   const name = settings?.author_name || '极客新生'
   const bio = settings?.bio || ''
   const avatarUrl = settings?.avatar_url || ''
+
+  useEffect(() => {
+    setAvatarBroken(false)
+  }, [avatarUrl])
   const githubLink = settings?.github_link || 'https://github.com'
   const announcement = settings?.announcement || ''
   const postCount = stats?.post_count ?? '-'
@@ -33,8 +39,14 @@ export default function Sidebar() {
         style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
       >
         <div className="w-[100px] h-[100px] mx-auto mb-5 rounded-full bg-gradient-to-br from-[#E3F2FD] to-[#BBDEFB] flex items-center justify-center overflow-hidden" style={{ boxShadow: '0 2px 8px var(--accent-border)' }}>
-          {avatarUrl ? (
-            <img src={proxyImageUrl(avatarUrl)} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          {avatarUrl && !avatarBroken ? (
+            <img
+              src={proxyImageUrl(avatarUrl)}
+              alt={name}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+              onError={() => setAvatarBroken(true)}
+            />
           ) : (
             <span className="text-5xl">👨‍💻</span>
           )}
