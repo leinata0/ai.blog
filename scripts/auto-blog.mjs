@@ -158,7 +158,7 @@ async function callSiliconFlowChat(systemPrompt, userPrompt) {
         model: SILICONFLOW_MODEL,
         messages,
         temperature: 0.7,
-        max_tokens: 12000,
+        max_tokens: 16384,
       }
       if (jsonMode) body.response_format = { type: "json_object" }
 
@@ -236,6 +236,13 @@ async function checkSlugExists(slug) {
   }
 }
 
+/** 摘要硬上限：汉字/标点等按 Unicode 字符计（码点），不超过 max */
+function truncateSummaryText(s, max = 50) {
+  const arr = Array.from(String(s || "").trim())
+  if (arr.length <= max) return arr.join("")
+  return arr.slice(0, max).join("")
+}
+
 /** 符合后端 PostCreateRequest：slug 仅小写字母数字与连字符 */
 function normalizeForApi(post, fixedSlug) {
   const slug =
@@ -249,8 +256,9 @@ function normalizeForApi(post, fixedSlug) {
     "ai-daily-post"
 
   const title = String(post.title || "科技札记（自动生成fallback）").slice(0, 200)
-  let summary = String(post.summary || "").slice(0, 300)
-  if (summary.length < 1) summary = "本文由脚本自动生成摘要占位，请检查模型返回字段 summary。".slice(0, 300)
+  let summary = truncateSummaryText(post.summary || "", 50)
+  if (summary.length < 1) summary = "自动发文摘要缺失，请在后端补写。"
+  summary = truncateSummaryText(summary, 50)
 
   let content_md = String(post.content_md || "")
   if (content_md.length < 1) content_md = "## 内容\n\n（正文生成失败，请检查 LLM 返回。）"
@@ -319,14 +327,14 @@ async function main() {
   const queryIndex = new Date().getDate() % SEARCH_QUERIES.length
   const queryPrimary = SEARCH_QUERIES[queryIndex]
 
-  let newsContent = areadSearchAndRead(queryPrimary, 3)
+  let newsContent = areadSearchAndRead(queryPrimary, 4)
 
   if (!newsContent || newsContent.length < 200) {
     console.log("⚠️ 搜索+阅读结果不足，尝试仅搜索（降级）...")
     newsContent = areadSearch(queryPrimary, 8)
   }
 
-  const csRead = areadSearchAndRead(CS_TECH_SEARCH_READ_QUERY, 2)
+  const csRead = areadSearchAndRead(CS_TECH_SEARCH_READ_QUERY, 3)
   if (csRead && csRead.length > 80) {
     newsContent += `\n\n=== aread 搜索+阅读（计算机 / 工程 / 安全 / 云计算与算力）===\n\n${csRead}`
   }
@@ -334,7 +342,7 @@ async function main() {
   // 补充：aread 直接阅读固定资讯页（与上同属「阅读」管线）
   const techcrunchContent = areadRead("https://techcrunch.com/category/artificial-intelligence/")
   if (techcrunchContent) {
-    newsContent += "\n\n=== TechCrunch AI 最新文章 ===\n\n" + techcrunchContent.slice(0, 4000)
+    newsContent += "\n\n=== TechCrunch AI 最新文章 ===\n\n" + techcrunchContent.slice(0, 6000)
   }
 
   newsContent = await gatherNewsWithFallback(newsContent)
@@ -345,49 +353,48 @@ async function main() {
     )
   }
 
-  // 限制总 token 量
-  if (newsContent.length > 15000) {
-    newsContent = newsContent.slice(0, 15000)
+  // 限制总长度（略放宽，便于写长文深度）
+  if (newsContent.length > 24000) {
+    newsContent = newsContent.slice(0, 24000)
   }
 
   console.log(`📊 采集到 ${newsContent.length} 字符新闻内容`)
 
   // 步骤2：调用硅基流动 DeepSeek 生成文章
-  const systemPrompt = `你是「极客开发日志」的专栏作者，根据用户附带的 **aread 搜索+阅读** 原始摘要，用**简体中文**写一篇偏「科技幕后与工程视角」的长文笔记。读者是同行开发者，需要**信息密度**和**可复盘的判断**，而不是通稿口吻。
+  const systemPrompt = `你是「极客开发日志」的作者，根据 **aread 搜索+阅读** 原始材料，用**简体中文**写一篇**可以当博客直接发布**的长文：有头有尾、段落之间有承接，不是内部备忘录，也不是词条拼盘。
 
-## 领域与事实边界（素材优先）
-- 覆盖尽量包含：**人工智能 / 大模型 / 智能应用**，以及 **软件工程、基础设施、安全、云计算与算力** 等相关议题；几条线可以穿插，不必机械平均分配篇幅。
-- 素材不足就写短、写谨慎。禁止捏造版本号/融资额/未公开的「协议细节」；不确定之处用一句点明「公开信息有限」即可，不要硬编。
+## 领域与事实边界
+- 主线覆盖：**人工智能 / 大模型 / 智能应用**，并交织 **软件工程、基础设施、安全、云计算与算力** 等相关面向；篇幅允许侧重其中两三条线，但整篇要读得出一根主线。
+- 禁止编造具体数字、未证实融资、虚构「内部条款」。信息弱时写短、写出不确定边界；需要延展的地方可做**有条件的推演**（标明「从工程常识推断」「更可能是…」），与新闻事实区分清楚。
 
-## 篇幅与深度（对应 content_md）
-- **正文以约 2400～2800 个汉字为目标**（不含「参考来源」类小结）；不要低于约 2200 字硬凑，也不要用空话灌到明显超过 3000 字。
-- **深度优先**：每个主要议题要写清「发生了什么 → 技术或机制上为什么重要 → 谁在博弈/约束条件 → 对开发者或团队的实际意味」，必要时可加一两句克制的个人判断（少用「我认为」重复，避免口号）。
-- **禁止固定目录八股**：不要出现「快讯一」「快讯二」「Part 1」「事件概述」「要点梳理」等栏目化标题，也不要用对称的小节骨架。用 \`##\` 小标题概括**议题本身**（命题、矛盾、工程难点都行），下面可自由混用段落、少量列表、偶尔引用；**各节不必同构**，允许某一节以长论述为主、另一节以短列表收口。
+## 篇幅（硬指标，对应 content_md；不含「参考来源」类章节）
+- **正文汉字硬性下限：不少于 2800 字**；推荐写到 **3000～3800 字**。少一个字都算不合格——请在成稿前自行在心里点数并扩充：补背景、补机制解释、补工程 trade-off、补与读者工作的衔接，而不是叠形容词。
+- **结构**：开头用 **2～3 段引子** 把问题抛出来（**不要**给引子加 \`#\` 标题）；随后 **至少 4 个**不同的 \`##\` 小节展开主线（议题名自拟，体现内容，不要「快讯一」体例）。每个核心小节约 **500～900 字** 的实质性论述为主，列表只作辅助。全文要有一两处「为什么从业者要在意」的落点。
+- **深度**：每个核心议题至少交代：**现象/事实 → 机制或架构直觉（给开发者能听懂的一句原理/链条）→ 约束与取舍 → 对你我工作的含义**（部署、成本、安全、团队流程等任选相关角度）。
 
-## 去「机翻 / AI 综述」味（文风）
-- 禁用或尽量少用：「综上所述」「值得一提」「在当今时代」「让我们拭目以待」「总而言之」等模板句。
-- 少用空洞形容词；多写**具体名词、因果、trade-off、边界条件**。
-- 语气像熟人在讲清楚一件事，**不要营销号腔、不要连续感叹号**。
+## 博客语感（避免不像博文）
+- 段落之间用过渡句勾连；避免每段同一句式开头。
+- 禁用：「综上所述」「值得期待」「在当今」「让我们拭目以待」「总而言之」等申论腔。
+- 少用连续短句堆砌；**不要营销号腔和满屏感叹号**。
 
-## Markdown 规范
-- 仅 CommonMark；**禁止 HTML 标签**。
-- 正文小节从 \`##\` 起用，可按需使用 \`###\`；**不要用正文一级 \`#\`\`**（主标题只放在 JSON 的 title）。
-- 列表用 \`-\`；叙述中的链接用 \`[说明](url)\`；参考来源小节外避免裸露 URL 独占一行。
-- 代码仅在有必要时用围栏块并带语言标签。
+## Markdown
+- CommonMark 即可；**禁止 HTML**。
+- 正文从 \`##\` 起用小节标题，可按需加 \`###\`；**不要用正文一级 \`#\`\`**（列表页的标题用 JSON 的 title）。
+- 链接在叙述中用 \`[说明](url)\`；参考以外的裸露长链不要单独成行。
 
 ## 文末
-- 正文论述结束后，用最后一个 \`##\` 集中列素材链接（标题可自拟，如 \`## 参考来源\` 或 \`## 参考与链接\`）；无直链时诚实写「摘要未收录 URL」。
+- 最后一个 \`##\` 集中列出参考链接（如 \`## 参考来源\`）。
 
 ## JSON（仅输出一个 JSON 对象，不要用 markdown 围栏包裹）
-- \`title\`：**全文写完后**再拟。用一句中文概括**主线或核心张力**，约 10～26 字。**禁止**出现：「AI 日报」「日报」「周刊」「速递」及任何形式日期（含「${today}」、\`YYYY-MM-DD\`、年月日、星期几、「今日」）。不要直接复制素材标题。
-- \`slug\`：必须为 \`ai-daily-${today}\`（仅站内去重用，勿写进 title）。
-- \`summary\`：90～120 字，**一整段**交代全文脉络与判断，无换行、不用分点枚举腔。
-- \`content_md\`：满足上述篇幅与结构的正文（含参考来源小节）。
-- \`tags\`：小写英文 slug，**必须**含 \`ai\`，其余如 \`llm\`、\`infra\`、\`security\`、\`cloud\` 等据内容选，最多 8 个（不强制 \`daily\`）。
+- \`title\`：成文后再写。**10～28 字**，概括全文主线或张力。**禁止**：「日报」「周刊」「速递」「AI 日报」及一切日期（含「${today}」、年月日、星期、「今日」）。
+- \`slug\`：必须为 \`ai-daily-${today}\`（勿写入 title）。
+- \`summary\`：**不超过 50 个汉字（含标点）的一句话**，无换行、**禁止**以「本文」「全文」「作者」开头，禁止逗号衔接超长复句凑长度；宁愿短也不要超 50 字。
+- \`content_md\`：满足字数与结构的正文（含参考来源）。
+- \`tags\`：小写英文 slug，**必须**含 \`ai\`，其余如 \`llm\`、\`infra\`、\`security\`、\`cloud\` 等，最多 8 个。
 
-示意：{"title":"…","slug":"ai-daily-${today}","summary":"…","content_md":"…","tags":["ai",…]}`
+示意：{"title":"…","slug":"ai-daily-${today}","summary":"……","content_md":"…","tags":["ai",…]}`
 
-  const userPrompt = `【素材日期 ${today}】以下为 **aread-cli 搜索并抓取正文** 得到的原始材料（可能多段拼接）。请先内化再写作；**title 须在成文后根据全文自拟**，并遵守系统说明中的标题禁则。返回 JSON：
+  const userPrompt = `【素材日期 ${today}】以下为 **aread-cli 搜索并抓取正文** 的原始材料。请写成一篇**不少于 2800 汉字正文**的博客稿；summary 严守 ≤50 字；title 成文后自拟并遵守禁则。仅返回 JSON：
 
 ${newsContent}`
 
