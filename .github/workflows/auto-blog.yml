@@ -13,7 +13,8 @@ jobs:
     # 消除「Node.js 20 actions deprecated」警告；与官方新版 Action 运行时一致
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    timeout-minutes: 10
+    # OpenRouter 免费层 429 时需多轮等待 + 换模型，适当延长
+    timeout-minutes: 20
     steps:
       - name: 拉取代码
         uses: actions/checkout@v6

@@ -104,50 +104,106 @@ async function gatherNewsWithFallback(newsContent) {
   return combined
 }
 
-// ── OpenRouter API ──
+// ── OpenRouter API（免费模型上游易 429：多模型 + 重试）──
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** 默认可在 OpenRouter 免费使用的 Qwen 系列（上游限流时会自动换下一个） */
+const DEFAULT_OPENROUTER_MODELS = [
+  "qwen/qwen3.6-plus:free",
+  "qwen/qwen3-30b-a3b:free",
+  "qwen/qwen3-235b-a22b:free",
+]
+
+function resolveModelList() {
+  const customList = process.env.OPENROUTER_MODELS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (customList?.length) return customList
+
+  const single = process.env.OPENROUTER_MODEL?.trim()
+  if (single) {
+    const rest = DEFAULT_OPENROUTER_MODELS.filter((m) => m !== single)
+    return [single, ...rest]
+  }
+  return [...DEFAULT_OPENROUTER_MODELS]
+}
 
 async function callQwen(systemPrompt, userPrompt) {
-  console.log("🤖 调用 Qwen 3.6 Plus...")
+  const models = resolveModelList()
+  let lastError = ""
 
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    // 注意：fetch 要求 HTTP 头值为 ByteString（Latin-1），不能含中文等非 ASCII
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://563118077.xyz",
-      "X-OpenRouter-Title": "Geek Dev Blog Auto-Post",
-    },
-    body: JSON.stringify({
-      model: "qwen/qwen3.6-plus:free",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 4096,
-      response_format: { type: "json_object" },
-    }),
-  })
+  for (const model of models) {
+    console.log(`🤖 OpenRouter 请求模型: ${model}`)
 
-  if (!resp.ok) {
-    const err = await resp.text()
-    throw new Error(`OpenRouter 错误: ${resp.status} ${err}`)
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      if (attempt > 1) {
+        const sec = [0, 25, 60, 120][attempt - 1]
+        console.log(`   ⏳ 第 ${attempt} 次尝试，等待 ${sec}s（缓解上游 429）…`)
+        await sleep(sec * 1000)
+      }
+
+      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://563118077.xyz",
+          "X-OpenRouter-Title": "Geek Dev Blog Auto-Post",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 4096,
+          response_format: { type: "json_object" },
+        }),
+      })
+
+      const errText = await resp.clone().text()
+
+      if (resp.status === 429) {
+        lastError = errText
+        console.log(`   429 限流（${model}），将重试或换模型…`)
+        continue
+      }
+
+      if (!resp.ok) {
+        lastError = errText
+        console.log(`   HTTP ${resp.status}，换模型或重试…`)
+        if (resp.status >= 500) continue
+        break
+      }
+
+      const data = await resp.json()
+      let raw = data.choices?.[0]?.message?.content
+      if (!raw) {
+        lastError = "AI 返回为空"
+        continue
+      }
+
+      raw = raw.trim()
+      if (raw.startsWith("```")) {
+        raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/m, "")
+      }
+      try {
+        console.log(`   ✓ 成功: ${model}`)
+        return JSON.parse(raw)
+      } catch {
+        lastError = `JSON 解析失败: ${raw.slice(0, 200)}`
+      }
+    }
+    console.log(`↪️ 切换到下一备用模型…`)
   }
 
-  const data = await resp.json()
-  let raw = data.choices?.[0]?.message?.content
-  if (!raw) throw new Error("AI 返回为空")
-
-  raw = raw.trim()
-  if (raw.startsWith("```")) {
-    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "")
-  }
-  try {
-    return JSON.parse(raw)
-  } catch {
-    throw new Error(`AI 返回的不是合法 JSON，前 200 字：${raw.slice(0, 200)}`)
-  }
+  throw new Error(
+    `OpenRouter 全部模型失败（常为免费层 429 上游限流）。可稍后再跑，或在仓库 Secrets 之外于脚本环境设置 OPENROUTER_MODEL 为付费/其它模型。最后错误: ${lastError.slice(0, 500)}`
+  )
 }
 
 // ── 博客 API ──
