@@ -22,19 +22,26 @@ const SEARCH_QUERIES = [
   "AI startup funding product launch",
 ]
 
-// ── aread 封装 ──
+// ── aread（与 Crosery/aread 同源：Jina Reader + DuckDuckGo）──
+// 使用 npx，避免 GitHub Actions 全局安装后 PATH 找不到 aread-cli
+
+const AREAD_CMD = "npx --yes aread-cli"
 
 function runCommand(cmd, timeoutMs = 60000) {
   try {
     const output = execSync(cmd, {
       encoding: "utf-8",
       timeout: timeoutMs,
+      maxBuffer: 20 * 1024 * 1024,
       stdio: ["pipe", "pipe", "pipe"],
     })
     return output
   } catch (err) {
-    const stderr = err.stderr ? err.stderr.slice(0, 200) : ""
-    console.log(`   ⚠️ 命令出错: ${err.message?.slice(0, 100)}`)
+    const stderr =
+      err.stderr != null
+        ? String(err.stderr).slice(0, 400)
+        : err.message || ""
+    console.log(`   ⚠️ 命令出错: ${String(err.message || err).slice(0, 200)}`)
     if (stderr) console.log(`   stderr: ${stderr}`)
     return ""
   }
@@ -42,17 +49,59 @@ function runCommand(cmd, timeoutMs = 60000) {
 
 function areadSearch(query, num = 8) {
   console.log(`🔍 aread 搜索: ${query}`)
-  return runCommand(`aread-cli -r -s "${query}" -n ${num}`, 60000)
+  const safe = query.replace(/"/g, '\\"')
+  return runCommand(`${AREAD_CMD} -r -s "${safe}" -n ${num}`, 90000)
 }
 
 function areadSearchAndRead(query, num = 3) {
   console.log(`🔍📖 aread 搜索+阅读: ${query}`)
-  return runCommand(`aread-cli -r -s "${query}" --read -n ${num}`, 180000)
+  const safe = query.replace(/"/g, '\\"')
+  return runCommand(`${AREAD_CMD} -r -s "${safe}" --read -n ${num}`, 240000)
 }
 
 function areadRead(url) {
   console.log(`📖 aread 阅读: ${url}`)
-  return runCommand(`aread-cli -r "${url}"`, 60000)
+  const safe = url.replace(/"/g, '\\"')
+  return runCommand(`${AREAD_CMD} -r "${safe}"`, 90000)
+}
+
+/** Jina Reader 后备（与 aread「阅读」能力一致），CI 上 aread 失败时仍可用 */
+async function jinaReadMarkdown(url, maxLen = 5000) {
+  try {
+    const resp = await fetch(`https://r.jina.ai/${url}`, {
+      headers: {
+        Accept: "text/markdown",
+        "X-No-Cache": "true",
+      },
+    })
+    if (!resp.ok) return ""
+    const text = await resp.text()
+    return text.slice(0, maxLen)
+  } catch {
+    return ""
+  }
+}
+
+const FALLBACK_NEWS_URLS = [
+  "https://techcrunch.com/category/artificial-intelligence/",
+  "https://www.reuters.com/technology/artificial-intelligence/",
+  "https://www.artificialintelligence-news.com/",
+]
+
+async function gatherNewsWithFallback(newsContent) {
+  let combined = newsContent || ""
+  if (combined.length >= 300) return combined
+
+  console.log("⚠️ aread 内容不足，使用 Jina Reader 后备拉取 AI 新闻页…")
+  for (const u of FALLBACK_NEWS_URLS) {
+    const md = await jinaReadMarkdown(u, 6000)
+    if (md.length > 200) {
+      combined += `\n\n=== ${u} ===\n\n${md}`
+      console.log(`   ✓ Jina 拉取 ${u}：${md.length} 字符`)
+    }
+    if (combined.length >= 300) break
+  }
+  return combined
 }
 
 // ── OpenRouter API ──
@@ -86,10 +135,18 @@ async function callQwen(systemPrompt, userPrompt) {
   }
 
   const data = await resp.json()
-  const content = data.choices?.[0]?.message?.content
-  if (!content) throw new Error("AI 返回为空")
+  let raw = data.choices?.[0]?.message?.content
+  if (!raw) throw new Error("AI 返回为空")
 
-  return JSON.parse(content)
+  raw = raw.trim()
+  if (raw.startsWith("```")) {
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "")
+  }
+  try {
+    return JSON.parse(raw)
+  } catch {
+    throw new Error(`AI 返回的不是合法 JSON，前 200 字：${raw.slice(0, 200)}`)
+  }
 }
 
 // ── 博客 API ──
@@ -174,8 +231,12 @@ async function main() {
     newsContent += "\n\n=== TechCrunch AI 最新文章 ===\n\n" + techcrunchContent.slice(0, 4000)
   }
 
+  newsContent = await gatherNewsWithFallback(newsContent)
+
   if (!newsContent || newsContent.length < 300) {
-    throw new Error("新闻内容采集不足，无法生成文章")
+    throw new Error(
+      "新闻内容采集不足（aread 与 Jina 后备均失败）。请检查 Actions 日志中 aread 的 stderr，或确认未拦截 r.jina.ai。"
+    )
   }
 
   // 限制总 token 量

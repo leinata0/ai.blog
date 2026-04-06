@@ -25,13 +25,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 安装 aread-cli
-        run: npm install -g aread-cli
-
-      - name: 验证 aread 安装
+      - name: 检查仓库机密（不输出具体值）
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
-          which aread-cli || echo "aread-cli not in PATH"
-          npx aread-cli --version || echo "版本查看完成"
+          if [ -z "$OPENROUTER_API_KEY" ]; then echo "::error::缺少 OPENROUTER_API_KEY，请在 Settings → Secrets → Actions 添加"; exit 1; fi
+          if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::缺少 ADMIN_PASSWORD，请在仓库机密中添加"; exit 1; fi
+          echo "机密已配置（已打码）"
+
+      - name: 验证 aread（npx，与脚本一致）
+        run: |
+          npx --yes aread-cli -h | head -5
 
       - name: 生成并发布 AI 日报
         env:
