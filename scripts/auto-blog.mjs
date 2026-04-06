@@ -24,46 +24,35 @@ const SEARCH_QUERIES = [
 
 // ── aread 封装 ──
 
-function areadSearch(query, num = 8) {
-  console.log(`🔍 aread 搜索: ${query}`)
+function runCommand(cmd, timeoutMs = 60000) {
   try {
-    const output = execSync(`npx aread-cli -r -s "${query}" -n ${num}`, {
+    const output = execSync(cmd, {
       encoding: "utf-8",
-      timeout: 30000,
+      timeout: timeoutMs,
+      stdio: ["pipe", "pipe", "pipe"],
     })
     return output
   } catch (err) {
-    console.log(`   ⚠️ 搜索出错: ${err.message?.slice(0, 100)}`)
+    const stderr = err.stderr ? err.stderr.slice(0, 200) : ""
+    console.log(`   ⚠️ 命令出错: ${err.message?.slice(0, 100)}`)
+    if (stderr) console.log(`   stderr: ${stderr}`)
     return ""
   }
+}
+
+function areadSearch(query, num = 8) {
+  console.log(`🔍 aread 搜索: ${query}`)
+  return runCommand(`aread-cli -r -s "${query}" -n ${num}`, 60000)
 }
 
 function areadSearchAndRead(query, num = 3) {
   console.log(`🔍📖 aread 搜索+阅读: ${query}`)
-  try {
-    const output = execSync(`npx aread-cli -r -s "${query}" --read -n ${num}`, {
-      encoding: "utf-8",
-      timeout: 120000,
-    })
-    return output
-  } catch (err) {
-    console.log(`   ⚠️ 搜索+阅读出错: ${err.message?.slice(0, 100)}`)
-    return ""
-  }
+  return runCommand(`aread-cli -r -s "${query}" --read -n ${num}`, 180000)
 }
 
 function areadRead(url) {
   console.log(`📖 aread 阅读: ${url}`)
-  try {
-    const output = execSync(`npx aread-cli -r "${url}"`, {
-      encoding: "utf-8",
-      timeout: 30000,
-    })
-    return output
-  } catch (err) {
-    console.log(`   ⚠️ 阅读出错: ${err.message?.slice(0, 100)}`)
-    return ""
-  }
+  return runCommand(`aread-cli -r "${url}"`, 60000)
 }
 
 // ── OpenRouter API ──

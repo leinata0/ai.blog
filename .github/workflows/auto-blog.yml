@@ -18,7 +18,7 @@ jobs:
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: 安装 Python（aread 搜索依赖）
         uses: actions/setup-python@v5
@@ -28,12 +28,10 @@ jobs:
       - name: 安装 aread-cli
         run: npm install -g aread-cli
 
-      - name: 测试 aread
+      - name: 验证 aread 安装
         run: |
-          echo "测试搜索..."
-          npx aread-cli -r -s "AI news" -n 2 | head -20 || echo "搜索测试完成"
-          echo "测试阅读..."
-          npx aread-cli -r "https://techcrunch.com/category/artificial-intelligence/" | head -20 || echo "阅读测试完成"
+          which aread-cli || echo "aread-cli not in PATH"
+          npx aread-cli --version || echo "版本查看完成"
 
       - name: 生成并发布 AI 日报
         env:
