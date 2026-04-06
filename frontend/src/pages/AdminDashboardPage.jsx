@@ -89,6 +89,11 @@ export default function AdminDashboardPage() {
   async function loadSettings() {
     try {
       const s = await fetchSettings()
+      let links = s.friend_links || []
+      if (typeof links === 'string') {
+        try { links = JSON.parse(links) } catch { links = [] }
+      }
+      if (!Array.isArray(links)) links = []
       setSiteSettings({
         author_name: s.author_name || '',
         bio: s.bio || '',
@@ -97,7 +102,7 @@ export default function AdminDashboardPage() {
         github_link: s.github_link || '',
         announcement: s.announcement || '',
         site_url: s.site_url || '',
-        friend_links: s.friend_links || [],
+        friend_links: links,
       })
     } catch { /* ignore */ }
   }
@@ -136,7 +141,16 @@ export default function AdminDashboardPage() {
     setSettingsSaving(true)
     setSettingsMsg('')
     try {
-      const updated = await updateSettings(siteSettings)
+      const payload = {
+        ...siteSettings,
+        friend_links: JSON.stringify(siteSettings.friend_links || []),
+      }
+      const updated = await updateSettings(payload)
+      let links = updated.friend_links || []
+      if (typeof links === 'string') {
+        try { links = JSON.parse(links) } catch { links = [] }
+      }
+      if (!Array.isArray(links)) links = []
       setSiteSettings({
         author_name: updated.author_name || '',
         bio: updated.bio || '',
@@ -145,7 +159,7 @@ export default function AdminDashboardPage() {
         github_link: updated.github_link || '',
         announcement: updated.announcement || '',
         site_url: updated.site_url || '',
-        friend_links: updated.friend_links || [],
+        friend_links: links,
       })
       setSettingsMsg('保存成功')
     } catch (err) {
