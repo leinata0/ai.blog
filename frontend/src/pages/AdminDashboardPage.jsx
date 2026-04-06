@@ -5,6 +5,7 @@ import { Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings, Eye, EyeOf
 import { getToken, clearToken } from '../api/auth'
 import { fetchPosts, fetchPostDetail } from '../api/posts'
 import { adminCreatePost, adminUpdatePost, adminDeletePost, adminUploadImage, fetchSettings, updateSettings } from '../api/admin'
+import { proxyImageUrl } from '../utils/proxyImage'
 
 const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '', cover_image: '', is_published: true }
 
@@ -242,7 +243,7 @@ export default function AdminDashboardPage() {
                       <td className="px-6 py-4 font-medium" style={{ color: 'var(--text-primary)' }}>
                         <div className="flex items-center gap-2">
                           {post.cover_image && (
-                            <img src={post.cover_image} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                            <img src={proxyImageUrl(post.cover_image)} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                           )}
                           <span>{post.title}</span>
                         </div>

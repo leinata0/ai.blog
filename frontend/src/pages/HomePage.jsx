@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { Calendar, Eye, Tag, Search, X } from 'lucide-react'
 import { fetchPosts } from '../api/posts'
 import { apiGet } from '../api/client'
+import { proxyImageUrl } from '../utils/proxyImage'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
 import TagFilterBar from '../components/TagFilterBar'
@@ -158,7 +159,7 @@ export default function HomePage() {
             transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
           >
             {heroImage ? (
-              <img src={heroImage} alt="hero" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              <img src={proxyImageUrl(heroImage)} alt="hero" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (
               <span className="text-8xl">👨‍💻</span>
             )}
@@ -223,7 +224,7 @@ export default function HomePage() {
                         <Link to={`/posts/${post.slug}`} className="block">
                           <div className="w-full h-48 overflow-hidden">
                             <img
-                              src={post.cover_image}
+                              src={proxyImageUrl(post.cover_image)}
                               alt={post.title}
                               className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
                               loading="lazy"

@@ -7,6 +7,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Calendar, Clock, Eye, ArrowLeft } from 'lucide-react'
 import { motion, useScroll, useSpring } from 'framer-motion'
 import { fetchPostDetail } from '../api/posts'
+import { proxyImageUrl } from '../utils/proxyImage'
 import Navbar from '../components/Navbar'
 import TableOfContents from '../components/TableOfContents'
 import CommentSection from '../components/CommentSection'
@@ -134,7 +135,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             <div className="flex-1 max-w-3xl">
               {post.cover_image && (
                 <div className="w-full h-56 rounded-xl overflow-hidden mb-6">
-                  <img src={post.cover_image} alt={post.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <img src={proxyImageUrl(post.cover_image)} alt={post.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 </div>
               )}
               <h1 className="text-fluid-3xl font-bold tracking-tight mb-5 leading-tight" style={{ color: 'var(--text-primary)' }}>
