@@ -111,11 +111,12 @@ async function callQwen(systemPrompt, userPrompt) {
 
   const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
+    // 注意：fetch 要求 HTTP 头值为 ByteString（Latin-1），不能含中文等非 ASCII
     headers: {
       Authorization: `Bearer ${OPENROUTER_API_KEY}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://563118077.xyz",
-      "X-OpenRouter-Title": "极客开发日志 AutoBlog",
+      "X-OpenRouter-Title": "Geek Dev Blog Auto-Post",
     },
     body: JSON.stringify({
       model: "qwen/qwen3.6-plus:free",
