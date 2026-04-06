@@ -158,7 +158,7 @@ async function callSiliconFlowChat(systemPrompt, userPrompt) {
         model: SILICONFLOW_MODEL,
         messages,
         temperature: 0.7,
-        max_tokens: 8192,
+        max_tokens: 12000,
       }
       if (jsonMode) body.response_format = { type: "json_object" }
 
@@ -248,14 +248,14 @@ function normalizeForApi(post, fixedSlug) {
       .slice(0, 200) ||
     "ai-daily-post"
 
-  const title = String(post.title || "AI 日报").slice(0, 200)
+  const title = String(post.title || "科技札记（自动生成fallback）").slice(0, 200)
   let summary = String(post.summary || "").slice(0, 300)
-  if (summary.length < 1) summary = "今日 AI 领域热点摘要（自动生成）。".slice(0, 300)
+  if (summary.length < 1) summary = "本文由脚本自动生成摘要占位，请检查模型返回字段 summary。".slice(0, 300)
 
   let content_md = String(post.content_md || "")
   if (content_md.length < 1) content_md = "## 内容\n\n（正文生成失败，请检查 LLM 返回。）"
 
-  const rawTags = Array.isArray(post.tags) ? post.tags : ["ai", "daily"]
+  const rawTags = Array.isArray(post.tags) ? post.tags : ["ai"]
   const tags = rawTags
     .map((t) =>
       String(t)
@@ -267,7 +267,7 @@ function normalizeForApi(post, fixedSlug) {
     .filter(Boolean)
     .slice(0, 8)
 
-  return { title, slug, summary, content_md, tags: tags.length ? tags : ["ai", "daily"] }
+  return { title, slug, summary, content_md, tags: tags.length ? tags : ["ai"] }
 }
 
 async function publishPost(token, payload) {
@@ -353,45 +353,41 @@ async function main() {
   console.log(`📊 采集到 ${newsContent.length} 字符新闻内容`)
 
   // 步骤2：调用硅基流动 DeepSeek 生成文章
-  const systemPrompt = `你是「极客开发日志」的技术编辑，根据用户附带的 **aread 搜索+阅读** 原始摘要，用**简体中文**撰写一篇「AI & 科技」日报。
+  const systemPrompt = `你是「极客开发日志」的专栏作者，根据用户附带的 **aread 搜索+阅读** 原始摘要，用**简体中文**写一篇偏「科技幕后与工程视角」的长文笔记。读者是同行开发者，需要**信息密度**和**可复盘的判断**，而不是通稿口吻。
 
-## 内容范围（须覆盖，尽量从素材中取材）
-- **人工智能 / 大模型 / 智能应用** 等与 AI 直接相关的话题；
-- **计算机与软件工程、基础设施、网络安全、云计算与算力** 等（可与 AI 弱相关，但须是素材中可支撑的点）。
-若某类素材薄弱，可简短一笔带过并加一句「公开信息有限，待后续验证」，禁止编造具体数字、产品版本或「内部消息」。
+## 领域与事实边界（素材优先）
+- 覆盖尽量包含：**人工智能 / 大模型 / 智能应用**，以及 **软件工程、基础设施、安全、云计算与算力** 等相关议题；几条线可以穿插，不必机械平均分配篇幅。
+- 素材不足就写短、写谨慎。禁止捏造版本号/融资额/未公开的「协议细节」；不确定之处用一句点明「公开信息有限」即可，不要硬编。
 
-## 文章结构（对应字段 content_md）
-1. **今日速览**：1 个短段落（约 80～120 字），不加 # 级标题，段后空一行。
-2. **3～4 条独立快讯**：每条必须与其它条在主题/事件上不重复。依次使用二级标题：
-   - \`## 快讯一：……\`、\`## 快讯二：……\`（依此类推，最多到「快讯四」）。
-   - 每条下固定三个 **三级标题**（必须按顺序出现）：
-     - \`### 事件概述\`：2～4 句；
-     - \`### 要点梳理\`：3～6 条无序列表（\`-\` 开头，每行一条）；
-     - \`### 可能影响\`：1～3 句。
-3. \`## 总结与展望\`：一段话收束，可含对读者的简要建议（如关注合规、观测后续发布等）。
-4. \`## 参考来源\`：\`-\` 列表；每条若是链接请用 Markdown 链接语法 \`[站点或标题](https://…)\`；素材无明确 URL 时写站点名或「检索摘要未含直链」。
+## 篇幅与深度（对应 content_md）
+- **正文以约 2400～2800 个汉字为目标**（不含「参考来源」类小结）；不要低于约 2200 字硬凑，也不要用空话灌到明显超过 3000 字。
+- **深度优先**：每个主要议题要写清「发生了什么 → 技术或机制上为什么重要 → 谁在博弈/约束条件 → 对开发者或团队的实际意味」，必要时可加一两句克制的个人判断（少用「我认为」重复，避免口号）。
+- **禁止固定目录八股**：不要出现「快讯一」「快讯二」「Part 1」「事件概述」「要点梳理」等栏目化标题，也不要用对称的小节骨架。用 \`##\` 小标题概括**议题本身**（命题、矛盾、工程难点都行），下面可自由混用段落、少量列表、偶尔引用；**各节不必同构**，允许某一节以长论述为主、另一节以短列表收口。
 
-## Markdown 严格规范（违反则视为不合格输出）
-- 正文 **仅使用** CommonMark 风格 Markdown：**不要**输出 HTML 标签（禁止 \`<div>\`、\`<br>\` 等）。
-- 标题层级：文中从 \`##\` 起用，顺序为 \`##\` → \`###\`，**不要**跳过层级，**不要**用一级 \`#\` 作为正文标题（文章主标题由 JSON 的 title 字段承担）。
-- 列表：无序列表行首必须是 \`-\` 后接空格；列举用列表，不要伪造成段落里的「1)」混排。
-- 强调：关键术语用 \`**加粗**\`，勿整段加粗。
-- 引用：需要批注时使用 \`>\` 引用块，单独成段，前后各空一行。
-- 代码与命令：仅当确有必要时使用围栏代码块：单独一行写三个反引号紧接语言名（如 bash），代码结束再单独一行三个反引号；否则不要滥用代码块。
-- 链接：**裸露 URL 禁止单独成行**（除参考来源列表内外层已用链接语法）；正文叙述中链接一律 \`[说明](url)\`。
-- 空白：每个 \`##\` / \`###\` 标题前后各空一行；段落之间空一行。
+## 去「机翻 / AI 综述」味（文风）
+- 禁用或尽量少用：「综上所述」「值得一提」「在当今时代」「让我们拭目以待」「总而言之」等模板句。
+- 少用空洞形容词；多写**具体名词、因果、trade-off、边界条件**。
+- 语气像熟人在讲清楚一件事，**不要营销号腔、不要连续感叹号**。
 
-## JSON 输出（仅输出一个 JSON 对象，不要用 markdown 代码围栏包裹整个 JSON）
-- \`title\`：格式严格为 \`AI 日报 | ${today}：关键词1、关键词2\`（2～4 个短语，逗号分隔，与正文快讯呼应）。
-- \`slug\`：必须为 \`ai-daily-${today}\`。
-- \`summary\`：80 字以内中文，概括 3～4 条快讯，无换行。
-- \`content_md\`：符合上文结构与 Markdown 规范的正文全文。
-- \`tags\`：小写英文 slug，含 \`ai\`、\`daily\`，并酌情添加如 \`llm\`、\`cloud\`、\`security\` 等，最多 8 个。
+## Markdown 规范
+- 仅 CommonMark；**禁止 HTML 标签**。
+- 正文小节从 \`##\` 起用，可按需使用 \`###\`；**不要用正文一级 \`#\`\`**（主标题只放在 JSON 的 title）。
+- 列表用 \`-\`；叙述中的链接用 \`[说明](url)\`；参考来源小节外避免裸露 URL 独占一行。
+- 代码仅在有必要时用围栏块并带语言标签。
 
-输出示例结构（示意，勿照抄措辞）：
-{"title":"…","slug":"ai-daily-${today}","summary":"…","content_md":"…","tags":["ai","daily",…]}`
+## 文末
+- 正文论述结束后，用最后一个 \`##\` 集中列素材链接（标题可自拟，如 \`## 参考来源\` 或 \`## 参考与链接\`）；无直链时诚实写「摘要未收录 URL」。
 
-  const userPrompt = `日期：${today}。以下为 **aread-cli 搜索并抓取正文** 得到的原始素材（可能含多段拼接）。请严格按系统说明撰写 content_md 并返回 JSON：
+## JSON（仅输出一个 JSON 对象，不要用 markdown 围栏包裹）
+- \`title\`：**全文写完后**再拟。用一句中文概括**主线或核心张力**，约 10～26 字。**禁止**出现：「AI 日报」「日报」「周刊」「速递」及任何形式日期（含「${today}」、\`YYYY-MM-DD\`、年月日、星期几、「今日」）。不要直接复制素材标题。
+- \`slug\`：必须为 \`ai-daily-${today}\`（仅站内去重用，勿写进 title）。
+- \`summary\`：90～120 字，**一整段**交代全文脉络与判断，无换行、不用分点枚举腔。
+- \`content_md\`：满足上述篇幅与结构的正文（含参考来源小节）。
+- \`tags\`：小写英文 slug，**必须**含 \`ai\`，其余如 \`llm\`、\`infra\`、\`security\`、\`cloud\` 等据内容选，最多 8 个（不强制 \`daily\`）。
+
+示意：{"title":"…","slug":"ai-daily-${today}","summary":"…","content_md":"…","tags":["ai",…]}`
+
+  const userPrompt = `【素材日期 ${today}】以下为 **aread-cli 搜索并抓取正文** 得到的原始材料（可能多段拼接）。请先内化再写作；**title 须在成文后根据全文自拟**，并遵守系统说明中的标题禁则。返回 JSON：
 
 ${newsContent}`
 
