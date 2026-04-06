@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 自动博客生成脚本
- * 架构：aread「搜索 + 阅读」（必要时降级仅搜索）→ 汇总素材 → LLM API 生成中文 Markdown 博文 → 管理端发布。
+ * 架构：aread「搜索 + 阅读」优先拉**最新**素材（AI / LLM / 计科 / Web·Vercel·Render / 开源 / 泛科技）→ 汇总 → LLM 成文 → 管理端发布。
  * LLM：硅基流动 OpenAI 兼容接口（默认 deepseek-ai/DeepSeek-V3）。
  * 环境变量：SILICONFLOW_API_KEY（必填）、SILICONFLOW_BASE_URL、SILICONFLOW_MODEL、
  * ADMIN_PASSWORD、BLOG_API_BASE、ADMIN_USERNAME。
@@ -20,20 +20,30 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin"
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const BLOG_API_BASE = process.env.BLOG_API_BASE || "https://api.563118077.xyz"
 
+/**
+ * aread 主检索查询种子：每条均含 latest / breaking / this week 等偏「新」的关键词；运行时会在 main 里再拼当年份。
+ * 覆盖：人工智能（AI）、大语言模型（LLM）、计算机科学、Web 架构（Vercel / Render）、开源、泛互联网科技趋势。
+ */
 const SEARCH_QUERIES = [
-  "AI artificial intelligence breaking news today",
-  "LLM large language model latest release 2026",
-  "OpenAI Anthropic Google AI announcement",
-  "AI open source model new release",
-  "AI agent coding tool update 2026",
-  "machine learning research paper breakthrough",
-  "multimodal AI model progress 2026",
-  "AI startup funding product launch",
+  "artificial intelligence AI breaking news latest today",
+  "large language model LLM new release benchmark latest week",
+  "OpenAI Anthropic Google Gemini Claude AI announcement latest",
+  "open source AI model weights Hugging Face GitHub license latest release",
+  "AI coding agent Cursor IDE developer tool latest update",
+  "computer science algorithms systems programming language news latest",
+  "machine learning deep learning research paper latest",
+  "Vercel Next.js edge serverless deployment developer latest",
+  "Render.com PaaS web service cold start developer latest",
+  "internet tech startup platform regulation trend latest",
 ]
 
-/** 第二路「搜索+阅读」查询：计算机 / 工程 / 安全 / 云计算 / 算力等（与主路 AI 素材分列，仍走 aread --read） */
+/** 第二路「搜索+阅读」：计算机科学 / 安全 / 云与基础设施（强调最新） */
 const CS_TECH_SEARCH_READ_QUERY =
-  "cloud computing cybersecurity software engineering devops semiconductor data center tech news 2026"
+  "computer science cybersecurity cloud computing DevOps Kubernetes infrastructure latest news"
+
+/** 第三路「搜索+阅读」：Web 开发架构（Vercel、Render 等）与开源生态（强调最新） */
+const WEB_ARCH_OSS_SEARCH_READ_QUERY =
+  "Vercel Render Netlify web app architecture serverless open source GitHub trending latest"
 
 // ── aread（与 Crosery/aread 同源：Jina Reader + DuckDuckGo）──
 // 使用 npx，避免 GitHub Actions 全局安装后 PATH 找不到 aread-cli
@@ -323,9 +333,12 @@ async function main() {
     return
   }
 
-  // 步骤1：aread 搜索+阅读（主架构）→ 失败则降级仅搜索；第二路仍用搜索+阅读以覆盖工程/云安全等
+  // 步骤1：aread —— 主检索 + 计科/云基建 + Web·开源；查询字符串均带「最新」导向并在文末拼当年份，利于搜索引擎偏新结果
+  const year = new Date().getFullYear()
   const queryIndex = new Date().getDate() % SEARCH_QUERIES.length
-  const queryPrimary = SEARCH_QUERIES[queryIndex]
+  const queryPrimary = `${SEARCH_QUERIES[queryIndex]} ${year}`.trim()
+
+  console.log(`📌 aread 主检索（轮换 ${queryIndex + 1}/${SEARCH_QUERIES.length}，强调最新）`)
 
   let newsContent = areadSearchAndRead(queryPrimary, 4)
 
@@ -334,9 +347,14 @@ async function main() {
     newsContent = areadSearch(queryPrimary, 8)
   }
 
-  const csRead = areadSearchAndRead(CS_TECH_SEARCH_READ_QUERY, 3)
+  const csRead = areadSearchAndRead(`${CS_TECH_SEARCH_READ_QUERY} ${year}`, 3)
   if (csRead && csRead.length > 80) {
-    newsContent += `\n\n=== aread 搜索+阅读（计算机 / 工程 / 安全 / 云计算与算力）===\n\n${csRead}`
+    newsContent += `\n\n=== aread 搜索+阅读（计算机科学 / 安全 / 云与基础设施·最新）===\n\n${csRead}`
+  }
+
+  const webOssRead = areadSearchAndRead(`${WEB_ARCH_OSS_SEARCH_READ_QUERY} ${year}`, 2)
+  if (webOssRead && webOssRead.length > 80) {
+    newsContent += `\n\n=== aread 搜索+阅读（Web 架构·Vercel / Render 等 / 开源·最新）===\n\n${webOssRead}`
   }
 
   // 补充：aread 直接阅读固定资讯页（与上同属「阅读」管线）
@@ -353,9 +371,8 @@ async function main() {
     )
   }
 
-  // 限制总长度（略放宽，便于写长文深度）
-  if (newsContent.length > 24000) {
-    newsContent = newsContent.slice(0, 24000)
+  if (newsContent.length > 26000) {
+    newsContent = newsContent.slice(0, 26000)
   }
 
   console.log(`📊 采集到 ${newsContent.length} 字符新闻内容`)
