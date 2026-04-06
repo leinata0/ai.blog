@@ -2,16 +2,20 @@
 /**
  * 自动博客生成脚本
  * 架构：aread「搜索 + 阅读」（必要时降级仅搜索）→ 汇总素材 → LLM API 生成中文 Markdown 博文 → 管理端发布。
- * LLM：优先 Gemini（GEMINI_API_KEY），失败则 OpenRouter（OPENROUTER_API_KEY）。
- * 环境变量见文末说明。
+ * LLM：硅基流动 OpenAI 兼容接口（默认 deepseek-ai/DeepSeek-V3）。
+ * 环境变量：SILICONFLOW_API_KEY（必填）、SILICONFLOW_BASE_URL、SILICONFLOW_MODEL、
+ * ADMIN_PASSWORD、BLOG_API_BASE、ADMIN_USERNAME。
  */
 
 import { execSync } from "child_process"
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim()
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim()
-/** AI Studio 模型 id，默认 gemini-1.5-flash；若提示模型不可用可改为 gemini-2.0-flash 等 */
-const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-1.5-flash"
+const SILICONFLOW_API_KEY = process.env.SILICONFLOW_API_KEY?.trim()
+/** 国内默认 .cn；海外可用 https://api.siliconflow.com/v1 */
+const SILICONFLOW_BASE_URL = (
+  process.env.SILICONFLOW_BASE_URL?.trim() || "https://api.siliconflow.cn/v1"
+).replace(/\/$/, "")
+const SILICONFLOW_MODEL =
+  process.env.SILICONFLOW_MODEL?.trim() || "deepseek-ai/DeepSeek-V3"
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin"
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const BLOG_API_BASE = process.env.BLOG_API_BASE || "https://api.563118077.xyz"
@@ -113,235 +117,103 @@ async function gatherNewsWithFallback(newsContent) {
   return combined
 }
 
-// ── OpenRouter API（免费模型上游易 429：多模型 + 重试）──
+// ── 硅基流动 SiliconFlow（OpenAI 兼容 POST /v1/chat/completions）──
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** 默认可在 OpenRouter 免费使用的 Qwen 系列（上游限流时会自动换下一个） */
-const DEFAULT_OPENROUTER_MODELS = [
-  "qwen/qwen3.6-plus:free",
-  "qwen/qwen3-30b-a3b:free",
-  "qwen/qwen3-235b-a22b:free",
-]
-
-function resolveModelList() {
-  const customList = process.env.OPENROUTER_MODELS?.split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-  if (customList?.length) return customList
-
-  const single = process.env.OPENROUTER_MODEL?.trim()
-  if (single) {
-    const rest = DEFAULT_OPENROUTER_MODELS.filter((m) => m !== single)
-    return [single, ...rest]
+function parseJsonFromLlmContent(raw) {
+  let s = String(raw || "").trim()
+  if (s.startsWith("```")) {
+    s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/m, "")
   }
-  return [...DEFAULT_OPENROUTER_MODELS]
+  return JSON.parse(s)
 }
 
-async function callQwen(systemPrompt, userPrompt) {
-  if (!OPENROUTER_API_KEY) throw new Error("未配置 OPENROUTER_API_KEY")
-
-  const models = resolveModelList()
-  let lastError = ""
-
-  for (const model of models) {
-    console.log(`🤖 OpenRouter 请求模型: ${model}`)
-
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      if (attempt > 1) {
-        const sec = [0, 25, 60, 120][attempt - 1]
-        console.log(`   ⏳ 第 ${attempt} 次尝试，等待 ${sec}s（缓解上游 429）…`)
-        await sleep(sec * 1000)
-      }
-
-      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://563118077.xyz",
-          "X-OpenRouter-Title": "Geek Dev Blog Auto-Post",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          temperature: 0.7,
-          max_tokens: 4096,
-          response_format: { type: "json_object" },
-        }),
-      })
-
-      const errText = await resp.clone().text()
-
-      if (resp.status === 429) {
-        lastError = errText
-        console.log(`   429 限流（${model}），将重试或换模型…`)
-        continue
-      }
-
-      if (!resp.ok) {
-        lastError = errText
-        console.log(`   HTTP ${resp.status}，换模型或重试…`)
-        if (resp.status >= 500) continue
-        break
-      }
-
-      const data = await resp.json()
-      let raw = data.choices?.[0]?.message?.content
-      if (!raw) {
-        lastError = "AI 返回为空"
-        continue
-      }
-
-      raw = raw.trim()
-      if (raw.startsWith("```")) {
-        raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/m, "")
-      }
-      try {
-        console.log(`   ✓ 成功: ${model}`)
-        return JSON.parse(raw)
-      } catch {
-        lastError = `JSON 解析失败: ${raw.slice(0, 200)}`
-      }
-    }
-    console.log(`↪️ 切换到下一备用模型…`)
+async function callSiliconFlowChat(systemPrompt, userPrompt) {
+  if (!SILICONFLOW_API_KEY) {
+    throw new Error("未配置 SILICONFLOW_API_KEY（请在硅基流动控制台创建 API Key）")
   }
 
-  throw new Error(
-    `OpenRouter 全部模型失败（常为免费层 429 上游限流）。最后错误: ${lastError.slice(0, 500)}`
-  )
-}
-
-/** Google AI Studio Gemini generateContent（与 OpenRouter 返回同一 JSON 结构） */
-async function callGemini15Flash(systemPrompt, userPrompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`
+  const url = `${SILICONFLOW_BASE_URL}/chat/completions`
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ]
 
   let lastError = ""
   for (let attempt = 1; attempt <= 4; attempt++) {
     if (attempt > 1) {
-      const sec = [0, 15, 45, 90][attempt - 1]
-      console.log(`   ⏳ Gemini 第 ${attempt} 次尝试，等待 ${sec}s…`)
+      const sec = [0, 10, 30, 60][attempt - 1]
+      console.log(`   ⏳ 第 ${attempt} 轮请求，等待 ${sec}s…`)
       await sleep(sec * 1000)
     }
 
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemPrompt }],
+    let response = null
+    let errText = ""
+
+    for (const jsonMode of [true, false]) {
+      const body = {
+        model: SILICONFLOW_MODEL,
+        messages,
+        temperature: 0.7,
+        max_tokens: 8192,
+      }
+      if (jsonMode) body.response_format = { type: "json_object" }
+
+      console.log(
+        `🤖 硅基流动 ${SILICONFLOW_MODEL}${jsonMode ? "（response_format: json_object）" : ""}`
+      )
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${SILICONFLOW_API_KEY}`,
+          "Content-Type": "application/json",
         },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: userPrompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 8192,
-          responseMimeType: "application/json",
-        },
-      }),
-    })
+        body: JSON.stringify(body),
+      })
+      errText = await response.clone().text()
 
-    const errText = await resp.clone().text()
+      if (response.ok) break
+      if (jsonMode && response.status === 400) {
+        console.log("   ⚠️ JSON 模式被拒或未启用，改用普通补全再试…")
+        continue
+      }
+      break
+    }
 
-    if (resp.status === 429 || resp.status === 503) {
+    if (!response.ok) {
       lastError = errText
-      console.log(`   Gemini HTTP ${resp.status}，将重试…`)
-      continue
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          `硅基流动鉴权失败 ${response.status}: ${errText.slice(0, 350)}`
+        )
+      }
+      if (response.status === 429 || response.status >= 500) continue
+      throw new Error(`硅基流动 API ${response.status}: ${errText.slice(0, 400)}`)
     }
 
-    if (!resp.ok) {
-      lastError = errText
-      throw new Error(`Gemini API ${resp.status}: ${errText.slice(0, 400)}`)
-    }
-
-    const data = await resp.json()
-    const cand = data.candidates?.[0]
-    const reason = cand?.finishReason
-    if (reason && reason !== "STOP" && reason !== "MAX_TOKENS") {
-      lastError = `Gemini finishReason=${reason}`
-      console.log(`   ⚠️ ${lastError}`)
-      continue
-    }
-
-    let raw = cand?.content?.parts?.map((p) => p.text || "").join("") || ""
+    const data = await response.json()
+    const raw = data.choices?.[0]?.message?.content
     if (!raw) {
-      lastError = JSON.stringify(data).slice(0, 300)
+      lastError = "模型返回 content 为空"
       continue
-    }
-
-    raw = raw.trim()
-    if (raw.startsWith("```")) {
-      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/m, "")
     }
     try {
-      console.log(`   ✓ Gemini 成功: ${GEMINI_MODEL}`)
-      return JSON.parse(raw)
+      console.log("   ✓ 模型返回已解析为 JSON")
+      return parseJsonFromLlmContent(raw)
     } catch {
-      lastError = `Gemini JSON 解析失败: ${raw.slice(0, 200)}`
+      lastError = `JSON 解析失败: ${String(raw).slice(0, 200)}`
     }
   }
 
-  throw new Error(`Gemini 多次重试仍失败: ${lastError.slice(0, 500)}`)
+  throw new Error(`硅基流动 API 多次重试仍失败: ${lastError.slice(0, 500)}`)
 }
 
-/**
- * 生成博文 JSON：默认先试 Gemini（若配置了 GEMINI_API_KEY），再试 OpenRouter。
- * LLM_ORDER=gemini,openrouter | openrouter,gemini | gemini | openrouter
- */
+/** 生成博文 JSON（title / slug / summary / content_md / tags） */
 async function generatePostJson(systemPrompt, userPrompt) {
-  const explicit = process.env.LLM_ORDER?.split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => s === "gemini" || s === "openrouter")
-
-  let order
-  if (explicit?.length) {
-    order = explicit
-  } else if (GEMINI_API_KEY && OPENROUTER_API_KEY) {
-    order = ["gemini", "openrouter"]
-  } else if (GEMINI_API_KEY) {
-    order = ["gemini"]
-  } else if (OPENROUTER_API_KEY) {
-    order = ["openrouter"]
-  } else {
-    throw new Error("请至少配置 GEMINI_API_KEY（Google AI Studio）或 OPENROUTER_API_KEY 之一")
-  }
-
-  const ready = order.filter((p) => {
-    if (p === "gemini") return !!GEMINI_API_KEY
-    if (p === "openrouter") return !!OPENROUTER_API_KEY
-    return false
-  })
-  if (!ready.length) {
-    throw new Error("LLM_ORDER 中的提供方与已配置的密钥不匹配（例如要求 gemini 但未设置 GEMINI_API_KEY）")
-  }
-
-  let last = ""
-  for (const p of ready) {
-    try {
-      if (p === "gemini") {
-        console.log(`🌟 LLM: Google Gemini (${GEMINI_MODEL})`)
-        return await callGemini15Flash(systemPrompt, userPrompt)
-      }
-      console.log("🤖 LLM: OpenRouter")
-      return await callQwen(systemPrompt, userPrompt)
-    } catch (e) {
-      last = e.message
-      console.log(`↪️ ${p} 未成功: ${e.message.slice(0, 180)}`)
-    }
-  }
-  throw new Error(`所有已配置的 LLM 均失败。最后错误: ${last}`)
+  return callSiliconFlowChat(systemPrompt, userPrompt)
 }
 
 // ── 博客 API ──
@@ -429,8 +301,8 @@ async function main() {
   console.log("🚀 自动博客生成开始")
   console.log(`📅 日期: ${new Date().toISOString().split("T")[0]}`)
 
-  if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
-    throw new Error("请至少配置 GEMINI_API_KEY 或 OPENROUTER_API_KEY")
+  if (!SILICONFLOW_API_KEY) {
+    throw new Error("请配置 SILICONFLOW_API_KEY（硅基流动）")
   }
   if (!ADMIN_PASSWORD) throw new Error("缺少 ADMIN_PASSWORD 环境变量")
 
@@ -480,7 +352,7 @@ async function main() {
 
   console.log(`📊 采集到 ${newsContent.length} 字符新闻内容`)
 
-  // 步骤2：调用 Gemini / OpenRouter 生成文章
+  // 步骤2：调用硅基流动 DeepSeek 生成文章
   const systemPrompt = `你是「极客开发日志」的技术编辑，根据用户附带的 **aread 搜索+阅读** 原始摘要，用**简体中文**撰写一篇「AI & 科技」日报。
 
 ## 内容范围（须覆盖，尽量从素材中取材）
