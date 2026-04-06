@@ -763,6 +763,8 @@ def seed_data(db_session):
         slug="python-automation-selenium-pandas",
         summary="从页面抓取到表格清洗，串起 Selenium 与 Pandas 的一套高频自动化工作流。",
         content_md=PYTHON_ARTICLE,
+        is_pinned=False,
+        like_count=0,
         created_at=now - timedelta(days=10),
         updated_at=now - timedelta(days=10),
     )
@@ -773,6 +775,8 @@ def seed_data(db_session):
         slug="cpp-core-concepts-notes",
         summary="围绕指针、内存管理、对象生命周期与编译链接问题的持续学习笔记。",
         content_md=CPP_ARTICLE,
+        is_pinned=False,
+        like_count=0,
         created_at=now - timedelta(days=7),
         updated_at=now - timedelta(days=5),
     )
@@ -783,6 +787,8 @@ def seed_data(db_session):
         slug="openclaw-deployment-guide",
         summary="手把手教你用 Docker Compose 部署 OpenClaw，涵盖环境准备、配置调优与常见问题排查。",
         content_md=OPENCLAW_ARTICLE,
+        is_pinned=False,
+        like_count=0,
         created_at=now - timedelta(days=3),
         updated_at=now - timedelta(days=2),
     )
@@ -806,6 +812,8 @@ def seed_data(db_session):
         slug="freshman-fullstack-ai-blog",
         summary="从零到公网上线，一个大一新生用 Claude Code 辅助搭建 React + FastAPI 全栈博客的完整复盘。",
         content_md=FULLSTACK_ARTICLE,
+        is_pinned=False,
+        like_count=0,
         created_at=now - timedelta(hours=6),
         updated_at=now - timedelta(hours=2),
     )

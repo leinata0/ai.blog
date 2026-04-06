@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Calendar, Eye, Tag, Search, X } from 'lucide-react'
 import { fetchPosts } from '../api/posts'
-import { apiGet } from '../api/client'
+import { useSite } from '../contexts/SiteContext'
+import { formatDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
@@ -29,39 +30,45 @@ const hoverGlow = {
   transition: { duration: 0.2 },
 }
 
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
-
 export default function HomePage() {
+  const { settings } = useSite()
   const [tag, setTag] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [slowLoading, setSlowLoading] = useState(false)
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [pageSize] = useState(10)
-  const [heroImage, setHeroImage] = useState('')
+
+  const heroImage = settings?.hero_image || settings?.avatar_url || ''
 
   useEffect(() => {
-    apiGet('/api/settings').then((s) => setHeroImage(s.hero_image || s.avatar_url || '')).catch(() => {})
+    document.title = '极客开发日志'
   }, [])
 
   const loadPosts = useCallback(() => {
     setLoading(true)
+    setSlowLoading(false)
     setError('')
+
+    const timer = setTimeout(() => setSlowLoading(true), 3000)
+
     fetchPosts({ tag: tag || undefined, q: searchQuery || undefined, page, pageSize })
       .then((result) => {
         setPosts(result.items)
         setTotal(result.total)
         setLoading(false)
+        setSlowLoading(false)
+        clearTimeout(timer)
       })
       .catch(() => {
         setError('无法加载文章列表，请稍后重试')
         setLoading(false)
+        setSlowLoading(false)
+        clearTimeout(timer)
       })
   }, [tag, searchQuery, page, pageSize])
 
@@ -89,6 +96,11 @@ export default function HomePage() {
   function clearSearch() {
     setSearchInput('')
     setSearchQuery('')
+  }
+
+  function handlePageChange(newPage) {
+    setPage(newPage)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   return (
@@ -192,6 +204,12 @@ export default function HomePage() {
             <section aria-label="文章列表">
               {loading ? (
                 <div>
+                  {slowLoading && (
+                    <div className="flex items-center gap-2 mb-6 text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                      <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
+                      正在唤醒服务器...
+                    </div>
+                  )}
                   <div className="mb-6"><ArticleSkeleton size="hero" /></div>
                   <div className="grid grid-cols-1 gap-6">
                     <ArticleSkeleton size="grid" />
@@ -267,7 +285,7 @@ export default function HomePage() {
               )}
 
               {!loading && !error && posts.length > 0 && (
-                <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
+                <Pagination page={page} total={total} pageSize={pageSize} onPageChange={handlePageChange} />
               )}
             </section>
           </div>

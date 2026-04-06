@@ -12,6 +12,7 @@ export default function TagsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    document.title = '标签 - 极客开发日志'
     fetchAllTags()
       .then(setTags)
       .catch(() => {})

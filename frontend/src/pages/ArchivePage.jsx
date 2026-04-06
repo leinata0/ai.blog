@@ -17,6 +17,7 @@ export default function ArchivePage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    document.title = '归档 - 极客开发日志'
     fetchArchive()
       .then(setGroups)
       .catch(() => {})

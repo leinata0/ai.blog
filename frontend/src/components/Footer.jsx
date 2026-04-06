@@ -11,11 +11,14 @@ export default function Footer() {
           <Link to="/" className="transition-colors duration-200 hover:text-[var(--accent)]">首页</Link>
           <Link to="/archive" className="transition-colors duration-200 hover:text-[var(--accent)]">归档</Link>
           <Link to="/tags" className="transition-colors duration-200 hover:text-[var(--accent)]">标签</Link>
+          <a href="/feed.xml" className="transition-colors duration-200 hover:text-[var(--accent)]">RSS</a>
         </div>
         <div className="flex items-center gap-4 text-sm" style={{ color: 'var(--text-faint)' }}>
           <span>&copy; {new Date().getFullYear()} 极客开发日志</span>
           <span>&middot;</span>
           <span>Built with React + FastAPI</span>
+          <span>&middot;</span>
+          <Link to="/admin/login" className="transition-colors duration-200 hover:text-[var(--accent)] opacity-40 hover:opacity-70">管理</Link>
         </div>
       </div>
     </footer>

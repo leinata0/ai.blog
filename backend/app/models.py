@@ -23,6 +23,8 @@ class Post(Base):
     cover_image = Column(String(500), nullable=False, default="")
     view_count = Column(Integer, nullable=False, default=0)
     is_published = Column(Boolean, nullable=False, default=True)
+    is_pinned = Column(Boolean, nullable=False, default=False)
+    like_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     tags = relationship("Tag", secondary=post_tags, back_populates="posts")
@@ -43,6 +45,8 @@ class Comment(Base):
     post_id = Column(Integer, ForeignKey("posts.id"), nullable=False, index=True)
     nickname = Column(String(50), nullable=False)
     content = Column(Text, nullable=False)
+    ip_address = Column(String(50), nullable=False, default="")
+    is_approved = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     post = relationship("Post", back_populates="comments")
 
@@ -56,3 +60,5 @@ class SiteSettings(Base):
     hero_image = Column(String(500), nullable=False, default="")
     github_link = Column(String(500), nullable=False, default="https://github.com")
     announcement = Column(Text, nullable=False, default="欢迎来到我的技术博客！这里分享前端开发、全栈技术和编程心得。")
+    site_url = Column(String(500), nullable=False, default="https://563118077.xyz")
+    friend_links = Column(Text, nullable=False, default="[]")

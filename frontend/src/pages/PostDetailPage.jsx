@@ -4,9 +4,10 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { Calendar, Clock, Eye, ArrowLeft } from 'lucide-react'
+import { Calendar, Clock, Eye, ArrowLeft, Heart } from 'lucide-react'
 import { motion, useScroll, useSpring } from 'framer-motion'
-import { fetchPostDetail } from '../api/posts'
+import { fetchPostDetail, likePost, fetchRelatedPosts } from '../api/posts'
+import { formatDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
 import Navbar from '../components/Navbar'
 import TableOfContents from '../components/TableOfContents'
@@ -14,11 +15,6 @@ import CommentSection from '../components/CommentSection'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import ArticleSkeleton from '../components/ArticleSkeleton'
-
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
 
 function calcReadingTime(text) {
   if (!text) return 1
@@ -37,6 +33,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [copiedCode, setCopiedCode] = useState('')
+  const [likeCount, setLikeCount] = useState(0)
+  const [liked, setLiked] = useState(false)
+  const [relatedPosts, setRelatedPosts] = useState([])
   const { scrollYProgress } = useScroll()
   const progressScaleX = useSpring(scrollYProgress, {
     stiffness: 140,
@@ -53,6 +52,8 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       .then((data) => {
         if (!active) return
         setPost(data)
+        setLikeCount(data.like_count || 0)
+        setLiked(localStorage.getItem(`liked_${slug}`) === '1')
         setLoading(false)
       })
       .catch(() => {
@@ -61,8 +62,16 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         setLoading(false)
       })
 
+    fetchRelatedPosts(slug)
+      .then((data) => { if (active) setRelatedPosts(Array.isArray(data) ? data : []) })
+      .catch(() => {})
+
     return () => { active = false }
   }, [slug])
+
+  useEffect(() => {
+    if (post) document.title = post.title + ' - 极客开发日志'
+  }, [post])
 
   const readingTime = useMemo(() => {
     return post ? calcReadingTime(post.content_md) : 0
@@ -74,6 +83,20 @@ export default function PostDetailPage({ slug: overrideSlug }) {
     window.setTimeout(() => {
       setCopiedCode((current) => (current === code ? '' : current))
     }, 1500)
+  }
+
+  async function handleLike() {
+    if (liked) return
+    try {
+      const result = await likePost(slug)
+      setLikeCount(result?.like_count ?? likeCount + 1)
+      setLiked(true)
+      localStorage.setItem(`liked_${slug}`, '1')
+    } catch {
+      setLikeCount((c) => c + 1)
+      setLiked(true)
+      localStorage.setItem(`liked_${slug}`, '1')
+    }
   }
 
   if (loading) {
@@ -257,6 +280,25 @@ export default function PostDetailPage({ slug: overrideSlug }) {
               </div>
             </div>
 
+            {/* 点赞按钮 */}
+            <div className="flex items-center justify-center mt-8">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={handleLike}
+                disabled={liked}
+                className="flex items-center gap-2 px-6 py-3 rounded-full text-sm font-medium transition-all duration-200 disabled:cursor-default"
+                style={{
+                  backgroundColor: liked ? 'var(--danger-soft)' : 'var(--bg-surface)',
+                  color: liked ? '#ef4444' : 'var(--text-secondary)',
+                  border: `1px solid ${liked ? 'var(--danger-border)' : 'var(--border-muted)'}`,
+                  boxShadow: 'var(--card-shadow)',
+                }}
+              >
+                <Heart size={18} fill={liked ? '#ef4444' : 'none'} />
+                {liked ? '已点赞' : '点赞'} · {likeCount}
+              </motion.button>
+            </div>
+
             {/* 标签 */}
             {post.tags?.length > 0 && (
               <div className="flex items-center flex-wrap gap-2 mt-6">
@@ -270,6 +312,31 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                     # {t.name}
                   </Link>
                 ))}
+              </div>
+            )}
+
+            {/* 相关文章 */}
+            {relatedPosts.length > 0 && (
+              <div className="mt-10">
+                <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>相关文章</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {relatedPosts.map((rp) => (
+                    <Link
+                      key={rp.slug}
+                      to={`/posts/${rp.slug}`}
+                      className="rounded-xl p-5 transition-all duration-200 hover:shadow-md"
+                      style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
+                    >
+                      {rp.cover_image && (
+                        <div className="w-full h-32 rounded-lg overflow-hidden mb-3">
+                          <img src={proxyImageUrl(rp.cover_image)} alt={rp.title} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+                        </div>
+                      )}
+                      <h4 className="font-medium text-sm mb-1 line-clamp-2" style={{ color: 'var(--text-primary)' }}>{rp.title}</h4>
+                      <p className="text-xs" style={{ color: 'var(--text-faint)' }}>{formatDate(rp.created_at)}</p>
+                    </Link>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -289,6 +356,11 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 移动端目录 */}
+      <div className="lg:hidden">
+        <TableOfContents markdown={post.content_md} mobile />
       </div>
 
       <Footer />

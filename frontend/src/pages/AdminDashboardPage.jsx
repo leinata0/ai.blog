@@ -1,17 +1,30 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MDEditor from '@uiw/react-md-editor'
-import { Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings, Eye, EyeOff } from 'lucide-react'
+import {
+  Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings, Eye, EyeOff,
+  MessageSquare, BarChart3, Image, Pin, Check, X,
+} from 'lucide-react'
 import { getToken, clearToken } from '../api/auth'
-import { fetchPosts, fetchPostDetail } from '../api/posts'
-import { adminCreatePost, adminUpdatePost, adminDeletePost, adminUploadImage, fetchSettings, updateSettings } from '../api/admin'
+import { fetchPostDetail } from '../api/posts'
+import {
+  adminCreatePost, adminUpdatePost, adminDeletePost, adminUploadImage,
+  fetchSettings, updateSettings, fetchAdminPosts, fetchAdminComments,
+  approveComment, deleteComment, fetchAdminStats, fetchAdminImages, deleteAdminImage,
+} from '../api/admin'
 import { proxyImageUrl } from '../utils/proxyImage'
+import { formatDate } from '../utils/date'
 
-const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '', cover_image: '', is_published: true }
+const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '', cover_image: '', is_published: true, is_pinned: false }
 
-function formatDate(dateStr) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('zh-CN')
+function generateSlug(title) {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[\s]+/g, '-')
+    .replace(/[^\w\u4e00-\u9fff-]+/g, '')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80)
 }
 
 export default function AdminDashboardPage() {
@@ -26,14 +39,28 @@ export default function AdminDashboardPage() {
   const [error, setError] = useState('')
   const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [autoSaveMsg, setAutoSaveMsg] = useState('')
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
 
+  // 站点设置
   const [siteSettings, setSiteSettings] = useState({
-    author_name: '', bio: '', avatar_url: '', hero_image: '', github_link: '', announcement: '',
+    author_name: '', bio: '', avatar_url: '', hero_image: '', github_link: '', announcement: '', site_url: '', friend_links: [],
   })
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsMsg, setSettingsMsg] = useState('')
+
+  // 评论管理
+  const [comments, setComments] = useState([])
+  const [commentsLoading, setCommentsLoading] = useState(false)
+
+  // 数据统计
+  const [adminStats, setAdminStats] = useState(null)
+  const [statsLoading, setStatsLoading] = useState(false)
+
+  // 图片管理
+  const [images, setImages] = useState([])
+  const [imagesLoading, setImagesLoading] = useState(false)
 
   useEffect(() => {
     if (!token) { navigate('/admin/login'); return }
@@ -41,23 +68,85 @@ export default function AdminDashboardPage() {
     loadSettings()
   }, [])
 
+  // 自动保存（编辑器模式，每 30 秒）
+  useEffect(() => {
+    if (view !== 'editor') return
+    const timer = setInterval(() => {
+      localStorage.setItem('admin_draft', JSON.stringify(form))
+      setAutoSaveMsg('已自动保存')
+      setTimeout(() => setAutoSaveMsg(''), 2000)
+    }, 30000)
+    return () => clearInterval(timer)
+  }, [view, form])
+
   async function loadPosts() {
     try {
-      const result = await fetchPosts({ pageSize: 50 })
-      setPosts(result.items)
+      const result = await fetchAdminPosts({ page_size: 50 })
+      setPosts(result.items || result || [])
     } catch { /* ignore */ }
   }
 
   async function loadSettings() {
-    try { setSiteSettings(await fetchSettings()) } catch { /* ignore */ }
+    try {
+      const s = await fetchSettings()
+      setSiteSettings({
+        author_name: s.author_name || '',
+        bio: s.bio || '',
+        avatar_url: s.avatar_url || '',
+        hero_image: s.hero_image || '',
+        github_link: s.github_link || '',
+        announcement: s.announcement || '',
+        site_url: s.site_url || '',
+        friend_links: s.friend_links || [],
+      })
+    } catch { /* ignore */ }
   }
+
+  const loadComments = useCallback(async () => {
+    setCommentsLoading(true)
+    try {
+      const result = await fetchAdminComments()
+      setComments(result.items || result || [])
+    } catch { /* ignore */ }
+    setCommentsLoading(false)
+  }, [])
+
+  const loadStats = useCallback(async () => {
+    setStatsLoading(true)
+    try { setAdminStats(await fetchAdminStats()) } catch { /* ignore */ }
+    setStatsLoading(false)
+  }, [])
+
+  const loadImages = useCallback(async () => {
+    setImagesLoading(true)
+    try {
+      const result = await fetchAdminImages()
+      setImages(Array.isArray(result) ? result : result?.items || [])
+    } catch { /* ignore */ }
+    setImagesLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'comments') loadComments()
+    if (tab === 'stats') loadStats()
+    if (tab === 'images') loadImages()
+  }, [tab, loadComments, loadStats, loadImages])
 
   async function handleSaveSettings() {
     setSettingsSaving(true)
     setSettingsMsg('')
     try {
       const updated = await updateSettings(siteSettings)
-      setSiteSettings(updated)
+      setSiteSettings({
+        author_name: updated.author_name || '',
+        bio: updated.bio || '',
+        avatar_url: updated.avatar_url || '',
+        hero_image: updated.hero_image || '',
+        github_link: updated.github_link || '',
+        announcement: updated.announcement || '',
+        site_url: updated.site_url || '',
+        friend_links: updated.friend_links || [],
+      })
       setSettingsMsg('保存成功')
     } catch (err) {
       setSettingsMsg(err.message)
@@ -73,7 +162,27 @@ export default function AdminDashboardPage() {
 
   function handleNew() {
     setEditingId(null)
-    setForm(emptyForm)
+    // 尝试恢复草稿
+    const draft = localStorage.getItem('admin_draft')
+    if (draft) {
+      try {
+        const parsed = JSON.parse(draft)
+        if (parsed.title || parsed.content_md) {
+          if (window.confirm('检测到未保存的草稿，是否恢复？')) {
+            setForm(parsed)
+          } else {
+            setForm(emptyForm)
+            localStorage.removeItem('admin_draft')
+          }
+        } else {
+          setForm(emptyForm)
+        }
+      } catch {
+        setForm(emptyForm)
+      }
+    } else {
+      setForm(emptyForm)
+    }
     setError('')
     setUploadError('')
     setView('editor')
@@ -94,6 +203,7 @@ export default function AdminDashboardPage() {
         tags: (detail.tags || []).map((t) => t.slug || t.name).join(', '),
         cover_image: detail.cover_image || '',
         is_published: detail.is_published !== false,
+        is_pinned: detail.is_pinned || false,
       })
     } catch {
       setError('加载文章内容失败')
@@ -118,6 +228,7 @@ export default function AdminDashboardPage() {
       content_md: form.content_md,
       cover_image: form.cover_image,
       is_published: form.is_published,
+      is_pinned: form.is_pinned,
       tags: form.tags.split(',').map((s) => s.trim()).filter(Boolean),
     }
     try {
@@ -126,6 +237,7 @@ export default function AdminDashboardPage() {
       } else {
         await adminCreatePost(token, data)
       }
+      localStorage.removeItem('admin_draft')
       await loadPosts()
       setView('list')
     } catch (err) {
@@ -175,11 +287,55 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function handleApproveComment(id) {
+    try { await approveComment(id); loadComments() } catch { /* ignore */ }
+  }
+
+  async function handleDeleteComment(id) {
+    if (!window.confirm('确定删除此评论？')) return
+    try { await deleteComment(id); loadComments() } catch { /* ignore */ }
+  }
+
+  async function handleDeleteImage(filename) {
+    if (!window.confirm(`确定删除图片 ${filename}？`)) return
+    try { await deleteAdminImage(filename); loadImages() } catch { /* ignore */ }
+  }
+
+  // 友链管理
+  function addFriendLink() {
+    setSiteSettings((prev) => ({
+      ...prev,
+      friend_links: [...(prev.friend_links || []), { name: '', url: '', description: '', avatar: '' }],
+    }))
+  }
+
+  function removeFriendLink(index) {
+    setSiteSettings((prev) => ({
+      ...prev,
+      friend_links: prev.friend_links.filter((_, i) => i !== index),
+    }))
+  }
+
+  function updateFriendLink(index, field, value) {
+    setSiteSettings((prev) => ({
+      ...prev,
+      friend_links: prev.friend_links.map((item, i) => i === index ? { ...item, [field]: value } : item),
+    }))
+  }
+
   const inputStyle = {
     backgroundColor: 'var(--bg-canvas)',
     border: '1px solid var(--border-muted)',
     color: 'var(--text-primary)',
   }
+
+  const tabItems = [
+    { key: 'posts', label: '文章管理', icon: FileText },
+    { key: 'comments', label: '评论管理', icon: MessageSquare },
+    { key: 'settings', label: '站点设置', icon: Settings },
+    { key: 'stats', label: '数据统计', icon: BarChart3 },
+    { key: 'images', label: '图片管理', icon: Image },
+  ]
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
@@ -194,17 +350,14 @@ export default function AdminDashboardPage() {
             <LogOut size={16} /> 退出登录
           </button>
         </div>
-        <div className="flex gap-6 -mb-px">
-          <button onClick={() => { setTab('posts'); setView('list') }}
-            className="flex items-center gap-2 pb-3 text-sm font-medium transition-colors duration-200"
-            style={{ color: tab === 'posts' ? 'var(--accent)' : 'var(--text-tertiary)', borderBottom: tab === 'posts' ? '2px solid var(--accent)' : '2px solid transparent' }}>
-            <FileText size={15} /> 文章管理
-          </button>
-          <button onClick={() => setTab('settings')}
-            className="flex items-center gap-2 pb-3 text-sm font-medium transition-colors duration-200"
-            style={{ color: tab === 'settings' ? 'var(--accent)' : 'var(--text-tertiary)', borderBottom: tab === 'settings' ? '2px solid var(--accent)' : '2px solid transparent' }}>
-            <Settings size={15} /> 站点设置
-          </button>
+        <div className="flex gap-6 -mb-px overflow-x-auto">
+          {tabItems.map(({ key, label, icon: Icon }) => (
+            <button key={key} onClick={() => { setTab(key); if (key === 'posts') setView('list') }}
+              className="flex items-center gap-2 pb-3 text-sm font-medium transition-colors duration-200 whitespace-nowrap"
+              style={{ color: tab === key ? 'var(--accent)' : 'var(--text-tertiary)', borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent' }}>
+              <Icon size={15} /> {label}
+            </button>
+          ))}
         </div>
       </header>
 
@@ -215,7 +368,8 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {tab === 'posts' && view === 'list' ? (
+        {/* 文章管理 - 列表 */}
+        {tab === 'posts' && view === 'list' && (
           <>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>文章管理</h2>
@@ -226,73 +380,84 @@ export default function AdminDashboardPage() {
               </button>
             </div>
             <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>标题</th>
-                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>状态</th>
-                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>浏览</th>
-                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>日期</th>
-                    <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>标签</th>
-                    <th className="text-right px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {posts.map((post) => (
-                    <tr key={post.slug} style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                      <td className="px-6 py-4 font-medium" style={{ color: 'var(--text-primary)' }}>
-                        <div className="flex items-center gap-2">
-                          {post.cover_image && (
-                            <img src={proxyImageUrl(post.cover_image)} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                          )}
-                          <span>{post.title}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        {post.is_published !== false ? (
-                          <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
-                            <Eye size={12} /> 已发布
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>
-                            <EyeOff size={12} /> 草稿
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{post.view_count || 0}</td>
-                      <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{formatDate(post.created_at)}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-1 flex-wrap">
-                          {(post.tags || []).map((t) => (
-                            <span key={t.slug} className="px-2 py-0.5 rounded text-xs"
-                              style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>{t.name}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button onClick={() => handleEdit(post)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-gray-100" title="编辑">
-                          <Pencil size={15} style={{ color: 'var(--accent)' }} />
-                        </button>
-                        <button onClick={() => handleDelete(post)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-red-50 ml-1" title="删除">
-                          <Trash2 size={15} style={{ color: '#ef4444' }} />
-                        </button>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>标题</th>
+                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>状态</th>
+                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>浏览</th>
+                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>日期</th>
+                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>标签</th>
+                      <th className="text-right px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>操作</th>
                     </tr>
-                  ))}
-                  {posts.length === 0 && (
-                    <tr><td colSpan={6} className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>暂无文章</td></tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {posts.map((post) => (
+                      <tr key={post.slug || post.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                        <td className="px-6 py-4 font-medium" style={{ color: 'var(--text-primary)' }}>
+                          <div className="flex items-center gap-2">
+                            {post.cover_image && (
+                              <img src={proxyImageUrl(post.cover_image)} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                            )}
+                            <span>{post.title}</span>
+                            {post.is_pinned && <Pin size={12} style={{ color: 'var(--accent)' }} />}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {post.is_published !== false ? (
+                            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                              <Eye size={12} /> 已发布
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>
+                              <EyeOff size={12} /> 草稿
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{post.view_count || 0}</td>
+                        <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{formatDate(post.created_at)}</td>
+                        <td className="px-6 py-4">
+                          <div className="flex gap-1 flex-wrap">
+                            {(post.tags || []).map((t) => (
+                              <span key={t.slug} className="px-2 py-0.5 rounded text-xs"
+                                style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>{t.name}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button onClick={() => handleEdit(post)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-gray-100" title="编辑">
+                            <Pencil size={15} style={{ color: 'var(--accent)' }} />
+                          </button>
+                          <button onClick={() => handleDelete(post)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-red-50 ml-1" title="删除">
+                            <Trash2 size={15} style={{ color: '#ef4444' }} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {posts.length === 0 && (
+                      <tr><td colSpan={6} className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>暂无文章</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </>
-        ) : tab === 'posts' && view === 'editor' ? (
+        )}
+
+        {/* 文章管理 - 编辑器 */}
+        {tab === 'posts' && view === 'editor' && (
           <div>
-            <button onClick={() => setView('list')}
-              className="flex items-center gap-2 mb-6 text-sm font-medium transition-colors duration-200"
-              style={{ color: 'var(--text-secondary)' }}>
-              <ArrowLeft size={16} /> 返回列表
-            </button>
+            <div className="flex items-center justify-between mb-6">
+              <button onClick={() => setView('list')}
+                className="flex items-center gap-2 text-sm font-medium transition-colors duration-200"
+                style={{ color: 'var(--text-secondary)' }}>
+                <ArrowLeft size={16} /> 返回列表
+              </button>
+              {autoSaveMsg && (
+                <span className="text-xs px-2 py-1 rounded" style={{ color: 'var(--accent)', backgroundColor: 'var(--accent-soft)' }}>{autoSaveMsg}</span>
+              )}
+            </div>
 
             <div className="rounded-xl p-6 sm:p-8 space-y-5"
               style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
@@ -308,8 +473,18 @@ export default function AdminDashboardPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Slug</label>
-                  <input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="url-friendly-slug" />
+                  <div className="flex gap-2">
+                    <input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                      className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="url-friendly-slug" />
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, slug: generateSlug(form.title) })}
+                      className="px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-200 flex-shrink-0"
+                      style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}
+                    >
+                      生成
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -332,21 +507,38 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* 发布状态 */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>发布状态：</label>
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, is_published: !form.is_published })}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
-                  style={{
-                    backgroundColor: form.is_published ? 'var(--accent-soft)' : 'var(--danger-soft)',
-                    color: form.is_published ? 'var(--accent)' : '#ef4444',
-                    border: `1px solid ${form.is_published ? 'var(--accent-border)' : 'var(--danger-border)'}`,
-                  }}
-                >
-                  {form.is_published ? <><Eye size={14} /> 公开发布</> : <><EyeOff size={14} /> 保存为草稿</>}
-                </button>
+              {/* 发布状态和置顶 */}
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>发布状态：</label>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, is_published: !form.is_published })}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
+                    style={{
+                      backgroundColor: form.is_published ? 'var(--accent-soft)' : 'var(--danger-soft)',
+                      color: form.is_published ? 'var(--accent)' : '#ef4444',
+                      border: `1px solid ${form.is_published ? 'var(--accent-border)' : 'var(--danger-border)'}`,
+                    }}
+                  >
+                    {form.is_published ? <><Eye size={14} /> 公开发布</> : <><EyeOff size={14} /> 保存为草稿</>}
+                  </button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>置顶：</label>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, is_pinned: !form.is_pinned })}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
+                    style={{
+                      backgroundColor: form.is_pinned ? 'var(--accent-soft)' : 'var(--bg-canvas)',
+                      color: form.is_pinned ? 'var(--accent)' : 'var(--text-tertiary)',
+                      border: `1px solid ${form.is_pinned ? 'var(--accent-border)' : 'var(--border-muted)'}`,
+                    }}
+                  >
+                    <Pin size={14} /> {form.is_pinned ? '已置顶' : '未置顶'}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -395,7 +587,66 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           </div>
-        ) : tab === 'settings' ? (
+        )}
+
+        {/* 评论管理 */}
+        {tab === 'comments' && (
+          <div>
+            <h2 className="text-lg font-semibold mb-6" style={{ color: 'var(--text-primary)' }}>评论管理</h2>
+            <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+              {commentsLoading ? (
+                <div className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>加载中...</div>
+              ) : comments.length === 0 ? (
+                <div className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>暂无评论</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>文章</th>
+                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>昵称</th>
+                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>内容</th>
+                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>IP</th>
+                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>状态</th>
+                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>日期</th>
+                        <th className="text-right px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comments.map((c) => (
+                        <tr key={c.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                          <td className="px-6 py-4 max-w-[120px] truncate" style={{ color: 'var(--text-primary)' }}>{c.post_title || c.post_slug || '-'}</td>
+                          <td className="px-6 py-4 font-medium" style={{ color: 'var(--accent)' }}>{c.nickname}</td>
+                          <td className="px-6 py-4 max-w-[200px] truncate" style={{ color: 'var(--text-secondary)' }}>{c.content}</td>
+                          <td className="px-6 py-4 text-xs" style={{ color: 'var(--text-faint)' }}>{c.ip || '-'}</td>
+                          <td className="px-6 py-4">
+                            {c.is_approved ? (
+                              <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>已审核</span>
+                            ) : (
+                              <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>待审核</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{formatDate(c.created_at)}</td>
+                          <td className="px-6 py-4 text-right whitespace-nowrap">
+                            <button onClick={() => handleApproveComment(c.id)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-gray-100" title={c.is_approved ? '取消审核' : '审核通过'}>
+                              <Check size={15} style={{ color: 'var(--accent)' }} />
+                            </button>
+                            <button onClick={() => handleDeleteComment(c.id)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-red-50 ml-1" title="删除">
+                              <Trash2 size={15} style={{ color: '#ef4444' }} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 站点设置 */}
+        {tab === 'settings' && (
           <div className="rounded-xl p-6 sm:p-8 space-y-5"
             style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
             <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>站点设置</h2>
@@ -417,6 +668,12 @@ export default function AdminDashboardPage() {
               <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>个人简介</label>
               <input value={siteSettings.bio} onChange={(e) => setSiteSettings({ ...siteSettings, bio: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>站点 URL</label>
+              <input value={siteSettings.site_url} onChange={(e) => setSiteSettings({ ...siteSettings, site_url: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://563118077.xyz" />
             </div>
 
             <div className="space-y-1">
@@ -443,13 +700,109 @@ export default function AdminDashboardPage() {
                 rows={3} className="w-full px-4 py-2.5 rounded-lg text-sm outline-none resize-none" style={inputStyle} />
             </div>
 
+            {/* 友链管理 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>友情链接</label>
+                <button type="button" onClick={addFriendLink}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-200"
+                  style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}>
+                  <Plus size={12} /> 添加友链
+                </button>
+              </div>
+              {(siteSettings.friend_links || []).map((link, i) => (
+                <div key={i} className="rounded-lg p-4 space-y-2" style={{ border: '1px solid var(--border-muted)' }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>友链 #{i + 1}</span>
+                    <button type="button" onClick={() => removeFriendLink(i)} className="p-1 rounded hover:bg-red-50">
+                      <X size={14} style={{ color: '#ef4444' }} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input value={link.name} onChange={(e) => updateFriendLink(i, 'name', e.target.value)}
+                      className="px-3 py-2 rounded-lg text-sm outline-none" style={inputStyle} placeholder="名称" />
+                    <input value={link.url} onChange={(e) => updateFriendLink(i, 'url', e.target.value)}
+                      className="px-3 py-2 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://..." />
+                    <input value={link.description} onChange={(e) => updateFriendLink(i, 'description', e.target.value)}
+                      className="px-3 py-2 rounded-lg text-sm outline-none" style={inputStyle} placeholder="描述" />
+                    <input value={link.avatar} onChange={(e) => updateFriendLink(i, 'avatar', e.target.value)}
+                      className="px-3 py-2 rounded-lg text-sm outline-none" style={inputStyle} placeholder="头像 URL" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
             <button onClick={handleSaveSettings} disabled={settingsSaving}
               className="px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50"
               style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
               {settingsSaving ? '保存中...' : '保存设置'}
             </button>
           </div>
-        ) : null}
+        )}
+
+        {/* 数据统计 */}
+        {tab === 'stats' && (
+          <div>
+            <h2 className="text-lg font-semibold mb-6" style={{ color: 'var(--text-primary)' }}>数据统计</h2>
+            {statsLoading ? (
+              <div className="text-sm" style={{ color: 'var(--text-faint)' }}>加载中...</div>
+            ) : adminStats ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                {[
+                  { label: '总文章数', value: adminStats.total_posts ?? '-', icon: FileText },
+                  { label: '草稿数', value: adminStats.draft_posts ?? '-', icon: EyeOff },
+                  { label: '总浏览量', value: adminStats.total_views ?? '-', icon: Eye },
+                  { label: '总评论数', value: adminStats.total_comments ?? '-', icon: MessageSquare },
+                  { label: '总点赞数', value: adminStats.total_likes ?? '-', icon: '❤️' },
+                ].map(({ label, value, icon: Icon }) => (
+                  <div key={label} className="rounded-xl p-6 text-center"
+                    style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+                    <div className="mb-2">
+                      {typeof Icon === 'string' ? <span className="text-2xl">{Icon}</span> : <Icon size={24} style={{ color: 'var(--accent)', margin: '0 auto' }} />}
+                    </div>
+                    <div className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{value}</div>
+                    <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm" style={{ color: 'var(--text-faint)' }}>暂无统计数据</div>
+            )}
+          </div>
+        )}
+
+        {/* 图片管理 */}
+        {tab === 'images' && (
+          <div>
+            <h2 className="text-lg font-semibold mb-6" style={{ color: 'var(--text-primary)' }}>图片管理</h2>
+            {imagesLoading ? (
+              <div className="text-sm" style={{ color: 'var(--text-faint)' }}>加载中...</div>
+            ) : images.length === 0 ? (
+              <div className="text-sm" style={{ color: 'var(--text-faint)' }}>暂无已上传图片</div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                {images.map((img) => {
+                  const filename = typeof img === 'string' ? img : img.filename || img.name
+                  const url = typeof img === 'string' ? img : img.url || `/api/admin/images/${filename}`
+                  return (
+                    <div key={filename} className="rounded-xl overflow-hidden group relative"
+                      style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+                      <div className="w-full h-36 overflow-hidden">
+                        <img src={proxyImageUrl(url)} alt={filename} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </div>
+                      <div className="p-3 flex items-center justify-between">
+                        <span className="text-xs truncate flex-1" style={{ color: 'var(--text-tertiary)' }}>{filename}</span>
+                        <button onClick={() => handleDeleteImage(filename)} className="p-1 rounded hover:bg-red-50 flex-shrink-0 ml-2" title="删除">
+                          <Trash2 size={14} style={{ color: '#ef4444' }} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </main>
   )

@@ -2,18 +2,9 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { MessageCircle, Send } from 'lucide-react'
 import { fetchComments, postComment } from '../api/posts'
+import { timeAgo } from '../utils/date'
 
-function timeAgo(dateStr) {
-  if (!dateStr) return ''
-  const now = new Date()
-  const d = new Date(dateStr)
-  const diff = Math.floor((now - d) / 1000)
-  if (diff < 60) return '刚刚'
-  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`
-  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`
-  if (diff < 2592000) return `${Math.floor(diff / 86400)} 天前`
-  return d.toLocaleDateString('zh-CN')
-}
+const MAX_CONTENT_LENGTH = 500
 
 export default function CommentSection({ slug }) {
   const [comments, setComments] = useState([])
@@ -60,29 +51,35 @@ export default function CommentSection({ slug }) {
 
       {/* 评论表单 */}
       <form onSubmit={handleSubmit} className="mb-8 space-y-4">
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-4">
           <input
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
-            className="flex-shrink-0 w-40 px-4 py-2.5 rounded-lg text-sm outline-none"
+            className="sm:flex-shrink-0 sm:w-40 w-full px-4 py-2.5 rounded-lg text-sm outline-none"
             style={inputStyle}
             placeholder="你的昵称"
             maxLength={50}
             required
           />
-          <input
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none"
-            style={inputStyle}
-            placeholder="说点什么..."
-            maxLength={500}
-            required
-          />
+          <div className="flex-1 relative">
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value.slice(0, MAX_CONTENT_LENGTH))}
+              className="w-full px-4 py-2.5 rounded-lg text-sm outline-none resize-none"
+              style={inputStyle}
+              placeholder="说点什么..."
+              maxLength={MAX_CONTENT_LENGTH}
+              rows={2}
+              required
+            />
+            <span className="absolute right-3 bottom-2 text-xs" style={{ color: content.length >= MAX_CONTENT_LENGTH ? '#ef4444' : 'var(--text-faint)' }}>
+              {content.length}/{MAX_CONTENT_LENGTH}
+            </span>
+          </div>
           <button
             type="submit"
             disabled={submitting}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 flex-shrink-0"
+            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 flex-shrink-0"
             style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
           >
             <Send size={14} />

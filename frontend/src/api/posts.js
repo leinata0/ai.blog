@@ -38,3 +38,7 @@ export async function fetchArchive() {
 export async function fetchAllTags() {
   return apiGet('/api/tags')
 }
+
+export const likePost = (slug) => apiPost(`/api/posts/${slug}/like`)
+export const fetchRelatedPosts = (slug) => apiGet(`/api/posts/${slug}/related`)
+export const fetchFriendLinks = () => apiGet('/api/friends')

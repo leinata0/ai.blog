@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Menu, X, Sun, Moon } from 'lucide-react'
+import { useTheme } from '../contexts/ThemeContext'
 
 const NAV_ITEMS = [
   { label: '首页', to: '/' },
   { label: '归档', to: '/archive' },
   { label: '标签', to: '/tags' },
+  { label: '友链', to: '/friends' },
 ]
 
 function NavLink({ to, active, children, onClick }) {
@@ -28,26 +30,10 @@ function NavLink({ to, active, children, onClick }) {
   )
 }
 
-function useTheme() {
-  const [dark, setDark] = useState(() => {
-    if (typeof window === 'undefined') return false
-    const saved = localStorage.getItem('theme')
-    if (saved) return saved === 'dark'
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-  })
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
-    localStorage.setItem('theme', dark ? 'dark' : 'light')
-  }, [dark])
-
-  return [dark, setDark]
-}
-
 export default function Navbar() {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [dark, setDark] = useTheme()
+  const { dark, toggleTheme } = useTheme()
 
   useEffect(() => {
     setMobileOpen(false)
@@ -75,7 +61,7 @@ export default function Navbar() {
             </NavLink>
           ))}
           <button
-            onClick={() => setDark(!dark)}
+            onClick={toggleTheme}
             className="p-2 rounded-lg transition-colors duration-200"
             style={{ color: 'var(--text-secondary)' }}
             aria-label="切换主题"
@@ -87,7 +73,7 @@ export default function Navbar() {
         {/* 移动端控制 */}
         <div className="flex md:hidden items-center gap-2">
           <button
-            onClick={() => setDark(!dark)}
+            onClick={toggleTheme}
             className="p-2 rounded-lg"
             style={{ color: 'var(--text-secondary)' }}
             aria-label="切换主题"

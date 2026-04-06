@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
+import { Eye, EyeOff, ArrowLeft } from 'lucide-react'
 import { adminLogin } from '../api/admin'
 import { setToken } from '../api/auth'
 
@@ -7,6 +8,7 @@ export default function AdminLoginPage() {
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -26,7 +28,15 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+    <main className="min-h-screen flex items-center justify-center relative" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <Link
+        to="/"
+        className="absolute top-6 left-6 flex items-center gap-1.5 text-sm transition-colors duration-200 hover:text-[var(--accent)]"
+        style={{ color: 'var(--text-faint)' }}
+      >
+        <ArrowLeft size={14} /> 返回首页
+      </Link>
+
       <form
         onSubmit={handleSubmit}
         className="w-full max-w-sm rounded-xl p-8 space-y-5"
@@ -37,7 +47,8 @@ export default function AdminLoginPage() {
         </h1>
 
         {error && (
-          <div className="text-sm text-center py-2 rounded-lg" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>
+          <div className="flex items-center gap-2 text-sm py-3 px-4 rounded-lg" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444', border: '1px solid var(--danger-border)' }}>
+            <span>⚠️</span>
             {error}
           </div>
         )}
@@ -61,19 +72,30 @@ export default function AdminLoginPage() {
 
         <div className="space-y-1">
           <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>密码</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-lg text-sm outline-none transition-all duration-200"
-            style={{
-              backgroundColor: 'var(--bg-canvas)',
-              border: '1px solid var(--border-muted)',
-              color: 'var(--text-primary)',
-            }}
-            placeholder="••••••"
-            required
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-2.5 pr-10 rounded-lg text-sm outline-none transition-all duration-200"
+              style={{
+                backgroundColor: 'var(--bg-canvas)',
+                border: '1px solid var(--border-muted)',
+                color: 'var(--text-primary)',
+              }}
+              placeholder="••••••"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5"
+              style={{ color: 'var(--text-faint)' }}
+              aria-label={showPassword ? '隐藏密码' : '显示密码'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </div>
 
         <button

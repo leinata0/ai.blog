@@ -1,80 +1,36 @@
+import { apiGet, apiPost, apiPut, apiDelete } from './client'
+
 export async function adminLogin(username, password) {
-  const resp = await fetch('/api/admin/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  })
-  if (!resp.ok) throw new Error('登录失败')
-  return resp.json()
+  return apiPost('/api/admin/login', { username, password })
 }
 
-function authHeaders(token) {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  }
-}
-
-function authOnlyHeaders(token) {
-  return {
-    Authorization: `Bearer ${token}`,
-  }
-}
-
-export async function adminCreatePost(token, data) {
-  const resp = await fetch('/api/admin/posts', {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(data),
-  })
-  if (!resp.ok) throw new Error(`创建失败: ${resp.status}`)
-  return resp.json()
-}
-
-export async function adminUpdatePost(token, id, data) {
-  const resp = await fetch(`/api/admin/posts/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(token),
-    body: JSON.stringify(data),
-  })
-  if (!resp.ok) throw new Error(`更新失败: ${resp.status}`)
-  return resp.json()
-}
-
-export async function adminDeletePost(token, id) {
-  const resp = await fetch(`/api/admin/posts/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(token),
-  })
-  if (!resp.ok) throw new Error(`删除失败: ${resp.status}`)
-  return resp.json()
-}
+export const adminCreatePost = (token, data) => apiPost('/api/admin/posts', data, { auth: true })
+export const adminUpdatePost = (token, id, data) => apiPut(`/api/admin/posts/${id}`, data, { auth: true })
+export const adminDeletePost = (token, id) => apiDelete(`/api/admin/posts/${id}`, { auth: true })
 
 export async function adminUploadImage(token, file) {
   const formData = new FormData()
   formData.append('file', file)
-
-  const resp = await fetch('/api/admin/upload', {
-    method: 'POST',
-    headers: authOnlyHeaders(token),
-    body: formData,
-  })
-  if (!resp.ok) throw new Error(`上传图片失败: ${resp.status}`)
-  return resp.json()
+  return apiPost('/api/admin/upload', formData, { auth: true })
 }
 
-export async function fetchSettings() {
-  const resp = await fetch('/api/settings')
-  if (!resp.ok) throw new Error(`获取设置失败: ${resp.status}`)
-  return resp.json()
+export const fetchSettings = () => apiGet('/api/settings')
+export const updateSettings = (data) => apiPut('/api/settings', data, { auth: true })
+
+export const fetchAdminPosts = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/posts${qs ? '?' + qs : ''}`, { auth: true })
 }
 
-export async function updateSettings(data) {
-  const resp = await fetch('/api/settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-  if (!resp.ok) throw new Error(`保存设置失败: ${resp.status}`)
-  return resp.json()
+export const fetchAdminComments = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/comments${qs ? '?' + qs : ''}`, { auth: true })
 }
+
+export const approveComment = (id) => apiPut(`/api/admin/comments/${id}/approve`, {}, { auth: true })
+export const deleteComment = (id) => apiDelete(`/api/admin/comments/${id}`, { auth: true })
+
+export const fetchAdminStats = () => apiGet('/api/admin/stats', { auth: true })
+
+export const fetchAdminImages = () => apiGet('/api/admin/images', { auth: true })
+export const deleteAdminImage = (filename) => apiDelete(`/api/admin/images/${filename}`, { auth: true })

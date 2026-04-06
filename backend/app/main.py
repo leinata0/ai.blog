@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
+from xml.etree.ElementTree import Element, SubElement, tostring
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_admin
 from app.db import Base, SessionLocal, engine, get_db
 from app.models import Post, Tag, Comment, SiteSettings
 from app.routers.posts import router as posts_router
@@ -15,38 +17,9 @@ from app.seed import seed_data
 from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
 
 
-def _needs_migration(db) -> bool:
-    """检测旧表是否缺少新字段，如果缺少则需要重建"""
-    try:
-        from sqlalchemy import inspect as sa_inspect
-        inspector = sa_inspect(engine)
-        post_cols = {c["name"] for c in inspector.get_columns("posts")}
-        if "created_at" not in post_cols or "is_published" not in post_cols:
-            return True
-        if inspector.has_table("site_settings"):
-            settings_cols = {c["name"] for c in inspector.get_columns("site_settings")}
-            if "hero_image" not in settings_cols:
-                return True
-        return False
-    except Exception:
-        return False
-
-
 @asynccontextmanager
 async def lifespan(app):
     get_uploads_dir().mkdir(parents=True, exist_ok=True)
-
-    needs_rebuild = False
-    try:
-        if engine.dialect.has_table(engine.connect(), "posts"):
-            with SessionLocal() as db:
-                needs_rebuild = _needs_migration(db)
-    except Exception:
-        needs_rebuild = True
-
-    if needs_rebuild:
-        Base.metadata.drop_all(bind=engine)
-
     Base.metadata.create_all(bind=engine)
 
     with SessionLocal() as db:
@@ -64,7 +37,12 @@ get_uploads_dir().mkdir(parents=True, exist_ok=True)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://563118077.xyz",
+        "https://www.563118077.xyz",
+        "https://api.563118077.xyz",
+        "http://localhost:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,13 +69,22 @@ def get_settings(db: Session = Depends(get_db)):
         "hero_image": s.hero_image,
         "github_link": s.github_link,
         "announcement": s.announcement,
+        "site_url": s.site_url,
+        "friend_links": s.friend_links,
     }
 
 
 @app.put("/api/settings", response_model=SiteSettingsOut)
-def update_settings(body: SiteSettingsUpdate, db: Session = Depends(get_db)):
+def update_settings(
+    body: SiteSettingsUpdate,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
     s = db.query(SiteSettings).first()
-    for field in ("author_name", "bio", "avatar_url", "hero_image", "github_link", "announcement"):
+    for field in (
+        "author_name", "bio", "avatar_url", "hero_image",
+        "github_link", "announcement", "site_url", "friend_links",
+    ):
         val = getattr(body, field)
         if val is not None:
             setattr(s, field, val)
@@ -110,6 +97,8 @@ def update_settings(body: SiteSettingsUpdate, db: Session = Depends(get_db)):
         "hero_image": s.hero_image,
         "github_link": s.github_link,
         "announcement": s.announcement,
+        "site_url": s.site_url,
+        "friend_links": s.friend_links,
     }
 
 
@@ -117,9 +106,72 @@ def update_settings(body: SiteSettingsUpdate, db: Session = Depends(get_db)):
 def get_stats(db: Session = Depends(get_db)):
     post_count = db.query(func.count(Post.id)).scalar()
     tag_count = db.query(func.count(Tag.id)).scalar()
-    category_count = tag_count  # tags serve as categories in this schema
+    category_count = tag_count
     return {
         "post_count": post_count,
         "tag_count": tag_count,
         "category_count": category_count,
     }
+
+
+# ── RSS Feed ──
+
+@app.get("/feed.xml")
+def rss_feed(db: Session = Depends(get_db)):
+    site_url = "https://563118077.xyz"
+    posts = db.execute(
+        select(Post)
+        .where(Post.is_published == True)
+        .order_by(Post.created_at.desc())
+        .limit(20)
+    ).scalars().all()
+
+    rss = Element("rss", version="2.0")
+    channel = SubElement(rss, "channel")
+    SubElement(channel, "title").text = "AI Dev Blog"
+    SubElement(channel, "link").text = site_url
+    SubElement(channel, "description").text = "极客新生的技术博客"
+    SubElement(channel, "language").text = "zh-CN"
+
+    for post in posts:
+        item = SubElement(channel, "item")
+        SubElement(item, "title").text = post.title
+        SubElement(item, "link").text = f"{site_url}/posts/{post.slug}"
+        SubElement(item, "description").text = post.summary
+        SubElement(item, "guid").text = f"{site_url}/posts/{post.slug}"
+        if post.created_at:
+            SubElement(item, "pubDate").text = post.created_at.strftime(
+                "%a, %d %b %Y %H:%M:%S +0000"
+            )
+
+    xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(rss, encoding="unicode")
+    return Response(content=xml_str, media_type="application/xml")
+
+
+# ── Sitemap ──
+
+@app.get("/sitemap.xml")
+def sitemap(db: Session = Depends(get_db)):
+    site_url = "https://563118077.xyz"
+    posts = db.execute(
+        select(Post).where(Post.is_published == True).order_by(Post.created_at.desc())
+    ).scalars().all()
+
+    urlset = Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+
+    # 首页
+    url_el = SubElement(urlset, "url")
+    SubElement(url_el, "loc").text = site_url
+    SubElement(url_el, "changefreq").text = "daily"
+    SubElement(url_el, "priority").text = "1.0"
+
+    for post in posts:
+        url_el = SubElement(urlset, "url")
+        SubElement(url_el, "loc").text = f"{site_url}/posts/{post.slug}"
+        if post.updated_at:
+            SubElement(url_el, "lastmod").text = post.updated_at.strftime("%Y-%m-%d")
+        SubElement(url_el, "changefreq").text = "weekly"
+        SubElement(url_el, "priority").text = "0.8"
+
+    xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(urlset, encoding="unicode")
+    return Response(content=xml_str, media_type="application/xml")

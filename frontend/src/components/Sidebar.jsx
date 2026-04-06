@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { apiGet } from '../api/client'
+import { useSite } from '../contexts/SiteContext'
 import { proxyImageUrl } from '../utils/proxyImage'
 
 const hoverGlow = {
@@ -11,13 +10,7 @@ const hoverGlow = {
 }
 
 export default function Sidebar() {
-  const [settings, setSettings] = useState(null)
-  const [stats, setStats] = useState(null)
-
-  useEffect(() => {
-    apiGet('/api/settings').then(setSettings).catch(() => {})
-    apiGet('/api/stats').then(setStats).catch(() => {})
-  }, [])
+  const { settings, stats } = useSite()
 
   const name = settings?.author_name || '极客新生'
   const bio = settings?.bio || ''
