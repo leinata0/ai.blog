@@ -169,7 +169,41 @@ async function checkSlugExists(slug) {
   }
 }
 
-async function publishPost(token, post) {
+/** 符合后端 PostCreateRequest：slug 仅小写字母数字与连字符 */
+function normalizeForApi(post, fixedSlug) {
+  const slug =
+    fixedSlug ||
+    String(post.slug || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 200) ||
+    "ai-daily-post"
+
+  const title = String(post.title || "AI 日报").slice(0, 200)
+  let summary = String(post.summary || "").slice(0, 300)
+  if (summary.length < 1) summary = "今日 AI 领域热点摘要（自动生成）。".slice(0, 300)
+
+  let content_md = String(post.content_md || "")
+  if (content_md.length < 1) content_md = "## 内容\n\n（正文生成失败，请检查 OpenRouter 返回。）"
+
+  const rawTags = Array.isArray(post.tags) ? post.tags : ["ai", "daily"]
+  const tags = rawTags
+    .map((t) =>
+      String(t)
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 48)
+    )
+    .filter(Boolean)
+    .slice(0, 8)
+
+  return { title, slug, summary, content_md, tags: tags.length ? tags : ["ai", "daily"] }
+}
+
+async function publishPost(token, payload) {
   const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts`, {
     method: "POST",
     headers: {
@@ -177,11 +211,11 @@ async function publishPost(token, post) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
-      title: post.title,
-      slug: post.slug,
-      summary: post.summary,
-      content_md: post.content_md,
-      tags: post.tags || ["ai", "daily"],
+      title: payload.title,
+      slug: payload.slug,
+      summary: payload.summary,
+      content_md: payload.content_md,
+      tags: payload.tags,
       is_published: true,
       is_pinned: false,
       cover_image: "",
@@ -275,16 +309,19 @@ ${newsContent}`
   const post = await callQwen(systemPrompt, userPrompt)
   console.log(`✅ AI 生成完成: ${post.title}`)
 
+  const apiBody = normalizeForApi(post, slug)
+
   // 步骤3：发布
   console.log("🔑 登录管理后台...")
   const token = await getAdminToken()
 
   console.log("📤 发布文章...")
-  const result = await publishPost(token, post)
-  console.log(`🎉 发布成功! ID: ${result.id}, slug: ${post.slug}`)
+  const result = await publishPost(token, apiBody)
+  console.log(`🎉 发布成功! ID: ${result.id}, slug: ${apiBody.slug}`)
 }
 
 main().catch((err) => {
   console.error(`❌ 致命错误: ${err.message}`)
+  if (err.stack) console.error(err.stack)
   process.exit(1)
 })

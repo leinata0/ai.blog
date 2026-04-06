@@ -34,9 +34,9 @@ jobs:
           if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::缺少 ADMIN_PASSWORD，请在仓库机密中添加"; exit 1; fi
           echo "机密已配置（已打码）"
 
+      # 勿使用 | head：GitHub Actions 默认 pipefail，会导致 npx 侧 SIGPIPE 非零退出
       - name: 验证 aread（npx，与脚本一致）
-        run: |
-          npx --yes aread-cli -h | head -5
+        run: npx --yes aread-cli -h
 
       - name: 生成并发布 AI 日报
         env:
