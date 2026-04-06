@@ -1,0 +1,44 @@
+name: AI 日报自动生成
+
+on:
+  # 每天 UTC 01:00（北京时间 09:00）自动运行
+  schedule:
+    - cron: '0 1 * * *'
+  # 手动触发（方便测试）
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安装 Python（aread 搜索依赖）
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 aread-cli
+        run: npm install -g aread-cli
+
+      - name: 测试 aread
+        run: |
+          echo "测试搜索..."
+          npx aread-cli -r -s "AI news" -n 2 | head -20 || echo "搜索测试完成"
+          echo "测试阅读..."
+          npx aread-cli -r "https://techcrunch.com/category/artificial-intelligence/" | head -20 || echo "阅读测试完成"
+
+      - name: 生成并发布 AI 日报
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          BLOG_API_BASE: https://api.563118077.xyz
+        run: node scripts/auto-blog.mjs
