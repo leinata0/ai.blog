@@ -288,8 +288,9 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
 /** 阶段一：选题 + 大纲（token 消耗极少） */
 async function generateOutline(materials, today) {
   console.log("📝 阶段一：LLM 选题与大纲…")
-  const system = `你是一位资深科技博主。从用户提供的多篇素材中，选出 1-2 个最有深度、最值得展开的话题作为主线，其余可作为简短提及。
-返回 JSON：{"topic":"主线话题（一句话）","outline":["## 章节标题1","## 章节标题2",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...]}`
+  const system = `你是一位资深中文科技博主。从用户提供的多篇素材中，选出 1-2 个最有深度、最值得展开的话题作为主线，其余可作为简短提及。
+大纲至少 5 个章节，每个章节标题必须是中文（禁止英文标题）。
+返回 JSON：{"topic":"主线话题（一句话）","outline":["## 中文章节标题1","## 中文章节标题2",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...]}`
   const user = `【${today}】以下是今日抓取的素材，请选题并生成大纲：\n\n${materials.slice(0, 12000)}`
   return callLLM(system, user, 2048)
 }
@@ -306,9 +307,9 @@ async function generateArticle(outline, materials, today) {
 键：title、slug、summary、content_md、tags。
 
 # 硬性约束
-- content_md：纯 Markdown 正文，用 \`##\` 叙事化标题（利于 TOC），禁止开头写 \`#\`。
-- 正文 1500-3000 字，视素材丰富度自然调节。宁可写短写精，不要为凑字数重复或注水。
-- title：10-28 字，概括主线。禁止「日报」「周刊」「速递」及任何日期。
+- content_md：纯 Markdown 正文，用 \`##\` 叙事化中文标题（利于 TOC），所有小标题必须是中文，禁止使用英文标题，禁止开头写 \`#\`。
+- 正文不少于 2500 字，目标 3000-4000 字。每个章节至少 2-3 段，每段 3-5 句话，充分展开论述，给出具体细节、案例和分析。
+- title：10-28 字中文标题，概括主线。禁止「日报」「周刊」「速递」及任何日期。
 - slug：必须为 \`ai-daily-${today}\`。
 - summary：不超过 50 字一句话，勿以「本文」「全文」「作者」开头。
 - tags：小写英文 slug，必含 \`ai\`，最多 8 个。
@@ -319,7 +320,9 @@ async function generateArticle(outline, materials, today) {
 - 从素材中选出的主线话题贯穿全文，其余作为简短提及或「延伸阅读」。不要写成新闻罗列。
 - 禁止：「值得关注的是」「不难发现」「总而言之」「在这个快速发展的时代」「让我们拭目以待」「众所周知」
 - 鼓励：直接陈述观点，用「我觉得」「说白了」「有意思的是」等口语化表达。
-- 每节末尾可附原文链接供读者深入。`
+- 每节末尾可附原文链接供读者深入。
+- 重要：所有 ## 标题必须用中文，例如「## AI 投资的现状与趋势」而非「## The Current AI Investment Landscape」。
+- 每个章节要充分展开，不要只写一两句话就结束。深入分析、举例说明、给出自己的看法。`
 
   const user = `【素材日期 ${today}】
 
