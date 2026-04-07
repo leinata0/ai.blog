@@ -27,7 +27,12 @@
       "Bash(pip install:*)",
       "Bash(node --check scripts/auto-blog.mjs)",
       "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\(0,'utf8'\\);const j=JSON.parse\\(d\\);console.log\\(j.content_md?.slice\\(0,5000\\)||'NOT FOUND'\\)\")",
-      "Bash(node -c scripts/auto-blog.mjs)"
+      "Bash(node -c scripts/auto-blog.mjs)",
+      "WebFetch(domain:docs.x.ai)",
+      "WebFetch(domain:apatero.com)",
+      "WebFetch(domain:docs.aimlapi.com)",
+      "WebFetch(domain:linux.do)",
+      "WebFetch(domain:vercel.com)"
     ]
   }
 }

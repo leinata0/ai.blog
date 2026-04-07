@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from fastapi import Depends, FastAPI, Response
+import httpx
+from fastapi import Depends, FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
@@ -110,6 +111,40 @@ def get_stats(db: Session = Depends(get_db)):
         "post_count": post_count,
         "tag_count": tag_count,
     }
+
+
+# ── 图片代理 ──
+
+_http_client = httpx.AsyncClient(
+    follow_redirects=True,
+    timeout=15.0,
+    limits=httpx.Limits(max_connections=20),
+    headers={"User-Agent": "BlogImageProxy/1.0"},
+)
+
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"}
+
+
+@app.get("/proxy-image")
+async def proxy_image(url: str = Query(..., min_length=8)):
+    """代理外部图片，解决热链保护和 CORS 问题"""
+    if not url.startswith(("http://", "https://")):
+        return Response(status_code=400, content="Invalid URL")
+    try:
+        resp = await _http_client.get(url)
+        ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+        if resp.status_code != 200 or ct not in ALLOWED_CONTENT_TYPES:
+            return Response(status_code=502, content="Upstream image unavailable")
+        return Response(
+            content=resp.content,
+            media_type=ct,
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+    except Exception:
+        return Response(status_code=502, content="Failed to fetch image")
 
 
 # ── RSS Feed ──

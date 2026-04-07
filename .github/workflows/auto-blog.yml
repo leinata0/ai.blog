@@ -42,4 +42,5 @@ jobs:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: node scripts/auto-blog.mjs

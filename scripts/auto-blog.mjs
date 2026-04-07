@@ -21,6 +21,7 @@ const SILICONFLOW_MODEL =
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin"
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const BLOG_API_BASE = process.env.BLOG_API_BASE || "https://api.563118077.xyz"
+const XAI_API_KEY = process.env.XAI_API_KEY?.trim() || ""
 
 const DRY_RUN = process.argv.includes("--dry-run")
 
@@ -200,17 +201,137 @@ async function validateImages(images, concurrency = 5) {
   return valid
 }
 
-/** 将图片 URL 替换为代理 URL */
-function proxyImageUrl(url) {
-  return `${BLOG_API_BASE}/proxy-image?url=${encodeURIComponent(url)}`
+/** 下载外部图片并上传到博客服务器，返回本地永久 URL；失败返回 null */
+async function downloadAndUploadImage(imageUrl, token) {
+  try {
+    // 下载图片
+    const resp = await fetch(imageUrl, {
+      signal: AbortSignal.timeout(15000),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; AutoBlogBot/2.0)" },
+    })
+    if (!resp.ok) return null
+    const ct = resp.headers.get("content-type") || ""
+    if (!ct.startsWith("image/")) return null
+    const buffer = Buffer.from(await resp.arrayBuffer())
+    if (buffer.length < 1000 || buffer.length > 5 * 1024 * 1024) return null
+
+    // 构造文件名
+    const ext = ct.includes("png") ? ".png" : ct.includes("gif") ? ".gif" : ct.includes("webp") ? ".webp" : ".jpg"
+    const filename = `auto-blog-${Date.now()}${ext}`
+
+    // 上传到博客后端
+    const boundary = `----FormBoundary${Date.now()}`
+    const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${ct}\r\n\r\n`
+    const footer = `\r\n--${boundary}--\r\n`
+    const body = Buffer.concat([Buffer.from(header), buffer, Buffer.from(footer)])
+
+    const uploadResp = await fetch(`${BLOG_API_BASE}/api/admin/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      },
+      body,
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!uploadResp.ok) {
+      console.log(`   ⚠️ 上传失败: ${uploadResp.status}`)
+      return null
+    }
+    const data = await uploadResp.json()
+    // 返回完整 URL
+    const localUrl = data.url?.startsWith("http") ? data.url : `${BLOG_API_BASE}${data.url}`
+    return localUrl
+  } catch (err) {
+    console.log(`   ⚠️ 图片下载/上传异常: ${err.message?.slice(0, 100)}`)
+    return null
+  }
 }
 
-/** 替换 content_md 中所有图片 URL 为代理 URL */
-function proxyAllImages(contentMd) {
-  return contentMd.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => {
-    if (url.startsWith(BLOG_API_BASE)) return match
-    return `![${alt}](${proxyImageUrl(url)})`
-  })
+/** 批量下载并上传图片，返回成功的本地 URL 列表 */
+async function downloadAndUploadImages(images, token, maxCount = 3) {
+  const results = []
+  for (const img of images.slice(0, maxCount + 2)) {
+    if (results.length >= maxCount) break
+    console.log(`   📥 下载: ${img.url.slice(0, 80)}…`)
+    const localUrl = await downloadAndUploadImage(img.url, token)
+    if (localUrl) {
+      results.push(localUrl)
+      console.log(`   ✓ 已上传: ${localUrl}`)
+    }
+  }
+  return results
+}
+
+/** 调用 xAI Grok Imagine 生成图片并上传到服务器（备选方案） */
+async function generateImageWithGrok(prompt, token) {
+  if (!XAI_API_KEY) return null
+  try {
+    const resp = await fetch("https://api.x.ai/v1/images/generations", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${XAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "grok-2-image",
+        prompt,
+        n: 1,
+        size: "1024x1024",
+      }),
+      signal: AbortSignal.timeout(30000),
+    })
+    if (!resp.ok) {
+      console.log(`   ⚠️ Grok 生图失败: ${resp.status} ${(await resp.text()).slice(0, 200)}`)
+      return null
+    }
+    const data = await resp.json()
+    const grokUrl = data.data?.[0]?.url
+    if (!grokUrl) return null
+    console.log(`   ✓ Grok 生图成功，上传到服务器…`)
+    // 下载 Grok 图片并上传到自己服务器
+    const localUrl = await downloadAndUploadImage(grokUrl, token)
+    return localUrl
+  } catch (err) {
+    console.log(`   ⚠️ Grok 生图异常: ${err.message}`)
+    return null
+  }
+}
+
+/** 将图片程序化插入 Markdown 正文（在 ## 章节的第一段之后） */
+function insertImagesIntoMarkdown(contentMd, imageUrls) {
+  if (!imageUrls.length) return contentMd
+  const lines = contentMd.split("\n")
+  const insertPoints = [] // 找到每个 ## 章节第一个空行的位置
+  let inSection = false
+  let foundParagraph = false
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith("## ")) {
+      inSection = true
+      foundParagraph = false
+      continue
+    }
+    if (inSection && !foundParagraph && lines[i].trim().length > 0) {
+      foundParagraph = true
+      continue
+    }
+    if (inSection && foundParagraph && lines[i].trim() === "") {
+      insertPoints.push(i)
+      inSection = false
+    }
+  }
+  // 均匀分配图片到插入点，跳过最后一个章节（写在最后）
+  const usablePoints = insertPoints.slice(0, -1)
+  if (usablePoints.length === 0) return contentMd
+  const result = [...lines]
+  let inserted = 0
+  for (let idx = 0; idx < imageUrls.length && idx < usablePoints.length; idx++) {
+    const pos = usablePoints[idx] + inserted
+    const imgMd = `\n![配图](${imageUrls[idx]})\n`
+    result.splice(pos + 1, 0, imgMd)
+    inserted++
+  }
+  return result.join("\n")
 }
 function deduplicateContent(content) {
   const seen = new Set()
@@ -234,19 +355,14 @@ function deduplicateContent(content) {
     .join("\n\n")
 }
 
-/** 将 RSS 条目格式化为带来源标注的素材文本（含图片信息） */
+/** 将 RSS 条目格式化为带来源标注的素材文本 */
 function formatMaterials(items) {
   return items
     .map((item) => {
       const header = `【来源: ${item.source}】${item.title}`
       const body = item.fullText || item.description || ""
       const cleanBody = removeBoilerplate(body)
-      let text = cleanBody.length > 50 ? `${header}\n${cleanBody}` : `${header}\n${item.description || ""}`
-      if (item.images?.length) {
-        const imgList = item.images.slice(0, 3).map((img) => `  - ![${img.alt}](${img.url})`).join("\n")
-        text += `\n【可用图片】\n${imgList}`
-      }
-      return text
+      return cleanBody.length > 50 ? `${header}\n${cleanBody}` : `${header}\n${item.description || ""}`
     })
     .join("\n\n---\n\n")
 }
@@ -358,7 +474,7 @@ async function generateOutline(materials, today) {
 - 所有标题必须是中文，禁止英文标题
 - 大纲应体现叙事逻辑，不是新闻条目罗列
 
-返回 JSON：{"topic":"主线话题（一句话）","outline":["## 一、中文章节标题","### 子标题（可选）","## 二、中文章节标题",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...],"cover_image":"从素材【可用图片】中选一张最能代表主线话题的图片URL，如果没有合适的图片则留空字符串"}`
+返回 JSON：{"topic":"主线话题（一句话）","outline":["## 一、中文章节标题","### 子标题（可选）","## 二、中文章节标题",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...],"cover_image":"从素材【可用图片】中选一张最能代表主线话题的图片URL，如果没有合适的图片则留空字符串","image_prompts":["English prompt for generating an illustration related to the main topic","English prompt for a second illustration","English prompt for a third illustration"]}`
   const user = `【${today}】以下是今日抓取的素材，请选题并生成大纲：\n\n${materials.slice(0, 12000)}`
   return callLLM(system, user, 2048)
 }
@@ -383,6 +499,7 @@ async function generateArticle(outline, materials, today) {
 - tags：小写英文 slug，必含 \`ai\`，最多 8 个。
 - 禁止编造数据。素材弱就写短、标注不确定性。
 - content_md 禁止 HTML，代码用围栏代码块。
+- content_md 中不要插入任何图片标记（图片由系统自动插入）。
 
 # 文章结构规范（严格遵守）
 参考以下结构风格，这是博客的标准格式：
@@ -408,15 +525,7 @@ async function generateArticle(outline, materials, today) {
 - 禁止：「值得关注的是」「不难发现」「总而言之」「在这个快速发展的时代」「让我们拭目以待」「众所周知」
 - 鼓励：直接陈述观点，用「我觉得」「说白了」「有意思的是」等口语化表达。
 - 每节末尾可附原文链接供读者深入。
-- 每个章节要充分展开，不要只写一两句话就结束。深入分析、举例说明、给出自己的看法。
-
-# 图片插入规则
-- 素材中标注了【可用图片】，请在正文中自然地插入这些图片（使用 Markdown 格式 \`![描述](url)\`）。
-- 图片放在相关段落之间，不要放在标题紧下方，也不要连续放两张图。
-- 每篇文章插入 2-5 张图片，选择与当前段落内容最相关的图片。
-- 图片的 alt 文本用中文简短描述图片内容。
-- 只使用素材中提供的图片 URL，不要编造图片地址。
-- 如果素材中没有合适的图片，宁可不插也不要硬插不相关的图。`
+- 每个章节要充分展开，不要只写一两句话就结束。深入分析、举例说明、给出自己的看法。`
 
   const user = `【素材日期 ${today}】
 
@@ -537,12 +646,6 @@ async function main() {
   let materials = formatMaterials(enriched)
   materials = deduplicateContent(materials)
 
-  // 步骤3.5：收集并验证所有图片
-  const allImages = enriched.flatMap((item) => (item.images || []).map((img) => ({ ...img, source: item.source, itemTitle: item.title })))
-  console.log(`🖼️ 共提取 ${allImages.length} 张候选图片，验证可访问性…`)
-  const validImages = allImages.length > 0 ? await validateImages(allImages) : []
-  console.log(`   ✓ ${validImages.length}/${allImages.length} 张图片可用`)
-
   // 后备：RSS 全部失败时用 Jina 直读
   if (materials.length < 300) {
     console.log("⚠️ RSS 素材不足，使用 Jina Reader 后备…")
@@ -563,7 +666,7 @@ async function main() {
   materials = smartTruncate(materials, 26000)
   console.log(`📊 预处理后素材 ${materials.length} 字符`)
 
-  // 步骤4：两阶段 LLM 生成
+  // 步骤4：两阶段 LLM 生成（不含图片，LLM 专注写作质量）
   const outline = await generateOutline(materials, today)
   console.log(`📋 选题: ${outline.topic}`)
   console.log(`📋 大纲: ${outline.outline?.join(" → ")}`)
@@ -571,19 +674,53 @@ async function main() {
   const post = await generateArticle(outline, materials, today)
   console.log(`✅ 生成完成: ${post.title}`)
 
-  // 步骤4.5：代理所有图片 URL
-  post.content_md = proxyAllImages(post.content_md || "")
-
-  // 封面图：优先用 LLM 选的，兜底取第一张有效图片
-  let coverImage = ""
-  const llmCover = outline.cover_image || ""
-  if (llmCover && validImages.some((img) => img.url === llmCover)) {
-    coverImage = proxyImageUrl(llmCover)
-    console.log(`🖼️ 封面图（LLM 选择）: ${llmCover.slice(0, 80)}`)
-  } else if (validImages.length > 0) {
-    coverImage = proxyImageUrl(validImages[0].url)
-    console.log(`🖼️ 封面图（自动选择）: ${validImages[0].url.slice(0, 80)}`)
+  // 步骤4.5：提前登录（图片上传需要 token）
+  let token = null
+  if (!DRY_RUN) {
+    console.log("🔑 登录管理后台…")
+    token = await getAdminToken()
   }
+
+  // 步骤5：独立处理图片（素材图片为主，Grok 为备选）
+  const imageUrls = [] // 存放已上传到服务器的本地 URL
+
+  // 主方案：素材提取图片 → 下载 → 上传到自己服务器
+  const allImages = enriched.flatMap((item) => (item.images || []).map((img) => ({ ...img, source: item.source })))
+  if (allImages.length > 0 && token) {
+    console.log(`🖼️ 素材图片处理（${allImages.length} 张候选）…`)
+    const validImages = await validateImages(allImages)
+    console.log(`   ✓ ${validImages.length}/${allImages.length} 张可访问`)
+    if (validImages.length > 0) {
+      const uploaded = await downloadAndUploadImages(validImages, token, 3)
+      imageUrls.push(...uploaded)
+    }
+  }
+
+  // 备选：Grok 生图（素材图片不足时）
+  if (imageUrls.length < 2 && XAI_API_KEY && token) {
+    const prompts = Array.isArray(outline.image_prompts) ? outline.image_prompts : []
+    const need = Math.min(3, 3 - imageUrls.length)
+    if (prompts.length > 0) {
+      console.log(`🎨 素材图片不足（${imageUrls.length} 张），Grok 补充 ${need} 张…`)
+      for (let i = 0; i < Math.min(need, prompts.length); i++) {
+        const localUrl = await generateImageWithGrok(prompts[i], token)
+        if (localUrl) imageUrls.push(localUrl)
+      }
+    }
+  }
+  console.log(`📸 最终可用图片: ${imageUrls.length} 张`)
+
+  // 程序化插入图片到正文（图片已在自己服务器，永久可用）
+  let contentMd = post.content_md || ""
+  if (imageUrls.length > 0) {
+    contentMd = insertImagesIntoMarkdown(contentMd, imageUrls)
+    console.log(`   ✓ 已插入 ${Math.min(imageUrls.length, 3)} 张图片到正文`)
+  }
+  post.content_md = contentMd
+
+  // 封面图：第一张上传的图片
+  const coverImage = imageUrls.length > 0 ? imageUrls[0] : ""
+  if (coverImage) console.log(`🖼️ 封面图: ${coverImage}`)
 
   const apiBody = normalizeForApi(post, slug)
 
@@ -596,10 +733,7 @@ async function main() {
     return
   }
 
-  // 步骤5：发布
-  console.log("🔑 登录管理后台…")
-  const token = await getAdminToken()
-
+  // 步骤6：发布
   console.log("📤 发布文章…")
   const result = await publishPost(token, apiBody, coverImage)
   console.log(`🎉 发布成功! ID: ${result.id}, slug: ${apiBody.slug}`)
