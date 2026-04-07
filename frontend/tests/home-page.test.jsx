@@ -2,10 +2,23 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+import { SiteProvider } from '../src/contexts/SiteContext'
+import { ThemeProvider } from '../src/contexts/ThemeContext'
 import HomePage from '../src/pages/HomePage'
 
+vi.mock('../src/api/client', () => ({
+  apiGet: vi.fn((path) => {
+    if (path === '/api/settings') return Promise.resolve({ author_name: 'Test', bio: '', avatar_url: '', hero_image: '', github_link: '', announcement: '', site_url: '', friend_links: '[]' })
+    if (path === '/api/stats') return Promise.resolve({ post_count: 3, tag_count: 2 })
+    return Promise.resolve({})
+  }),
+  apiPost: vi.fn(),
+  apiPut: vi.fn(),
+  apiDelete: vi.fn(),
+}))
+
 vi.mock('../src/api/posts', () => ({
-  fetchPosts: vi.fn((tag) => {
+  fetchPosts: vi.fn(({ tag } = {}) => {
     const allPosts = [
       {
         title: 'Python 自动化实战：Selenium 与 Pandas 结合',
@@ -32,7 +45,8 @@ vi.mock('../src/api/posts', () => ({
         ],
       },
     ]
-    return Promise.resolve(tag ? allPosts.filter((post) => post.tags.some((t) => t.slug === tag)) : allPosts)
+    const filtered = tag ? allPosts.filter((post) => post.tags.some((t) => t.slug === tag)) : allPosts
+    return Promise.resolve({ items: filtered, total: filtered.length, page: 1, page_size: 10 })
   }),
 }))
 
@@ -41,7 +55,7 @@ beforeEach(() => {
 })
 
 it('renders posts and filters by tag click', async () => {
-  const { container } = render(<MemoryRouter><HomePage /></MemoryRouter>)
+  const { container } = render(<MemoryRouter><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>)
   expect(await screen.findByText(/python 自动化实战/i)).toBeInTheDocument()
   expect(await screen.findByRole('heading', { name: /极客开发日志/i })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="home-shell"]')).toBeTruthy()

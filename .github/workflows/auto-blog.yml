@@ -49,5 +49,5 @@ jobs:
           SILICONFLOW_MODEL: ${{ vars.SILICONFLOW_MODEL }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          BLOG_API_BASE: https://api.563118077.xyz
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
         run: node scripts/auto-blog.mjs

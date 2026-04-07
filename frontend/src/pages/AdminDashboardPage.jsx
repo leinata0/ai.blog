@@ -1,174 +1,35 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import MDEditor from '@uiw/react-md-editor'
-import {
-  Pencil, Trash2, Plus, LogOut, ArrowLeft, FileText, Settings, Eye, EyeOff,
-  MessageSquare, BarChart3, Image, Pin, Check, X,
-} from 'lucide-react'
+import { FileText, Settings, LogOut, MessageSquare, BarChart3, Image } from 'lucide-react'
 import { getToken, clearToken } from '../api/auth'
-import { fetchPostDetail } from '../api/posts'
-import {
-  adminCreatePost, adminUpdatePost, adminDeletePost, adminUploadImage,
-  fetchSettings, updateSettings, fetchAdminPosts, fetchAdminComments,
-  approveComment, deleteComment, fetchAdminStats, fetchAdminImages, deleteAdminImage,
-} from '../api/admin'
-import { proxyImageUrl } from '../utils/proxyImage'
-import { formatDate } from '../utils/date'
-
-const emptyForm = { title: '', slug: '', summary: '', content_md: '', tags: '', cover_image: '', is_published: true, is_pinned: false }
-
-function generateSlug(title) {
-  return title
-    .trim()
-    .toLowerCase()
-    .replace(/[\s]+/g, '-')
-    .replace(/[^\w\u4e00-\u9fff-]+/g, '')
-    .replace(/^-|-$/g, '')
-    .slice(0, 80)
-}
+import { fetchAdminPosts, adminDeletePost } from '../api/admin'
+import AdminPostsList from '../components/admin/AdminPostsList'
+import AdminPostEditor from '../components/admin/AdminPostEditor'
+import AdminComments from '../components/admin/AdminComments'
+import AdminSettings from '../components/admin/AdminSettings'
+import AdminStats from '../components/admin/AdminStats'
+import AdminImages from '../components/admin/AdminImages'
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate()
   const token = getToken()
   const [tab, setTab] = useState('posts')
-  const [posts, setPosts] = useState([])
   const [view, setView] = useState('list')
-  const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState(emptyForm)
-  const [saving, setSaving] = useState(false)
+  const [posts, setPosts] = useState([])
+  const [editingPost, setEditingPost] = useState(null)
   const [error, setError] = useState('')
-  const [uploadingImage, setUploadingImage] = useState(false)
-  const [uploadError, setUploadError] = useState('')
-  const [autoSaveMsg, setAutoSaveMsg] = useState('')
-  const editorRef = useRef(null)
-  const fileInputRef = useRef(null)
-  const avatarFileRef = useRef(null)
-  const heroFileRef = useRef(null)
-
-  // 站点设置
-  const [siteSettings, setSiteSettings] = useState({
-    author_name: '', bio: '', avatar_url: '', hero_image: '', github_link: '', announcement: '', site_url: '', friend_links: [],
-  })
-  const [settingsSaving, setSettingsSaving] = useState(false)
-  const [settingsMsg, setSettingsMsg] = useState('')
-  const [settingsAssetUploading, setSettingsAssetUploading] = useState(false)
-
-  // 评论管理
-  const [comments, setComments] = useState([])
-  const [commentsLoading, setCommentsLoading] = useState(false)
-
-  // 数据统计
-  const [adminStats, setAdminStats] = useState(null)
-  const [statsLoading, setStatsLoading] = useState(false)
-
-  // 图片管理
-  const [images, setImages] = useState([])
-  const [imagesLoading, setImagesLoading] = useState(false)
 
   useEffect(() => {
     if (!token) { navigate('/admin/login'); return }
     loadPosts()
-    loadSettings()
   }, [])
-
-  // 自动保存（编辑器模式，每 30 秒）
-  useEffect(() => {
-    if (view !== 'editor') return
-    const timer = setInterval(() => {
-      localStorage.setItem('admin_draft', JSON.stringify(form))
-      setAutoSaveMsg('已自动保存')
-      setTimeout(() => setAutoSaveMsg(''), 2000)
-    }, 30000)
-    return () => clearInterval(timer)
-  }, [view, form])
 
   async function loadPosts() {
     try {
       const result = await fetchAdminPosts({ page_size: 50 })
       setPosts(result.items || result || [])
-    } catch { /* ignore */ }
-  }
-
-  async function loadSettings() {
-    try {
-      const s = await fetchSettings()
-      let links = s.friend_links || []
-      if (typeof links === 'string') {
-        try { links = JSON.parse(links) } catch { links = [] }
-      }
-      if (!Array.isArray(links)) links = []
-      setSiteSettings({
-        author_name: s.author_name || '',
-        bio: s.bio || '',
-        avatar_url: s.avatar_url || '',
-        hero_image: s.hero_image || '',
-        github_link: s.github_link || '',
-        announcement: s.announcement || '',
-        site_url: s.site_url || '',
-        friend_links: links,
-      })
-    } catch { /* ignore */ }
-  }
-
-  const loadComments = useCallback(async () => {
-    setCommentsLoading(true)
-    try {
-      const result = await fetchAdminComments()
-      setComments(result.items || result || [])
-    } catch { /* ignore */ }
-    setCommentsLoading(false)
-  }, [])
-
-  const loadStats = useCallback(async () => {
-    setStatsLoading(true)
-    try { setAdminStats(await fetchAdminStats()) } catch { /* ignore */ }
-    setStatsLoading(false)
-  }, [])
-
-  const loadImages = useCallback(async () => {
-    setImagesLoading(true)
-    try {
-      const result = await fetchAdminImages()
-      setImages(Array.isArray(result) ? result : result?.items || [])
-    } catch { /* ignore */ }
-    setImagesLoading(false)
-  }, [])
-
-  useEffect(() => {
-    if (tab === 'comments') loadComments()
-    if (tab === 'stats') loadStats()
-    if (tab === 'images') loadImages()
-  }, [tab, loadComments, loadStats, loadImages])
-
-  async function handleSaveSettings() {
-    setSettingsSaving(true)
-    setSettingsMsg('')
-    try {
-      const payload = {
-        ...siteSettings,
-        friend_links: JSON.stringify(siteSettings.friend_links || []),
-      }
-      const updated = await updateSettings(payload)
-      let links = updated.friend_links || []
-      if (typeof links === 'string') {
-        try { links = JSON.parse(links) } catch { links = [] }
-      }
-      if (!Array.isArray(links)) links = []
-      setSiteSettings({
-        author_name: updated.author_name || '',
-        bio: updated.bio || '',
-        avatar_url: updated.avatar_url || '',
-        hero_image: updated.hero_image || '',
-        github_link: updated.github_link || '',
-        announcement: updated.announcement || '',
-        site_url: updated.site_url || '',
-        friend_links: links,
-      })
-      setSettingsMsg('保存成功')
     } catch (err) {
-      setSettingsMsg(err.message)
-    } finally {
-      setSettingsSaving(false)
+      setError(err.message || '加载文章失败')
     }
   }
 
@@ -178,190 +39,29 @@ export default function AdminDashboardPage() {
   }
 
   function handleNew() {
-    setEditingId(null)
-    // 尝试恢复草稿
-    const draft = localStorage.getItem('admin_draft')
-    if (draft) {
-      try {
-        const parsed = JSON.parse(draft)
-        if (parsed.title || parsed.content_md) {
-          if (window.confirm('检测到未保存的草稿，是否恢复？')) {
-            setForm(parsed)
-          } else {
-            setForm(emptyForm)
-            localStorage.removeItem('admin_draft')
-          }
-        } else {
-          setForm(emptyForm)
-        }
-      } catch {
-        setForm(emptyForm)
-      }
-    } else {
-      setForm(emptyForm)
-    }
+    setEditingPost(null)
     setError('')
-    setUploadError('')
     setView('editor')
   }
 
-  async function handleEdit(post) {
-    setEditingId(post.id)
+  function handleEdit(post) {
+    setEditingPost(post)
     setError('')
-    setUploadError('')
     setView('editor')
-    try {
-      const detail = await fetchPostDetail(post.slug)
-      setForm({
-        title: detail.title,
-        slug: detail.slug,
-        summary: detail.summary || '',
-        content_md: detail.content_md || '',
-        tags: (detail.tags || []).map((t) => t.slug || t.name).join(', '),
-        cover_image: detail.cover_image || '',
-        is_published: detail.is_published !== false,
-        is_pinned: detail.is_pinned || false,
-      })
-    } catch {
-      setError('加载文章内容失败')
-    }
   }
-
   async function handleDelete(post) {
     if (!window.confirm(`确定删除「${post.title}」？`)) return
     try {
-      await adminDeletePost(token, post.id)
+      await adminDeletePost(post.id)
       await loadPosts()
-    } catch { setError('删除失败') }
-  }
-
-  async function handleSave() {
-    setSaving(true)
-    setError('')
-    const data = {
-      title: form.title,
-      slug: form.slug,
-      summary: form.summary,
-      content_md: form.content_md,
-      cover_image: form.cover_image,
-      is_published: form.is_published,
-      is_pinned: form.is_pinned,
-      tags: form.tags.split(',').map((s) => s.trim()).filter(Boolean),
-    }
-    try {
-      if (editingId) {
-        await adminUpdatePost(token, editingId, data)
-      } else {
-        await adminCreatePost(token, data)
-      }
-      localStorage.removeItem('admin_draft')
-      await loadPosts()
-      setView('list')
     } catch (err) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
+      setError(err.message || '删除失败')
     }
   }
 
-  function insertMarkdownAtCursor(markdown) {
-    const textarea = editorRef.current?.querySelector('textarea')
-    const currentValue = form.content_md || ''
-
-    if (!textarea) {
-      setForm((prev) => ({ ...prev, content_md: `${currentValue}${markdown}` }))
-      return
-    }
-
-    const start = textarea.selectionStart ?? currentValue.length
-    const end = textarea.selectionEnd ?? currentValue.length
-    const nextValue = `${currentValue.slice(0, start)}${markdown}${currentValue.slice(end)}`
-    const nextCursor = start + markdown.length
-
-    setForm((prev) => ({ ...prev, content_md: nextValue }))
-    requestAnimationFrame(() => {
-      const nextTextarea = editorRef.current?.querySelector('textarea')
-      if (!nextTextarea) return
-      nextTextarea.focus()
-      nextTextarea.setSelectionRange(nextCursor, nextCursor)
-    })
-  }
-
-  async function handleImageUpload(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    setUploadError('')
-    setUploadingImage(true)
-    try {
-      const { url } = await adminUploadImage(token, file)
-      insertMarkdownAtCursor(`![image](${url})`)
-    } catch (err) {
-      setUploadError(err.message)
-    } finally {
-      event.target.value = ''
-      setUploadingImage(false)
-    }
-  }
-
-  /** 站点头像 / Hero：上传到本站，避免外链图床失效 */
-  async function handleSiteAssetUpload(field, event) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setSettingsAssetUploading(true)
-    setSettingsMsg('')
-    try {
-      const { url } = await adminUploadImage(token, file)
-      setSiteSettings((prev) => ({ ...prev, [field]: url }))
-      setSettingsMsg('图片已上传并写入地址，请点击下方「保存设置」持久化。')
-    } catch (err) {
-      setSettingsMsg(err.message || '图片上传失败')
-    } finally {
-      event.target.value = ''
-      setSettingsAssetUploading(false)
-    }
-  }
-
-  async function handleApproveComment(id) {
-    try { await approveComment(id); loadComments() } catch { /* ignore */ }
-  }
-
-  async function handleDeleteComment(id) {
-    if (!window.confirm('确定删除此评论？')) return
-    try { await deleteComment(id); loadComments() } catch { /* ignore */ }
-  }
-
-  async function handleDeleteImage(filename) {
-    if (!window.confirm(`确定删除图片 ${filename}？`)) return
-    try { await deleteAdminImage(filename); loadImages() } catch { /* ignore */ }
-  }
-
-  // 友链管理
-  function addFriendLink() {
-    setSiteSettings((prev) => ({
-      ...prev,
-      friend_links: [...(prev.friend_links || []), { name: '', url: '', description: '', avatar: '' }],
-    }))
-  }
-
-  function removeFriendLink(index) {
-    setSiteSettings((prev) => ({
-      ...prev,
-      friend_links: prev.friend_links.filter((_, i) => i !== index),
-    }))
-  }
-
-  function updateFriendLink(index, field, value) {
-    setSiteSettings((prev) => ({
-      ...prev,
-      friend_links: prev.friend_links.map((item, i) => i === index ? { ...item, [field]: value } : item),
-    }))
-  }
-
-  const inputStyle = {
-    backgroundColor: 'var(--bg-canvas)',
-    border: '1px solid var(--border-muted)',
-    color: 'var(--text-primary)',
+  function handlePostSaved() {
+    loadPosts()
+    setView('list')
   }
 
   const tabItems = [
@@ -373,15 +73,13 @@ export default function AdminDashboardPage() {
   ]
 
   return (
-    <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
-      {/* Header */}
-      <header className="sticky top-0 z-50 px-6 sm:px-10"
-        style={{ backgroundColor: 'var(--bg-surface)', backdropFilter: 'blur(10px)', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+    <main className="min-h-screen bg-[var(--bg-canvas)]">
+      <header className="sticky top-0 z-50 px-6 sm:px-10 bg-[var(--bg-surface)]"
+        style={{ backdropFilter: 'blur(10px)', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
         <div className="flex items-center justify-between py-4">
-          <h1 className="text-xl font-semibold" style={{ color: 'var(--accent)' }}>控制台</h1>
+          <h1 className="text-xl font-semibold text-[var(--accent)]">控制台</h1>
           <button onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200"
-            style={{ color: 'var(--text-secondary)' }}>
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 text-[var(--text-secondary)]">
             <LogOut size={16} /> 退出登录
           </button>
         </div>
@@ -398,479 +96,19 @@ export default function AdminDashboardPage() {
 
       <div className="max-w-6xl mx-auto px-6 sm:px-10 py-8">
         {error && (
-          <div className="mb-4 text-sm py-2 px-4 rounded-lg" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>
-            {error}
-          </div>
+          <div className="mb-4 text-sm py-2 px-4 rounded-lg bg-[var(--danger-soft)] text-[#ef4444]">{error}</div>
         )}
 
-        {/* 文章管理 - 列表 */}
         {tab === 'posts' && view === 'list' && (
-          <>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>文章管理</h2>
-              <button onClick={handleNew}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
-                style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
-                <Plus size={16} /> 发布新文章
-              </button>
-            </div>
-            <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>标题</th>
-                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>状态</th>
-                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>浏览</th>
-                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>日期</th>
-                      <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>标签</th>
-                      <th className="text-right px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {posts.map((post) => (
-                      <tr key={post.slug || post.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                        <td className="px-6 py-4 font-medium" style={{ color: 'var(--text-primary)' }}>
-                          <div className="flex items-center gap-2">
-                            {post.cover_image && (
-                              <img src={proxyImageUrl(post.cover_image)} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                            )}
-                            <span>{post.title}</span>
-                            {post.is_pinned && <Pin size={12} style={{ color: 'var(--accent)' }} />}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          {post.is_published !== false ? (
-                            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
-                              <Eye size={12} /> 已发布
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>
-                              <EyeOff size={12} /> 草稿
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{post.view_count || 0}</td>
-                        <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{formatDate(post.created_at)}</td>
-                        <td className="px-6 py-4">
-                          <div className="flex gap-1 flex-wrap">
-                            {(post.tags || []).map((t) => (
-                              <span key={t.slug} className="px-2 py-0.5 rounded text-xs"
-                                style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>{t.name}</span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button onClick={() => handleEdit(post)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-gray-100" title="编辑">
-                            <Pencil size={15} style={{ color: 'var(--accent)' }} />
-                          </button>
-                          <button onClick={() => handleDelete(post)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-red-50 ml-1" title="删除">
-                            <Trash2 size={15} style={{ color: '#ef4444' }} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {posts.length === 0 && (
-                      <tr><td colSpan={6} className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>暂无文章</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
+          <AdminPostsList posts={posts} onNew={handleNew} onEdit={handleEdit} onDelete={handleDelete} />
         )}
-
-        {/* 文章管理 - 编辑器 */}
         {tab === 'posts' && view === 'editor' && (
-          <div>
-            <div className="flex items-center justify-between mb-6">
-              <button onClick={() => setView('list')}
-                className="flex items-center gap-2 text-sm font-medium transition-colors duration-200"
-                style={{ color: 'var(--text-secondary)' }}>
-                <ArrowLeft size={16} /> 返回列表
-              </button>
-              {autoSaveMsg && (
-                <span className="text-xs px-2 py-1 rounded" style={{ color: 'var(--accent)', backgroundColor: 'var(--accent-soft)' }}>{autoSaveMsg}</span>
-              )}
-            </div>
-
-            <div className="rounded-xl p-6 sm:p-8 space-y-5"
-              style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
-              <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                {editingId ? '编辑文章' : '发布新文章'}
-              </h2>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>标题</label>
-                  <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="文章标题" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Slug</label>
-                  <div className="flex gap-2">
-                    <input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                      className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="url-friendly-slug" />
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, slug: generateSlug(form.title) })}
-                      className="px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-200 flex-shrink-0"
-                      style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}
-                    >
-                      生成
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>摘要</label>
-                <input value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="简短描述" />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>标签（逗号分隔）</label>
-                  <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="python, devops" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>封面图 URL</label>
-                  <input value={form.cover_image} onChange={(e) => setForm({ ...form, cover_image: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://... 或留空" />
-                </div>
-              </div>
-
-              {/* 发布状态和置顶 */}
-              <div className="flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>发布状态：</label>
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, is_published: !form.is_published })}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
-                    style={{
-                      backgroundColor: form.is_published ? 'var(--accent-soft)' : 'var(--danger-soft)',
-                      color: form.is_published ? 'var(--accent)' : '#ef4444',
-                      border: `1px solid ${form.is_published ? 'var(--accent-border)' : 'var(--danger-border)'}`,
-                    }}
-                  >
-                    {form.is_published ? <><Eye size={14} /> 公开发布</> : <><EyeOff size={14} /> 保存为草稿</>}
-                  </button>
-                </div>
-                <div className="flex items-center gap-3">
-                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>置顶：</label>
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, is_pinned: !form.is_pinned })}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
-                    style={{
-                      backgroundColor: form.is_pinned ? 'var(--accent-soft)' : 'var(--bg-canvas)',
-                      color: form.is_pinned ? 'var(--accent)' : 'var(--text-tertiary)',
-                      border: `1px solid ${form.is_pinned ? 'var(--accent-border)' : 'var(--border-muted)'}`,
-                    }}
-                  >
-                    <Pin size={14} /> {form.is_pinned ? '已置顶' : '未置顶'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>内容（Markdown）</label>
-                  <>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleImageUpload}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingImage}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200 disabled:opacity-50"
-                      style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}
-                    >
-                      {uploadingImage ? '上传中...' : '上传图片'}
-                    </button>
-                  </>
-                </div>
-                {uploadError && (
-                  <div className="text-sm py-2 px-3 rounded-lg" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>
-                    {uploadError}
-                  </div>
-                )}
-                <div ref={editorRef} data-color-mode="light">
-                  <MDEditor value={form.content_md} onChange={(v) => setForm({ ...form, content_md: v || '' })} height={400} />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <button onClick={handleSave} disabled={saving}
-                  className="px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
-                  {saving ? '保存中...' : editingId ? '保存修改' : form.is_published ? '发布文章' : '保存草稿'}
-                </button>
-                <button onClick={() => setView('list')}
-                  className="px-6 py-2.5 rounded-lg text-sm font-medium transition-colors duration-200"
-                  style={{ color: 'var(--text-secondary)', border: '1px solid var(--border-muted)' }}>
-                  取消
-                </button>
-              </div>
-            </div>
-          </div>
+          <AdminPostEditor editingPost={editingPost} onBack={() => setView('list')} onSaved={handlePostSaved} />
         )}
-
-        {/* 评论管理 */}
-        {tab === 'comments' && (
-          <div>
-            <h2 className="text-lg font-semibold mb-6" style={{ color: 'var(--text-primary)' }}>评论管理</h2>
-            <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
-              {commentsLoading ? (
-                <div className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>加载中...</div>
-              ) : comments.length === 0 ? (
-                <div className="px-6 py-8 text-center" style={{ color: 'var(--text-faint)' }}>暂无评论</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>文章</th>
-                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>昵称</th>
-                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>内容</th>
-                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>IP</th>
-                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>状态</th>
-                        <th className="text-left px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>日期</th>
-                        <th className="text-right px-6 py-3 font-medium" style={{ color: 'var(--text-faint)' }}>操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {comments.map((c) => (
-                        <tr key={c.id} style={{ borderBottom: '1px solid var(--border-muted)' }}>
-                          <td className="px-6 py-4 max-w-[120px] truncate" style={{ color: 'var(--text-primary)' }}>{c.post_title || c.post_slug || '-'}</td>
-                          <td className="px-6 py-4 font-medium" style={{ color: 'var(--accent)' }}>{c.nickname}</td>
-                          <td className="px-6 py-4 max-w-[200px] truncate" style={{ color: 'var(--text-secondary)' }}>{c.content}</td>
-                          <td className="px-6 py-4 text-xs" style={{ color: 'var(--text-faint)' }}>{c.ip || '-'}</td>
-                          <td className="px-6 py-4">
-                            {c.is_approved ? (
-                              <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>已审核</span>
-                            ) : (
-                              <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444' }}>待审核</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4" style={{ color: 'var(--text-tertiary)' }}>{formatDate(c.created_at)}</td>
-                          <td className="px-6 py-4 text-right whitespace-nowrap">
-                            <button onClick={() => handleApproveComment(c.id)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-gray-100" title={c.is_approved ? '取消审核' : '审核通过'}>
-                              <Check size={15} style={{ color: 'var(--accent)' }} />
-                            </button>
-                            <button onClick={() => handleDeleteComment(c.id)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-red-50 ml-1" title="删除">
-                              <Trash2 size={15} style={{ color: '#ef4444' }} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* 站点设置 */}
-        {tab === 'settings' && (
-          <div className="rounded-xl p-6 sm:p-8 space-y-5"
-            style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>站点设置</h2>
-
-            {settingsMsg && (
-              <div className="text-sm py-2 px-4 rounded-lg"
-                style={{
-                  backgroundColor: (settingsMsg === '保存成功' || settingsMsg.includes('图片已上传并写入地址')) ? 'var(--accent-soft)' : 'var(--danger-soft)',
-                  color: (settingsMsg === '保存成功' || settingsMsg.includes('图片已上传并写入地址')) ? 'var(--accent)' : '#ef4444',
-                }}>
-                {settingsMsg}
-              </div>
-            )}
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>博主名称</label>
-              <input value={siteSettings.author_name} onChange={(e) => setSiteSettings({ ...siteSettings, author_name: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>个人简介</label>
-              <input value={siteSettings.bio} onChange={(e) => setSiteSettings({ ...siteSettings, bio: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>站点 URL</label>
-              <input value={siteSettings.site_url} onChange={(e) => setSiteSettings({ ...siteSettings, site_url: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://563118077.xyz" />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>头像（侧边栏）</label>
-              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>
-                外链图片链接常因防盗链、图床清理而失效。推荐点击「上传图片」写入本站 <code className="text-[11px]">/uploads/...</code> 路径，稳定可用。
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                <input value={siteSettings.avatar_url} onChange={(e) => setSiteSettings({ ...siteSettings, avatar_url: e.target.value })}
-                  className="w-full flex-1 px-4 py-2.5 rounded-lg text-sm outline-none min-w-0" style={inputStyle} placeholder="https://... 或 /uploads/..." />
-                <input ref={avatarFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleSiteAssetUpload('avatar_url', e)} />
-                <button
-                  type="button"
-                  disabled={settingsAssetUploading}
-                  onClick={() => avatarFileRef.current?.click()}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors duration-200 disabled:opacity-50"
-                  style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}
-                >
-                  <Image size={16} />
-                  {settingsAssetUploading ? '上传中…' : '上传头像'}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Hero 浮动图片（首页顶部）</label>
-              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>同上，可上传或手动填写 URL；留空则使用头像。</p>
-              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                <input value={siteSettings.hero_image} onChange={(e) => setSiteSettings({ ...siteSettings, hero_image: e.target.value })}
-                  className="w-full flex-1 px-4 py-2.5 rounded-lg text-sm outline-none min-w-0" style={inputStyle} placeholder="https://... 留空则使用头像" />
-                <input ref={heroFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleSiteAssetUpload('hero_image', e)} />
-                <button
-                  type="button"
-                  disabled={settingsAssetUploading}
-                  onClick={() => heroFileRef.current?.click()}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors duration-200 disabled:opacity-50"
-                  style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}
-                >
-                  <Image size={16} />
-                  {settingsAssetUploading ? '上传中…' : '上传 Hero 图'}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>GitHub 链接</label>
-              <input value={siteSettings.github_link} onChange={(e) => setSiteSettings({ ...siteSettings, github_link: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>公告内容</label>
-              <textarea value={siteSettings.announcement} onChange={(e) => setSiteSettings({ ...siteSettings, announcement: e.target.value })}
-                rows={3} className="w-full px-4 py-2.5 rounded-lg text-sm outline-none resize-none" style={inputStyle} />
-            </div>
-
-            {/* 友链管理 */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>友情链接</label>
-                <button type="button" onClick={addFriendLink}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-200"
-                  style={{ color: 'var(--accent)', border: '1px solid var(--border-muted)' }}>
-                  <Plus size={12} /> 添加友链
-                </button>
-              </div>
-              {(siteSettings.friend_links || []).map((link, i) => (
-                <div key={i} className="rounded-lg p-4 space-y-2" style={{ border: '1px solid var(--border-muted)' }}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>友链 #{i + 1}</span>
-                    <button type="button" onClick={() => removeFriendLink(i)} className="p-1 rounded hover:bg-red-50">
-                      <X size={14} style={{ color: '#ef4444' }} />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input value={link.name} onChange={(e) => updateFriendLink(i, 'name', e.target.value)}
-                      className="px-3 py-2 rounded-lg text-sm outline-none" style={inputStyle} placeholder="名称" />
-                    <input value={link.url} onChange={(e) => updateFriendLink(i, 'url', e.target.value)}
-                      className="px-3 py-2 rounded-lg text-sm outline-none" style={inputStyle} placeholder="https://..." />
-                    <input value={link.description} onChange={(e) => updateFriendLink(i, 'description', e.target.value)}
-                      className="px-3 py-2 rounded-lg text-sm outline-none" style={inputStyle} placeholder="描述" />
-                    <input value={link.avatar} onChange={(e) => updateFriendLink(i, 'avatar', e.target.value)}
-                      className="px-3 py-2 rounded-lg text-sm outline-none" style={inputStyle} placeholder="头像 URL" />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button onClick={handleSaveSettings} disabled={settingsSaving}
-              className="px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50"
-              style={{ backgroundColor: 'var(--accent)', color: '#fff' }}>
-              {settingsSaving ? '保存中...' : '保存设置'}
-            </button>
-          </div>
-        )}
-
-        {/* 数据统计 */}
-        {tab === 'stats' && (
-          <div>
-            <h2 className="text-lg font-semibold mb-6" style={{ color: 'var(--text-primary)' }}>数据统计</h2>
-            {statsLoading ? (
-              <div className="text-sm" style={{ color: 'var(--text-faint)' }}>加载中...</div>
-            ) : adminStats ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                {[
-                  { label: '总文章数', value: adminStats.total_posts ?? '-', icon: FileText },
-                  { label: '草稿数', value: adminStats.draft_posts ?? '-', icon: EyeOff },
-                  { label: '总浏览量', value: adminStats.total_views ?? '-', icon: Eye },
-                  { label: '总评论数', value: adminStats.total_comments ?? '-', icon: MessageSquare },
-                  { label: '总点赞数', value: adminStats.total_likes ?? '-', icon: '❤️' },
-                ].map(({ label, value, icon: Icon }) => (
-                  <div key={label} className="rounded-xl p-6 text-center"
-                    style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
-                    <div className="mb-2">
-                      {typeof Icon === 'string' ? <span className="text-2xl">{Icon}</span> : <Icon size={24} style={{ color: 'var(--accent)', margin: '0 auto' }} />}
-                    </div>
-                    <div className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{value}</div>
-                    <div className="text-xs" style={{ color: 'var(--text-faint)' }}>{label}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm" style={{ color: 'var(--text-faint)' }}>暂无统计数据</div>
-            )}
-          </div>
-        )}
-
-        {/* 图片管理 */}
-        {tab === 'images' && (
-          <div>
-            <h2 className="text-lg font-semibold mb-6" style={{ color: 'var(--text-primary)' }}>图片管理</h2>
-            {imagesLoading ? (
-              <div className="text-sm" style={{ color: 'var(--text-faint)' }}>加载中...</div>
-            ) : images.length === 0 ? (
-              <div className="text-sm" style={{ color: 'var(--text-faint)' }}>暂无已上传图片</div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                {images.map((img) => {
-                  const filename = typeof img === 'string' ? img : img.filename || img.name
-                  const url = typeof img === 'string' ? img : img.url || `/api/admin/images/${filename}`
-                  return (
-                    <div key={filename} className="rounded-xl overflow-hidden group relative"
-                      style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
-                      <div className="w-full h-36 overflow-hidden">
-                        <img src={proxyImageUrl(url)} alt={filename} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      </div>
-                      <div className="p-3 flex items-center justify-between">
-                        <span className="text-xs truncate flex-1" style={{ color: 'var(--text-tertiary)' }}>{filename}</span>
-                        <button onClick={() => handleDeleteImage(filename)} className="p-1 rounded hover:bg-red-50 flex-shrink-0 ml-2" title="删除">
-                          <Trash2 size={14} style={{ color: '#ef4444' }} />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
+        {tab === 'comments' && <AdminComments />}
+        {tab === 'settings' && <AdminSettings />}
+        {tab === 'stats' && <AdminStats />}
+        {tab === 'images' && <AdminImages />}
       </div>
     </main>
   )

@@ -7,7 +7,7 @@
  * ADMIN_PASSWORD、BLOG_API_BASE、ADMIN_USERNAME。
  */
 
-import { execSync } from "child_process"
+import { execSync, execFileSync, execFile } from "child_process"
 
 const SILICONFLOW_API_KEY = process.env.SILICONFLOW_API_KEY?.trim()
 /** 国内默认 .cn；海外可用 https://api.siliconflow.com/v1 */
@@ -19,6 +19,8 @@ const SILICONFLOW_MODEL =
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin"
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const BLOG_API_BASE = process.env.BLOG_API_BASE || "https://api.563118077.xyz"
+
+const DRY_RUN = process.argv.includes("--dry-run")
 
 /**
  * aread 主检索查询种子：每条均含 latest / breaking / this week 等偏「新」的关键词；运行时会在 main 里再拼当年份。
@@ -48,8 +50,6 @@ const WEB_ARCH_OSS_SEARCH_READ_QUERY =
 // ── aread（与 Crosery/aread 同源：Jina Reader + DuckDuckGo）──
 // 使用 npx，避免 GitHub Actions 全局安装后 PATH 找不到 aread-cli
 
-const AREAD_CMD = "npx --yes aread-cli"
-
 function runCommand(cmd, timeoutMs = 60000) {
   try {
     const output = execSync(cmd, {
@@ -70,22 +70,73 @@ function runCommand(cmd, timeoutMs = 60000) {
   }
 }
 
+function runCommandArgs(cmd, args, timeoutMs = 60000) {
+  try {
+    const output = execFileSync(cmd, args, {
+      encoding: "utf-8",
+      timeout: timeoutMs,
+      maxBuffer: 20 * 1024 * 1024,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    return output
+  } catch (err) {
+    const stderr =
+      err.stderr != null
+        ? String(err.stderr).slice(0, 400)
+        : err.message || ""
+    console.log(`   ⚠️ 命令出错: ${String(err.message || err).slice(0, 200)}`)
+    if (stderr) console.log(`   stderr: ${stderr}`)
+    return ""
+  }
+}
+
+function runCommandArgsAsync(cmd, args, timeoutMs = 60000) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, {
+      encoding: "utf-8",
+      timeout: timeoutMs,
+      maxBuffer: 20 * 1024 * 1024,
+    }, (err, stdout) => {
+      if (err) {
+        const stderr = err.stderr != null ? String(err.stderr).slice(0, 400) : err.message || ""
+        console.log(`   ⚠️ 命令出错: ${String(err.message || err).slice(0, 200)}`)
+        if (stderr) console.log(`   stderr: ${stderr}`)
+        resolve("")
+        return
+      }
+      resolve(stdout || "")
+    })
+  })
+}
+
 function areadSearch(query, num = 8) {
   console.log(`🔍 aread 搜索: ${query}`)
-  const safe = query.replace(/"/g, '\\"')
-  return runCommand(`${AREAD_CMD} -r -s "${safe}" -n ${num}`, 90000)
+  return runCommandArgs("npx", ["--yes", "aread-cli", "-r", "-s", query, "-n", String(num)], 90000)
 }
 
 function areadSearchAndRead(query, num = 3) {
   console.log(`🔍📖 aread 搜索+阅读: ${query}`)
-  const safe = query.replace(/"/g, '\\"')
-  return runCommand(`${AREAD_CMD} -r -s "${safe}" --read -n ${num}`, 240000)
+  return runCommandArgs("npx", ["--yes", "aread-cli", "-r", "-s", query, "--read", "-n", String(num)], 240000)
 }
 
 function areadRead(url) {
   console.log(`📖 aread 阅读: ${url}`)
-  const safe = url.replace(/"/g, '\\"')
-  return runCommand(`${AREAD_CMD} -r "${safe}"`, 90000)
+  return runCommandArgs("npx", ["--yes", "aread-cli", "-r", url], 90000)
+}
+
+async function areadSearchAsync(query, num = 8) {
+  console.log(`🔍 aread 搜索: ${query}`)
+  return runCommandArgsAsync("npx", ["--yes", "aread-cli", "-r", "-s", query, "-n", String(num)], 90000)
+}
+
+async function areadSearchAndReadAsync(query, num = 3) {
+  console.log(`🔍📖 aread 搜索+阅读: ${query}`)
+  return runCommandArgsAsync("npx", ["--yes", "aread-cli", "-r", "-s", query, "--read", "-n", String(num)], 240000)
+}
+
+async function areadReadAsync(url) {
+  console.log(`📖 aread 阅读: ${url}`)
+  return runCommandArgsAsync("npx", ["--yes", "aread-cli", "-r", url], 90000)
 }
 
 /** Jina Reader 后备（与 aread「阅读」能力一致），CI 上 aread 失败时仍可用 */
@@ -246,6 +297,27 @@ async function checkSlugExists(slug) {
   }
 }
 
+/** URL 级去重：同一 URL（去掉 query/hash）只保留首次出现的段落 */
+function deduplicateContent(content) {
+  const seen = new Set()
+  return content.split(/\n{2,}/).filter(block => {
+    const urlMatch = block.match(/https?:\/\/[^\s)]+/)
+    if (urlMatch) {
+      const url = urlMatch[0].replace(/[#?].*$/, '')
+      if (seen.has(url)) return false
+      seen.add(url)
+    }
+    return true
+  }).join('\n\n')
+}
+
+/** 段落边界感知截断，避免在段落中间切断 */
+function smartTruncate(text, maxLen = 26000) {
+  if (text.length <= maxLen) return text
+  const cut = text.lastIndexOf('\n\n', maxLen)
+  return cut > maxLen * 0.5 ? text.slice(0, cut) : text.slice(0, maxLen)
+}
+
 /** 摘要硬上限：汉字/标点等按 Unicode 字符计（码点），不超过 max */
 function truncateSummaryText(s, max = 50) {
   const arr = Array.from(String(s || "").trim())
@@ -255,6 +327,10 @@ function truncateSummaryText(s, max = 50) {
 
 /** 符合后端 PostCreateRequest：slug 仅小写字母数字与连字符 */
 function normalizeForApi(post, fixedSlug) {
+  if (!post.title || !post.content_md) {
+    throw new Error("LLM 返回数据不完整（缺少 title 或 content_md），跳过发布")
+  }
+
   const slug =
     fixedSlug ||
     String(post.slug || "")
@@ -265,13 +341,12 @@ function normalizeForApi(post, fixedSlug) {
       .slice(0, 200) ||
     "ai-daily-post"
 
-  const title = String(post.title || "科技札记（自动生成fallback）").slice(0, 200)
+  const title = String(post.title).slice(0, 200)
   let summary = truncateSummaryText(post.summary || "", 50)
   if (summary.length < 1) summary = "自动发文摘要缺失，请在后端补写。"
   summary = truncateSummaryText(summary, 50)
 
-  let content_md = String(post.content_md || "")
-  if (content_md.length < 1) content_md = "## 内容\n\n（正文生成失败，请检查 LLM 返回。）"
+  const content_md = String(post.content_md)
 
   const rawTags = Array.isArray(post.tags) ? post.tags : ["ai"]
   const tags = rawTags
@@ -322,7 +397,7 @@ async function main() {
   if (!SILICONFLOW_API_KEY) {
     throw new Error("请配置 SILICONFLOW_API_KEY（硅基流动）")
   }
-  if (!ADMIN_PASSWORD) throw new Error("缺少 ADMIN_PASSWORD 环境变量")
+  if (!ADMIN_PASSWORD && !DRY_RUN) throw new Error("缺少 ADMIN_PASSWORD 环境变量")
 
   const today = new Date().toISOString().split("T")[0]
   const slug = `ai-daily-${today}`
@@ -340,25 +415,28 @@ async function main() {
 
   console.log(`📌 aread 主检索（轮换 ${queryIndex + 1}/${SEARCH_QUERIES.length}，强调最新）`)
 
-  let newsContent = areadSearchAndRead(queryPrimary, 4)
+  // 三路搜索+阅读并行
+  const [primaryContent, csContent, webContent] = await Promise.all([
+    (async () => {
+      let content = await areadSearchAndReadAsync(queryPrimary, 4)
+      if (!content || content.length < 200) {
+        console.log("   ⚠️ 搜索+阅读内容不足，降级为纯搜索…")
+        content = await areadSearchAsync(queryPrimary, 8)
+      }
+      return content
+    })(),
+    areadSearchAndReadAsync(`${CS_TECH_SEARCH_READ_QUERY} ${year}`, 3),
+    areadSearchAndReadAsync(`${WEB_ARCH_OSS_SEARCH_READ_QUERY} ${year}`, 2),
+  ])
 
-  if (!newsContent || newsContent.length < 200) {
-    console.log("⚠️ 搜索+阅读结果不足，尝试仅搜索（降级）...")
-    newsContent = areadSearch(queryPrimary, 8)
-  }
-
-  const csRead = areadSearchAndRead(`${CS_TECH_SEARCH_READ_QUERY} ${year}`, 3)
-  if (csRead && csRead.length > 80) {
-    newsContent += `\n\n=== aread 搜索+阅读（计算机科学 / 安全 / 云与基础设施·最新）===\n\n${csRead}`
-  }
-
-  const webOssRead = areadSearchAndRead(`${WEB_ARCH_OSS_SEARCH_READ_QUERY} ${year}`, 2)
-  if (webOssRead && webOssRead.length > 80) {
-    newsContent += `\n\n=== aread 搜索+阅读（Web 架构·Vercel / Render 等 / 开源·最新）===\n\n${webOssRead}`
-  }
+  let newsContent = ""
+  if (primaryContent) newsContent += primaryContent
+  if (csContent && csContent.length > 80) newsContent += `\n\n=== aread 搜索+阅读（计算机科学 / 安全 / 云与基础设施·最新）===\n\n${csContent}`
+  if (webContent && webContent.length > 80) newsContent += `\n\n=== aread 搜索+阅读（Web 架构·Vercel / Render 等 / 开源·最新）===\n\n${webContent}`
 
   // 补充：aread 直接阅读固定资讯页（与上同属「阅读」管线）
-  const techcrunchContent = areadRead("https://techcrunch.com/category/artificial-intelligence/")
+  newsContent = deduplicateContent(newsContent)
+  const techcrunchContent = await areadReadAsync("https://techcrunch.com/category/artificial-intelligence/")
   if (techcrunchContent) {
     newsContent += "\n\n=== TechCrunch AI 最新文章 ===\n\n" + techcrunchContent.slice(0, 6000)
   }
@@ -371,9 +449,8 @@ async function main() {
     )
   }
 
-  if (newsContent.length > 26000) {
-    newsContent = newsContent.slice(0, 26000)
-  }
+  newsContent = deduplicateContent(newsContent)
+  newsContent = smartTruncate(newsContent, 26000)
 
   console.log(`📊 采集到 ${newsContent.length} 字符新闻内容`)
 
@@ -439,6 +516,12 @@ ${newsContent}`
   console.log(`✅ AI 生成完成: ${post.title}`)
 
   const apiBody = normalizeForApi(post, slug)
+
+  if (DRY_RUN) {
+    console.log("🏃 --dry-run 模式，跳过发布。生成结果：")
+    console.log(JSON.stringify(apiBody, null, 2))
+    return
+  }
 
   // 步骤3：发布
   console.log("🔑 登录管理后台...")

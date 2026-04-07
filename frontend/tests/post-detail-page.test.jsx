@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+import { ThemeProvider } from '../src/contexts/ThemeContext'
 import PostDetailPage from '../src/pages/PostDetailPage'
 
 vi.mock('../src/api/posts', () => ({
@@ -16,6 +17,10 @@ vi.mock('../src/api/posts', () => ({
       tags: [{ name: 'Python', slug: 'python' }],
     })
   }),
+  likePost: vi.fn(() => Promise.resolve({})),
+  fetchRelatedPosts: vi.fn(() => Promise.resolve([])),
+  fetchComments: vi.fn(() => Promise.resolve([])),
+  postComment: vi.fn(() => Promise.resolve({})),
 }))
 
 beforeEach(() => {
@@ -23,7 +28,7 @@ beforeEach(() => {
 })
 
 it('renders post detail', async () => {
-  const { container } = render(<MemoryRouter><PostDetailPage slug="python-automation-selenium-pandas" /></MemoryRouter>)
+  const { container } = render(<MemoryRouter><ThemeProvider><PostDetailPage slug="python-automation-selenium-pandas" /></ThemeProvider></MemoryRouter>)
   const headings = await screen.findAllByRole('heading', { name: /python 自动化实战/i })
   expect(headings.length).toBeGreaterThan(0)
   expect(container.querySelector('[data-ui="detail-shell"]')).toBeTruthy()
@@ -31,7 +36,7 @@ it('renders post detail', async () => {
 })
 
 it('shows not found message on404', async () => {
-  const { container } = render(<MemoryRouter><PostDetailPage slug="missing" /></MemoryRouter>)
-  expect(await screen.findByText(/not found/i)).toBeInTheDocument()
+  const { container } = render(<MemoryRouter><ThemeProvider><PostDetailPage slug="missing" /></ThemeProvider></MemoryRouter>)
+  expect(await screen.findByText(/文章不存在或加载失败/)).toBeInTheDocument()
   expect(container.querySelector('[data-ui="detail-error"]')).toBeTruthy()
 })

@@ -4,11 +4,11 @@ export async function adminLogin(username, password) {
   return apiPost('/api/admin/login', { username, password })
 }
 
-export const adminCreatePost = (token, data) => apiPost('/api/admin/posts', data, { auth: true })
-export const adminUpdatePost = (token, id, data) => apiPut(`/api/admin/posts/${id}`, data, { auth: true })
-export const adminDeletePost = (token, id) => apiDelete(`/api/admin/posts/${id}`, { auth: true })
+export const adminCreatePost = (data) => apiPost('/api/admin/posts', data, { auth: true })
+export const adminUpdatePost = (id, data) => apiPut(`/api/admin/posts/${id}`, data, { auth: true })
+export const adminDeletePost = (id) => apiDelete(`/api/admin/posts/${id}`, { auth: true })
 
-export async function adminUploadImage(token, file) {
+export async function adminUploadImage(file) {
   const formData = new FormData()
   formData.append('file', file)
   return apiPost('/api/admin/upload', formData, { auth: true })

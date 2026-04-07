@@ -1,4 +1,4 @@
-const PROXY_BASE = 'https://api.563118077.xyz/proxy-image'
+const PROXY_BASE = import.meta.env.VITE_IMAGE_PROXY_BASE || 'https://api.563118077.xyz/proxy-image'
 
 export function proxyImageUrl(url) {
   if (!url) return ''

@@ -1,4 +1,4 @@
-import { getToken } from './auth'
+import { getToken, clearToken } from './auth'
 
 const BASE = ''
 const TIMEOUT = 30000
@@ -25,6 +25,11 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT } =
     })
     clearTimeout(timer)
     if (!resp.ok) {
+      if (resp.status === 401 && auth) {
+        clearToken()
+        window.location.href = '/admin/login'
+        return
+      }
       const text = await resp.text().catch(() => '')
       throw new Error(text || `HTTP ${resp.status}`)
     }

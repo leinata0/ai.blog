@@ -271,7 +271,6 @@ def upload_image(
     contents = file.file.read()
     if len(contents) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=400, detail="文件大小不能超过 5MB")
-    file.file.seek(0)
 
     uploads_dir = get_uploads_dir()
     uploads_dir.mkdir(parents=True, exist_ok=True)

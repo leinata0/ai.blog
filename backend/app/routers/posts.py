@@ -1,22 +1,15 @@
 import json
-import time
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, select
 
 from app.db import get_db
-from app.models import Post, Tag, Comment, SiteSettings, post_tags
+from app.models import Post, Tag, Comment, SiteSettings, PostLike, ViewLog, post_tags
 from app.schemas import CommentCreate
 
 router = APIRouter(prefix="/api", tags=["posts"])
-
-# 模块级内存缓存：浏览量防刷 {ip+slug: timestamp}
-_view_cache: dict[str, float] = {}
-# 点赞 IP 去重 {ip+slug}
-_like_cache: set[str] = set()
-# 评论频率限制 {ip: [timestamp, ...]}
-_comment_rate: dict[str, list[float]] = {}
 
 
 def _get_client_ip(request: Request) -> str:
@@ -92,14 +85,16 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
 
     # 浏览量防刷：同一 IP 对同一文章 10 分钟内不重复计数
     client_ip = _get_client_ip(request)
-    cache_key = f"{client_ip}:{slug}"
-    now = time.time()
-    last_view = _view_cache.get(cache_key, 0)
-    if now - last_view > 600:
-        post.view_count = (post.view_count or 0) + 1
-        _view_cache[cache_key] = now
+    cutoff = datetime.utcnow() - timedelta(seconds=600)
+    recent_view = db.query(ViewLog).filter(
+        ViewLog.post_id == post.id,
+        ViewLog.ip_address == client_ip,
+        ViewLog.created_at > cutoff,
+    ).first()
+    if not recent_view:
+        post.view_count += 1
+        db.add(ViewLog(post_id=post.id, ip_address=client_ip))
         db.commit()
-        db.refresh(post)
 
     return {
         "id": post.id,
@@ -126,13 +121,16 @@ def like_post(slug: str, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="文章不存在")
 
     client_ip = _get_client_ip(request)
-    like_key = f"{client_ip}:{slug}"
 
-    if like_key in _like_cache:
-        raise HTTPException(status_code=400, detail="你已经点过赞了")
+    existing = db.query(PostLike).filter(
+        PostLike.post_id == post.id,
+        PostLike.ip_address == client_ip,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="已经点过赞了")
 
-    _like_cache.add(like_key)
-    post.like_count = (post.like_count or 0) + 1
+    post.like_count += 1
+    db.add(PostLike(post_id=post.id, ip_address=client_ip))
     db.commit()
     db.refresh(post)
     return {"like_count": post.like_count}
@@ -211,13 +209,13 @@ def create_comment(slug: str, body: CommentCreate, request: Request, db: Session
 
     # 评论频率限制：同 IP 每分钟最多 3 条
     client_ip = _get_client_ip(request)
-    now = time.time()
-    timestamps = _comment_rate.get(client_ip, [])
-    timestamps = [t for t in timestamps if now - t < 60]
-    if len(timestamps) >= 3:
+    one_min_ago = datetime.utcnow() - timedelta(seconds=60)
+    recent_count = db.query(func.count(Comment.id)).filter(
+        Comment.ip_address == client_ip,
+        Comment.created_at > one_min_ago,
+    ).scalar()
+    if recent_count >= 3:
         raise HTTPException(status_code=429, detail="评论过于频繁，请稍后再试")
-    timestamps.append(now)
-    _comment_rate[client_ip] = timestamps
 
     comment = Comment(
         post_id=post.id,
@@ -258,7 +256,7 @@ def get_archive(db: Session = Depends(get_db)):
     ).scalars().all()
     groups: dict[int, list] = {}
     for p in posts:
-        year = p.created_at.year if p.created_at else 2026
+        year = p.created_at.year if p.created_at else datetime.utcnow().year
         groups.setdefault(year, []).append({
             "title": p.title,
             "slug": p.slug,

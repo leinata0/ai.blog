@@ -137,14 +137,13 @@ class StatsOut(BaseModel):
     model_config = {"from_attributes": True}
     post_count: int
     tag_count: int
-    category_count: int
 
 
 # ── Comment schemas ───────────────────────────────
 
 class CommentCreate(BaseModel):
-    nickname: str
-    content: str
+    nickname: str = Field(..., min_length=1, max_length=50)
+    content: str = Field(..., min_length=1, max_length=2000)
 
 
 class CommentOut(BaseModel):

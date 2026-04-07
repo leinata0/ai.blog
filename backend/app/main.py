@@ -44,8 +44,8 @@ app.add_middleware(
         "http://localhost:5173",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.mount(UPLOADS_URL_PREFIX, StaticFiles(directory=get_uploads_dir()), name="uploads")
@@ -106,11 +106,9 @@ def update_settings(
 def get_stats(db: Session = Depends(get_db)):
     post_count = db.query(func.count(Post.id)).scalar()
     tag_count = db.query(func.count(Tag.id)).scalar()
-    category_count = tag_count
     return {
         "post_count": post_count,
         "tag_count": tag_count,
-        "category_count": category_count,
     }
 
 
@@ -118,7 +116,8 @@ def get_stats(db: Session = Depends(get_db)):
 
 @app.get("/feed.xml")
 def rss_feed(db: Session = Depends(get_db)):
-    site_url = "https://563118077.xyz"
+    settings = db.query(SiteSettings).first()
+    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
     posts = db.execute(
         select(Post)
         .where(Post.is_published == True)
@@ -152,7 +151,8 @@ def rss_feed(db: Session = Depends(get_db)):
 
 @app.get("/sitemap.xml")
 def sitemap(db: Session = Depends(get_db)):
-    site_url = "https://563118077.xyz"
+    settings = db.query(SiteSettings).first()
+    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
     posts = db.execute(
         select(Post).where(Post.is_published == True).order_by(Post.created_at.desc())
     ).scalars().all()

@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from app.db import Base
 
@@ -62,3 +63,20 @@ class SiteSettings(Base):
     announcement = Column(Text, nullable=False, default="欢迎来到我的技术博客！这里分享前端开发、全栈技术和编程心得。")
     site_url = Column(String(500), nullable=False, default="https://563118077.xyz")
     friend_links = Column(Text, nullable=False, default="[]")
+
+
+class PostLike(Base):
+    __tablename__ = "post_likes"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
+    ip_address = Column(String, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+    __table_args__ = (UniqueConstraint("post_id", "ip_address", name="uq_post_like"),)
+
+
+class ViewLog(Base):
+    __tablename__ = "view_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
+    ip_address = Column(String, nullable=False)
+    created_at = Column(DateTime, default=func.now())
