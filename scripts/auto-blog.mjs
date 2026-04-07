@@ -122,7 +122,7 @@ async function jinaRead(url, maxLen = 5000) {
   }
 }
 
-/** 对 RSS 条目列表，并行用 Jina 读取全文（限制并发 5），同时提取图片 */
+/** 对 RSS 条目列表，并行用 Jina 读取全文（限制并发 5） */
 async function enrichWithFullText(items, concurrency = 5) {
   console.log(`📖 Jina Reader 抓取 ${items.length} 篇全文（并发 ${concurrency}）…`)
   let done = 0
@@ -133,7 +133,6 @@ async function enrichWithFullText(items, concurrency = 5) {
       if (!item.link) continue
       const fullText = await jinaRead(item.link, 5000)
       if (fullText.length > 100) {
-        item.images = filterImages(extractImages(fullText))
         item.fullText = fullText
         done++
       }
@@ -157,49 +156,6 @@ function removeBoilerplate(text) {
 }
 
 // ── 图片处理 ──
-
-const IMAGE_JUNK_PATTERNS = /\b(icon|logo|avatar|badge|pixel|tracking|favicon|sprite|button|banner-ad|ads?[_-]|\.svg|1x1|spacer|blank|loading|spinner|emoji|thumb[_-]?nail.{0,5}\.(?:png|gif))\b/i
-
-/** 从 Markdown 文本中提取图片 URL 列表 */
-function extractImages(markdown) {
-  const matches = [...(markdown || "").matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)]
-  return matches
-    .map((m) => ({ alt: m[1] || "", url: m[2].trim() }))
-    .filter((img) => img.url.startsWith("http"))
-}
-
-/** 过滤垃圾图片（图标、logo、tracking pixel 等） */
-function filterImages(images) {
-  return images.filter((img) => {
-    if (IMAGE_JUNK_PATTERNS.test(img.url)) return false
-    if (IMAGE_JUNK_PATTERNS.test(img.alt)) return false
-    return true
-  })
-}
-
-/** HEAD 请求验证图片可访问性（并发限制） */
-async function validateImages(images, concurrency = 5) {
-  const valid = []
-  const queue = [...images]
-  const workers = Array.from({ length: concurrency }, async () => {
-    while (queue.length) {
-      const img = queue.shift()
-      try {
-        const resp = await fetch(img.url, {
-          method: "HEAD",
-          signal: AbortSignal.timeout(8000),
-          headers: { "User-Agent": "AutoBlogBot/2.0" },
-        })
-        const ct = resp.headers.get("content-type") || ""
-        if (resp.ok && ct.startsWith("image/")) {
-          valid.push(img)
-        }
-      } catch { /* skip */ }
-    }
-  })
-  await Promise.all(workers)
-  return valid
-}
 
 /** 下载外部图片并上传到博客服务器，返回本地永久 URL；失败返回 null */
 async function downloadAndUploadImage(imageUrl, token) {
@@ -246,21 +202,6 @@ async function downloadAndUploadImage(imageUrl, token) {
     console.log(`   ⚠️ 图片下载/上传异常: ${err.message?.slice(0, 100)}`)
     return null
   }
-}
-
-/** 批量下载并上传图片，返回成功的本地 URL 列表 */
-async function downloadAndUploadImages(images, token, maxCount = 3) {
-  const results = []
-  for (const img of images.slice(0, maxCount + 2)) {
-    if (results.length >= maxCount) break
-    console.log(`   📥 下载: ${img.url.slice(0, 80)}…`)
-    const localUrl = await downloadAndUploadImage(img.url, token)
-    if (localUrl) {
-      results.push(localUrl)
-      console.log(`   ✓ 已上传: ${localUrl}`)
-    }
-  }
-  return results
 }
 
 /** 调用 xAI Grok Imagine 生成图片并上传到服务器（备选方案） */
@@ -681,34 +622,21 @@ async function main() {
     token = await getAdminToken()
   }
 
-  // 步骤5：独立处理图片（素材图片为主，Grok 为备选）
-  const imageUrls = [] // 存放已上传到服务器的本地 URL
-
-  // 主方案：素材提取图片 → 下载 → 上传到自己服务器
-  const allImages = enriched.flatMap((item) => (item.images || []).map((img) => ({ ...img, source: item.source })))
-  if (allImages.length > 0 && token) {
-    console.log(`🖼️ 素材图片处理（${allImages.length} 张候选）…`)
-    const validImages = await validateImages(allImages)
-    console.log(`   ✓ ${validImages.length}/${allImages.length} 张可访问`)
-    if (validImages.length > 0) {
-      const uploaded = await downloadAndUploadImages(validImages, token, 3)
-      imageUrls.push(...uploaded)
-    }
-  }
-
-  // 备选：Grok 生图（素材图片不足时）
-  if (imageUrls.length < 2 && XAI_API_KEY && token) {
+  // 步骤5：Grok 生图（仅在配置 XAI_API_KEY 时启用）
+  const imageUrls = []
+  if (XAI_API_KEY && token) {
     const prompts = Array.isArray(outline.image_prompts) ? outline.image_prompts : []
-    const need = Math.min(3, 3 - imageUrls.length)
     if (prompts.length > 0) {
-      console.log(`🎨 素材图片不足（${imageUrls.length} 张），Grok 补充 ${need} 张…`)
-      for (let i = 0; i < Math.min(need, prompts.length); i++) {
-        const localUrl = await generateImageWithGrok(prompts[i], token)
+      console.log(`🎨 Grok 生图（${prompts.length} 张）…`)
+      for (const prompt of prompts.slice(0, 3)) {
+        const localUrl = await generateImageWithGrok(prompt, token)
         if (localUrl) imageUrls.push(localUrl)
       }
+      console.log(`   ✓ 成功生成 ${imageUrls.length} 张图片`)
     }
+  } else if (!XAI_API_KEY) {
+    console.log(`ℹ️ 未配置 XAI_API_KEY，跳过图片生成（纯文字发布）`)
   }
-  console.log(`📸 最终可用图片: ${imageUrls.length} 张`)
 
   // 程序化插入图片到正文（图片已在自己服务器，永久可用）
   let contentMd = post.content_md || ""
