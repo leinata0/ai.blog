@@ -158,7 +158,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             <div className="flex-1 max-w-3xl">
               {post.cover_image && (
                 <div className="w-full h-56 rounded-xl overflow-hidden mb-6">
-                  <img src={proxyImageUrl(post.cover_image)} alt={post.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <img src={proxyImageUrl(post.cover_image)} alt={post.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.target.parentElement.style.display = 'none' }} />
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-3 mb-4">

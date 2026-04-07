@@ -263,6 +263,7 @@ export default function HomePage() {
                               className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
                               loading="lazy"
                               referrerPolicy="no-referrer"
+                              onError={(e) => { e.target.parentElement.parentElement.style.display = 'none' }}
                             />
                           </div>
                         </Link>
