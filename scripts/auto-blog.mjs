@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * 自动博客生成脚本
- * 架构：aread「搜索 + 阅读」优先拉**最新**素材（AI / LLM / 计科 / Web·Vercel·Render / 开源 / 泛科技）→ 汇总 → LLM 成文 → 管理端发布。
+ * 自动博客生成脚本 v2
+ * 架构：RSS 订阅源（EN + CN）拉最新条目 → Jina Reader 抓全文 → 素材预处理（去 boilerplate / 去重 / 标注来源）
+ *       → 两阶段 LLM（选题大纲 → 正文成稿）→ 管理端发布。
  * LLM：硅基流动 OpenAI 兼容接口（默认 deepseek-ai/DeepSeek-V3）。
  * 环境变量：SILICONFLOW_API_KEY（必填）、SILICONFLOW_BASE_URL、SILICONFLOW_MODEL、
- * ADMIN_PASSWORD、BLOG_API_BASE、ADMIN_USERNAME。
+ *           ADMIN_PASSWORD、BLOG_API_BASE、ADMIN_USERNAME。
  */
 
-import { execSync, execFileSync, execFile } from "child_process"
+import { XMLParser } from "fast-xml-parser"
+
+// ── 配置 ──
 
 const SILICONFLOW_API_KEY = process.env.SILICONFLOW_API_KEY?.trim()
-/** 国内默认 .cn；海外可用 https://api.siliconflow.com/v1 */
 const SILICONFLOW_BASE_URL = (
   process.env.SILICONFLOW_BASE_URL?.trim() || "https://api.siliconflow.cn/v1"
 ).replace(/\/$/, "")
@@ -22,131 +24,94 @@ const BLOG_API_BASE = process.env.BLOG_API_BASE || "https://api.563118077.xyz"
 
 const DRY_RUN = process.argv.includes("--dry-run")
 
-/**
- * aread 主检索查询种子：每条均含 latest / breaking / this week 等偏「新」的关键词；运行时会在 main 里再拼当年份。
- * 覆盖：人工智能（AI）、大语言模型（LLM）、计算机科学、Web 架构（Vercel / Render）、开源、泛互联网科技趋势。
- */
-const SEARCH_QUERIES = [
-  "artificial intelligence AI breaking news latest today",
-  "large language model LLM new release benchmark latest week",
-  "OpenAI Anthropic Google Gemini Claude AI announcement latest",
-  "open source AI model weights Hugging Face GitHub license latest release",
-  "AI coding agent Cursor IDE developer tool latest update",
-  "computer science algorithms systems programming language news latest",
-  "machine learning deep learning research paper latest",
-  "Vercel Next.js edge serverless deployment developer latest",
-  "Render.com PaaS web service cold start developer latest",
-  "internet tech startup platform regulation trend latest",
+// ── RSS 订阅源 ──
+
+const RSS_FEEDS = [
+  // AI / LLM（英文）
+  { url: "https://blog.openai.com/rss/", tag: "AI", lang: "en" },
+  { url: "https://www.anthropic.com/feed", tag: "AI", lang: "en" },
+  { url: "https://blog.google/technology/ai/rss/", tag: "AI", lang: "en" },
+  { url: "https://huggingface.co/blog/feed.xml", tag: "AI/开源", lang: "en" },
+  { url: "https://simonwillison.net/atom/everything/", tag: "AI/独立博主", lang: "en" },
+  // Hacker News 高分
+  { url: "https://hnrss.org/newest?points=100", tag: "HackerNews", lang: "en" },
+  // GitHub Trending
+  { url: "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml", tag: "GitHub", lang: "en" },
+  // 中文科技
+  { url: "https://sspai.com/feed", tag: "少数派", lang: "zh" },
+  { url: "https://www.ruanyifeng.com/blog/atom.xml", tag: "阮一峰", lang: "zh" },
+  // TechCrunch AI
+  { url: "https://techcrunch.com/category/artificial-intelligence/feed/", tag: "TechCrunch", lang: "en" },
 ]
 
-/** 第二路「搜索+阅读」：计算机科学 / 安全 / 云与基础设施（强调最新） */
-const CS_TECH_SEARCH_READ_QUERY =
-  "computer science cybersecurity cloud computing DevOps Kubernetes infrastructure latest news"
+// Jina Reader 直读后备页（RSS 全部失败时）
+const FALLBACK_URLS = [
+  "https://techcrunch.com/category/artificial-intelligence/",
+  "https://www.reuters.com/technology/artificial-intelligence/",
+]
 
-/** 第三路「搜索+阅读」：Web 开发架构（Vercel、Render 等）与开源生态（强调最新） */
-const WEB_ARCH_OSS_SEARCH_READ_QUERY =
-  "Vercel Render Netlify web app architecture serverless open source GitHub trending latest"
+// ── RSS 拉取 ──
 
-// ── aread（与 Crosery/aread 同源：Jina Reader + DuckDuckGo）──
-// 使用 npx，避免 GitHub Actions 全局安装后 PATH 找不到 aread-cli
+const xmlParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+})
 
-function runCommand(cmd, timeoutMs = 60000) {
+/** 拉取单个 RSS/Atom feed，返回 [{ title, link, description, pubDate, source }] */
+async function fetchFeed(feed) {
   try {
-    const output = execSync(cmd, {
-      encoding: "utf-8",
-      timeout: timeoutMs,
-      maxBuffer: 20 * 1024 * 1024,
-      stdio: ["pipe", "pipe", "pipe"],
+    const resp = await fetch(feed.url, {
+      headers: { "User-Agent": "AutoBlogBot/2.0", Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
+      signal: AbortSignal.timeout(15000),
     })
-    return output
+    if (!resp.ok) return []
+    const xml = await resp.text()
+    const parsed = xmlParser.parse(xml)
+
+    // RSS 2.0
+    const rssItems = parsed?.rss?.channel?.item
+    // Atom
+    const atomEntries = parsed?.feed?.entry
+
+    const items = rssItems || atomEntries || []
+    const arr = Array.isArray(items) ? items : [items]
+
+    return arr.slice(0, 8).map((item) => ({
+      title: item.title?.["#text"] || item.title || "",
+      link: item.link?.["@_href"] || item.link || item.guid || "",
+      description: item.description || item.summary?.["#text"] || item.summary || item.content?.["#text"] || "",
+      pubDate: item.pubDate || item.published || item.updated || "",
+      source: feed.tag,
+    }))
   } catch (err) {
-    const stderr =
-      err.stderr != null
-        ? String(err.stderr).slice(0, 400)
-        : err.message || ""
-    console.log(`   ⚠️ 命令出错: ${String(err.message || err).slice(0, 200)}`)
-    if (stderr) console.log(`   stderr: ${stderr}`)
-    return ""
+    console.log(`   ⚠️ RSS 拉取失败 [${feed.tag}]: ${String(err.message).slice(0, 120)}`)
+    return []
   }
 }
 
-function runCommandArgs(cmd, args, timeoutMs = 60000) {
-  try {
-    const output = execFileSync(cmd, args, {
-      encoding: "utf-8",
-      timeout: timeoutMs,
-      maxBuffer: 20 * 1024 * 1024,
-      stdio: ["pipe", "pipe", "pipe"],
-    })
-    return output
-  } catch (err) {
-    const stderr =
-      err.stderr != null
-        ? String(err.stderr).slice(0, 400)
-        : err.message || ""
-    console.log(`   ⚠️ 命令出错: ${String(err.message || err).slice(0, 200)}`)
-    if (stderr) console.log(`   stderr: ${stderr}`)
-    return ""
-  }
-}
+/** 并行拉取所有 RSS，按发布时间排序，取最新 N 条 */
+async function fetchAllFeeds(maxItems = 30) {
+  console.log(`📡 并行拉取 ${RSS_FEEDS.length} 个 RSS 源…`)
+  const results = await Promise.all(RSS_FEEDS.map(fetchFeed))
+  const all = results.flat()
+  console.log(`   ✓ 共获取 ${all.length} 条 RSS 条目`)
 
-function runCommandArgsAsync(cmd, args, timeoutMs = 60000) {
-  return new Promise((resolve) => {
-    execFile(cmd, args, {
-      encoding: "utf-8",
-      timeout: timeoutMs,
-      maxBuffer: 20 * 1024 * 1024,
-    }, (err, stdout) => {
-      if (err) {
-        const stderr = err.stderr != null ? String(err.stderr).slice(0, 400) : err.message || ""
-        console.log(`   ⚠️ 命令出错: ${String(err.message || err).slice(0, 200)}`)
-        if (stderr) console.log(`   stderr: ${stderr}`)
-        resolve("")
-        return
-      }
-      resolve(stdout || "")
-    })
+  // 按时间降序（最新在前），无法解析的排后面
+  all.sort((a, b) => {
+    const da = new Date(a.pubDate).getTime() || 0
+    const db = new Date(b.pubDate).getTime() || 0
+    return db - da
   })
+  return all.slice(0, maxItems)
 }
 
-function areadSearch(query, num = 8) {
-  console.log(`🔍 aread 搜索: ${query}`)
-  return runCommandArgs("npx", ["--yes", "aread-cli", "-r", "-s", query, "-n", String(num)], 90000)
-}
+// ── Jina Reader（全文抓取）──
 
-function areadSearchAndRead(query, num = 3) {
-  console.log(`🔍📖 aread 搜索+阅读: ${query}`)
-  return runCommandArgs("npx", ["--yes", "aread-cli", "-r", "-s", query, "--read", "-n", String(num)], 240000)
-}
-
-function areadRead(url) {
-  console.log(`📖 aread 阅读: ${url}`)
-  return runCommandArgs("npx", ["--yes", "aread-cli", "-r", url], 90000)
-}
-
-async function areadSearchAsync(query, num = 8) {
-  console.log(`🔍 aread 搜索: ${query}`)
-  return runCommandArgsAsync("npx", ["--yes", "aread-cli", "-r", "-s", query, "-n", String(num)], 90000)
-}
-
-async function areadSearchAndReadAsync(query, num = 3) {
-  console.log(`🔍📖 aread 搜索+阅读: ${query}`)
-  return runCommandArgsAsync("npx", ["--yes", "aread-cli", "-r", "-s", query, "--read", "-n", String(num)], 240000)
-}
-
-async function areadReadAsync(url) {
-  console.log(`📖 aread 阅读: ${url}`)
-  return runCommandArgsAsync("npx", ["--yes", "aread-cli", "-r", url], 90000)
-}
-
-/** Jina Reader 后备（与 aread「阅读」能力一致），CI 上 aread 失败时仍可用 */
-async function jinaReadMarkdown(url, maxLen = 5000) {
+async function jinaRead(url, maxLen = 5000) {
   try {
     const resp = await fetch(`https://r.jina.ai/${url}`, {
-      headers: {
-        Accept: "text/markdown",
-        "X-No-Cache": "true",
-      },
+      headers: { Accept: "text/markdown", "X-No-Cache": "true" },
+      signal: AbortSignal.timeout(20000),
     })
     if (!resp.ok) return ""
     const text = await resp.text()
@@ -156,35 +121,88 @@ async function jinaReadMarkdown(url, maxLen = 5000) {
   }
 }
 
-const FALLBACK_NEWS_URLS = [
-  "https://techcrunch.com/category/artificial-intelligence/",
-  "https://www.reuters.com/technology/artificial-intelligence/",
-  "https://www.artificialintelligence-news.com/",
-]
-
-async function gatherNewsWithFallback(newsContent) {
-  let combined = newsContent || ""
-  if (combined.length >= 300) return combined
-
-  console.log("⚠️ aread 内容不足，使用 Jina Reader 后备拉取 AI 新闻页…")
-  for (const u of FALLBACK_NEWS_URLS) {
-    const md = await jinaReadMarkdown(u, 6000)
-    if (md.length > 200) {
-      combined += `\n\n=== ${u} ===\n\n${md}`
-      console.log(`   ✓ Jina 拉取 ${u}：${md.length} 字符`)
+/** 对 RSS 条目列表，并行用 Jina 读取全文（限制并发 5） */
+async function enrichWithFullText(items, concurrency = 5) {
+  console.log(`📖 Jina Reader 抓取 ${items.length} 篇全文（并发 ${concurrency}）…`)
+  let done = 0
+  const queue = [...items]
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (queue.length) {
+      const item = queue.shift()
+      if (!item.link) continue
+      const fullText = await jinaRead(item.link, 5000)
+      if (fullText.length > 100) {
+        item.fullText = fullText
+        done++
+      }
     }
-    if (combined.length >= 300) break
-  }
-  return combined
+  })
+  await Promise.all(workers)
+  console.log(`   ✓ 成功抓取 ${done}/${items.length} 篇全文`)
+  return items
 }
 
-// ── 硅基流动 SiliconFlow（OpenAI 兼容 POST /v1/chat/completions）──
+// ── 素材预处理 ──
+
+/** 去除 boilerplate：导航、页脚、cookie 提示、广告等常见噪音 */
+function removeBoilerplate(text) {
+  return text
+    .replace(/^(Skip to (?:content|main)|Navigation|Menu|Cookie|Accept all|Sign up|Subscribe|Newsletter|Advertisement|Related Articles?)[\s\S]{0,200}$/gim, "")
+    .replace(/^(©|Copyright|All rights reserved|Privacy Policy|Terms of Service).*$/gim, "")
+    .replace(/^\[?(Share|Tweet|Pin|Email|Print|Facebook|Twitter|LinkedIn)\]?.*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
+/** 内容相似度去重：基于段落前 80 字符的指纹 */
+function deduplicateContent(content) {
+  const seen = new Set()
+  return content
+    .split(/\n{2,}/)
+    .filter((block) => {
+      const trimmed = block.trim()
+      if (trimmed.length < 30) return true // 短段落保留
+      const fingerprint = trimmed.slice(0, 80).toLowerCase().replace(/\s+/g, " ")
+      if (seen.has(fingerprint)) return false
+      seen.add(fingerprint)
+      // URL 级去重
+      const urlMatch = trimmed.match(/https?:\/\/[^\s)]+/)
+      if (urlMatch) {
+        const url = urlMatch[0].replace(/[#?].*$/, "")
+        if (seen.has(url)) return false
+        seen.add(url)
+      }
+      return true
+    })
+    .join("\n\n")
+}
+
+/** 将 RSS 条目格式化为带来源标注的素材文本 */
+function formatMaterials(items) {
+  return items
+    .map((item) => {
+      const header = `【来源: ${item.source}】${item.title}`
+      const body = item.fullText || item.description || ""
+      const cleanBody = removeBoilerplate(body)
+      return cleanBody.length > 50 ? `${header}\n${cleanBody}` : `${header}\n${item.description || ""}`
+    })
+    .join("\n\n---\n\n")
+}
+
+/** 段落边界感知截断 */
+function smartTruncate(text, maxLen = 26000) {
+  if (text.length <= maxLen) return text
+  const cut = text.lastIndexOf("\n\n", maxLen)
+  return cut > maxLen * 0.5 ? text.slice(0, cut) : text.slice(0, maxLen)
+}
+
+// ── 硅基流动 LLM ──
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function parseJsonFromLlmContent(raw) {
+function parseJsonFromLlm(raw) {
   let s = String(raw || "").trim()
   if (s.startsWith("```")) {
     s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/m, "")
@@ -192,9 +210,9 @@ function parseJsonFromLlmContent(raw) {
   return JSON.parse(s)
 }
 
-async function callSiliconFlowChat(systemPrompt, userPrompt) {
+async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
   if (!SILICONFLOW_API_KEY) {
-    throw new Error("未配置 SILICONFLOW_API_KEY（请在硅基流动控制台创建 API Key）")
+    throw new Error("未配置 SILICONFLOW_API_KEY")
   }
 
   const url = `${SILICONFLOW_BASE_URL}/chat/completions`
@@ -207,7 +225,7 @@ async function callSiliconFlowChat(systemPrompt, userPrompt) {
   for (let attempt = 1; attempt <= 4; attempt++) {
     if (attempt > 1) {
       const sec = [0, 10, 30, 60][attempt - 1]
-      console.log(`   ⏳ 第 ${attempt} 轮请求，等待 ${sec}s…`)
+      console.log(`   ⏳ 第 ${attempt} 轮重试，等待 ${sec}s…`)
       await sleep(sec * 1000)
     }
 
@@ -218,14 +236,13 @@ async function callSiliconFlowChat(systemPrompt, userPrompt) {
       const body = {
         model: SILICONFLOW_MODEL,
         messages,
-        temperature: 0.7,
-        max_tokens: 16384,
+        temperature: 0.55,
+        top_p: 0.9,
+        max_tokens: maxTokens,
       }
       if (jsonMode) body.response_format = { type: "json_object" }
 
-      console.log(
-        `🤖 硅基流动 ${SILICONFLOW_MODEL}${jsonMode ? "（response_format: json_object）" : ""}`
-      )
+      console.log(`🤖 ${SILICONFLOW_MODEL}${jsonMode ? "（JSON mode）" : ""}`)
       response = await fetch(url, {
         method: "POST",
         headers: {
@@ -238,7 +255,7 @@ async function callSiliconFlowChat(systemPrompt, userPrompt) {
 
       if (response.ok) break
       if (jsonMode && response.status === 400) {
-        console.log("   ⚠️ JSON 模式被拒或未启用，改用普通补全再试…")
+        console.log("   ⚠️ JSON mode 不支持，降级普通模式…")
         continue
       }
       break
@@ -247,34 +264,74 @@ async function callSiliconFlowChat(systemPrompt, userPrompt) {
     if (!response.ok) {
       lastError = errText
       if (response.status === 401 || response.status === 403) {
-        throw new Error(
-          `硅基流动鉴权失败 ${response.status}: ${errText.slice(0, 350)}`
-        )
+        throw new Error(`鉴权失败 ${response.status}: ${errText.slice(0, 350)}`)
       }
       if (response.status === 429 || response.status >= 500) continue
-      throw new Error(`硅基流动 API ${response.status}: ${errText.slice(0, 400)}`)
+      throw new Error(`API ${response.status}: ${errText.slice(0, 400)}`)
     }
 
     const data = await response.json()
     const raw = data.choices?.[0]?.message?.content
-    if (!raw) {
-      lastError = "模型返回 content 为空"
-      continue
-    }
+    if (!raw) { lastError = "content 为空"; continue }
     try {
-      console.log("   ✓ 模型返回已解析为 JSON")
-      return parseJsonFromLlmContent(raw)
+      return parseJsonFromLlm(raw)
     } catch {
       lastError = `JSON 解析失败: ${String(raw).slice(0, 200)}`
     }
   }
 
-  throw new Error(`硅基流动 API 多次重试仍失败: ${lastError.slice(0, 500)}`)
+  throw new Error(`LLM 多次重试失败: ${lastError.slice(0, 500)}`)
 }
 
-/** 生成博文 JSON（title / slug / summary / content_md / tags） */
-async function generatePostJson(systemPrompt, userPrompt) {
-  return callSiliconFlowChat(systemPrompt, userPrompt)
+// ── 两阶段生成 ──
+
+/** 阶段一：选题 + 大纲（token 消耗极少） */
+async function generateOutline(materials, today) {
+  console.log("📝 阶段一：LLM 选题与大纲…")
+  const system = `你是一位资深科技博主。从用户提供的多篇素材中，选出 1-2 个最有深度、最值得展开的话题作为主线，其余可作为简短提及。
+返回 JSON：{"topic":"主线话题（一句话）","outline":["## 章节标题1","## 章节标题2",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...]}`
+  const user = `【${today}】以下是今日抓取的素材，请选题并生成大纲：\n\n${materials.slice(0, 12000)}`
+  return callLLM(system, user, 2048)
+}
+
+/** 阶段二：根据大纲 + 素材生成完整文章 */
+async function generateArticle(outline, materials, today) {
+  console.log("✍️ 阶段二：LLM 正文生成…")
+
+  const system = `# Role
+你是「极客开发日志」的博主，资深独立开发者与 AI 观察员。写出的文章直接贴博客，不是内部纪要。
+
+# 输出格式
+只返回一个 JSON（无 \`\`\`，无多余文字）。
+键：title、slug、summary、content_md、tags。
+
+# 硬性约束
+- content_md：纯 Markdown 正文，用 \`##\` 叙事化标题（利于 TOC），禁止开头写 \`#\`。
+- 正文 1500-3000 字，视素材丰富度自然调节。宁可写短写精，不要为凑字数重复或注水。
+- title：10-28 字，概括主线。禁止「日报」「周刊」「速递」及任何日期。
+- slug：必须为 \`ai-daily-${today}\`。
+- summary：不超过 50 字一句话，勿以「本文」「全文」「作者」开头。
+- tags：小写英文 slug，必含 \`ai\`，最多 8 个。
+- 禁止编造数据。素材弱就写短、标注不确定性。
+- content_md 禁止 HTML，代码用围栏代码块。
+
+# 写作风格
+- 从素材中选出的主线话题贯穿全文，其余作为简短提及或「延伸阅读」。不要写成新闻罗列。
+- 禁止：「值得关注的是」「不难发现」「总而言之」「在这个快速发展的时代」「让我们拭目以待」「众所周知」
+- 鼓励：直接陈述观点，用「我觉得」「说白了」「有意思的是」等口语化表达。
+- 每节末尾可附原文链接供读者深入。`
+
+  const user = `【素材日期 ${today}】
+
+选题与大纲：
+${JSON.stringify(outline, null, 2)}
+
+原始素材：
+${materials}
+
+请按大纲撰写正文，只返回 JSON。`
+
+  return callLLM(system, user, 16384)
 }
 
 // ── 博客 API ──
@@ -297,35 +354,11 @@ async function checkSlugExists(slug) {
   }
 }
 
-/** URL 级去重：同一 URL（去掉 query/hash）只保留首次出现的段落 */
-function deduplicateContent(content) {
-  const seen = new Set()
-  return content.split(/\n{2,}/).filter(block => {
-    const urlMatch = block.match(/https?:\/\/[^\s)]+/)
-    if (urlMatch) {
-      const url = urlMatch[0].replace(/[#?].*$/, '')
-      if (seen.has(url)) return false
-      seen.add(url)
-    }
-    return true
-  }).join('\n\n')
-}
-
-/** 段落边界感知截断，避免在段落中间切断 */
-function smartTruncate(text, maxLen = 26000) {
-  if (text.length <= maxLen) return text
-  const cut = text.lastIndexOf('\n\n', maxLen)
-  return cut > maxLen * 0.5 ? text.slice(0, cut) : text.slice(0, maxLen)
-}
-
-/** 摘要硬上限：汉字/标点等按 Unicode 字符计（码点），不超过 max */
-function truncateSummaryText(s, max = 50) {
+function truncateSummary(s, max = 50) {
   const arr = Array.from(String(s || "").trim())
-  if (arr.length <= max) return arr.join("")
-  return arr.slice(0, max).join("")
+  return arr.length <= max ? arr.join("") : arr.slice(0, max).join("")
 }
 
-/** 符合后端 PostCreateRequest：slug 仅小写字母数字与连字符 */
 function normalizeForApi(post, fixedSlug) {
   if (!post.title || !post.content_md) {
     throw new Error("LLM 返回数据不完整（缺少 title 或 content_md），跳过发布")
@@ -342,25 +375,16 @@ function normalizeForApi(post, fixedSlug) {
     "ai-daily-post"
 
   const title = String(post.title).slice(0, 200)
-  let summary = truncateSummaryText(post.summary || "", 50)
-  if (summary.length < 1) summary = "自动发文摘要缺失，请在后端补写。"
-  summary = truncateSummaryText(summary, 50)
-
-  const content_md = String(post.content_md)
+  let summary = truncateSummary(post.summary || "", 50)
+  if (summary.length < 1) summary = "AI 技术动态与开发者生态观察。"
 
   const rawTags = Array.isArray(post.tags) ? post.tags : ["ai"]
   const tags = rawTags
-    .map((t) =>
-      String(t)
-        .toLowerCase()
-        .replace(/[^a-z0-9-]+/g, "")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 48)
-    )
+    .map((t) => String(t).toLowerCase().replace(/[^a-z0-9-]+/g, "").slice(0, 48))
     .filter(Boolean)
     .slice(0, 8)
 
-  return { title, slug, summary, content_md, tags: tags.length ? tags : ["ai"] }
+  return { title, slug, summary, content_md: String(post.content_md), tags: tags.length ? tags : ["ai"] }
 }
 
 async function publishPost(token, payload) {
@@ -391,143 +415,74 @@ async function publishPost(token, payload) {
 // ── 主流程 ──
 
 async function main() {
-  console.log("🚀 自动博客生成开始")
-  console.log(`📅 日期: ${new Date().toISOString().split("T")[0]}`)
-
-  if (!SILICONFLOW_API_KEY) {
-    throw new Error("请配置 SILICONFLOW_API_KEY（硅基流动）")
-  }
-  if (!ADMIN_PASSWORD && !DRY_RUN) throw new Error("缺少 ADMIN_PASSWORD 环境变量")
-
+  console.log("🚀 自动博客 v2 开始")
   const today = new Date().toISOString().split("T")[0]
+  console.log(`📅 日期: ${today}`)
+
+  if (!SILICONFLOW_API_KEY) throw new Error("请配置 SILICONFLOW_API_KEY")
+  if (!ADMIN_PASSWORD && !DRY_RUN) throw new Error("缺少 ADMIN_PASSWORD")
+
   const slug = `ai-daily-${today}`
 
-  // 检查是否已发布
-  if (await checkSlugExists(slug)) {
+  if (!DRY_RUN && (await checkSlugExists(slug))) {
     console.log(`⏭️ 今日文章已存在 (${slug})，跳过`)
     return
   }
 
-  // 步骤1：aread —— 主检索 + 计科/云基建 + Web·开源；查询字符串均带「最新」导向并在文末拼当年份，利于搜索引擎偏新结果
-  const year = new Date().getFullYear()
-  const queryIndex = new Date().getDate() % SEARCH_QUERIES.length
-  const queryPrimary = `${SEARCH_QUERIES[queryIndex]} ${year}`.trim()
+  // 步骤1：RSS 拉取
+  const feedItems = await fetchAllFeeds(30)
 
-  console.log(`📌 aread 主检索（轮换 ${queryIndex + 1}/${SEARCH_QUERIES.length}，强调最新）`)
+  // 步骤2：Jina Reader 抓全文（取前 15 条有链接的）
+  const itemsWithLinks = feedItems.filter((i) => i.link).slice(0, 15)
+  const enriched = await enrichWithFullText(itemsWithLinks)
 
-  // 三路搜索+阅读并行
-  const [primaryContent, csContent, webContent] = await Promise.all([
-    (async () => {
-      let content = await areadSearchAndReadAsync(queryPrimary, 4)
-      if (!content || content.length < 200) {
-        console.log("   ⚠️ 搜索+阅读内容不足，降级为纯搜索…")
-        content = await areadSearchAsync(queryPrimary, 8)
+  // 步骤3：素材预处理
+  let materials = formatMaterials(enriched)
+  materials = deduplicateContent(materials)
+
+  // 后备：RSS 全部失败时用 Jina 直读
+  if (materials.length < 300) {
+    console.log("⚠️ RSS 素材不足，使用 Jina Reader 后备…")
+    for (const url of FALLBACK_URLS) {
+      const md = await jinaRead(url, 6000)
+      if (md.length > 200) {
+        materials += `\n\n---\n\n【来源: 后备】${url}\n${removeBoilerplate(md)}`
+        console.log(`   ✓ 后备拉取 ${url}：${md.length} 字符`)
       }
-      return content
-    })(),
-    areadSearchAndReadAsync(`${CS_TECH_SEARCH_READ_QUERY} ${year}`, 3),
-    areadSearchAndReadAsync(`${WEB_ARCH_OSS_SEARCH_READ_QUERY} ${year}`, 2),
-  ])
-
-  let newsContent = ""
-  if (primaryContent) newsContent += primaryContent
-  if (csContent && csContent.length > 80) newsContent += `\n\n=== aread 搜索+阅读（计算机科学 / 安全 / 云与基础设施·最新）===\n\n${csContent}`
-  if (webContent && webContent.length > 80) newsContent += `\n\n=== aread 搜索+阅读（Web 架构·Vercel / Render 等 / 开源·最新）===\n\n${webContent}`
-
-  // 补充：aread 直接阅读固定资讯页（与上同属「阅读」管线）
-  newsContent = deduplicateContent(newsContent)
-  const techcrunchContent = await areadReadAsync("https://techcrunch.com/category/artificial-intelligence/")
-  if (techcrunchContent) {
-    newsContent += "\n\n=== TechCrunch AI 最新文章 ===\n\n" + techcrunchContent.slice(0, 6000)
+      if (materials.length >= 300) break
+    }
   }
 
-  newsContent = await gatherNewsWithFallback(newsContent)
-
-  if (!newsContent || newsContent.length < 300) {
-    throw new Error(
-      "新闻内容采集不足（aread 与 Jina 后备均失败）。请检查 Actions 日志中 aread 的 stderr，或确认未拦截 r.jina.ai。"
-    )
+  if (materials.length < 300) {
+    throw new Error("素材采集不足（RSS 与 Jina 后备均失败）。请检查网络或 RSS 源可用性。")
   }
 
-  newsContent = deduplicateContent(newsContent)
-  newsContent = smartTruncate(newsContent, 26000)
+  materials = smartTruncate(materials, 26000)
+  console.log(`📊 预处理后素材 ${materials.length} 字符`)
 
-  console.log(`📊 采集到 ${newsContent.length} 字符新闻内容`)
+  // 步骤4：两阶段 LLM 生成
+  const outline = await generateOutline(materials, today)
+  console.log(`📋 选题: ${outline.topic}`)
+  console.log(`📋 大纲: ${outline.outline?.join(" → ")}`)
 
-  // 步骤2：调用硅基流动 DeepSeek 生成文章（用户自定义提示词：博主人格 + TOC 叙事标题 + 排版规范；输出仍为 JSON 供 API 发布）
-  const systemPrompt = `# Role
-你是一位资深的独立开发者、科技博主和人工智能观察员，笔调归属「极客开发日志」。你有扎实的计算机科学背景，对代码、开源生态和 AI 行业动态敏感；写出的东西要能直接贴到博客上，而不是内部纪要。
-
-# Task
-用户会给你多篇近期通过工具抓取、拼接的科技资讯或技术线索。请阅读、交叉比对、整合提炼成**一篇**结构严谨、见解独到、排版漂亮的 **Markdown 技术长文**。正文写在 JSON 的 \`content_md\` 字段里。
-
-# Topic Focus（内容焦点）
-核心围绕：**人工智能（AI）、大语言模型（LLM）、计算机科学**、**Web / 基础设施与部署**（如 Vercel、Render、冷启动与成本）、**开源项目**及泛互联网科技趋势；可从素材中自选主线，但禁止离题成纯娱乐。
-
-# 事实与边界
-- 禁止编造融资额、版本号、未证实条款。素材弱就写短、写清不确定性；可做「工程常识层面的推演」，须与新闻事实分开写。
-- \`content_md\` 里**禁止 HTML**；代码与命令用围栏代码块并标注语言（如 \`bash\`、\`python\`）。
-
-# Table of Contents（⚠️ 侧边栏 TOC 专用标题规范 ⚠️）
-站点会从 \`##\` / \`###\` 生成目录，标题必须**叙事化、有画面**，彻底拒绝八股词。
-
-1. **命名公式**：\`## [中文序号]、[情境 / 情绪短语]：[具体技术点 / 核心悬念]\`，例如「## 一、极客起航：为什么要折腾这条链路？」。\`###\` 继续用「关卡 / 悬念 / 比喻」式短名，而不是论文小节名。
-2. **绝对禁止**出现在标题里的词（及同义词糊弄）：「引言」「项目背景」「技术实现」「部署过程」「总结」「优点」「缺点」「参考文献」等死板说法。收尾可用「写在最后」「收束」「按图索骥」类**有画面**的表达，不要用「总结」二字当头。
-3. **模仿示例（语气与结构，勿照抄话题）**：
-   - ❌「一、项目背景」 → ✅「## 一、极客起航：为什么要自己造一个博客？」
-   - ❌「二、系统架构」 → ✅「## 二、架构大图：三层分离，各司其职」
-   - ❌「三、部署遇到的问题」 → ✅「## 三、踩坑与反杀：Render 部署的三重关卡」
-   - ❌「3.1 磁盘收费问题」 → ✅「### 关卡一：持久化磁盘的「付费墙」」
-   - ❌「四、总结」 → ✅「## 四、人机协作感悟：终端里的 AI 搭档」
-   - ❌「五、未来展望」 → ✅「## 五、写在最后」
-4. **推荐篇幅结构**：开头 **2～3 段无标题引子**（不加 \`#\`）；然后 **至少 4 个** \`##\` 叙事章节（按「一、二、三、四……」顺延序号）；视需要穿插 \`###\`；最后用 **再一个** \`##\` 做「链接 / 出处」集合，标题仍须叙事化，例如「## 六、按图索骥：本期信源与链接」——其中用列表列出 \`[说明](url)\`。
-
-# 篇幅与深度（\`content_md\` 内、不含最后一节「链接」）
-- **正文汉字不少于 2800 字**，推荐 **3000～3800 字**；每节以论述为主（每节约 **500～900 字**），列表只作辅助。
-- 每个核心线索尽量写清：**事实 → 机制 / 架构直觉 → 取舍 → 对开发者或团队的含义**；在事实后加一两句 **「博主视角」或「技术洞察」**（克制、短）。
-
-# Typography（严格排版）
-1. 中英文 / 中文与数字之间加**半角空格**（例：使用 Python 调用 OpenAI API）。
-2. 专有名词大小写跟官方：**GitHub**、**OpenAI**、**DeepSeek**、**React**、**Vercel**、**Render** 等，禁止随意全小写。
-3. 类名、文件名、短命令、配置键等用行内反引号（例：\`.env\`、\`npm run build\`）。
-4. 正文使用**全角中文标点**。
-
-# Tone & Anti-AI Filter
-- 像资深用户在 **V2EX / 掘金** 上写技术帖：专业、克制、偶尔冷幽默。
-- 禁用：「在这个瞬息万变的时代」「总而言之」「随着科技的飞速发展」「让我们拭目以待」「希望这篇文章对你有所帮助」「综上所述」「值得期待」等播音腔 / 申论腔。
-
-# Output Constraint（对接博客 API，与「只输出 Markdown」的冲突在此统一）
-- **不要**输出「好的，以下是…」等套话。
-- **仅输出一个合法 JSON 对象**（不要用 markdown 代码围栏包住整个 JSON）。
-- JSON 键：\`title\`、\`slug\`、\`summary\`、\`content_md\`、\`tags\`。
-- \`content_md\`：**纯 Markdown 正文**，从引子第一段开始直到最后一节链接列表；**禁止**在正文最开头写一级 \`#\`（站点标题用 \`title\` 字段）。
-- \`title\`：全文写完后自拟，**10～28 字**，概括主线；**禁止**：「日报」「周刊」「速递」、**任何日期**（含「${today}」、年月日、星期、「今日」）。
-- \`slug\`：必须恰为 \`ai-daily-${today}\`。
-- \`summary\`：**不超过 50 字（含标点）的一句话**，无换行；勿以「本文」「全文」「作者」开头。
-- \`tags\`：小写英文 slug，必须含 \`ai\`，其余如 \`llm\`、\`infra\`、\`opensource\` 等，最多 8 个。
-
-结构示意：{"title":"…","slug":"ai-daily-${today}","summary":"…","content_md":"…","tags":["ai",…]}`
-
-  const userPrompt = `【素材日期 ${today}】以下为抓取到的原始材料（多段拼接）。请严格按系统说明撰写 \`content_md\`（叙事化 \`##\` 标题以利 TOC、字数不少于 2800 字），并只返回 JSON：
-
-${newsContent}`
-
-  const post = await generatePostJson(systemPrompt, userPrompt)
-  console.log(`✅ AI 生成完成: ${post.title}`)
+  const post = await generateArticle(outline, materials, today)
+  console.log(`✅ 生成完成: ${post.title}`)
 
   const apiBody = normalizeForApi(post, slug)
 
   if (DRY_RUN) {
-    console.log("🏃 --dry-run 模式，跳过发布。生成结果：")
+    console.log("🏃 --dry-run 模式，跳过发布。")
+    console.log(`📋 选题: ${outline.topic}`)
+    console.log(`📋 大纲: ${JSON.stringify(outline.outline)}`)
     console.log(JSON.stringify(apiBody, null, 2))
     return
   }
 
-  // 步骤3：发布
-  console.log("🔑 登录管理后台...")
+  // 步骤5：发布
+  console.log("🔑 登录管理后台…")
   const token = await getAdminToken()
 
-  console.log("📤 发布文章...")
+  console.log("📤 发布文章…")
   const result = await publishPost(token, apiBody)
   console.log(`🎉 发布成功! ID: ${result.id}, slug: ${apiBody.slug}`)
 }

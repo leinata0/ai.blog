@@ -10,5 +10,6 @@ backend/app/routers/__pycache__/
 backend/tests/__pycache__/
 blog.db
 frontend/node_modules/
+scripts/node_modules/
 frontend/dist/
 frontend/.vite/

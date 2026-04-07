@@ -10,11 +10,9 @@ on:
 jobs:
   generate:
     runs-on: ubuntu-latest
-    # 消除「Node.js 20 actions deprecated」警告；与官方新版 Action 运行时一致
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    # aread 搜索+阅读 + 硅基流动 API，适当留足时间
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: 拉取代码
         uses: actions/checkout@v6
@@ -24,23 +22,17 @@ jobs:
         with:
           node-version: 22
 
-      - name: 安装 Python（aread 搜索依赖）
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
+      - name: 安装脚本依赖
+        run: cd scripts && npm install
 
-      - name: 检查仓库机密（不输出具体值）
+      - name: 检查仓库机密
         env:
           SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
-          if [ -z "$SILICONFLOW_API_KEY" ]; then echo "::error::请配置 SILICONFLOW_API_KEY（硅基流动 API Key）"; exit 1; fi
-          if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::缺少 ADMIN_PASSWORD，请在仓库机密中添加"; exit 1; fi
-          echo "硅基流动与管理员机密已配置"
-
-      # 勿使用 | head：GitHub Actions 默认 pipefail，会导致 npx 侧 SIGPIPE 非零退出
-      - name: 验证 aread（npx，与脚本一致）
-        run: npx --yes aread-cli -h
+          if [ -z "$SILICONFLOW_API_KEY" ]; then echo "::error::请配置 SILICONFLOW_API_KEY"; exit 1; fi
+          if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::缺少 ADMIN_PASSWORD"; exit 1; fi
+          echo "机密已配置"
 
       - name: 生成并发布 AI 日报
         env:
