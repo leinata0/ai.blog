@@ -121,7 +121,7 @@ async function jinaRead(url, maxLen = 5000) {
   }
 }
 
-/** 对 RSS 条目列表，并行用 Jina 读取全文（限制并发 5） */
+/** 对 RSS 条目列表，并行用 Jina 读取全文（限制并发 5），同时提取图片 */
 async function enrichWithFullText(items, concurrency = 5) {
   console.log(`📖 Jina Reader 抓取 ${items.length} 篇全文（并发 ${concurrency}）…`)
   let done = 0
@@ -132,6 +132,7 @@ async function enrichWithFullText(items, concurrency = 5) {
       if (!item.link) continue
       const fullText = await jinaRead(item.link, 5000)
       if (fullText.length > 100) {
+        item.images = filterImages(extractImages(fullText))
         item.fullText = fullText
         done++
       }
@@ -154,7 +155,63 @@ function removeBoilerplate(text) {
     .trim()
 }
 
-/** 内容相似度去重：基于段落前 80 字符的指纹 */
+// ── 图片处理 ──
+
+const IMAGE_JUNK_PATTERNS = /\b(icon|logo|avatar|badge|pixel|tracking|favicon|sprite|button|banner-ad|ads?[_-]|\.svg|1x1|spacer|blank|loading|spinner|emoji|thumb[_-]?nail.{0,5}\.(?:png|gif))\b/i
+
+/** 从 Markdown 文本中提取图片 URL 列表 */
+function extractImages(markdown) {
+  const matches = [...(markdown || "").matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)]
+  return matches
+    .map((m) => ({ alt: m[1] || "", url: m[2].trim() }))
+    .filter((img) => img.url.startsWith("http"))
+}
+
+/** 过滤垃圾图片（图标、logo、tracking pixel 等） */
+function filterImages(images) {
+  return images.filter((img) => {
+    if (IMAGE_JUNK_PATTERNS.test(img.url)) return false
+    if (IMAGE_JUNK_PATTERNS.test(img.alt)) return false
+    return true
+  })
+}
+
+/** HEAD 请求验证图片可访问性（并发限制） */
+async function validateImages(images, concurrency = 5) {
+  const valid = []
+  const queue = [...images]
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (queue.length) {
+      const img = queue.shift()
+      try {
+        const resp = await fetch(img.url, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(8000),
+          headers: { "User-Agent": "AutoBlogBot/2.0" },
+        })
+        const ct = resp.headers.get("content-type") || ""
+        if (resp.ok && ct.startsWith("image/")) {
+          valid.push(img)
+        }
+      } catch { /* skip */ }
+    }
+  })
+  await Promise.all(workers)
+  return valid
+}
+
+/** 将图片 URL 替换为代理 URL */
+function proxyImageUrl(url) {
+  return `${BLOG_API_BASE}/proxy-image?url=${encodeURIComponent(url)}`
+}
+
+/** 替换 content_md 中所有图片 URL 为代理 URL */
+function proxyAllImages(contentMd) {
+  return contentMd.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => {
+    if (url.startsWith(BLOG_API_BASE)) return match
+    return `![${alt}](${proxyImageUrl(url)})`
+  })
+}
 function deduplicateContent(content) {
   const seen = new Set()
   return content
@@ -177,14 +234,19 @@ function deduplicateContent(content) {
     .join("\n\n")
 }
 
-/** 将 RSS 条目格式化为带来源标注的素材文本 */
+/** 将 RSS 条目格式化为带来源标注的素材文本（含图片信息） */
 function formatMaterials(items) {
   return items
     .map((item) => {
       const header = `【来源: ${item.source}】${item.title}`
       const body = item.fullText || item.description || ""
       const cleanBody = removeBoilerplate(body)
-      return cleanBody.length > 50 ? `${header}\n${cleanBody}` : `${header}\n${item.description || ""}`
+      let text = cleanBody.length > 50 ? `${header}\n${cleanBody}` : `${header}\n${item.description || ""}`
+      if (item.images?.length) {
+        const imgList = item.images.slice(0, 3).map((img) => `  - ![${img.alt}](${img.url})`).join("\n")
+        text += `\n【可用图片】\n${imgList}`
+      }
+      return text
     })
     .join("\n\n---\n\n")
 }
@@ -296,7 +358,7 @@ async function generateOutline(materials, today) {
 - 所有标题必须是中文，禁止英文标题
 - 大纲应体现叙事逻辑，不是新闻条目罗列
 
-返回 JSON：{"topic":"主线话题（一句话）","outline":["## 一、中文章节标题","### 子标题（可选）","## 二、中文章节标题",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...]}`
+返回 JSON：{"topic":"主线话题（一句话）","outline":["## 一、中文章节标题","### 子标题（可选）","## 二、中文章节标题",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...],"cover_image":"从素材【可用图片】中选一张最能代表主线话题的图片URL，如果没有合适的图片则留空字符串"}`
   const user = `【${today}】以下是今日抓取的素材，请选题并生成大纲：\n\n${materials.slice(0, 12000)}`
   return callLLM(system, user, 2048)
 }
@@ -346,7 +408,15 @@ async function generateArticle(outline, materials, today) {
 - 禁止：「值得关注的是」「不难发现」「总而言之」「在这个快速发展的时代」「让我们拭目以待」「众所周知」
 - 鼓励：直接陈述观点，用「我觉得」「说白了」「有意思的是」等口语化表达。
 - 每节末尾可附原文链接供读者深入。
-- 每个章节要充分展开，不要只写一两句话就结束。深入分析、举例说明、给出自己的看法。`
+- 每个章节要充分展开，不要只写一两句话就结束。深入分析、举例说明、给出自己的看法。
+
+# 图片插入规则
+- 素材中标注了【可用图片】，请在正文中自然地插入这些图片（使用 Markdown 格式 \`![描述](url)\`）。
+- 图片放在相关段落之间，不要放在标题紧下方，也不要连续放两张图。
+- 每篇文章插入 2-5 张图片，选择与当前段落内容最相关的图片。
+- 图片的 alt 文本用中文简短描述图片内容。
+- 只使用素材中提供的图片 URL，不要编造图片地址。
+- 如果素材中没有合适的图片，宁可不插也不要硬插不相关的图。`
 
   const user = `【素材日期 ${today}】
 
@@ -414,7 +484,7 @@ function normalizeForApi(post, fixedSlug) {
   return { title, slug, summary, content_md: String(post.content_md), tags: tags.length ? tags : ["ai"] }
 }
 
-async function publishPost(token, payload) {
+async function publishPost(token, payload, coverImage = "") {
   const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts`, {
     method: "POST",
     headers: {
@@ -429,7 +499,7 @@ async function publishPost(token, payload) {
       tags: payload.tags,
       is_published: true,
       is_pinned: false,
-      cover_image: "",
+      cover_image: coverImage,
     }),
   })
   if (!resp.ok) {
@@ -467,6 +537,12 @@ async function main() {
   let materials = formatMaterials(enriched)
   materials = deduplicateContent(materials)
 
+  // 步骤3.5：收集并验证所有图片
+  const allImages = enriched.flatMap((item) => (item.images || []).map((img) => ({ ...img, source: item.source, itemTitle: item.title })))
+  console.log(`🖼️ 共提取 ${allImages.length} 张候选图片，验证可访问性…`)
+  const validImages = allImages.length > 0 ? await validateImages(allImages) : []
+  console.log(`   ✓ ${validImages.length}/${allImages.length} 张图片可用`)
+
   // 后备：RSS 全部失败时用 Jina 直读
   if (materials.length < 300) {
     console.log("⚠️ RSS 素材不足，使用 Jina Reader 后备…")
@@ -495,12 +571,27 @@ async function main() {
   const post = await generateArticle(outline, materials, today)
   console.log(`✅ 生成完成: ${post.title}`)
 
+  // 步骤4.5：代理所有图片 URL
+  post.content_md = proxyAllImages(post.content_md || "")
+
+  // 封面图：优先用 LLM 选的，兜底取第一张有效图片
+  let coverImage = ""
+  const llmCover = outline.cover_image || ""
+  if (llmCover && validImages.some((img) => img.url === llmCover)) {
+    coverImage = proxyImageUrl(llmCover)
+    console.log(`🖼️ 封面图（LLM 选择）: ${llmCover.slice(0, 80)}`)
+  } else if (validImages.length > 0) {
+    coverImage = proxyImageUrl(validImages[0].url)
+    console.log(`🖼️ 封面图（自动选择）: ${validImages[0].url.slice(0, 80)}`)
+  }
+
   const apiBody = normalizeForApi(post, slug)
 
   if (DRY_RUN) {
     console.log("🏃 --dry-run 模式，跳过发布。")
     console.log(`📋 选题: ${outline.topic}`)
     console.log(`📋 大纲: ${JSON.stringify(outline.outline)}`)
+    console.log(`🖼️ 封面: ${coverImage || "（无）"}`)
     console.log(JSON.stringify(apiBody, null, 2))
     return
   }
@@ -510,7 +601,7 @@ async function main() {
   const token = await getAdminToken()
 
   console.log("📤 发布文章…")
-  const result = await publishPost(token, apiBody)
+  const result = await publishPost(token, apiBody, coverImage)
   console.log(`🎉 发布成功! ID: ${result.id}, slug: ${apiBody.slug}`)
 }
 
