@@ -204,8 +204,8 @@ async function downloadAndUploadImage(imageUrl, token) {
   }
 }
 
-/** 调用 xAI Grok Imagine 生成图片并上传到服务器（备选方案） */
-async function generateImageWithGrok(prompt, token) {
+/** 调用 xAI Grok Imagine 生成封面图并上传到服务器 */
+async function generateCoverWithGrok(prompt, token) {
   if (!XAI_API_KEY) return null
   try {
     const resp = await fetch("https://api.x.ai/v1/images/generations", {
@@ -216,11 +216,10 @@ async function generateImageWithGrok(prompt, token) {
       },
       body: JSON.stringify({
         model: "grok-2-image",
-        prompt,
+        prompt: `Wide landscape banner image, cinematic, high quality: ${prompt}`,
         n: 1,
-        size: "1024x1024",
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(60000),
     })
     if (!resp.ok) {
       console.log(`   ⚠️ Grok 生图失败: ${resp.status} ${(await resp.text()).slice(0, 200)}`)
@@ -230,49 +229,12 @@ async function generateImageWithGrok(prompt, token) {
     const grokUrl = data.data?.[0]?.url
     if (!grokUrl) return null
     console.log(`   ✓ Grok 生图成功，上传到服务器…`)
-    // 下载 Grok 图片并上传到自己服务器
     const localUrl = await downloadAndUploadImage(grokUrl, token)
     return localUrl
   } catch (err) {
     console.log(`   ⚠️ Grok 生图异常: ${err.message}`)
     return null
   }
-}
-
-/** 将图片程序化插入 Markdown 正文（在 ## 章节的第一段之后） */
-function insertImagesIntoMarkdown(contentMd, imageUrls) {
-  if (!imageUrls.length) return contentMd
-  const lines = contentMd.split("\n")
-  const insertPoints = [] // 找到每个 ## 章节第一个空行的位置
-  let inSection = false
-  let foundParagraph = false
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith("## ")) {
-      inSection = true
-      foundParagraph = false
-      continue
-    }
-    if (inSection && !foundParagraph && lines[i].trim().length > 0) {
-      foundParagraph = true
-      continue
-    }
-    if (inSection && foundParagraph && lines[i].trim() === "") {
-      insertPoints.push(i)
-      inSection = false
-    }
-  }
-  // 均匀分配图片到插入点，跳过最后一个章节（写在最后）
-  const usablePoints = insertPoints.slice(0, -1)
-  if (usablePoints.length === 0) return contentMd
-  const result = [...lines]
-  let inserted = 0
-  for (let idx = 0; idx < imageUrls.length && idx < usablePoints.length; idx++) {
-    const pos = usablePoints[idx] + inserted
-    const imgMd = `\n![配图](${imageUrls[idx]})\n`
-    result.splice(pos + 1, 0, imgMd)
-    inserted++
-  }
-  return result.join("\n")
 }
 function deduplicateContent(content) {
   const seen = new Set()
@@ -415,7 +377,7 @@ async function generateOutline(materials, today) {
 - 所有标题必须是中文，禁止英文标题
 - 大纲应体现叙事逻辑，不是新闻条目罗列
 
-返回 JSON：{"topic":"主线话题（一句话）","outline":["## 一、中文章节标题","### 子标题（可选）","## 二、中文章节标题",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...],"image_prompts":["English prompt for generating an illustration related to the main topic","English prompt for a second illustration","English prompt for a third illustration"]}`
+返回 JSON：{"topic":"主线话题（一句话）","outline":["## 一、中文章节标题","### 子标题（可选）","## 二、中文章节标题",...],"key_sources":["相关素材标题或URL"],"tags":["ai","llm",...],"cover_prompt":"One English sentence describing a wide landscape banner image that represents the main topic, suitable as a blog cover photo"}`
   const user = `【${today}】以下是今日抓取的素材，请选题并生成大纲：\n\n${materials.slice(0, 12000)}`
   return callLLM(system, user, 2048)
 }
@@ -645,40 +607,28 @@ async function main() {
   const post = await generateArticle(outline, materials, today)
   console.log(`✅ 生成完成: ${post.title}`)
 
-  // 步骤4.5：提前登录（图片上传需要 token）
+  // 步骤4.5：提前登录（封面图上传需要 token）
   let token = null
   if (!DRY_RUN) {
     console.log("🔑 登录管理后台…")
     token = await getAdminToken()
   }
 
-  // 步骤5：Grok 生图（仅在配置 XAI_API_KEY 时启用）
-  const imageUrls = []
+  // 步骤5：Grok 生成封面图（仅 1 张，不插入正文）
+  let coverImage = ""
   if (XAI_API_KEY && token) {
-    const prompts = Array.isArray(outline.image_prompts) ? outline.image_prompts : []
-    if (prompts.length > 0) {
-      console.log(`🎨 Grok 生图（${prompts.length} 张）…`)
-      for (const prompt of prompts.slice(0, 3)) {
-        const localUrl = await generateImageWithGrok(prompt, token)
-        if (localUrl) imageUrls.push(localUrl)
+    const coverPrompt = outline.cover_prompt || ""
+    if (coverPrompt) {
+      console.log(`🎨 Grok 生成封面图…`)
+      const localUrl = await generateCoverWithGrok(coverPrompt, token)
+      if (localUrl) {
+        coverImage = localUrl
+        console.log(`   ✓ 封面图: ${coverImage}`)
       }
-      console.log(`   ✓ 成功生成 ${imageUrls.length} 张图片`)
     }
   } else if (!XAI_API_KEY) {
-    console.log(`ℹ️ 未配置 XAI_API_KEY，跳过图片生成（纯文字发布）`)
+    console.log(`ℹ️ 未配置 XAI_API_KEY，跳过封面图生成`)
   }
-
-  // 程序化插入图片到正文（图片已在自己服务器，永久可用）
-  let contentMd = post.content_md || ""
-  if (imageUrls.length > 0) {
-    contentMd = insertImagesIntoMarkdown(contentMd, imageUrls)
-    console.log(`   ✓ 已插入 ${Math.min(imageUrls.length, 3)} 张图片到正文`)
-  }
-  post.content_md = contentMd
-
-  // 封面图：第一张上传的图片
-  const coverImage = imageUrls.length > 0 ? imageUrls[0] : ""
-  if (coverImage) console.log(`🖼️ 封面图: ${coverImage}`)
 
   const apiBody = normalizeForApi(post, slug)
 
