@@ -35,7 +35,10 @@
       "WebFetch(domain:vercel.com)",
       "Bash(node -e ':*)",
       "Bash(gh run:*)",
-      "Bash(where gh:*)"
+      "Bash(where gh:*)",
+      "Bash(node:*)",
+      "Bash(set ADMIN_PASSWORD=admin123)",
+      "Bash(ADMIN_PASSWORD=admin123 node:*)"
     ]
   }
 }
