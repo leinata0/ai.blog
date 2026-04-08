@@ -215,7 +215,7 @@ async function generateCoverWithGrok(prompt, token) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "grok-2-image",
+        model: "grok-imagine-image",
         prompt: `Wide landscape banner image, cinematic, high quality: ${prompt}`,
         n: 1,
       }),

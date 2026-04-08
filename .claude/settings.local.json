@@ -33,7 +33,9 @@
       "WebFetch(domain:docs.aimlapi.com)",
       "WebFetch(domain:linux.do)",
       "WebFetch(domain:vercel.com)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(gh run:*)",
+      "Bash(where gh:*)"
     ]
   }
 }
