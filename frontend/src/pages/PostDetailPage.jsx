@@ -26,6 +26,31 @@ function slugifyHeading(text) {
   return text.toLowerCase().replace(/[^\w\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '')
 }
 
+function MarkdownImage({ src, alt, title }) {
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    setVisible(true)
+  }, [src])
+
+  if (!src || !visible) return null
+  return (
+    <span className="not-prose block my-6 rounded-2xl bg-gradient-to-br from-slate-900/5 to-slate-900/0 p-1 shadow-sm">
+      <span className="block overflow-hidden rounded-xl border border-white/10 bg-transparent">
+        <img
+          src={proxyImageUrl(src)}
+          alt={typeof alt === 'string' ? alt : ''}
+          title={title}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="block w-full h-auto object-cover"
+          onError={() => setVisible(false)}
+        />
+      </span>
+    </span>
+  )
+}
+
 export default function PostDetailPage({ slug: overrideSlug }) {
   const params = useParams()
   const slug = overrideSlug ?? params.slug
@@ -290,6 +315,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                         {children}
                       </td>
                     ),
+                    img: MarkdownImage,
                   }}
                 >
                   {post.content_md}

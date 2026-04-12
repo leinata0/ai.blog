@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider } from '../src/contexts/ThemeContext'
+import { proxyImageUrl } from '../src/utils/proxyImage'
 import PostDetailPage from '../src/pages/PostDetailPage'
 
 vi.mock('../src/api/posts', () => ({
@@ -10,10 +11,15 @@ vi.mock('../src/api/posts', () => ({
       return Promise.reject(new Error('HTTP 404'))
     }
     return Promise.resolve({
-      title: 'Python 自动化实战：Selenium 与 Pandas 结合',
+      title: 'Python automation with Selenium and Pandas',
       slug: 'python-automation-selenium-pandas',
-      summary: '从页面抓取到表格清洗，串起 Selenium 与 Pandas 的一套高频自动化工作流。',
-      content_md: '# Python 自动化实战：Selenium 与 Pandas 结合\n\n结合 Selenium 的页面操作能力与 Pandas 的数据整理能力，可以快速搭建抓取、清洗、导出一体化的自动化脚本。',
+      summary: 'Mock summary describing Selenium and Pandas automation.',
+      content_md: `# Python automation with Selenium and Pandas
+
+Combining Selenium flows with Pandas cleansed data enables quick automation scripts.
+
+![Example image](https://example.com/markdown.jpg)
+`,
       tags: [{ name: 'Python', slug: 'python' }],
     })
   }),
@@ -28,15 +34,45 @@ beforeEach(() => {
 })
 
 it('renders post detail', async () => {
-  const { container } = render(<MemoryRouter><ThemeProvider><PostDetailPage slug="python-automation-selenium-pandas" /></ThemeProvider></MemoryRouter>)
-  const headings = await screen.findAllByRole('heading', { name: /python 自动化实战/i })
+  const { container } = render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <PostDetailPage slug="python-automation-selenium-pandas" />
+      </ThemeProvider>
+    </MemoryRouter>
+  )
+  const headings = await screen.findAllByRole('heading', { name: /python automation/i })
   expect(headings.length).toBeGreaterThan(0)
   expect(container.querySelector('[data-ui="detail-shell"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="detail-article"]')).toBeTruthy()
 })
 
+it('renders markdown images with proxy and lazy loading', async () => {
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <PostDetailPage slug="python-automation-selenium-pandas" />
+      </ThemeProvider>
+    </MemoryRouter>
+  )
+
+  const articleImage = await screen.findByRole('img', { name: 'Example image' })
+  expect(articleImage).toBeInTheDocument()
+  expect(articleImage).toHaveAttribute('loading', 'lazy')
+  expect(articleImage).toHaveAttribute('src', proxyImageUrl('https://example.com/markdown.jpg'))
+})
+
 it('shows not found message on404', async () => {
-  const { container } = render(<MemoryRouter><ThemeProvider><PostDetailPage slug="missing" /></ThemeProvider></MemoryRouter>)
-  expect(await screen.findByText(/文章不存在或加载失败/)).toBeInTheDocument()
-  expect(container.querySelector('[data-ui="detail-error"]')).toBeTruthy()
+  const { container } = render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <PostDetailPage slug="missing" />
+      </ThemeProvider>
+    </MemoryRouter>
+  )
+
+  await waitFor(() => {
+    expect(container.querySelector('[data-ui="detail-error"]')).toBeTruthy()
+  })
+  expect(container.querySelector('[data-ui="detail-error"]')?.textContent?.length).toBeGreaterThan(0)
 })

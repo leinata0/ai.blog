@@ -1,0 +1,82 @@
+{
+  "rss_feeds": [
+    { "url": "https://blog.openai.com/rss/", "tag": "AI", "lang": "en" },
+    { "url": "https://www.anthropic.com/feed", "tag": "AI", "lang": "en" },
+    { "url": "https://blog.google/technology/ai/rss/", "tag": "AI", "lang": "en" },
+    { "url": "https://huggingface.co/blog/feed.xml", "tag": "OpenSourceAI", "lang": "en" },
+    { "url": "https://simonwillison.net/atom/everything/", "tag": "IndependentAI", "lang": "en" },
+    { "url": "https://hnrss.org/newest?points=100", "tag": "HackerNews", "lang": "en" },
+    { "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml", "tag": "GitHub", "lang": "en" },
+    { "url": "https://sspai.com/feed", "tag": "ChineseTech", "lang": "zh" },
+    { "url": "https://www.ruanyifeng.com/blog/atom.xml", "tag": "ChineseTech", "lang": "zh" },
+    { "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "tag": "TechCrunch", "lang": "en" }
+  ],
+  "fallback_urls": [
+    "https://techcrunch.com/category/artificial-intelligence/",
+    "https://www.reuters.com/technology/artificial-intelligence/"
+  ],
+  "blogwatcher_enabled": true,
+  "blogwatcher_sources": [
+    {
+      "name": "OpenAI Blog",
+      "feed_url": "https://blog.openai.com/rss/",
+      "source_type": "official_blog",
+      "lang": "en",
+      "quality_weight": 0.95
+    },
+    {
+      "name": "Anthropic News",
+      "feed_url": "https://www.anthropic.com/feed",
+      "source_type": "official_blog",
+      "lang": "en",
+      "quality_weight": 0.93
+    },
+    {
+      "name": "Google AI",
+      "feed_url": "https://blog.google/technology/ai/rss/",
+      "source_type": "official_blog",
+      "lang": "en",
+      "quality_weight": 0.92
+    },
+    {
+      "name": "Hugging Face Blog",
+      "feed_url": "https://huggingface.co/blog/feed.xml",
+      "source_type": "official_blog",
+      "lang": "en",
+      "quality_weight": 0.88
+    },
+    {
+      "name": "Simon Willison",
+      "feed_url": "https://simonwillison.net/atom/everything/",
+      "source_type": "independent_blog",
+      "lang": "en",
+      "quality_weight": 0.82
+    },
+    {
+      "name": "TechCrunch AI",
+      "feed_url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+      "source_type": "industry_media",
+      "lang": "en",
+      "quality_weight": 0.68
+    }
+  ],
+  "arxiv_enabled": true,
+  "arxiv_max_papers": 2,
+  "format_profile": "tech-editorial-v1",
+  "source_image_picker_enabled": true,
+  "image_selection_rules": {
+    "min_width": 240,
+    "min_height": 140,
+    "max_images": 3,
+    "allowed_source_types": ["rss", "official_blog", "independent_blog", "industry_media", "paper"],
+    "blocklist_keywords": ["logo", "avatar", "icon", "advert", "ads", "banner", "sprite", "emoji"]
+  },
+  "quality_gate": {
+    "min_sources": 3,
+    "min_high_quality_sources": 1,
+    "high_quality_source_types": ["official_blog", "independent_blog", "paper"],
+    "min_chars": 2200,
+    "max_banned_phrase_hits": 3,
+    "min_analysis_signals": 2
+  }
+}
