@@ -548,6 +548,11 @@ function normalizeHeadingLabel(heading) {
   return String(heading || '').replace(/^#{1,6}\s*/, '').trim()
 }
 
+function buildTakeawayQuote(post, outline) {
+  const takeaway = normalizeWhitespace(post.takeaway || outline.thesis || post.summary || outline.topic)
+  return `> ${takeaway}`
+}
+
 function insertImagesIntoContent(contentMd, imagePlans) {
   const lines = String(contentMd || '').split('\n')
   for (const plan of imagePlans) {
@@ -581,7 +586,7 @@ function finalizeArticle({ post, outline, researchPack, imagePlans }) {
     withImages,
     buildReferencesSection(researchPack),
     buildImageSourcesSection(imagePlans),
-    buildTakeawaySection(post, outline),
+    buildTakeawayQuote(post, outline),
   ].join('\n\n')
 }
 

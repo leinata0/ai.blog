@@ -31,9 +31,9 @@ export function getBlogFormatProfile(profileName = 'tech-editorial-v1') {
 
   return {
     name: profileName,
-    sections: [...BASE_REQUIRED_SECTIONS, ...BASE_REQUIRED_TAIL_SECTIONS],
+    sections: [...BASE_REQUIRED_SECTIONS, ...BASE_REQUIRED_TAIL_SECTIONS.slice(0, 2)],
     required_sections: [...BASE_REQUIRED_SECTIONS],
-    required_tail_sections: [...BASE_REQUIRED_TAIL_SECTIONS],
+    required_tail_sections: [...BASE_REQUIRED_TAIL_SECTIONS.slice(0, 2)],
     title_rules: [
       '标题必须是中文，避免“日报”“速递”“周报”式新闻口吻。',
       '标题要体现核心判断或核心矛盾，不只是复述事件。',
