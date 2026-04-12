@@ -362,6 +362,74 @@ async function generateArticle({ outline, researchPack, formatProfile, today }) 
   return callLLM(system, user, 16384)
 }
 
+function canRepairQualityGate(gate) {
+  const repairablePrefixes = [
+    'chars:',
+    'analysis_signals:',
+    'missing_sections:',
+    'banned_phrases:',
+  ]
+
+  return gate.reasons.length > 0
+    && gate.reasons.every((reason) => repairablePrefixes.some((prefix) => reason.startsWith(prefix)))
+}
+
+async function repairArticle({
+  post,
+  outline,
+  researchPack,
+  formatProfile,
+  config,
+  today,
+  gate,
+  attempt,
+}) {
+  const minChars = Math.max((config.quality_gate?.min_chars || 2200) + 400, 2600)
+  const minAnalysisSignals = Math.max(config.quality_gate?.min_analysis_signals || 2, 2)
+
+  const system = [
+    '# Role',
+    'You are revising a Chinese tech blog post that failed an automated quality gate.',
+    '',
+    '# Output format',
+    'Return only one JSON object with keys: title, slug, summary, content_md, tags, takeaway.',
+    '',
+    '# Revision goals',
+    '- Keep the article in Simplified Chinese.',
+    '- Keep the same topic, core thesis, and source grounding.',
+    `- Expand content_md so the article body is likely above ${minChars} Chinese characters before references are appended.`,
+    '- Every required section should contain at least 2 substantial paragraphs, and key sections may use 3-4 paragraphs.',
+    `- Include at least ${minAnalysisSignals} explicit analytical turns using phrases such as ${(formatProfile.analysis_markers || []).slice(0, 8).join(' / ')}.`,
+    '- Add comparison, impact, trade-off, cost, or implementation discussion instead of repeating facts.',
+    '- If any required section is thin, rewrite and expand it rather than adding filler.',
+    '- Keep the tail sections absent; the program will append them.',
+    `- slug must remain ai-daily-${today}.`,
+  ].join('\n')
+
+  const user = [
+    `Repair attempt: ${attempt}`,
+    '',
+    'Quality gate failures:',
+    ...gate.reasons.map((reason) => `- ${reason}`),
+    '',
+    'Format profile:',
+    buildFormatPrompt(formatProfile),
+    '',
+    'Outline:',
+    stringifyPromptPayload(outline, 4000),
+    '',
+    'Research pack:',
+    stringifyPromptPayload(researchPack, 14000),
+    '',
+    'Current article JSON:',
+    stringifyPromptPayload(post, 14000),
+    '',
+    'Revise the article so it becomes longer, more analytical, and more publishable while preserving the topic and evidence.',
+  ].join('\n')
+
+  return callLLM(system, user, 16384)
+}
+
 async function downloadAndUploadImage(imageUrl, token) {
   try {
     const resp = await fetch(imageUrl, {
@@ -616,34 +684,61 @@ async function main() {
     })
   }
 
-  const generatedPost = await generateArticle({
+  let generatedPost = await generateArticle({
     outline,
     researchPack,
     formatProfile,
     today,
   })
+  const maxRepairAttempts = Math.max(0, Number(config.quality_gate?.max_repair_attempts ?? 2))
 
-  const finalizedContent = finalizeArticle({
-    post: generatedPost,
-    outline,
-    researchPack,
-    imagePlans,
-  })
+  let postForGate = null
+  let gate = null
 
-  const postForGate = {
-    ...generatedPost,
-    content_md: finalizedContent,
+  for (let attempt = 0; attempt <= maxRepairAttempts; attempt += 1) {
+    const finalizedContent = finalizeArticle({
+      post: generatedPost,
+      outline,
+      researchPack,
+      imagePlans,
+    })
+
+    postForGate = {
+      ...generatedPost,
+      content_md: finalizedContent,
+    }
+
+    gate = evaluateQualityGate({
+      post: postForGate,
+      researchPack,
+      formatProfile,
+      config,
+    })
+    console.log(`Quality gate attempt ${attempt + 1}: ${formatQualityGateReport(gate)}`)
+
+    if (gate.passed) break
+    if (attempt >= maxRepairAttempts || !canRepairQualityGate(gate)) break
+
+    console.log(`Repairing article after quality gate failure (${attempt + 1}/${maxRepairAttempts})...`)
+    generatedPost = await repairArticle({
+      post: generatedPost,
+      outline,
+      researchPack,
+      formatProfile,
+      config,
+      today,
+      gate,
+      attempt: attempt + 1,
+    })
   }
 
-  const gate = evaluateQualityGate({
-    post: postForGate,
-    researchPack,
-    formatProfile,
-    config,
-  })
-  console.log(`Quality gate: ${formatQualityGateReport(gate)}`)
   if (!gate.passed) {
-    throw new Error(`Quality gate failed: ${gate.reasons.join(', ')}`)
+    const message = `Quality gate failed after repair attempts: ${gate.reasons.join(', ')}`
+    if (DRY_RUN) {
+      throw new Error(message)
+    }
+    console.log(`Skipping publish: ${message}`)
+    return
   }
 
   const apiBody = normalizeForApi(postForGate, slug, outline)

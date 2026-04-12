@@ -77,6 +77,7 @@
     "high_quality_source_types": ["official_blog", "independent_blog", "paper"],
     "min_chars": 2200,
     "max_banned_phrase_hits": 3,
-    "min_analysis_signals": 2
+    "min_analysis_signals": 2,
+    "max_repair_attempts": 2
   }
 }
