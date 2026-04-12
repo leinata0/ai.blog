@@ -544,15 +544,34 @@ function buildTakeawaySection(post, outline) {
   return `## 一句话结论\n\n${takeaway}`
 }
 
+function normalizeHeadingLabel(heading) {
+  return String(heading || '').replace(/^#{1,6}\s*/, '').trim()
+}
+
 function insertImagesIntoContent(contentMd, imagePlans) {
-  let content = String(contentMd || '')
+  const lines = String(contentMd || '').split('\n')
   for (const plan of imagePlans) {
-    const escapedHeading = plan.section_heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const marker = new RegExp(`(${escapedHeading}\\s*\\n+)`)
-    const imageMarkdown = `$1\n![${plan.alt_text || 'article image'}](${plan.image_url})\n`
-    content = content.replace(marker, imageMarkdown)
+    const target = normalizeHeadingLabel(plan.section_heading)
+    const imageMarkdown = `![${plan.alt_text || 'article image'}](${plan.image_url})`
+    const headingIndex = lines.findIndex((line) => {
+      const match = line.match(/^(#{1,6})\s+(.*)$/)
+      if (!match) return false
+      const current = match[2].trim()
+      return current === target
+        || current.startsWith(`${target}：`)
+        || current.startsWith(`${target}:`)
+        || current.startsWith(`${target} -`)
+        || current.startsWith(`${target} `)
+    })
+
+    if (headingIndex === -1) continue
+
+    const nearbyLines = lines.slice(headingIndex + 1, headingIndex + 5).join('\n')
+    if (nearbyLines.includes(plan.image_url)) continue
+
+    lines.splice(headingIndex + 1, 0, '', imageMarkdown, '')
   }
-  return content
+  return lines.join('\n')
 }
 
 function finalizeArticle({ post, outline, researchPack, imagePlans }) {
@@ -623,6 +642,21 @@ async function publishPost(token, payload, coverImage = '') {
     throw new Error(`Publish failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
   return resp.json()
+}
+
+async function localizeImagePlans(imagePlans, token) {
+  const localizedPlans = []
+
+  for (const plan of imagePlans || []) {
+    const uploadedUrl = await downloadAndUploadImage(plan.image_url, token)
+    localizedPlans.push({
+      ...plan,
+      image_url: uploadedUrl || plan.image_url,
+      uploaded_image_url: uploadedUrl || '',
+    })
+  }
+
+  return localizedPlans
 }
 
 async function main() {
@@ -741,12 +775,27 @@ async function main() {
     return
   }
 
-  const apiBody = normalizeForApi(postForGate, slug, outline)
-
   let token = null
   if (!DRY_RUN) {
     token = await getAdminToken()
   }
+
+  let publishImagePlans = imagePlans
+  let publishPostForApi = postForGate
+  if (!DRY_RUN && token && imagePlans.length > 0) {
+    publishImagePlans = await localizeImagePlans(imagePlans, token)
+    publishPostForApi = {
+      ...generatedPost,
+      content_md: finalizeArticle({
+        post: generatedPost,
+        outline,
+        researchPack,
+        imagePlans: publishImagePlans,
+      }),
+    }
+  }
+
+  const apiBody = normalizeForApi(publishPostForApi, slug, outline)
 
   let coverImage = ''
   if (XAI_API_KEY && token && outline.cover_prompt) {
@@ -758,7 +807,7 @@ async function main() {
     console.log(JSON.stringify({
       outline,
       research_pack: researchPack,
-      image_plans: imagePlans,
+      image_plans: publishImagePlans,
       quality_gate: gate,
       post: apiBody,
       cover_image: coverImage || null,
