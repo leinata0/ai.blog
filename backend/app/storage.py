@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from mimetypes import guess_extension
 from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
@@ -43,10 +44,42 @@ def _safe_filename(filename: str) -> str:
     return candidate
 
 
-def _build_generated_name(filename: str) -> str:
+def _extension_from_content_type(content_type: str) -> str:
+    if not content_type:
+        return ""
+
+    normalized = content_type.split(";")[0].strip().lower()
+    overrides = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/svg+xml": ".svg",
+        "image/bmp": ".bmp",
+    }
+    if normalized in overrides:
+        return overrides[normalized]
+
+    guessed = guess_extension(normalized) or ""
+    if guessed == ".jpe":
+        return ".jpg"
+    return guessed
+
+
+def _build_generated_name(filename: str, content_type: str = "") -> str:
     extension = Path(filename).suffix.lower()
+    if not extension or len(extension) > 10:
+        extension = _extension_from_content_type(content_type)
     safe_extension = extension if extension and len(extension) <= 10 else ""
     return f"{uuid4().hex}{safe_extension}"
+
+
+def _looks_like_image_key(key: str) -> bool:
+    suffix = Path(key).suffix.lower()
+    if suffix:
+        return suffix in IMAGE_EXTENSIONS
+    return True
 
 
 def get_r2_bucket_name() -> str:
@@ -112,7 +145,7 @@ def ensure_local_upload_dir() -> None:
 
 
 def save_upload(filename: str, contents: bytes, content_type: str = "") -> StoredImage:
-    target_name = _build_generated_name(filename)
+    target_name = _build_generated_name(filename, content_type)
     effective_type = content_type or "application/octet-stream"
 
     if is_r2_enabled():
@@ -156,7 +189,7 @@ def list_uploaded_images() -> list[dict]:
             response = client.list_objects_v2(**params)
             for obj in response.get("Contents", []):
                 key = obj.get("Key", "")
-                if Path(key).suffix.lower() not in IMAGE_EXTENSIONS:
+                if not _looks_like_image_key(key):
                     continue
                 items.append({
                     "filename": key,
@@ -175,7 +208,7 @@ def list_uploaded_images() -> list[dict]:
 
     images = []
     for file_path in sorted(uploads_dir.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
-        if file_path.is_file() and file_path.suffix.lower() in IMAGE_EXTENSIONS:
+        if file_path.is_file() and _looks_like_image_key(file_path.name):
             images.append({
                 "filename": file_path.name,
                 "url": build_storage_url(file_path.name),
