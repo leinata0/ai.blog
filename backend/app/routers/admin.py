@@ -17,7 +17,7 @@ from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 def _post_to_dict(post: Post) -> dict:
@@ -250,7 +250,7 @@ def upload_image(
 
     contents = file.file.read()
     if len(contents) > MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=400, detail="File size must be 5MB or less")
+        raise HTTPException(status_code=400, detail="File size must be 10MB or less")
 
     stored_image = save_upload(file.filename, contents, file.content_type or "")
     return {"url": stored_image.url}

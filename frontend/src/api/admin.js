@@ -1,5 +1,7 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client'
 
+const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
+
 export async function adminLogin(username, password) {
   return apiPost('/api/admin/login', { username, password })
 }
@@ -9,6 +11,9 @@ export const adminUpdatePost = (id, data) => apiPut(`/api/admin/posts/${id}`, da
 export const adminDeletePost = (id) => apiDelete(`/api/admin/posts/${id}`, { auth: true })
 
 export async function adminUploadImage(file) {
+  if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error('图片大小不能超过 10MB')
+  }
   const formData = new FormData()
   formData.append('file', file)
   return apiPost('/api/admin/upload', formData, { auth: true })
