@@ -1,30 +1,34 @@
+import os
 from contextlib import asynccontextmanager
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 import httpx
 from fastapi import Depends, FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_admin
 from app.db import Base, SessionLocal, engine, get_db
-from app.models import Post, Tag, Comment, SiteSettings
-from app.routers.posts import router as posts_router
+from app.models import Post, SiteSettings, Tag
 from app.routers.admin import router as admin_router
+from app.routers.posts import router as posts_router
 from app.schemas import SiteSettingsOut, SiteSettingsUpdate, StatsOut
 from app.seed import seed_data
-from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
+from app.storage import ensure_local_upload_dir, get_uploaded_image_bytes, is_r2_enabled
+from app.uploads import UPLOADS_URL_PREFIX
+
+AUTO_SEED_ON_EMPTY = os.environ.get("AUTO_SEED_ON_EMPTY", "1").strip() != "0"
 
 
 @asynccontextmanager
 async def lifespan(app):
-    get_uploads_dir().mkdir(parents=True, exist_ok=True)
+    if not is_r2_enabled():
+        ensure_local_upload_dir()
     Base.metadata.create_all(bind=engine)
 
     with SessionLocal() as db:
-        if db.query(Post).count() == 0:
+        if AUTO_SEED_ON_EMPTY and db.query(Post).count() == 0:
             seed_data(db)
         if db.query(SiteSettings).count() == 0:
             db.add(SiteSettings(id=1))
@@ -34,7 +38,8 @@ async def lifespan(app):
 
 app = FastAPI(title="AI Dev Blog API", lifespan=lifespan)
 
-get_uploads_dir().mkdir(parents=True, exist_ok=True)
+if not is_r2_enabled():
+    ensure_local_upload_dir()
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,8 +54,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-app.mount(UPLOADS_URL_PREFIX, StaticFiles(directory=get_uploads_dir()), name="uploads")
-
 app.include_router(posts_router)
 app.include_router(admin_router)
 
@@ -60,18 +63,34 @@ def health():
     return {"status": "ok"}
 
 
+@app.get(f"{UPLOADS_URL_PREFIX}/{{filename:path}}")
+def serve_uploaded_file(filename: str):
+    try:
+        content, content_type = get_uploaded_image_bytes(filename)
+    except ValueError:
+        return Response(status_code=400, content="Invalid filename")
+    except FileNotFoundError:
+        return Response(status_code=404, content="File not found")
+
+    return Response(
+        content=content,
+        media_type=content_type or "application/octet-stream",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/api/settings", response_model=SiteSettingsOut)
 def get_settings(db: Session = Depends(get_db)):
-    s = db.query(SiteSettings).first()
+    settings = db.query(SiteSettings).first()
     return {
-        "author_name": s.author_name,
-        "bio": s.bio,
-        "avatar_url": s.avatar_url,
-        "hero_image": s.hero_image,
-        "github_link": s.github_link,
-        "announcement": s.announcement,
-        "site_url": s.site_url,
-        "friend_links": s.friend_links,
+        "author_name": settings.author_name,
+        "bio": settings.bio,
+        "avatar_url": settings.avatar_url,
+        "hero_image": settings.hero_image,
+        "github_link": settings.github_link,
+        "announcement": settings.announcement,
+        "site_url": settings.site_url,
+        "friend_links": settings.friend_links,
     }
 
 
@@ -81,25 +100,31 @@ def update_settings(
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
-    s = db.query(SiteSettings).first()
+    settings = db.query(SiteSettings).first()
     for field in (
-        "author_name", "bio", "avatar_url", "hero_image",
-        "github_link", "announcement", "site_url", "friend_links",
+        "author_name",
+        "bio",
+        "avatar_url",
+        "hero_image",
+        "github_link",
+        "announcement",
+        "site_url",
+        "friend_links",
     ):
-        val = getattr(body, field)
-        if val is not None:
-            setattr(s, field, val)
+        value = getattr(body, field)
+        if value is not None:
+            setattr(settings, field, value)
     db.commit()
-    db.refresh(s)
+    db.refresh(settings)
     return {
-        "author_name": s.author_name,
-        "bio": s.bio,
-        "avatar_url": s.avatar_url,
-        "hero_image": s.hero_image,
-        "github_link": s.github_link,
-        "announcement": s.announcement,
-        "site_url": s.site_url,
-        "friend_links": s.friend_links,
+        "author_name": settings.author_name,
+        "bio": settings.bio,
+        "avatar_url": settings.avatar_url,
+        "hero_image": settings.hero_image,
+        "github_link": settings.github_link,
+        "announcement": settings.announcement,
+        "site_url": settings.site_url,
+        "friend_links": settings.friend_links,
     }
 
 
@@ -113,8 +138,6 @@ def get_stats(db: Session = Depends(get_db)):
     }
 
 
-# ── 图片代理 ──
-
 _http_client = httpx.AsyncClient(
     follow_redirects=True,
     timeout=15.0,
@@ -127,17 +150,16 @@ ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "
 
 @app.get("/proxy-image")
 async def proxy_image(url: str = Query(..., min_length=8)):
-    """代理外部图片，解决热链保护和 CORS 问题"""
     if not url.startswith(("http://", "https://")):
         return Response(status_code=400, content="Invalid URL")
     try:
         resp = await _http_client.get(url)
-        ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-        if resp.status_code != 200 or ct not in ALLOWED_CONTENT_TYPES:
+        content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+        if resp.status_code != 200 or content_type not in ALLOWED_CONTENT_TYPES:
             return Response(status_code=502, content="Upstream image unavailable")
         return Response(
             content=resp.content,
-            media_type=ct,
+            media_type=content_type,
             headers={
                 "Cache-Control": "public, max-age=86400",
                 "Access-Control-Allow-Origin": "*",
@@ -146,8 +168,6 @@ async def proxy_image(url: str = Query(..., min_length=8)):
     except Exception:
         return Response(status_code=502, content="Failed to fetch image")
 
-
-# ── RSS Feed ──
 
 @app.get("/feed.xml")
 def rss_feed(db: Session = Depends(get_db)):
@@ -164,7 +184,7 @@ def rss_feed(db: Session = Depends(get_db)):
     channel = SubElement(rss, "channel")
     SubElement(channel, "title").text = "AI Dev Blog"
     SubElement(channel, "link").text = site_url
-    SubElement(channel, "description").text = "极客新生的技术博客"
+    SubElement(channel, "description").text = "AI developer blog"
     SubElement(channel, "language").text = "zh-CN"
 
     for post in posts:
@@ -174,15 +194,11 @@ def rss_feed(db: Session = Depends(get_db)):
         SubElement(item, "description").text = post.summary
         SubElement(item, "guid").text = f"{site_url}/posts/{post.slug}"
         if post.created_at:
-            SubElement(item, "pubDate").text = post.created_at.strftime(
-                "%a, %d %b %Y %H:%M:%S +0000"
-            )
+            SubElement(item, "pubDate").text = post.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
 
     xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(rss, encoding="unicode")
     return Response(content=xml_str, media_type="application/xml")
 
-
-# ── Sitemap ──
 
 @app.get("/sitemap.xml")
 def sitemap(db: Session = Depends(get_db)):
@@ -194,11 +210,10 @@ def sitemap(db: Session = Depends(get_db)):
 
     urlset = Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
 
-    # 首页
-    url_el = SubElement(urlset, "url")
-    SubElement(url_el, "loc").text = site_url
-    SubElement(url_el, "changefreq").text = "daily"
-    SubElement(url_el, "priority").text = "1.0"
+    homepage = SubElement(urlset, "url")
+    SubElement(homepage, "loc").text = site_url
+    SubElement(homepage, "changefreq").text = "daily"
+    SubElement(homepage, "priority").text = "1.0"
 
     for post in posts:
         url_el = SubElement(urlset, "url")

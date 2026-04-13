@@ -1,20 +1,19 @@
-import os
-import shutil
-from pathlib import Path
-from uuid import uuid4
-
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
 
-from app.auth import verify_admin, create_access_token, get_current_admin
+from app.auth import create_access_token, get_current_admin, verify_admin
 from app.db import get_db
-from app.models import Post, Tag, Comment
+from app.models import Comment, Post, Tag
 from app.schemas import (
-    LoginRequest, LoginResponse,
-    PostCreateRequest, PostUpdateRequest, PostAdminOut, TagOut, UploadOut,
+    LoginRequest,
+    LoginResponse,
+    PostAdminOut,
+    PostCreateRequest,
+    PostUpdateRequest,
+    UploadOut,
 )
-from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
+from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -35,7 +34,7 @@ def _post_to_dict(post: Post) -> dict:
         "like_count": post.like_count or 0,
         "created_at": post.created_at.isoformat() if post.created_at else None,
         "updated_at": post.updated_at.isoformat() if post.updated_at else None,
-        "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
+        "tags": [{"name": tag.name, "slug": tag.slug} for tag in post.tags],
     }
 
 
@@ -51,14 +50,6 @@ def _resolve_tags(db: Session, tag_slugs: list[str]) -> list[Tag]:
     return tags
 
 
-def _build_upload_path(filename: str) -> Path:
-    extension = Path(filename).suffix.lower()
-    safe_extension = extension if extension and len(extension) <= 10 else ""
-    return get_uploads_dir() / f"{uuid4().hex}{safe_extension}"
-
-
-# ── Login (no auth required) ──
-
 @router.post("/login", response_model=LoginResponse)
 def login(body: LoginRequest):
     if not verify_admin(body.username, body.password):
@@ -66,8 +57,6 @@ def login(body: LoginRequest):
     token = create_access_token(data={"sub": body.username})
     return {"access_token": token, "token_type": "bearer"}
 
-
-# ── 管理员统计 ──
 
 @router.get("/stats")
 def admin_stats(
@@ -90,8 +79,6 @@ def admin_stats(
     }
 
 
-# ── 管理员文章列表 ──
-
 @router.get("/posts")
 def admin_list_posts(
     q: str | None = Query(default=None),
@@ -112,14 +99,12 @@ def admin_list_posts(
     posts = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).scalars().all()
 
     return {
-        "items": [_post_to_dict(p) for p in posts],
+        "items": [_post_to_dict(post) for post in posts],
         "total": total,
         "page": page,
         "page_size": page_size,
     }
 
-
-# ── CRUD (auth required) ──
 
 @router.post("/posts", response_model=PostAdminOut)
 def create_post(
@@ -192,8 +177,6 @@ def delete_post(
     return {"detail": "deleted"}
 
 
-# ── 评论管理 ──
-
 @router.get("/comments")
 def admin_list_comments(
     page: int = Query(default=1, ge=1),
@@ -211,15 +194,15 @@ def admin_list_comments(
     return {
         "items": [
             {
-                "id": c.id,
-                "post_id": c.post_id,
-                "nickname": c.nickname,
-                "content": c.content,
-                "ip_address": c.ip_address or "",
-                "is_approved": c.is_approved,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "id": comment.id,
+                "post_id": comment.post_id,
+                "nickname": comment.nickname,
+                "content": comment.content,
+                "ip_address": comment.ip_address or "",
+                "is_approved": comment.is_approved,
+                "created_at": comment.created_at.isoformat() if comment.created_at else None,
             }
-            for c in comments
+            for comment in comments
         ],
         "total": total,
         "page": page,
@@ -235,7 +218,7 @@ def approve_comment(
 ):
     comment = db.execute(select(Comment).where(Comment.id == comment_id)).scalar_one_or_none()
     if comment is None:
-        raise HTTPException(status_code=404, detail="评论不存在")
+        raise HTTPException(status_code=404, detail="Comment not found")
     comment.is_approved = True
     db.commit()
     return {"detail": "approved"}
@@ -249,13 +232,11 @@ def delete_comment(
 ):
     comment = db.execute(select(Comment).where(Comment.id == comment_id)).scalar_one_or_none()
     if comment is None:
-        raise HTTPException(status_code=404, detail="评论不存在")
+        raise HTTPException(status_code=404, detail="Comment not found")
     db.delete(comment)
     db.commit()
     return {"detail": "deleted"}
 
-
-# ── 图片管理 ──
 
 @router.post("/upload", response_model=UploadOut)
 def upload_image(
@@ -267,36 +248,17 @@ def upload_image(
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=400, detail="Only image uploads are allowed")
 
-    # 文件大小限制 5MB
     contents = file.file.read()
     if len(contents) > MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=400, detail="文件大小不能超过 5MB")
+        raise HTTPException(status_code=400, detail="File size must be 5MB or less")
 
-    uploads_dir = get_uploads_dir()
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-    target_path = _build_upload_path(file.filename)
-
-    with target_path.open("wb") as buffer:
-        buffer.write(contents)
-
-    return {"url": f"{UPLOADS_URL_PREFIX}/{target_path.name}"}
+    stored_image = save_upload(file.filename, contents, file.content_type or "")
+    return {"url": stored_image.url}
 
 
 @router.get("/images")
 def list_images(_admin: str = Depends(get_current_admin)):
-    uploads_dir = get_uploads_dir()
-    if not uploads_dir.exists():
-        return []
-    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"}
-    images = []
-    for f in sorted(uploads_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-        if f.is_file() and f.suffix.lower() in image_extensions:
-            images.append({
-                "filename": f.name,
-                "url": f"{UPLOADS_URL_PREFIX}/{f.name}",
-                "size": f.stat().st_size,
-            })
-    return images
+    return list_uploaded_images()
 
 
 @router.delete("/images/{filename}")
@@ -304,12 +266,10 @@ def delete_image(
     filename: str,
     _admin: str = Depends(get_current_admin),
 ):
-    uploads_dir = get_uploads_dir()
-    target = uploads_dir / filename
-    # 防止路径穿越
-    if not target.resolve().parent == uploads_dir.resolve():
-        raise HTTPException(status_code=400, detail="非法文件名")
-    if not target.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    target.unlink()
+    try:
+        delete_uploaded_image(filename)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
     return {"detail": "deleted"}
