@@ -1,0 +1,37 @@
+name: 发布迁移架构总结
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-migration-article.yml'
+      - 'scripts/publish-content-file.mjs'
+      - 'scripts/content/blog-migration-neon-r2.mjs'
+  workflow_dispatch:
+    inputs:
+      article_file:
+        description: '要发布的文章模块路径'
+        required: false
+        default: './content/blog-migration-neon-r2.mjs'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 发布文章并生成 Grok 封面
+        working-directory: scripts
+        env:
+          ARTICLE_FILE: ${{ github.event.inputs.article_file || './content/blog-migration-neon-r2.mjs' }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: node publish-content-file.mjs
