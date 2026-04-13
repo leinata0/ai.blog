@@ -30,11 +30,11 @@ async function login() {
 }
 
 async function fetchExistingPostBySlug(slug, token) {
-  const listResp = await fetch(`${BLOG_API_BASE}/api/admin/posts?page=1&page_size=100`, {
+  const listResp = await fetch(`${BLOG_API_BASE}/api/admin/posts?page=1&page_size=50`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!listResp.ok) {
-    throw new Error(`Failed to load admin posts: ${listResp.status}`)
+    throw new Error(`Failed to load admin posts: ${listResp.status} ${(await listResp.text()).slice(0, 300)}`)
   }
   const data = await listResp.json()
   return (data.items || []).find((item) => item.slug === slug) || null
