@@ -34,6 +34,13 @@ Example `DATABASE_URL` for Neon:
 DATABASE_URL=postgresql+psycopg://user:password@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
 ```
 
+The backend now also accepts common pasted variants and normalizes them automatically:
+
+- `postgresql://...`
+- `postgres://...`
+- values pasted with surrounding quotes
+- values pasted as `DATABASE_URL=...`
+
 Example `R2_ENDPOINT`:
 
 ```env

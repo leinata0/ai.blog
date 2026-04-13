@@ -1,4 +1,3 @@
-import os
 from contextlib import asynccontextmanager
 from xml.etree.ElementTree import Element, SubElement, tostring
 
@@ -10,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_admin
 from app.db import Base, SessionLocal, engine, get_db
+from app.env import clean_env
 from app.models import Post, SiteSettings, Tag
 from app.routers.admin import router as admin_router
 from app.routers.posts import router as posts_router
@@ -18,7 +18,7 @@ from app.seed import seed_data
 from app.storage import ensure_local_upload_dir, get_uploaded_image_bytes, is_r2_enabled
 from app.uploads import UPLOADS_URL_PREFIX
 
-AUTO_SEED_ON_EMPTY = os.environ.get("AUTO_SEED_ON_EMPTY", "1").strip() != "0"
+AUTO_SEED_ON_EMPTY = clean_env("AUTO_SEED_ON_EMPTY", "1") != "0"
 
 
 @asynccontextmanager

@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
@@ -16,6 +15,7 @@ except ImportError:  # pragma: no cover - dependency is installed in production
         pass
 
 from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
+from app.env import clean_env
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"}
 
@@ -29,7 +29,7 @@ class StoredImage:
 
 
 def _clean_env(name: str) -> str:
-    return os.environ.get(name, "").strip()
+    return clean_env(name)
 
 
 def _normalize_base_url(value: str) -> str:
