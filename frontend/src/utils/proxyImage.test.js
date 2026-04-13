@@ -7,6 +7,10 @@ vi.stubEnv('VITE_IMAGE_DIRECT_BASES', 'https://img.example.com,https://cdn.examp
 const { proxyImageUrl } = await import('./proxyImage')
 
 describe('proxyImageUrl', () => {
+  it('keeps relative upload urls direct so Vercel rewrites can handle them', () => {
+    expect(proxyImageUrl('/uploads/test.jpg')).toBe('/uploads/test.jpg')
+  })
+
   it('returns local API image urls directly', () => {
     expect(proxyImageUrl('https://api.example.com/uploads/test.jpg')).toBe('https://api.example.com/uploads/test.jpg')
   })
