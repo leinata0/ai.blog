@@ -40,7 +40,7 @@ SERIES_COLUMNS = {
     "description": "TEXT NOT NULL DEFAULT ''",
     "cover_image": "VARCHAR(500) NOT NULL DEFAULT ''",
     "content_types": "TEXT NOT NULL DEFAULT '[]'",
-    "is_featured": "BOOLEAN NOT NULL DEFAULT 0",
+    "is_featured": "BOOLEAN NOT NULL DEFAULT FALSE",
     "sort_order": "INTEGER NOT NULL DEFAULT 0",
     "created_at": "DATETIME",
     "updated_at": "DATETIME",
@@ -53,7 +53,7 @@ POST_SOURCE_COLUMNS = {
     "source_name": "VARCHAR(200) NOT NULL DEFAULT ''",
     "source_url": "VARCHAR(500) NOT NULL DEFAULT ''",
     "published_at": "DATETIME",
-    "is_primary": "BOOLEAN NOT NULL DEFAULT 0",
+    "is_primary": "BOOLEAN NOT NULL DEFAULT FALSE",
     "created_at": "DATETIME",
     "updated_at": "DATETIME",
 }
@@ -79,7 +79,7 @@ DEFAULT_SERIES_SEED = [
         "title": "AI Daily Brief",
         "description": "Single-topic daily AI brief with analysis and context.",
         "content_types": '["daily_brief"]',
-        "is_featured": 1,
+        "is_featured": True,
         "sort_order": 10,
     },
     {
@@ -87,7 +87,7 @@ DEFAULT_SERIES_SEED = [
         "title": "AI Weekly Review",
         "description": "Weekly synthesis with deeper structure and strategic takeaways.",
         "content_types": '["weekly_review"]',
-        "is_featured": 1,
+        "is_featured": True,
         "sort_order": 20,
     },
     {
@@ -95,7 +95,7 @@ DEFAULT_SERIES_SEED = [
         "title": "Product Strategy Watch",
         "description": "Company and product strategy shifts in AI.",
         "content_types": '["daily_brief", "weekly_review", "post"]',
-        "is_featured": 0,
+        "is_featured": False,
         "sort_order": 30,
     },
     {
@@ -103,7 +103,7 @@ DEFAULT_SERIES_SEED = [
         "title": "Paper to Product",
         "description": "From papers to practical product and engineering implications.",
         "content_types": '["weekly_review", "post"]',
-        "is_featured": 0,
+        "is_featured": False,
         "sort_order": 40,
     },
     {
@@ -111,7 +111,7 @@ DEFAULT_SERIES_SEED = [
         "title": "Tooling Workflow",
         "description": "Toolchain, workflow, and automation practices for builders.",
         "content_types": '["daily_brief", "post"]',
-        "is_featured": 0,
+        "is_featured": False,
         "sort_order": 50,
     },
 ]
