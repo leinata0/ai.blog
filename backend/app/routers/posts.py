@@ -1,12 +1,24 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from xml.etree.ElementTree import Element, SubElement, tostring
 
-from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi import APIRouter, Depends, Query, HTTPException, Request, Response
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, select
 
 from app.db import get_db
-from app.models import Post, Tag, Comment, SiteSettings, PostLike, ViewLog, post_tags
+from app.models import (
+    Comment,
+    Post,
+    PostLike,
+    PostSource,
+    PublishingArtifact,
+    Series,
+    SiteSettings,
+    Tag,
+    ViewLog,
+    post_tags,
+)
 from app.schemas import CommentCreate
 
 router = APIRouter(prefix="/api", tags=["posts"])
@@ -23,6 +35,131 @@ def _get_client_ip(request: Request) -> str:
     if request.client:
         return request.client.host
     return "unknown"
+
+
+def _post_list_item(post: Post) -> dict:
+    return {
+        "id": post.id,
+        "title": post.title,
+        "slug": post.slug,
+        "summary": post.summary,
+        "cover_image": post.cover_image or "",
+        "content_type": post.content_type or "post",
+        "topic_key": post.topic_key or "",
+        "published_mode": post.published_mode or "manual",
+        "coverage_date": post.coverage_date or "",
+        "series_slug": post.series_slug,
+        "series_order": post.series_order,
+        "source_count": post.source_count,
+        "quality_score": post.quality_score,
+        "reading_time": post.reading_time,
+        "view_count": post.view_count or 0,
+        "is_published": post.is_published,
+        "is_pinned": post.is_pinned,
+        "like_count": post.like_count or 0,
+        "created_at": post.created_at.isoformat() if post.created_at else None,
+        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
+        "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
+    }
+
+
+def _series_to_dict(series: Series, db: Session, include_posts: bool = False) -> dict:
+    content_types = []
+    try:
+        content_types = json.loads(series.content_types or "[]")
+    except (json.JSONDecodeError, TypeError):
+        content_types = []
+
+    post_count = db.execute(
+        select(func.count(Post.id))
+        .where(Post.series_slug == series.slug)
+        .where(Post.is_published == True)
+    ).scalar() or 0
+
+    latest_post_at = db.execute(
+        select(func.max(Post.created_at))
+        .where(Post.series_slug == series.slug)
+        .where(Post.is_published == True)
+    ).scalar()
+
+    payload = {
+        "id": series.id,
+        "slug": series.slug,
+        "title": series.title,
+        "description": series.description or "",
+        "cover_image": series.cover_image or "",
+        "content_types": content_types,
+        "is_featured": bool(series.is_featured),
+        "sort_order": series.sort_order or 0,
+        "post_count": post_count,
+        "latest_post_at": latest_post_at.isoformat() if latest_post_at else None,
+        "created_at": series.created_at.isoformat() if series.created_at else None,
+        "updated_at": series.updated_at.isoformat() if series.updated_at else None,
+    }
+
+    if include_posts:
+        posts = db.execute(
+            select(Post)
+            .options(selectinload(Post.tags))
+            .where(Post.is_published == True)
+            .where(Post.series_slug == series.slug)
+            .order_by(func.coalesce(Post.series_order, 10**9).asc(), Post.created_at.desc())
+            .limit(50)
+        ).scalars().all()
+        payload["posts"] = [_post_list_item(post) for post in posts]
+
+    return payload
+
+
+def _source_to_dict(source: PostSource) -> dict:
+    return {
+        "source_type": source.source_type or "",
+        "source_name": source.source_name or "",
+        "source_url": source.source_url or "",
+        "published_at": source.published_at.isoformat() if source.published_at else None,
+        "is_primary": bool(source.is_primary),
+    }
+
+
+def _build_source_summary(sources: list[PostSource], artifact: PublishingArtifact | None) -> str:
+    if artifact and (artifact.research_pack_summary or "").strip():
+        return artifact.research_pack_summary.strip()
+    if not sources:
+        return ""
+    unique_names = list(
+        dict.fromkeys(
+            source.source_name.strip()
+            for source in sources
+            if (source.source_name or "").strip()
+        )
+    )
+    if not unique_names:
+        return ""
+    preview = "、".join(unique_names[:3])
+    suffix = "等来源" if len(unique_names) > 3 else "来源"
+    return f"本文综合 {len(unique_names)} 个来源，包括 {preview} {suffix}。"
+
+
+def _build_feed_xml(posts: list[Post], site_url: str, title: str, description: str) -> str:
+    rss = Element("rss", version="2.0")
+    channel = SubElement(rss, "channel")
+    SubElement(channel, "title").text = title
+    SubElement(channel, "link").text = site_url
+    SubElement(channel, "description").text = description
+    SubElement(channel, "language").text = "zh-CN"
+
+    for post in posts:
+        item = SubElement(channel, "item")
+        SubElement(item, "title").text = post.title
+        SubElement(item, "link").text = f"{site_url}/posts/{post.slug}"
+        SubElement(item, "description").text = post.summary
+        SubElement(item, "guid").text = f"{site_url}/posts/{post.slug}"
+        if post.created_at:
+            created_at = post.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            SubElement(item, "pubDate").text = created_at.astimezone(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(rss, encoding="unicode")
 
 
 @router.get("/posts")
@@ -53,27 +190,7 @@ def list_posts(
     posts = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).scalars().all()
 
     return {
-        "items": [
-            {
-                "id": post.id,
-                "title": post.title,
-                "slug": post.slug,
-                "summary": post.summary,
-                "cover_image": post.cover_image or "",
-                "content_type": post.content_type or "post",
-                "topic_key": post.topic_key or "",
-                "published_mode": post.published_mode or "manual",
-                "coverage_date": post.coverage_date or "",
-                "view_count": post.view_count or 0,
-                "is_published": post.is_published,
-                "is_pinned": post.is_pinned,
-                "like_count": post.like_count or 0,
-                "created_at": post.created_at.isoformat() if post.created_at else None,
-                "updated_at": post.updated_at.isoformat() if post.updated_at else None,
-                "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
-            }
-            for post in posts
-        ],
+        "items": [_post_list_item(post) for post in posts],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -100,6 +217,59 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
         db.add(ViewLog(post_id=post.id, ip_address=client_ip))
         db.commit()
 
+    series = None
+    if (post.series_slug or "").strip():
+        series = db.execute(select(Series).where(Series.slug == post.series_slug)).scalar_one_or_none()
+
+    sources = db.execute(
+        select(PostSource)
+        .where(PostSource.post_id == post.id)
+        .order_by(PostSource.is_primary.desc(), PostSource.created_at.asc())
+    ).scalars().all()
+
+    latest_artifact = db.execute(
+        select(PublishingArtifact)
+        .where(PublishingArtifact.post_id == post.id)
+        .order_by(PublishingArtifact.updated_at.desc(), PublishingArtifact.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+    same_series_posts = []
+    if (post.series_slug or "").strip():
+        same_series_posts = db.execute(
+            select(Post)
+            .options(selectinload(Post.tags))
+            .where(Post.is_published == True)
+            .where(Post.series_slug == post.series_slug)
+            .where(Post.id != post.id)
+            .order_by(func.coalesce(Post.series_order, 10**9).asc(), Post.created_at.desc())
+            .limit(6)
+        ).scalars().all()
+
+    same_topic_posts = []
+    if (post.topic_key or "").strip():
+        same_topic_posts = db.execute(
+            select(Post)
+            .options(selectinload(Post.tags))
+            .where(Post.is_published == True)
+            .where(Post.topic_key == post.topic_key)
+            .where(Post.id != post.id)
+            .order_by(Post.created_at.desc())
+            .limit(6)
+        ).scalars().all()
+
+    same_week_posts = []
+    if (post.coverage_date or "").strip():
+        same_week_posts = db.execute(
+            select(Post)
+            .options(selectinload(Post.tags))
+            .where(Post.is_published == True)
+            .where(Post.coverage_date == post.coverage_date)
+            .where(Post.id != post.id)
+            .order_by(Post.created_at.desc())
+            .limit(6)
+        ).scalars().all()
+
     return {
         "id": post.id,
         "title": post.title,
@@ -111,12 +281,24 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
         "topic_key": post.topic_key or "",
         "published_mode": post.published_mode or "manual",
         "coverage_date": post.coverage_date or "",
+        "series_slug": post.series_slug,
+        "series_order": post.series_order,
+        "editor_note": post.editor_note,
+        "source_count": post.source_count,
+        "quality_score": post.quality_score,
+        "reading_time": post.reading_time,
         "view_count": post.view_count,
         "is_pinned": post.is_pinned,
         "like_count": post.like_count or 0,
         "created_at": post.created_at.isoformat() if post.created_at else None,
         "updated_at": post.updated_at.isoformat() if post.updated_at else None,
         "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
+        "series": _series_to_dict(series, db, include_posts=False) if series else None,
+        "sources": [_source_to_dict(source) for source in sources],
+        "source_summary": _build_source_summary(sources, latest_artifact),
+        "same_series_posts": [_post_list_item(item) for item in same_series_posts],
+        "same_topic_posts": [_post_list_item(item) for item in same_topic_posts],
+        "same_week_posts": [_post_list_item(item) for item in same_week_posts],
     }
 
 
@@ -170,22 +352,7 @@ def get_related_posts(slug: str, db: Session = Depends(get_db)):
         .limit(5)
     ).scalars().all()
 
-    return [
-        {
-            "id": p.id,
-            "title": p.title,
-            "slug": p.slug,
-            "summary": p.summary,
-            "cover_image": p.cover_image or "",
-            "content_type": p.content_type or "post",
-            "topic_key": p.topic_key or "",
-            "published_mode": p.published_mode or "manual",
-            "coverage_date": p.coverage_date or "",
-            "created_at": p.created_at.isoformat() if p.created_at else None,
-            "tags": [{"name": t.name, "slug": t.slug} for t in p.tags],
-        }
-        for p in related
-    ]
+    return [_post_list_item(related_post) for related_post in related]
 
 
 # ── 评论接口 ──
@@ -293,3 +460,137 @@ def get_all_tags(db: Session = Depends(get_db)):
         .order_by(func.count(post_tags.c.post_id).desc())
     ).all()
     return [{"name": r.name, "slug": r.slug, "post_count": r.post_count} for r in results]
+
+
+@router.get("/series")
+def list_series(db: Session = Depends(get_db)):
+    series_list = db.execute(
+        select(Series).order_by(Series.is_featured.desc(), Series.sort_order.asc(), Series.updated_at.desc())
+    ).scalars().all()
+    return [_series_to_dict(series, db, include_posts=False) for series in series_list]
+
+
+@router.get("/series/{slug}")
+def get_series_detail(slug: str, db: Session = Depends(get_db)):
+    series = db.execute(select(Series).where(Series.slug == slug)).scalar_one_or_none()
+    if series is None:
+        raise HTTPException(status_code=404, detail="Series not found")
+    return _series_to_dict(series, db, include_posts=True)
+
+
+@router.get("/discover")
+def get_discover(
+    q: str | None = Query(default=None),
+    content_type: str | None = Query(default=None),
+    series: str | None = Query(default=None),
+    limit: int = Query(default=24, ge=1, le=60),
+    db: Session = Depends(get_db),
+):
+    featured_series = db.execute(
+        select(Series).where(Series.is_featured == True).order_by(Series.sort_order.asc(), Series.updated_at.desc()).limit(6)
+    ).scalars().all()
+
+    latest_daily = db.execute(
+        select(Post)
+        .options(selectinload(Post.tags))
+        .where(Post.is_published == True)
+        .where(Post.content_type == "daily_brief")
+        .order_by(Post.created_at.desc())
+        .limit(8)
+    ).scalars().all()
+
+    latest_weekly = db.execute(
+        select(Post)
+        .options(selectinload(Post.tags))
+        .where(Post.is_published == True)
+        .where(Post.content_type == "weekly_review")
+        .order_by(Post.created_at.desc())
+        .limit(6)
+    ).scalars().all()
+
+    editor_picks = db.execute(
+        select(Post)
+        .options(selectinload(Post.tags))
+        .where(Post.is_published == True)
+        .order_by(Post.is_pinned.desc(), Post.like_count.desc(), Post.view_count.desc(), Post.created_at.desc())
+        .limit(8)
+    ).scalars().all()
+
+    items_stmt = select(Post).options(selectinload(Post.tags)).where(Post.is_published == True)
+    total_stmt = select(func.count(Post.id)).where(Post.is_published == True)
+
+    if q:
+        pattern = f"%{q}%"
+        items_stmt = items_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
+        total_stmt = total_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
+    if content_type:
+        items_stmt = items_stmt.where(Post.content_type == content_type)
+        total_stmt = total_stmt.where(Post.content_type == content_type)
+    if series:
+        items_stmt = items_stmt.where(Post.series_slug == series)
+        total_stmt = total_stmt.where(Post.series_slug == series)
+
+    total = db.execute(total_stmt).scalar() or 0
+    items = db.execute(
+        items_stmt.order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(limit)
+    ).scalars().all()
+
+    return {
+        "featured_series": [_series_to_dict(series, db, include_posts=False) for series in featured_series],
+        "latest_daily": [_post_list_item(post) for post in latest_daily],
+        "latest_weekly": [_post_list_item(post) for post in latest_weekly],
+        "editor_picks": [_post_list_item(post) for post in editor_picks],
+        "items": [_post_list_item(post) for post in items],
+        "total": total,
+        "facets": {
+            "content_types": {
+                "daily_brief": len([post for post in items if (post.content_type or "") == "daily_brief"]),
+                "weekly_review": len([post for post in items if (post.content_type or "") == "weekly_review"]),
+            },
+            "series": series or "",
+        },
+    }
+
+
+@router.get("/feeds/all.xml")
+def feed_all(db: Session = Depends(get_db)):
+    settings = db.query(SiteSettings).first()
+    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    posts = db.execute(
+        select(Post)
+        .where(Post.is_published == True)
+        .order_by(Post.created_at.desc())
+        .limit(30)
+    ).scalars().all()
+    xml_str = _build_feed_xml(posts, site_url, "AI Dev Blog - All Posts", "All published posts.")
+    return Response(content=xml_str, media_type="application/xml")
+
+
+@router.get("/feeds/daily.xml")
+def feed_daily(db: Session = Depends(get_db)):
+    settings = db.query(SiteSettings).first()
+    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    posts = db.execute(
+        select(Post)
+        .where(Post.is_published == True)
+        .where(Post.content_type == "daily_brief")
+        .order_by(Post.created_at.desc())
+        .limit(30)
+    ).scalars().all()
+    xml_str = _build_feed_xml(posts, site_url, "AI Dev Blog - Daily Brief", "Daily brief feed.")
+    return Response(content=xml_str, media_type="application/xml")
+
+
+@router.get("/feeds/weekly.xml")
+def feed_weekly(db: Session = Depends(get_db)):
+    settings = db.query(SiteSettings).first()
+    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    posts = db.execute(
+        select(Post)
+        .where(Post.is_published == True)
+        .where(Post.content_type == "weekly_review")
+        .order_by(Post.created_at.desc())
+        .limit(30)
+    ).scalars().all()
+    xml_str = _build_feed_xml(posts, site_url, "AI Dev Blog - Weekly Review", "Weekly review feed.")
+    return Response(content=xml_str, media_type="application/xml")

@@ -1,16 +1,17 @@
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+
 import AdminDashboardPage from '../src/pages/AdminDashboardPage'
 
-vi.mock('../src/api/admin', () => ({
+const mocks = vi.hoisted(() => ({
   fetchAdminPosts: vi.fn(() =>
     Promise.resolve({
       items: [
         {
           id: 1,
-          title: 'OpenAI 发布新模型',
+          title: 'OpenAI released a new model',
           slug: 'openai-new-model',
           summary: 'summary',
           cover_image: '',
@@ -32,8 +33,7 @@ vi.mock('../src/api/admin', () => ({
       page_size: 50,
     })
   ),
-  adminDeletePost: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
-  fetchAdminPublishingStatus: vi.fn(() =>
+  fetchPublishingStatus: vi.fn(() =>
     Promise.resolve({
       latest_runs: {
         daily_auto: {
@@ -60,29 +60,39 @@ vi.mock('../src/api/admin', () => ({
         },
         weekly_review: null,
       },
-      recent_runs: [],
-      recent_posts: [
+      recent_runs: [
         {
-          id: 1,
-          title: 'OpenAI 发布新模型',
-          slug: 'openai-new-model',
-          summary: 'summary',
-          cover_image: '',
-          content_type: 'daily_brief',
-          topic_key: 'openai-new-model',
-          published_mode: 'auto',
+          id: 99,
+          workflow_key: 'daily_auto',
+          run_mode: 'auto',
+          status: 'success',
           coverage_date: '2026-04-14',
-          view_count: 10,
-          is_published: true,
-          is_pinned: false,
-          like_count: 2,
-          created_at: '2026-04-14T10:00:00+00:00',
-          updated_at: '2026-04-14T10:00:00+00:00',
-          tags: [],
+          summary: { candidate_count: 3, published_count: 1, skipped_count: 2 },
         },
       ],
+      recent_posts: [],
     })
   ),
+}))
+
+vi.mock('../src/api/admin', () => ({
+  fetchAdminPosts: mocks.fetchAdminPosts,
+  adminDeletePost: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
+  adminUpdatePost: vi.fn(() => Promise.resolve({ detail: 'updated' })),
+  fetchAdminPublishingStatus: mocks.fetchPublishingStatus,
+  fetchAdminPublishingRunDetail: vi.fn(() =>
+    Promise.resolve({
+      id: 99,
+      summary: { candidate_count: 3, published_count: 1, skipped_count: 2 },
+      candidate_topics: [],
+      published_topics: [],
+      skipped_topics: [],
+    })
+  ),
+  fetchAdminContentHealth: vi.fn(() => Promise.resolve({ overview: { total_posts: 10 } })),
+  fetchAdminSeries: vi.fn(() => Promise.resolve({ items: [] })),
+  createAdminSeries: vi.fn(() => Promise.resolve({})),
+  updateAdminSeries: vi.fn(() => Promise.resolve({})),
 }))
 
 vi.mock('../src/api/auth', async () => {
@@ -99,19 +109,39 @@ beforeEach(() => {
   window.localStorage.clear()
 })
 
-it('renders publishing status tab and shows latest publishing snapshot', async () => {
+afterEach(() => {
+  cleanup()
+})
+
+it('renders publishing tab and shows latest publishing snapshot', async () => {
   render(
     <MemoryRouter>
       <AdminDashboardPage />
     </MemoryRouter>
   )
 
-  expect(await screen.findByText('OpenAI 发布新模型')).toBeInTheDocument()
+  expect(await screen.findByText('OpenAI released a new model')).toBeInTheDocument()
 
-  await userEvent.click(screen.getByRole('button', { name: /发布状态/i }))
+  await userEvent.click(screen.getByRole('button', { name: /publishing/i }))
 
-  expect(await screen.findByText('最近一次日更自动发布')).toBeInTheDocument()
+  expect(await screen.findByText('Latest Daily Auto Run')).toBeInTheDocument()
   expect(screen.getByText('Published 1 post')).toBeInTheDocument()
   expect(screen.getAllByText('Topic A').length).toBeGreaterThan(0)
   expect(screen.getByText('duplicate topic_key detected')).toBeInTheDocument()
+})
+
+it('opens content health and series tabs without crashing when backend data is sparse', async () => {
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  await screen.findByText('OpenAI released a new model')
+
+  await userEvent.click(screen.getAllByRole('button', { name: /content health/i })[0])
+  expect(document.querySelector('[data-ui="admin-content-health"]')).toBeTruthy()
+
+  await userEvent.click(screen.getAllByRole('button', { name: /series/i })[0])
+  expect(document.querySelector('[data-ui="admin-series-manager"]')).toBeTruthy()
 })

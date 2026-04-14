@@ -6,6 +6,10 @@ import ProtectedRoute from './components/ProtectedRoute'
 const HomePage = lazy(() => import('./pages/HomePage'))
 const PostDetailPage = lazy(() => import('./pages/PostDetailPage'))
 const ArchivePage = lazy(() => import('./pages/ArchivePage'))
+const SeriesPage = lazy(() => import('./pages/SeriesPage'))
+const SeriesDetailPage = lazy(() => import('./pages/SeriesDetailPage'))
+const DiscoverPage = lazy(() => import('./pages/DiscoverPage'))
+const ContentTypePage = lazy(() => import('./pages/ContentTypePage'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))
 const FriendsPage = lazy(() => import('./pages/FriendsPage'))
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage'))
@@ -31,6 +35,11 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/posts/:slug" element={<PostDetailPage />} />
           <Route path="/archive" element={<ArchivePage />} />
+          <Route path="/series" element={<SeriesPage />} />
+          <Route path="/series/:slug" element={<SeriesDetailPage />} />
+          <Route path="/discover" element={<DiscoverPage />} />
+          <Route path="/daily" element={<ContentTypePage contentType="daily_brief" />} />
+          <Route path="/weekly" element={<ContentTypePage contentType="weekly_review" />} />
           <Route path="/tags" element={<TagsPage />} />
           <Route path="/friends" element={<FriendsPage />} />
           <Route path="/admin/login" element={<AdminLoginPage />} />

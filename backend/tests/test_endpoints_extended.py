@@ -163,3 +163,103 @@ def test_admin_stats(client, seeded_db):
     data = resp.json()
     assert "total_posts" in data
     assert "total_views" in data
+
+
+def test_series_endpoints(client, seeded_db):
+    list_resp = client.get("/api/series")
+    assert list_resp.status_code == 200
+    series_items = list_resp.json()
+    assert isinstance(series_items, list)
+    assert len(series_items) >= 5
+    slug = series_items[0]["slug"]
+
+    detail_resp = client.get(f"/api/series/{slug}")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["slug"] == slug
+    assert "posts" in detail
+
+
+def test_discover_endpoint(client, seeded_db):
+    resp = client.get("/api/discover")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "featured_series" in payload
+    assert "latest_daily" in payload
+    assert "latest_weekly" in payload
+    assert "editor_picks" in payload
+    assert "items" in payload
+    assert "total" in payload
+
+
+def test_discover_endpoint_filters(client):
+    token = _login(client)
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Filtered Daily",
+            "slug": "filtered-daily",
+            "summary": "daily summary",
+            "content_md": "daily content",
+            "content_type": "daily_brief",
+            "series_slug": "ai-daily-brief",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Filtered Weekly",
+            "slug": "filtered-weekly",
+            "summary": "weekly summary",
+            "content_md": "weekly content",
+            "content_type": "weekly_review",
+            "series_slug": "ai-weekly-review",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+
+    resp = client.get("/api/discover?content_type=daily_brief&series=ai-daily-brief&q=Filtered")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total"] >= 1
+    assert all(item["content_type"] == "daily_brief" for item in payload["items"])
+    assert all(item["series_slug"] == "ai-daily-brief" for item in payload["items"])
+
+
+def test_split_feeds(client):
+    token = _login(client)
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Daily One",
+            "slug": "daily-one",
+            "summary": "daily",
+            "content_md": "daily",
+            "content_type": "daily_brief",
+        },
+        headers=_auth(token),
+    )
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Weekly One",
+            "slug": "weekly-one",
+            "summary": "weekly",
+            "content_md": "weekly",
+            "content_type": "weekly_review",
+        },
+        headers=_auth(token),
+    )
+
+    all_feed = client.get("/api/feeds/all.xml")
+    daily_feed = client.get("/api/feeds/daily.xml")
+    weekly_feed = client.get("/api/feeds/weekly.xml")
+    assert all_feed.status_code == 200
+    assert daily_feed.status_code == 200
+    assert weekly_feed.status_code == 200
+    assert "<rss" in all_feed.text
+    assert "daily-one" in daily_feed.text
+    assert "weekly-one" in weekly_feed.text

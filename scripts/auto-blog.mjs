@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { parseFeedXml, dedupeResearchItems, runBlogwatcher } from './lib/blogwatcher.mjs'
@@ -30,6 +30,7 @@ const XAI_API_KEY = process.env.XAI_API_KEY?.trim() || ''
 const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)
   : resolve(__dirname, 'config', 'auto-blog.config.json')
+const DEFAULT_SERIES_RULES_PATH = resolve(__dirname, 'config', 'series-assignment.rules.json')
 
 const DEFAULT_DAILY_REQUIRED_SECTIONS = [
   '## 发生了什么',
@@ -155,9 +156,265 @@ function normalizeKeywords(values) {
     .slice(0, 6)
 }
 
+function resolveSeriesRulesPath(rawConfig = {}) {
+  const configuredPath = rawConfig?.series_assignment?.rules_path || process.env.AUTO_BLOG_SERIES_RULES_PATH || ''
+  if (!configuredPath) return DEFAULT_SERIES_RULES_PATH
+  if (isAbsolute(configuredPath)) return configuredPath
+  return resolve(dirname(CONFIG_PATH), configuredPath)
+}
+
+function normalizeSeriesAssignmentConfig(rawConfig = {}, rulesConfig = {}) {
+  const root = rawConfig?.series_assignment || {}
+  const rules = Array.isArray(rulesConfig?.rules) ? rulesConfig.rules : []
+  const normalizedRules = rules
+    .map((rule) => ({
+      series_slug: String(rule?.series_slug || '').trim(),
+      content_types: Array.isArray(rule?.content_types) ? rule.content_types.map((item) => String(item || '').trim()).filter(Boolean) : [],
+      topic_key_prefixes: Array.isArray(rule?.topic_key_prefixes) ? rule.topic_key_prefixes.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean) : [],
+      keyword_match: Array.isArray(rule?.keyword_match) ? rule.keyword_match.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean) : [],
+      tag_match: Array.isArray(rule?.tag_match) ? rule.tag_match.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean) : [],
+      default_order: Number.isFinite(Number(rule?.default_order)) ? Number(rule.default_order) : null,
+      priority: Number.isFinite(Number(rule?.priority)) ? Number(rule.priority) : 0,
+    }))
+    .filter((rule) => rule.series_slug)
+    .sort((left, right) => right.priority - left.priority)
+
+  return {
+    enabled: Boolean(root.enabled ?? true),
+    default_series_slug: String(root.default_series_slug || rulesConfig?.default_series_slug || '').trim(),
+    rules: normalizedRules,
+    source_path: resolveSeriesRulesPath(rawConfig),
+  }
+}
+
+async function loadSeriesAssignmentConfig(rawConfig = {}) {
+  const rulesPath = resolveSeriesRulesPath(rawConfig)
+  try {
+    const raw = await readFile(rulesPath, 'utf8')
+    const parsed = JSON.parse(raw)
+    return normalizeSeriesAssignmentConfig(rawConfig, parsed)
+  } catch {
+    return normalizeSeriesAssignmentConfig(rawConfig, {})
+  }
+}
+
+function stripMarkdownForMetrics(contentMd) {
+  return String(contentMd || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*]\([^)]*\)/g, ' ')
+    .replace(/^#+\s+/gm, '')
+    .replace(/[>*_\-|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function estimateReadingTimeMinutes(contentMd) {
+  const plain = stripMarkdownForMetrics(contentMd)
+  const cjkChars = (plain.match(/[\u4e00-\u9fff]/g) || []).length
+  const latinWords = (plain.match(/[A-Za-z0-9]+/g) || []).length
+  const minutesByCjk = cjkChars / 320
+  const minutesByLatin = latinWords / 220
+  return Math.max(1, Math.round(Math.max(minutesByCjk + minutesByLatin, 0.2)))
+}
+
+export function computeQualityScore({ gate, gateProfile }) {
+  const metrics = gate?.metrics || {}
+  const minSources = Math.max(1, Number(gateProfile?.min_sources || 1))
+  const minHighQualitySources = Math.max(1, Number(gateProfile?.min_high_quality_sources || 1))
+  const minChars = Math.max(1, Number(gateProfile?.min_chars || 1))
+  const minAnalysisSignals = Math.max(1, Number(gateProfile?.min_analysis_signals || 1))
+  const maxBannedHits = Math.max(1, Number(gateProfile?.max_banned_phrase_hits ?? 0) + 1)
+
+  const sourceRatio = Math.min(1, Number(metrics.source_count || 0) / minSources)
+  const highQualityRatio = Math.min(1, Number(metrics.high_quality_source_count || 0) / minHighQualitySources)
+  const charsRatio = Math.min(1, Number(metrics.char_count || 0) / minChars)
+  const analysisRatio = Math.min(1, Number(metrics.analysis_signal_count || 0) / minAnalysisSignals)
+  const bannedRatio = 1 - Math.min(1, Number(metrics.banned_phrase_hits || 0) / maxBannedHits)
+  const structureRatio = Array.isArray(metrics.missing_sections) && metrics.missing_sections.length > 0 ? 0 : 1
+
+  const weighted = sourceRatio * 0.16
+    + highQualityRatio * 0.16
+    + charsRatio * 0.28
+    + analysisRatio * 0.22
+    + bannedRatio * 0.1
+    + structureRatio * 0.08
+
+  return Math.max(0, Math.min(100, Math.round(weighted * 100)))
+}
+
+function matchesRuleValues(values, haystack) {
+  if (!Array.isArray(values) || values.length === 0) return true
+  const normalizedHaystack = String(haystack || '').toLowerCase()
+  return values.some((value) => normalizedHaystack.includes(String(value).toLowerCase()))
+}
+
+function matchesRuleTags(ruleTags, tags) {
+  if (!Array.isArray(ruleTags) || ruleTags.length === 0) return true
+  const tagSet = new Set((Array.isArray(tags) ? tags : []).map((tag) => String(tag || '').toLowerCase()))
+  return ruleTags.some((tag) => tagSet.has(String(tag).toLowerCase()))
+}
+
+export function assignSeriesForPost({ post, outline, metadata, seriesAssignment }) {
+  const config = seriesAssignment || {}
+  if (!config.enabled) {
+    return { series_slug: null, series_order: null, matched_rule: null }
+  }
+
+  const contentType = String(metadata?.content_type || post?.content_type || '').trim()
+  const topicKey = String(metadata?.topic_key || post?.topic_key || '').toLowerCase()
+  const textHaystack = [
+    post?.title || '',
+    post?.summary || '',
+    outline?.topic || '',
+    outline?.thesis || '',
+    topicKey,
+  ].join(' ').toLowerCase()
+  const tags = Array.isArray(post?.tags) ? post.tags : []
+
+  const matchedRule = (Array.isArray(config.rules) ? config.rules : []).find((rule) => {
+    if (rule.content_types?.length > 0 && !rule.content_types.includes(contentType)) return false
+    if (rule.topic_key_prefixes?.length > 0 && !rule.topic_key_prefixes.some((prefix) => topicKey.startsWith(prefix))) return false
+    if (!matchesRuleValues(rule.keyword_match, textHaystack)) return false
+    if (!matchesRuleTags(rule.tag_match, tags)) return false
+    return true
+  })
+
+  if (matchedRule) {
+    return {
+      series_slug: matchedRule.series_slug,
+      series_order: Number.isFinite(Number(matchedRule.default_order)) ? Number(matchedRule.default_order) : null,
+      matched_rule: matchedRule.series_slug,
+    }
+  }
+
+  const fallbackSlug = String(config.default_series_slug || '').trim()
+  return {
+    series_slug: fallbackSlug || null,
+    series_order: null,
+    matched_rule: fallbackSlug ? 'default' : null,
+  }
+}
+
+export function buildPostSourcesPayload({ researchPack, outline }) {
+  const keyHints = (Array.isArray(outline?.key_sources) ? outline.key_sources : [])
+    .map((item) => String(item || '').toLowerCase())
+    .filter(Boolean)
+  const seen = new Set()
+  const results = []
+
+  for (const source of researchPack?.sources || []) {
+    const sourceUrl = String(source?.url || '').trim()
+    if (!sourceUrl || seen.has(sourceUrl)) continue
+    seen.add(sourceUrl)
+
+    const title = String(source?.title || '').toLowerCase()
+    const sourceName = String(source?.source_name || '').toLowerCase()
+    const isPrimary = keyHints.some((hint) => (
+      sourceUrl.toLowerCase().includes(hint)
+      || title.includes(hint)
+      || sourceName.includes(hint)
+    ))
+
+    results.push({
+      source_type: String(source?.source_type || '').trim() || 'rss',
+      source_name: String(source?.source_name || '').trim() || 'unknown',
+      source_url: sourceUrl,
+      published_at: String(source?.published_at || '').trim(),
+      is_primary: Boolean(isPrimary),
+    })
+  }
+
+  return results
+}
+
+export function buildPublishingArtifactPayload({
+  post,
+  outline,
+  metadata,
+  gate,
+  researchPack,
+  imagePlans,
+  workflowKey,
+  coverageDate,
+  candidateTopics = [],
+  failureReason = '',
+}) {
+  return {
+    workflow_key: String(workflowKey || '').trim(),
+    coverage_date: String(coverageDate || metadata?.coverage_date || '').trim(),
+    research_pack_summary: JSON.stringify({
+      summary: String(researchPack?.summary || ''),
+      source_count: Number(researchPack?.sources?.length || 0),
+      blog_count: Number(researchPack?.blog_items?.length || 0),
+      paper_count: Number(researchPack?.paper_items?.length || 0),
+      topic: String(outline?.topic || ''),
+      thesis: String(outline?.thesis || ''),
+    }),
+    quality_gate_json: JSON.stringify(gate || {}),
+    image_plan_json: JSON.stringify(Array.isArray(imagePlans) ? imagePlans : []),
+    candidate_topics_json: JSON.stringify(Array.isArray(candidateTopics) ? candidateTopics : []),
+    failure_reason: String(failureReason || '').trim(),
+    post_slug: String(post?.slug || '').trim(),
+  }
+}
+
+export function buildPublishingMetadataBridgePayload({
+  postId,
+  post,
+  outline,
+  metadata,
+  gate,
+  config,
+  researchPack,
+  imagePlans,
+  workflowKey,
+  coverageDate,
+  candidateTopics = [],
+}) {
+  const gateProfile = resolveGateProfile(config, metadata?.content_type || post?.content_type || '')
+  const qualityScore = computeQualityScore({ gate, gateProfile })
+  const readingTime = estimateReadingTimeMinutes(post?.content_md || '')
+  const seriesDecision = assignSeriesForPost({
+    post,
+    outline,
+    metadata,
+    seriesAssignment: config?.series_assignment || {},
+  })
+  const postSources = buildPostSourcesPayload({ researchPack, outline })
+  const publishingArtifact = buildPublishingArtifactPayload({
+    post,
+    outline,
+    metadata,
+    gate,
+    researchPack,
+    imagePlans,
+    workflowKey,
+    coverageDate,
+    candidateTopics,
+  })
+
+  return {
+    post_id: Number.isFinite(Number(postId)) ? Number(postId) : null,
+    post_slug: String(post?.slug || '').trim(),
+    metadata: {
+      series_slug: seriesDecision.series_slug,
+      series_order: seriesDecision.series_order,
+      source_count: postSources.length,
+      quality_score: qualityScore,
+      reading_time: readingTime,
+    },
+    post_sources: postSources,
+    publishing_artifact: publishingArtifact,
+  }
+}
+
 async function loadConfig() {
   const raw = await readFile(CONFIG_PATH, 'utf8')
-  return JSON.parse(raw)
+  const parsed = JSON.parse(raw)
+  parsed.series_assignment = await loadSeriesAssignmentConfig(parsed)
+  return parsed
 }
 
 async function fetchBaseFeed(feed) {
@@ -1465,6 +1722,31 @@ async function reportPublishingRun(token, payload) {
   }
 }
 
+async function upsertPublishingMetadata(token, payload) {
+  const resp = await fetch(`${BLOG_API_BASE}/api/admin/publishing-metadata`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    throw new Error(`Publishing metadata bridge failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
+  }
+  return resp.json()
+}
+
+async function bridgePublishingMetadata(token, payload) {
+  if (!token || !payload) return null
+  try {
+    return await upsertPublishingMetadata(token, payload)
+  } catch (error) {
+    console.warn(`Failed to bridge publishing metadata: ${error.message}`)
+    return null
+  }
+}
+
 async function localizeImagePlans(imagePlans, token) {
   const localizedPlans = []
 
@@ -1683,14 +1965,46 @@ async function runDailyMode(config, cliOptions) {
       coverImage = await generateCoverWithGrok(artifact.outline.cover_prompt, token) || ''
     }
 
+    const bridgeWorkflowKey = runtime.mode.replace('-', '_')
+    const metadataBridgePayload = buildPublishingMetadataBridgePayload({
+      postId: null,
+      post: artifact.post,
+      outline: artifact.outline,
+      metadata,
+      gate: artifact.gate,
+      config,
+      researchPack: artifact.researchPack,
+      imagePlans: artifact.imagePlans,
+      workflowKey: bridgeWorkflowKey,
+      coverageDate,
+      candidateTopics: [
+        createTopicSnapshot(topic, {
+          topic_key: topic.topic_key,
+          title: artifact.post.title,
+          summary: artifact.post.summary,
+          content_type: workflow.content_type,
+          published_mode: metadata.published_mode,
+          post_slug: artifact.post.slug,
+          source_count: artifact.researchPack.sources.length,
+          source_names: [...new Set(artifact.researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+        }),
+      ],
+    })
+
     if (runtime.dryRun) {
-      results.push({ ...artifact, cover_image: coverImage || null })
+      results.push({
+        ...artifact,
+        cover_image: coverImage || null,
+        publishing_metadata: metadataBridgePayload,
+      })
       continue
     }
 
     const result = await publishPost(token, artifact.post, coverImage)
+    metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
+    await bridgePublishingMetadata(token, metadataBridgePayload)
     console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
-    results.push({ ...artifact, result })
+    results.push({ ...artifact, result, publishing_metadata: metadataBridgePayload })
   }
 
   if (!runtime.dryRun) {
@@ -1835,8 +2149,33 @@ async function runWeeklyReviewMode(config, cliOptions) {
     workflow,
   })
 
+  const metadataBridgePayload = buildPublishingMetadataBridgePayload({
+    postId: null,
+    post: artifact.post,
+    outline: artifact.outline,
+    metadata,
+    gate: artifact.gate,
+    config,
+    researchPack: artifact.researchPack,
+    imagePlans: artifact.imagePlans,
+    workflowKey: 'weekly_review',
+    coverageDate: today,
+    candidateTopics: [
+      createTopicSnapshot(outline, {
+        topic_key: metadata.topic_key,
+        title: artifact.post.title,
+        summary: artifact.post.summary,
+        content_type: workflow.content_type,
+        published_mode: 'auto',
+        post_slug: artifact.post.slug,
+        source_count: artifact.researchPack.sources.length,
+        source_names: [...new Set(artifact.researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+      }),
+    ],
+  })
+
   if (cliOptions.dryRun) {
-    return [{ ...artifact, cover_image: null }]
+    return [{ ...artifact, cover_image: null, publishing_metadata: metadataBridgePayload }]
   }
 
   const token = await getAdminToken()
@@ -1846,6 +2185,8 @@ async function runWeeklyReviewMode(config, cliOptions) {
     coverImage = await generateCoverWithGrok(outline.cover_prompt, token) || ''
   }
   const result = await publishPost(token, artifact.post, coverImage)
+  metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
+  await bridgePublishingMetadata(token, metadataBridgePayload)
   console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
   await reportPublishingRun(token, {
     workflow_key: 'weekly_review',
@@ -1879,7 +2220,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
     ],
     skipped_topics: [],
   })
-  return [{ ...artifact, result }]
+  return [{ ...artifact, result, publishing_metadata: metadataBridgePayload }]
 }
 
 async function main() {
@@ -1908,6 +2249,7 @@ async function main() {
         quality_gate: item.gate,
         post: item.post,
         cover_image: item.cover_image || null,
+        publishing_metadata: item.publishing_metadata || null,
       })),
     }, null, 2))
   }

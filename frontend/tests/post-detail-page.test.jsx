@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+
 import { ThemeProvider } from '../src/contexts/ThemeContext'
 import { proxyImageUrl } from '../src/utils/proxyImage'
 import PostDetailPage from '../src/pages/PostDetailPage'
@@ -21,6 +22,19 @@ Combining Selenium flows with Pandas cleansed data enables quick automation scri
 ![Example image](https://example.com/markdown.jpg)
 `,
       tags: [{ name: 'Python', slug: 'python' }],
+      source_summary: 'This article combines an official source with two independent commentaries.',
+      sources: [
+        { source_name: 'OpenAI Blog', source_url: 'https://example.com/openai' },
+      ],
+      same_series_posts: [
+        { title: 'Another daily brief', slug: 'another-daily-brief', created_at: '2026-04-14T08:00:00Z' },
+      ],
+      same_topic_posts: [
+        { title: 'Topic follow-up', slug: 'topic-follow-up', created_at: '2026-04-13T08:00:00Z' },
+      ],
+      same_week_posts: [
+        { title: 'Weekly context', slug: 'weekly-context', created_at: '2026-04-12T08:00:00Z', content_type: 'weekly_review' },
+      ],
     })
   }),
   likePost: vi.fn(() => Promise.resolve({})),
@@ -33,7 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-it('renders post detail', async () => {
+it('renders post detail and additional discovery rails', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
@@ -45,6 +59,10 @@ it('renders post detail', async () => {
   expect(headings.length).toBeGreaterThan(0)
   expect(container.querySelector('[data-ui="detail-shell"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="detail-article"]')).toBeTruthy()
+  expect(await screen.findByText(/来源摘要/i)).toBeInTheDocument()
+  expect(await screen.findByText(/同系列继续阅读/i)).toBeInTheDocument()
+  expect(await screen.findByText(/同主题相关文章/i)).toBeInTheDocument()
+  expect(await screen.findByText(/同周上下文/i)).toBeInTheDocument()
 })
 
 it('renders markdown images with proxy and lazy loading', async () => {
@@ -62,7 +80,7 @@ it('renders markdown images with proxy and lazy loading', async () => {
   expect(articleImage).toHaveAttribute('src', proxyImageUrl('https://example.com/markdown.jpg'))
 })
 
-it('shows not found message on404', async () => {
+it('shows not found message on 404', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>

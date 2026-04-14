@@ -4,6 +4,7 @@ def test_list_posts_returns_items(client, seeded_db):
     body = resp.json()
     assert len(body["items"]) >= 1
     assert {"title", "slug", "summary", "tags"}.issubset(body["items"][0].keys())
+    assert {"series_slug", "source_count", "quality_score", "reading_time"}.issubset(body["items"][0].keys())
 
 
 def test_list_posts_filter_by_tag(client, seeded_db):

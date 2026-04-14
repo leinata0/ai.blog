@@ -54,6 +54,11 @@
     "target_min_chars": 9000,
     "section_target_chars": 1600
   },
+  "series_assignment": {
+    "enabled": true,
+    "rules_path": "./series-assignment.rules.json",
+    "default_series_slug": ""
+  },
   "blogwatcher_enabled": true,
   "blogwatcher_sources": [
     {

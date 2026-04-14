@@ -3,6 +3,7 @@ import { Activity, Clock3, PlayCircle, SkipForward } from 'lucide-react'
 
 import { fetchAdminPublishingStatus } from '../../api/admin'
 import { formatDate } from '../../utils/date'
+import AdminPublishingRunDetail from './AdminPublishingRunDetail'
 
 function StatusPill({ status }) {
   const normalized = String(status || 'unknown').toLowerCase()
@@ -27,15 +28,15 @@ function RunCard({ title, run }) {
     return (
       <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-5">
         <div className="mb-2 text-sm font-medium text-[var(--text-secondary)]">{title}</div>
-        <div className="text-sm text-[var(--text-faint)]">暂无运行记录</div>
+        <div className="text-sm text-[var(--text-faint)]">No run snapshot yet.</div>
       </section>
     )
   }
 
   const stats = [
-    { label: '候选主题', value: run.summary?.candidate_count ?? 0, icon: Activity },
-    { label: '已发布', value: run.summary?.published_count ?? 0, icon: PlayCircle },
-    { label: '已跳过', value: run.summary?.skipped_count ?? 0, icon: SkipForward },
+    { label: 'Candidates', value: run.summary?.candidate_count ?? 0, icon: Activity },
+    { label: 'Published', value: run.summary?.published_count ?? 0, icon: PlayCircle },
+    { label: 'Skipped', value: run.summary?.skipped_count ?? 0, icon: SkipForward },
   ]
 
   return (
@@ -43,11 +44,9 @@ function RunCard({ title, run }) {
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <div className="mb-1 text-sm font-medium text-[var(--text-secondary)]">{title}</div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">
-            {run.coverage_date || '未记录覆盖日期'}
-          </div>
+          <div className="text-lg font-semibold text-[var(--text-primary)]">{run.coverage_date || 'No coverage date'}</div>
           <div className="mt-1 text-xs text-[var(--text-faint)]">
-            {run.run_mode === 'manual' ? '手动发布' : '自动发布'} · 最近更新时间 {formatDate(run.updated_at)}
+            {(run.run_mode || 'auto') === 'manual' ? 'Manual run' : 'Auto run'} • Updated {formatDate(run.updated_at)}
           </div>
         </div>
         <StatusPill status={run.status} />
@@ -87,21 +86,17 @@ function TopicList({ title, items, emptyText }) {
                   {item.content_type || 'daily_brief'}
                 </span>
               </div>
-              {item.summary ? (
-                <div className="mb-2 text-sm text-[var(--text-secondary)]">{item.summary}</div>
-              ) : null}
+              {item.summary ? <div className="mb-2 text-sm text-[var(--text-secondary)]">{item.summary}</div> : null}
               <div className="flex flex-wrap gap-2 text-xs text-[var(--text-faint)]">
-                <span>topic_key: {item.topic_key || '未设置'}</span>
-                <span>来源数 {item.source_count ?? 0}</span>
-                {item.published_mode ? <span>发布方式: {item.published_mode}</span> : null}
+                <span>topic_key: {item.topic_key || 'n/a'}</span>
+                <span>source_count: {item.source_count ?? 0}</span>
+                {item.published_mode ? <span>mode: {item.published_mode}</span> : null}
                 {item.post_slug ? <span>slug: {item.post_slug}</span> : null}
               </div>
               {item.source_names?.length ? (
-                <div className="mt-2 text-xs text-[var(--text-faint)]">来源: {item.source_names.join(' / ')}</div>
+                <div className="mt-2 text-xs text-[var(--text-faint)]">sources: {item.source_names.join(' / ')}</div>
               ) : null}
-              {item.reason ? (
-                <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">{item.reason}</div>
-              ) : null}
+              {item.reason ? <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">{item.reason}</div> : null}
             </div>
           ))}
         </div>
@@ -115,7 +110,7 @@ function TopicList({ title, items, emptyText }) {
 function RecentPosts({ posts }) {
   return (
     <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-5">
-      <div className="mb-4 text-sm font-semibold text-[var(--text-primary)]">最近文章</div>
+      <div className="mb-4 text-sm font-semibold text-[var(--text-primary)]">Recent Posts</div>
       {posts?.length ? (
         <div className="space-y-3">
           {posts.map((post) => (
@@ -132,7 +127,7 @@ function RecentPosts({ posts }) {
           ))}
         </div>
       ) : (
-        <div className="text-sm text-[var(--text-faint)]">暂无文章</div>
+        <div className="text-sm text-[var(--text-faint)]">No posts yet.</div>
       )}
     </section>
   )
@@ -142,6 +137,7 @@ export default function AdminPublishingStatus() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [activeRunId, setActiveRunId] = useState(null)
 
   const loadStatus = useCallback(async () => {
     setLoading(true)
@@ -150,7 +146,7 @@ export default function AdminPublishingStatus() {
       const result = await fetchAdminPublishingStatus({ limit: 8 })
       setData(result)
     } catch (err) {
-      setError(err.message || '加载发布状态失败')
+      setError(err.message || 'Failed to load publishing status')
     } finally {
       setLoading(false)
     }
@@ -168,9 +164,9 @@ export default function AdminPublishingStatus() {
     <div data-ui="admin-publishing-status">
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">发布状态</h2>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Publishing Status</h2>
           <p className="mt-1 text-sm text-[var(--text-faint)]">
-            查看候选主题、已发布主题、自动/手动发布状态，以及被跳过的原因。
+            Monitor candidate topics, published/skipped decisions, and auto vs manual outcomes.
           </p>
         </div>
         <button
@@ -178,39 +174,37 @@ export default function AdminPublishingStatus() {
           onClick={loadStatus}
           className="rounded-lg border border-[var(--border-muted)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
         >
-          刷新
+          Refresh
         </button>
       </div>
 
-      {error ? (
-        <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
-      ) : null}
+      {error ? <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
 
       {loading && !data ? (
-        <div className="text-sm text-[var(--text-faint)]">加载中...</div>
+        <div className="text-sm text-[var(--text-faint)]">Loading...</div>
       ) : (
         <div className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-2">
-            <RunCard title="最近一次日更自动发布" run={latestDaily} />
-            <RunCard title="最近一次周报运行" run={latestWeekly} />
+            <RunCard title="Latest Daily Auto Run" run={latestDaily} />
+            <RunCard title="Latest Weekly Review Run" run={latestWeekly} />
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[1.2fr,1fr]">
             <div className="space-y-6">
               <TopicList
-                title="候选主题"
+                title="Candidate Topics"
                 items={spotlightRun?.candidate_topics || []}
-                emptyText="还没有候选主题快照。主工作树接入自动脚本回传后，这里会显示当天候选池。"
+                emptyText="No candidate snapshot yet."
               />
               <TopicList
-                title="已发布主题"
+                title="Published Topics"
                 items={spotlightRun?.published_topics || []}
-                emptyText="还没有发布主题快照。"
+                emptyText="No published topic snapshot yet."
               />
               <TopicList
-                title="跳过主题与原因"
+                title="Skipped Topics & Reasons"
                 items={spotlightRun?.skipped_topics || []}
-                emptyText="当前没有被跳过的主题。"
+                emptyText="No skipped topic snapshot yet."
               />
             </div>
 
@@ -219,35 +213,42 @@ export default function AdminPublishingStatus() {
               <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-5">
                 <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
                   <Clock3 size={16} className="text-[var(--accent)]" />
-                  最近运行记录
+                  Recent Runs
                 </div>
                 {data?.recent_runs?.length ? (
                   <div className="space-y-3">
                     {data.recent_runs.map((run) => (
-                      <div key={run.id} className="rounded-lg bg-[var(--bg-canvas)] p-4">
+                      <button
+                        key={run.id}
+                        type="button"
+                        onClick={() => setActiveRunId(run.id)}
+                        className="w-full rounded-lg bg-[var(--bg-canvas)] p-4 text-left transition-colors hover:bg-[var(--accent-soft)]/40"
+                      >
                         <div className="mb-2 flex items-start justify-between gap-3">
                           <div>
                             <div className="font-medium text-[var(--text-primary)]">{run.workflow_key}</div>
                             <div className="text-xs text-[var(--text-faint)]">
-                              {run.coverage_date || '未记录日期'} · {run.run_mode === 'manual' ? '手动' : '自动'}
+                              {run.coverage_date || 'No coverage date'} • {run.run_mode === 'manual' ? 'manual' : 'auto'}
                             </div>
                           </div>
                           <StatusPill status={run.status} />
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-xs text-[var(--text-faint)]">
-                          <span>候选 {run.summary?.candidate_count ?? 0}</span>
-                          <span>发布 {run.summary?.published_count ?? 0}</span>
-                          <span>跳过 {run.summary?.skipped_count ?? 0}</span>
+                          <span>cand {run.summary?.candidate_count ?? 0}</span>
+                          <span>pub {run.summary?.published_count ?? 0}</span>
+                          <span>skip {run.summary?.skipped_count ?? 0}</span>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-sm text-[var(--text-faint)]">暂无历史运行记录</div>
+                  <div className="text-sm text-[var(--text-faint)]">No historical runs yet.</div>
                 )}
               </section>
             </div>
           </div>
+
+          {activeRunId ? <AdminPublishingRunDetail runId={activeRunId} onClose={() => setActiveRunId(null)} /> : null}
         </div>
       )}
     </div>

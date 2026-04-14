@@ -37,6 +37,12 @@ def test_create_post(client):
         "topic_key": "openai-launches-x",
         "published_mode": "auto",
         "coverage_date": "2026-04-14",
+        "series_slug": "ai-daily-brief",
+        "series_order": 1,
+        "editor_note": "editor note",
+        "source_count": 4,
+        "quality_score": 88.5,
+        "reading_time": 12,
         "tags": ["python", "test"],
     }, headers=_auth(token))
     assert resp.status_code == 200
@@ -47,6 +53,12 @@ def test_create_post(client):
     assert data["topic_key"] == "openai-launches-x"
     assert data["published_mode"] == "auto"
     assert data["coverage_date"] == "2026-04-14"
+    assert data["series_slug"] == "ai-daily-brief"
+    assert data["series_order"] == 1
+    assert data["editor_note"] == "editor note"
+    assert data["source_count"] == 4
+    assert data["quality_score"] == 88.5
+    assert data["reading_time"] == 12
     assert len(data["tags"]) == 2
     assert data["id"] is not None
 
@@ -82,12 +94,18 @@ def test_update_post(client):
         "title": "Updated",
         "content_type": "weekly_review",
         "published_mode": "manual",
+        "series_slug": "ai-weekly-review",
+        "source_count": 2,
+        "quality_score": 90.0,
     }, headers=_auth(token))
     assert resp.status_code == 200
     assert resp.json()["title"] == "Updated"
     assert resp.json()["slug"] == "original"
     assert resp.json()["content_type"] == "weekly_review"
     assert resp.json()["published_mode"] == "manual"
+    assert resp.json()["series_slug"] == "ai-weekly-review"
+    assert resp.json()["source_count"] == 2
+    assert resp.json()["quality_score"] == 90.0
 
 
 def test_upsert_and_fetch_publishing_status(client):
@@ -148,6 +166,164 @@ def test_upsert_and_fetch_publishing_status(client):
     assert status_data["latest_runs"]["daily_auto"]["external_run_id"] == "gha-123"
     assert status_data["recent_runs"][0]["message"] == "Published 2 posts, skipped 1 duplicate"
     assert status_data["latest_runs"]["weekly_review"] is None
+
+    run_id = data["id"]
+    run_resp = client.get(f"/api/admin/publishing-runs/{run_id}", headers=_auth(token))
+    assert run_resp.status_code == 200
+    assert run_resp.json()["external_run_id"] == "gha-123"
+
+
+def test_admin_series_crud(client):
+    token = _login(client)
+
+    list_resp = client.get("/api/admin/series", headers=_auth(token))
+    assert list_resp.status_code == 200
+    assert isinstance(list_resp.json(), list)
+    assert len(list_resp.json()) >= 5
+
+    create_resp = client.post(
+        "/api/admin/series",
+        json={
+            "slug": "infra-playbook",
+            "title": "Infra Playbook",
+            "description": "infra",
+            "content_types": ["post"],
+            "is_featured": False,
+            "sort_order": 99,
+        },
+        headers=_auth(token),
+    )
+    assert create_resp.status_code == 200
+    created = create_resp.json()
+    assert created["slug"] == "infra-playbook"
+
+    update_resp = client.put(
+        f"/api/admin/series/{created['id']}",
+        json={"title": "Infra Playbook Updated", "is_featured": True},
+        headers=_auth(token),
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["title"] == "Infra Playbook Updated"
+    assert update_resp.json()["is_featured"] is True
+
+
+def test_content_health_and_publishing_metadata_bridge(client):
+    token = _login(client)
+    create = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Metadata Bridge Post",
+            "slug": "metadata-bridge-post",
+            "summary": "summary",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "published_mode": "auto",
+            "coverage_date": "2026-04-15",
+        },
+        headers=_auth(token),
+    )
+    assert create.status_code == 200
+    post_id = create.json()["id"]
+
+    bridge_resp = client.post(
+        "/api/admin/posts/publishing-metadata",
+        json={
+            "post_id": post_id,
+            "series_slug": "ai-daily-brief",
+            "series_order": 10,
+            "editor_note": "bridge-note",
+            "quality_score": 92.5,
+            "reading_time": 15,
+            "sources": [
+                {
+                    "source_type": "official_blog",
+                    "source_name": "OpenAI Blog",
+                    "source_url": "https://openai.com/blog/sample",
+                    "is_primary": True,
+                },
+                {
+                    "source_type": "news",
+                    "source_name": "Tech Media",
+                    "source_url": "https://example.com/news/sample",
+                    "is_primary": False,
+                },
+            ],
+            "artifact": {
+                "workflow_key": "daily_auto",
+                "coverage_date": "2026-04-15",
+                "research_pack_summary": "summary",
+                "quality_gate_json": "{\"score\": 90}",
+                "image_plan_json": "[]",
+                "candidate_topics_json": "[{\"topic_key\": \"k\"}]",
+                "failure_reason": "",
+            },
+        },
+        headers=_auth(token),
+    )
+    assert bridge_resp.status_code == 200
+    bridge_data = bridge_resp.json()
+    assert bridge_data["post_id"] == post_id
+    assert bridge_data["source_count"] == 2
+
+    health_resp = client.get("/api/admin/content-health", headers=_auth(token))
+    assert health_resp.status_code == 200
+    health_data = health_resp.json()
+    assert "summary" in health_data
+    assert isinstance(health_data["items"], list)
+    assert any(item["slug"] == "metadata-bridge-post" for item in health_data["items"])
+
+
+def test_content_health_and_publishing_metadata_bridge_alias_contract(client):
+    token = _login(client)
+    create = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Metadata Alias Post",
+            "slug": "metadata-alias-post",
+            "summary": "summary",
+            "content_md": "content",
+            "content_type": "weekly_review",
+            "published_mode": "auto",
+            "coverage_date": "2026-04-15",
+        },
+        headers=_auth(token),
+    )
+    assert create.status_code == 200
+
+    bridge_resp = client.post(
+        "/api/admin/publishing-metadata",
+        json={
+            "post_slug": "metadata-alias-post",
+            "metadata": {
+                "series_slug": "ai-weekly-review",
+                "series_order": 20,
+                "quality_score": 95.0,
+                "reading_time": 22,
+            },
+            "post_sources": [
+                {
+                    "source_type": "official_blog",
+                    "source_name": "Anthropic",
+                    "source_url": "https://anthropic.com/news/sample",
+                    "is_primary": True,
+                }
+            ],
+            "publishing_artifact": {
+                "workflow_key": "weekly_review",
+                "coverage_date": "2026-04-15",
+                "research_pack_summary": "alias summary",
+                "quality_gate_json": "{\"score\": 95}",
+                "image_plan_json": "[]",
+                "candidate_topics_json": "[]",
+                "failure_reason": "",
+            },
+        },
+        headers=_auth(token),
+    )
+    assert bridge_resp.status_code == 200
+    bridge_data = bridge_resp.json()
+    assert bridge_data["post_slug"] == "metadata-alias-post"
+    assert bridge_data["source_count"] == 1
 
 
 def test_delete_post(client):

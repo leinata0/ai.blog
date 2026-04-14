@@ -45,3 +45,14 @@ export const upsertAdminPublishingStatus = (data) =>
 
 export const fetchAdminImages = () => apiGet('/api/admin/images', { auth: true })
 export const deleteAdminImage = (filename) => apiDelete(`/api/admin/images/${filename}`, { auth: true })
+
+export const fetchAdminContentHealth = () => apiGet('/api/admin/content-health', { auth: true })
+export const fetchAdminPublishingRunDetail = (id) =>
+  apiGet(`/api/admin/publishing-runs/${id}`, { auth: true })
+
+export const fetchAdminSeries = () => apiGet('/api/admin/series', { auth: true })
+export const createAdminSeries = (data) => apiPost('/api/admin/series', data, { auth: true })
+export const updateAdminSeries = (id, data) => apiPut(`/api/admin/series/${id}`, data, { auth: true })
+
+export const upsertAdminPublishingMetadata = (data) =>
+  apiPost('/api/admin/publishing-metadata', data, { auth: true })

@@ -64,6 +64,60 @@ const CONTENT_TYPE_META = {
   },
 }
 
+function DetailRailSection({ title, items, toPostLabel = false }) {
+  if (!items || items.length === 0) return null
+  return (
+    <section className="rounded-2xl p-5" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+      <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+      <div className="mt-4 space-y-3">
+        {items.map((item) => (
+          <Link
+            key={item.slug}
+            to={`/posts/${item.slug}`}
+            className="block rounded-2xl px-4 py-3 transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
+          >
+            {toPostLabel && item.content_type ? (
+              <div className="mb-2 text-[11px]" style={{ color: 'var(--text-faint)' }}>{item.content_type}</div>
+            ) : null}
+            <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
+            <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>{formatDate(item.created_at)}</div>
+          </Link>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function SourceSummarySection({ post }) {
+  const sources = Array.isArray(post?.sources) ? post.sources : []
+  const summary = post?.source_summary || ''
+  if (!summary && sources.length === 0) return null
+  return (
+    <section className="mt-8 rounded-xl p-6 sm:p-8" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+      <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>来源摘要</h3>
+      {summary ? (
+        <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>{summary}</p>
+      ) : null}
+      {sources.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {sources.slice(0, 6).map((source, index) => (
+            <a
+              key={`${source.source_url || source.source_name || 'source'}-${index}`}
+              href={source.source_url || '#'}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-full px-3 py-1 text-xs font-medium"
+              style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+            >
+              {source.source_name || source.source_type || '来源'}
+            </a>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 export default function PostDetailPage({ slug: overrideSlug }) {
   const params = useParams()
   const slug = overrideSlug ?? params.slug
@@ -74,6 +128,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   const [likeCount, setLikeCount] = useState(0)
   const [liked, setLiked] = useState(false)
   const [relatedPosts, setRelatedPosts] = useState([])
+  const [sameSeriesPosts, setSameSeriesPosts] = useState([])
+  const [sameTopicPosts, setSameTopicPosts] = useState([])
+  const [sameWeekPosts, setSameWeekPosts] = useState([])
   const { scrollYProgress } = useScroll()
   const progressScaleX = useSpring(scrollYProgress, {
     stiffness: 140,
@@ -92,6 +149,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         setPost(data)
         setLikeCount(data.like_count || 0)
         setLiked(localStorage.getItem(`liked_${slug}`) === '1')
+        setSameSeriesPosts(Array.isArray(data.same_series_posts) ? data.same_series_posts : [])
+        setSameTopicPosts(Array.isArray(data.same_topic_posts) ? data.same_topic_posts : [])
+        setSameWeekPosts(Array.isArray(data.same_week_posts) ? data.same_week_posts : [])
         setLoading(false)
       })
       .catch(() => {
@@ -353,6 +413,8 @@ export default function PostDetailPage({ slug: overrideSlug }) {
               </div>
             </div>
 
+            <SourceSummarySection post={post} />
+
             {/* 点赞按钮 */}
             <div className="flex items-center justify-center mt-8">
               <motion.button
@@ -426,6 +488,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
           <div className="lg:w-[300px] flex-shrink-0 hidden lg:block">
             <div className="sticky top-20 space-y-6">
               <TableOfContents markdown={post.content_md} />
+              <DetailRailSection title="同系列继续阅读" items={sameSeriesPosts} />
+              <DetailRailSection title="同主题相关文章" items={sameTopicPosts} />
+              <DetailRailSection title="同周上下文" items={sameWeekPosts} toPostLabel />
             </div>
           </div>
         </div>

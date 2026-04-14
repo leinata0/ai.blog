@@ -20,6 +20,11 @@ class PostListItemOut(BaseModel):
     topic_key: str
     published_mode: str
     coverage_date: str
+    series_slug: str | None = None
+    series_order: int | None = None
+    source_count: int | None = None
+    quality_score: float | None = None
+    reading_time: int | None = None
     view_count: int
     is_published: bool
     is_pinned: bool
@@ -49,6 +54,12 @@ class PostDetailOut(BaseModel):
     topic_key: str
     published_mode: str
     coverage_date: str
+    series_slug: str | None = None
+    series_order: int | None = None
+    editor_note: str | None = None
+    source_count: int | None = None
+    quality_score: float | None = None
+    reading_time: int | None = None
     view_count: int
     is_pinned: bool
     like_count: int
@@ -80,6 +91,12 @@ class PostCreateRequest(BaseModel):
     topic_key: str = ""
     published_mode: str = "manual"
     coverage_date: str = ""
+    series_slug: str | None = None
+    series_order: int | None = None
+    editor_note: str | None = None
+    source_count: int | None = None
+    quality_score: float | None = None
+    reading_time: int | None = None
     is_published: bool = True
     is_pinned: bool = False
     tags: list[str] = Field(default_factory=list)
@@ -95,6 +112,12 @@ class PostUpdateRequest(BaseModel):
     topic_key: str | None = None
     published_mode: str | None = None
     coverage_date: str | None = None
+    series_slug: str | None = None
+    series_order: int | None = None
+    editor_note: str | None = None
+    source_count: int | None = None
+    quality_score: float | None = None
+    reading_time: int | None = None
     is_published: bool | None = None
     is_pinned: bool | None = None
     tags: list[str] | None = None
@@ -112,6 +135,12 @@ class PostAdminOut(BaseModel):
     topic_key: str
     published_mode: str
     coverage_date: str
+    series_slug: str | None = None
+    series_order: int | None = None
+    editor_note: str | None = None
+    source_count: int | None = None
+    quality_score: float | None = None
+    reading_time: int | None = None
     view_count: int
     is_published: bool
     is_pinned: bool
@@ -185,6 +214,151 @@ class PublishingStatusResponse(BaseModel):
     latest_runs: dict[str, PublishingRunOut | None]
     recent_runs: list[PublishingRunOut] = Field(default_factory=list)
     recent_posts: list[PostListItemOut] = Field(default_factory=list)
+
+
+class SeriesBase(BaseModel):
+    slug: str = Field(..., min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = ""
+    cover_image: str = ""
+    content_types: list[str] = Field(default_factory=list)
+    is_featured: bool = False
+    sort_order: int = 0
+
+
+class SeriesCreateRequest(SeriesBase):
+    pass
+
+
+class SeriesUpdateRequest(BaseModel):
+    slug: str | None = Field(default=None, min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    cover_image: str | None = None
+    content_types: list[str] | None = None
+    is_featured: bool | None = None
+    sort_order: int | None = None
+
+
+class SeriesOut(SeriesBase):
+    id: int
+    post_count: int = 0
+    latest_post_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class SeriesDetailOut(SeriesOut):
+    posts: list[PostListItemOut] = Field(default_factory=list)
+
+
+class DiscoverOut(BaseModel):
+    featured_series: list[SeriesOut] = Field(default_factory=list)
+    latest_daily: list[PostListItemOut] = Field(default_factory=list)
+    latest_weekly: list[PostListItemOut] = Field(default_factory=list)
+    editor_picks: list[PostListItemOut] = Field(default_factory=list)
+
+
+class ContentHealthSummaryOut(BaseModel):
+    total_posts: int = 0
+    posts_with_series: int = 0
+    posts_with_sources: int = 0
+    posts_with_quality_score: int = 0
+    published_posts: int = 0
+
+
+class ContentHealthItemOut(BaseModel):
+    post_id: int
+    slug: str
+    title: str
+    content_type: str = "post"
+    coverage_date: str = ""
+    is_published: bool = True
+    series_slug: str | None = None
+    source_count: int | None = None
+    quality_score: float | None = None
+    reading_time: int | None = None
+    has_cover_image: bool = False
+    score: int = 0
+    issues: list[str] = Field(default_factory=list)
+
+
+class ContentHealthOut(BaseModel):
+    summary: ContentHealthSummaryOut
+    items: list[ContentHealthItemOut] = Field(default_factory=list)
+
+
+class PostSourceInput(BaseModel):
+    source_type: str = "news"
+    source_name: str
+    source_url: str
+    published_at: datetime | None = None
+    is_primary: bool = False
+
+
+class PublishingArtifactInput(BaseModel):
+    publishing_run_id: int | None = None
+    workflow_key: str = "daily_auto"
+    coverage_date: str = ""
+    research_pack_summary: str = ""
+    quality_gate_json: str = "{}"
+    image_plan_json: str = "[]"
+    candidate_topics_json: str = "[]"
+    failure_reason: str = ""
+
+
+class PublishingMetadataFields(BaseModel):
+    series_slug: str | None = None
+    series_order: int | None = None
+    editor_note: str | None = None
+    source_count: int | None = None
+    quality_score: float | None = None
+    reading_time: int | None = None
+
+
+class PublishingMetadataUpsertRequest(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    post_id: int | None = None
+    post_slug: str | None = None
+    series_slug: str | None = None
+    series_order: int | None = None
+    editor_note: str | None = None
+    source_count: int | None = None
+    quality_score: float | None = None
+    reading_time: int | None = None
+    sources: list[PostSourceInput] = Field(default_factory=list)
+    artifact: PublishingArtifactInput | None = None
+    metadata: PublishingMetadataFields | None = None
+    post_sources: list[PostSourceInput] = Field(default_factory=list)
+    publishing_artifact: PublishingArtifactInput | None = None
+
+    def resolved_metadata(self) -> PublishingMetadataFields:
+        if self.metadata is not None:
+            return self.metadata
+        return PublishingMetadataFields(
+            series_slug=self.series_slug,
+            series_order=self.series_order,
+            editor_note=self.editor_note,
+            source_count=self.source_count,
+            quality_score=self.quality_score,
+            reading_time=self.reading_time,
+        )
+
+    def resolved_sources(self) -> list[PostSourceInput]:
+        return self.sources or self.post_sources
+
+    def resolved_artifact(self) -> PublishingArtifactInput:
+        return self.artifact or self.publishing_artifact or PublishingArtifactInput()
+
+
+class PublishingMetadataUpsertResponse(BaseModel):
+    post_id: int
+    post_slug: str
+    source_count: int
+    artifact_id: int
+    workflow_key: str
+    coverage_date: str
 
 
 # ── Settings schemas ──────────────────────────────

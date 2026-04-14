@@ -8,16 +8,22 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_access_token, get_current_admin, verify_admin
 from app.db import get_db
-from app.models import Comment, Post, PublishingRun, Tag
+from app.models import Comment, Post, PostSource, PublishingArtifact, PublishingRun, Series, Tag
 from app.schemas import (
+    ContentHealthOut,
     LoginRequest,
     LoginResponse,
     PostAdminOut,
     PostCreateRequest,
+    PublishingMetadataUpsertRequest,
+    PublishingMetadataUpsertResponse,
     PostUpdateRequest,
     PublishingRunOut,
     PublishingRunUpsertRequest,
     PublishingStatusResponse,
+    SeriesCreateRequest,
+    SeriesOut,
+    SeriesUpdateRequest,
     UploadOut,
 )
 from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
@@ -39,6 +45,12 @@ def _post_to_dict(post: Post) -> dict:
         "topic_key": post.topic_key or "",
         "published_mode": post.published_mode or "manual",
         "coverage_date": post.coverage_date or "",
+        "series_slug": post.series_slug,
+        "series_order": post.series_order,
+        "editor_note": post.editor_note,
+        "source_count": post.source_count,
+        "quality_score": post.quality_score,
+        "reading_time": post.reading_time,
         "view_count": post.view_count or 0,
         "is_published": post.is_published if post.is_published is not None else True,
         "is_pinned": post.is_pinned if post.is_pinned is not None else False,
@@ -51,6 +63,72 @@ def _post_to_dict(post: Post) -> dict:
 
 def _serialize_datetime(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _series_to_dict(series: Series, db: Session) -> dict:
+    try:
+        content_types = json.loads(series.content_types or "[]")
+    except (json.JSONDecodeError, TypeError):
+        content_types = []
+
+    post_count = db.execute(
+        select(func.count(Post.id))
+        .where(Post.series_slug == series.slug)
+        .where(Post.is_published == True)
+    ).scalar() or 0
+    latest_post_at = db.execute(
+        select(func.max(Post.created_at))
+        .where(Post.series_slug == series.slug)
+        .where(Post.is_published == True)
+    ).scalar()
+
+    return {
+        "id": series.id,
+        "slug": series.slug,
+        "title": series.title,
+        "description": series.description or "",
+        "cover_image": series.cover_image or "",
+        "content_types": content_types,
+        "is_featured": bool(series.is_featured),
+        "sort_order": series.sort_order or 0,
+        "post_count": post_count,
+        "latest_post_at": _serialize_datetime(latest_post_at),
+        "created_at": _serialize_datetime(series.created_at),
+        "updated_at": _serialize_datetime(series.updated_at),
+    }
+
+
+def _build_post_health(post: Post) -> dict:
+    issues: list[str] = []
+    if not (post.cover_image or "").strip():
+        issues.append("missing_cover_image")
+    if not (post.series_slug or "").strip():
+        issues.append("missing_series")
+    if (post.source_count or 0) <= 0:
+        issues.append("missing_sources")
+    if post.quality_score is None:
+        issues.append("missing_quality_score")
+    if (post.reading_time or 0) <= 0:
+        issues.append("missing_reading_time")
+    if not post.is_published:
+        issues.append("draft")
+
+    score = max(0, 100 - (len(issues) * 15))
+    return {
+        "post_id": post.id,
+        "slug": post.slug,
+        "title": post.title,
+        "content_type": post.content_type or "post",
+        "coverage_date": post.coverage_date or "",
+        "is_published": bool(post.is_published),
+        "series_slug": post.series_slug,
+        "source_count": post.source_count,
+        "quality_score": post.quality_score,
+        "reading_time": post.reading_time,
+        "has_cover_image": bool((post.cover_image or "").strip()),
+        "score": score,
+        "issues": issues,
+    }
 
 
 def _normalize_topic_payload(items, default_mode: str, coverage_date: str) -> list[dict]:
@@ -267,6 +345,225 @@ def upsert_publishing_status(
     return _run_to_dict(run)
 
 
+@router.get("/publishing-runs/{run_id}", response_model=PublishingRunOut)
+def get_publishing_run(
+    run_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    run = db.execute(select(PublishingRun).where(PublishingRun.id == run_id)).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Publishing run not found")
+    return _run_to_dict(run)
+
+
+@router.get("/content-health", response_model=ContentHealthOut)
+def get_content_health(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    posts = db.execute(
+        select(Post).order_by(Post.updated_at.desc()).limit(limit)
+    ).scalars().all()
+    items = [_build_post_health(post) for post in posts]
+    total_posts = db.execute(select(func.count(Post.id))).scalar() or 0
+    published_posts = db.execute(select(func.count(Post.id)).where(Post.is_published == True)).scalar() or 0
+    posts_with_series = db.execute(
+        select(func.count(Post.id))
+        .where(Post.series_slug.is_not(None))
+        .where(Post.series_slug != "")
+    ).scalar() or 0
+    posts_with_sources = db.execute(
+        select(func.count(Post.id)).where(func.coalesce(Post.source_count, 0) > 0)
+    ).scalar() or 0
+    posts_with_quality = db.execute(
+        select(func.count(Post.id)).where(Post.quality_score.is_not(None))
+    ).scalar() or 0
+
+    return {
+        "summary": {
+            "total_posts": total_posts,
+            "posts_with_series": posts_with_series,
+            "posts_with_sources": posts_with_sources,
+            "posts_with_quality_score": posts_with_quality,
+            "published_posts": published_posts,
+        },
+        "items": items,
+    }
+
+
+@router.get("/series", response_model=list[SeriesOut])
+def admin_list_series(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    series_list = db.execute(
+        select(Series).order_by(Series.is_featured.desc(), Series.sort_order.asc(), Series.updated_at.desc())
+    ).scalars().all()
+    return [_series_to_dict(series, db) for series in series_list]
+
+
+@router.post("/series", response_model=SeriesOut)
+def admin_create_series(
+    body: SeriesCreateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    existing = db.execute(select(Series).where(Series.slug == body.slug)).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Series slug already exists")
+
+    series = Series(
+        slug=body.slug,
+        title=body.title,
+        description=body.description,
+        cover_image=body.cover_image,
+        content_types=json.dumps(body.content_types, ensure_ascii=False),
+        is_featured=body.is_featured,
+        sort_order=body.sort_order,
+    )
+    db.add(series)
+    db.commit()
+    db.refresh(series)
+    return _series_to_dict(series, db)
+
+
+@router.put("/series/{series_id}", response_model=SeriesOut)
+def admin_update_series(
+    series_id: int,
+    body: SeriesUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    series = db.execute(select(Series).where(Series.id == series_id)).scalar_one_or_none()
+    if series is None:
+        raise HTTPException(status_code=404, detail="Series not found")
+
+    if body.slug is not None:
+        conflict = db.execute(
+            select(Series).where(Series.slug == body.slug, Series.id != series_id)
+        ).scalar_one_or_none()
+        if conflict is not None:
+            raise HTTPException(status_code=409, detail="Series slug already exists")
+        series.slug = body.slug
+    if body.title is not None:
+        series.title = body.title
+    if body.description is not None:
+        series.description = body.description
+    if body.cover_image is not None:
+        series.cover_image = body.cover_image
+    if body.content_types is not None:
+        series.content_types = json.dumps(body.content_types, ensure_ascii=False)
+    if body.is_featured is not None:
+        series.is_featured = body.is_featured
+    if body.sort_order is not None:
+        series.sort_order = body.sort_order
+
+    db.commit()
+    db.refresh(series)
+    return _series_to_dict(series, db)
+
+
+@router.post("/publishing-metadata", response_model=PublishingMetadataUpsertResponse)
+@router.post("/posts/publishing-metadata", response_model=PublishingMetadataUpsertResponse)
+def upsert_post_publishing_metadata(
+    body: PublishingMetadataUpsertRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    if body.post_id is None and not body.post_slug:
+        raise HTTPException(status_code=400, detail="post_id or post_slug is required")
+
+    post_query = select(Post)
+    if body.post_id is not None:
+        post_query = post_query.where(Post.id == body.post_id)
+    else:
+        post_query = post_query.where(Post.slug == body.post_slug)
+
+    post = db.execute(post_query).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    metadata = body.resolved_metadata()
+    sources = body.resolved_sources()
+    artifact_input = body.resolved_artifact()
+
+    if metadata.series_slug is not None:
+        post.series_slug = metadata.series_slug
+    if metadata.series_order is not None:
+        post.series_order = metadata.series_order
+    if metadata.editor_note is not None:
+        post.editor_note = metadata.editor_note
+    if metadata.source_count is not None:
+        post.source_count = metadata.source_count
+    if metadata.quality_score is not None:
+        post.quality_score = metadata.quality_score
+    if metadata.reading_time is not None:
+        post.reading_time = metadata.reading_time
+
+    existing_sources = db.execute(
+        select(PostSource).where(PostSource.post_id == post.id)
+    ).scalars().all()
+    for source in existing_sources:
+        db.delete(source)
+
+    inserted_source_count = 0
+    for source in sources:
+        db.add(
+            PostSource(
+                post_id=post.id,
+                source_type=source.source_type,
+                source_name=source.source_name,
+                source_url=source.source_url,
+                published_at=source.published_at,
+                is_primary=source.is_primary,
+            )
+        )
+        inserted_source_count += 1
+
+    if metadata.source_count is None:
+        post.source_count = inserted_source_count
+
+    artifact = db.execute(
+        select(PublishingArtifact).where(
+            PublishingArtifact.post_id == post.id,
+            PublishingArtifact.workflow_key == artifact_input.workflow_key,
+            PublishingArtifact.coverage_date == artifact_input.coverage_date,
+            PublishingArtifact.publishing_run_id == artifact_input.publishing_run_id,
+        )
+    ).scalar_one_or_none()
+
+    if artifact is None:
+        artifact = PublishingArtifact(
+            post_id=post.id,
+            publishing_run_id=artifact_input.publishing_run_id,
+            workflow_key=artifact_input.workflow_key,
+            coverage_date=artifact_input.coverage_date,
+        )
+        db.add(artifact)
+
+    artifact.research_pack_summary = artifact_input.research_pack_summary
+    artifact.quality_gate_json = artifact_input.quality_gate_json
+    artifact.image_plan_json = artifact_input.image_plan_json
+    artifact.candidate_topics_json = artifact_input.candidate_topics_json
+    artifact.failure_reason = artifact_input.failure_reason
+    artifact.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(post)
+    db.refresh(artifact)
+
+    return {
+        "post_id": post.id,
+        "post_slug": post.slug,
+        "source_count": post.source_count or 0,
+        "artifact_id": artifact.id,
+        "workflow_key": artifact.workflow_key,
+        "coverage_date": artifact.coverage_date,
+    }
+
+
 @router.get("/posts")
 def admin_list_posts(
     q: str | None = Query(default=None),
@@ -310,6 +607,12 @@ def create_post(
         topic_key=body.topic_key,
         published_mode=body.published_mode,
         coverage_date=body.coverage_date,
+        series_slug=body.series_slug,
+        series_order=body.series_order,
+        editor_note=body.editor_note,
+        source_count=body.source_count,
+        quality_score=body.quality_score,
+        reading_time=body.reading_time,
         is_published=body.is_published,
         is_pinned=body.is_pinned,
     )
@@ -355,6 +658,18 @@ def update_post(
         post.published_mode = body.published_mode
     if body.coverage_date is not None:
         post.coverage_date = body.coverage_date
+    if body.series_slug is not None:
+        post.series_slug = body.series_slug
+    if body.series_order is not None:
+        post.series_order = body.series_order
+    if body.editor_note is not None:
+        post.editor_note = body.editor_note
+    if body.source_count is not None:
+        post.source_count = body.source_count
+    if body.quality_score is not None:
+        post.quality_score = body.quality_score
+    if body.reading_time is not None:
+        post.reading_time = body.reading_time
     if body.is_published is not None:
         post.is_published = body.is_published
     if body.is_pinned is not None:

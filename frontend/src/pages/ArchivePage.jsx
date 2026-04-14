@@ -15,7 +15,7 @@ const CONTENT_TYPE_META = {
     background: 'var(--bg-surface)',
   },
   daily_brief: {
-    label: '日更快报',
+    label: '日报快报',
     accent: 'var(--accent)',
     background: 'var(--accent-soft)',
   },
@@ -52,60 +52,88 @@ export default function ArchivePage() {
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeType, setActiveType] = useState('all')
+  const [activeSeries, setActiveSeries] = useState('all')
+  const [sortMode, setSortMode] = useState('latest')
 
   useEffect(() => {
-    document.title = '归档 - 极客开发日记'
+    document.title = '归档 - 极客开发日志'
     fetchArchive()
       .then(setGroups)
-      .catch(() => {})
+      .catch(() => setGroups([]))
       .finally(() => setLoading(false))
   }, [])
 
-  const totalPosts = useMemo(() => groups.reduce((acc, group) => acc + group.posts.length, 0), [groups])
+  const allPosts = useMemo(() => groups.flatMap((group) => group.posts), [groups])
+  const totalPosts = allPosts.length
+  const seriesOptions = useMemo(() => {
+    const values = new Map()
+    allPosts.forEach((post) => {
+      if (post.series_slug) {
+        values.set(post.series_slug, post.series?.title || post.series_slug)
+      }
+    })
+    return Array.from(values.entries()).map(([slug, title]) => ({ slug, title }))
+  }, [allPosts])
   const counts = useMemo(
     () =>
-      groups.reduce(
-        (acc, group) => {
-          group.posts.forEach((post) => {
-            if (post.content_type === 'daily_brief') acc.daily_brief += 1
-            if (post.content_type === 'weekly_review') acc.weekly_review += 1
-          })
+      allPosts.reduce(
+        (acc, post) => {
+          if (post.content_type === 'daily_brief') acc.daily_brief += 1
+          if (post.content_type === 'weekly_review') acc.weekly_review += 1
           return acc
         },
         { daily_brief: 0, weekly_review: 0 }
       ),
-    [groups]
+    [allPosts]
   )
 
   const filteredGroups = useMemo(() => {
-    return groups
-      .map((group) => {
-        const nextPosts =
-          activeType === 'all' ? group.posts : group.posts.filter((post) => post.content_type === activeType)
-        return {
-          ...group,
-          posts: nextPosts,
-          dayGroups: groupPostsByDay(nextPosts),
+    const filteredPosts = allPosts
+      .filter((post) => activeType === 'all' || post.content_type === activeType)
+      .filter((post) => activeSeries === 'all' || post.series_slug === activeSeries)
+      .sort((left, right) => {
+        if (sortMode === 'editor_pick') {
+          return Number(Boolean(right.is_pinned)) - Number(Boolean(left.is_pinned))
+            || String(right.created_at || '').localeCompare(String(left.created_at || ''))
         }
+        if (sortMode === 'most_viewed') {
+          return (right.view_count || 0) - (left.view_count || 0)
+            || String(right.created_at || '').localeCompare(String(left.created_at || ''))
+        }
+        return String(right.coverage_date || right.created_at || '').localeCompare(String(left.coverage_date || left.created_at || ''))
       })
-      .filter((group) => group.posts.length > 0)
-  }, [activeType, groups])
+
+    const groupedByYear = new Map()
+    filteredPosts.forEach((post) => {
+      const year = new Date(post.created_at || `${post.coverage_date}T00:00:00`).getFullYear() || new Date().getFullYear()
+      const entry = groupedByYear.get(year) ?? { year, posts: [] }
+      entry.posts.push(post)
+      groupedByYear.set(year, entry)
+    })
+
+    return Array.from(groupedByYear.values())
+      .sort((left, right) => right.year - left.year)
+      .map((group) => ({
+        ...group,
+        dayGroups: groupPostsByDay(group.posts),
+      }))
+  }, [activeSeries, activeType, allPosts, sortMode])
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <Navbar />
 
-      <div className="mx-auto max-w-4xl px-6 py-16 sm:px-10">
+      <div className="mx-auto max-w-5xl px-6 py-16 sm:px-10">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <h1 className="mb-2 text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>
             文章归档
           </h1>
           <p className="mb-8 text-sm" style={{ color: 'var(--text-faint)' }}>
             <FileText size={14} className="mr-1 inline" />
-            共 {totalPosts} 篇文章，支持区分日更快报与每周回顾
+            共 {totalPosts} 篇文章，支持按内容类型、系列与排序方式筛选
           </p>
 
-          <div className="mb-12 flex flex-wrap gap-3" data-ui="archive-type-filter">
+          <div className="mb-4 flex flex-wrap gap-3" data-ui="archive-type-filter">
             {['all', 'daily_brief', 'weekly_review'].map((type) => {
               const meta = CONTENT_TYPE_META[type]
               const total =
@@ -129,6 +157,31 @@ export default function ArchivePage() {
                 </button>
               )
             })}
+          </div>
+
+          <div className="mb-12 grid gap-3 md:grid-cols-2">
+            <select
+              value={activeSeries}
+              onChange={(event) => setActiveSeries(event.target.value)}
+              className="rounded-2xl border px-4 py-3 text-sm outline-none"
+              style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
+            >
+              <option value="all">全部系列</option>
+              {seriesOptions.map((series) => (
+                <option key={series.slug} value={series.slug}>{series.title}</option>
+              ))}
+            </select>
+
+            <select
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value)}
+              className="rounded-2xl border px-4 py-3 text-sm outline-none"
+              style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
+            >
+              <option value="latest">最新</option>
+              <option value="most_viewed">最热</option>
+              <option value="editor_pick">编辑推荐</option>
+            </select>
           </div>
         </motion.div>
 
@@ -219,6 +272,11 @@ export default function ArchivePage() {
                                       {typeMeta.label}
                                     </span>
                                   ) : null}
+                                  {post.series_slug ? (
+                                    <span className="rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: 'rgba(15,23,42,0.08)', color: 'var(--text-secondary)' }}>
+                                      {post.series?.title || post.series_slug}
+                                    </span>
+                                  ) : null}
                                   {post.is_pinned ? (
                                     <span
                                       className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold"
@@ -229,10 +287,7 @@ export default function ArchivePage() {
                                     </span>
                                   ) : null}
                                 </div>
-                                <span
-                                  className="text-[15px] font-medium transition-colors duration-200 group-hover:text-[var(--accent)]"
-                                  style={{ color: 'var(--text-primary)' }}
-                                >
+                                <span className="text-[15px] font-medium transition-colors duration-200 group-hover:text-[var(--accent)]" style={{ color: 'var(--text-primary)' }}>
                                   {post.title}
                                 </span>
                               </Link>

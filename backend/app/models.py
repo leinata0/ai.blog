@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -26,6 +26,12 @@ class Post(Base):
     topic_key = Column(String(200), nullable=False, default="")
     published_mode = Column(String(20), nullable=False, default="manual")
     coverage_date = Column(String(20), nullable=False, default="")
+    series_slug = Column(String(120), nullable=True, default=None, index=True)
+    series_order = Column(Integer, nullable=True, default=None)
+    editor_note = Column(Text, nullable=True, default=None)
+    source_count = Column(Integer, nullable=True, default=None)
+    quality_score = Column(Float, nullable=True, default=None)
+    reading_time = Column(Integer, nullable=True, default=None)
     view_count = Column(Integer, nullable=False, default=0)
     is_published = Column(Boolean, nullable=False, default=True)
     is_pinned = Column(Boolean, nullable=False, default=False)
@@ -34,6 +40,22 @@ class Post(Base):
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     tags = relationship("Tag", secondary=post_tags, back_populates="posts")
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
+    sources = relationship("PostSource", back_populates="post", cascade="all, delete-orphan")
+    publishing_artifacts = relationship("PublishingArtifact", back_populates="post", cascade="all, delete-orphan")
+
+
+class Series(Base):
+    __tablename__ = "series"
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(120), unique=True, nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    cover_image = Column(String(500), nullable=False, default="")
+    content_types = Column(Text, nullable=False, default="[]")
+    is_featured = Column(Boolean, nullable=False, default=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Tag(Base):
@@ -103,3 +125,34 @@ class PublishingRun(Base):
     finished_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class PostSource(Base):
+    __tablename__ = "post_sources"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_type = Column(String(50), nullable=False, default="")
+    source_name = Column(String(200), nullable=False, default="")
+    source_url = Column(String(500), nullable=False, default="")
+    published_at = Column(DateTime, nullable=True)
+    is_primary = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    post = relationship("Post", back_populates="sources")
+
+
+class PublishingArtifact(Base):
+    __tablename__ = "publishing_artifacts"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    publishing_run_id = Column(Integer, ForeignKey("publishing_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    workflow_key = Column(String(50), nullable=False, default="daily_auto")
+    coverage_date = Column(String(20), nullable=False, default="")
+    research_pack_summary = Column(Text, nullable=False, default="")
+    quality_gate_json = Column(Text, nullable=False, default="{}")
+    image_plan_json = Column(Text, nullable=False, default="[]")
+    candidate_topics_json = Column(Text, nullable=False, default="[]")
+    failure_reason = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    post = relationship("Post", back_populates="publishing_artifacts")
