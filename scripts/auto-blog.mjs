@@ -496,7 +496,7 @@ export function createDailyBriefFormatProfile() {
   return {
     ...baseProfile,
     name: 'daily_brief',
-    required_sections: [...DEFAULT_DAILY_REQUIRED_SECTIONS],
+    required_sections: [...baseProfile.required_sections],
     required_tail_sections: [...DEFAULT_DAILY_TAIL_SECTIONS],
     title_rules: [
       '标题必须是中文，避免“日报”“快讯”式口吻。',
@@ -516,17 +516,41 @@ export function createDailyBriefFormatProfile() {
   }
 }
 
+export function pickPostCountForRun({
+  mode = 'daily-auto',
+  minPosts = 1,
+  maxPosts = 1,
+  randomValue = Math.random(),
+} = {}) {
+  const min = Math.max(1, Math.floor(Number(minPosts) || 1))
+  const max = Math.max(min, Math.floor(Number(maxPosts) || min))
+
+  if (mode !== 'daily-auto' || min === max) {
+    return max
+  }
+
+  const normalized = Math.min(0.999999, Math.max(0, Number(randomValue) || 0))
+  return min + Math.floor(normalized * (max - min + 1))
+}
+
 function resolveDailyRuntime(config, cliOptions) {
   const mode = cliOptions.mode || config.default_mode || 'daily-auto'
   const dailyConfig = config.daily_auto || {}
   const manualConfig = config.daily_manual || {}
   const modeConfig = mode === 'daily-manual' ? manualConfig : dailyConfig
+  const explicitMaxPosts = cliOptions.maxPosts ? Math.max(1, Number(cliOptions.maxPosts)) : null
+  const minPosts = Math.max(1, Number(modeConfig.min_posts_per_run || dailyConfig.min_posts_per_run || 1))
+  const maxPosts = explicitMaxPosts || Math.max(1, Number(modeConfig.max_posts_per_run || dailyConfig.max_posts_per_run || 2))
 
   return {
     mode,
     dryRun: cliOptions.dryRun,
     coverageDate: toCoverageDate(cliOptions.coverageDate),
-    maxPosts: Math.max(1, Number(cliOptions.maxPosts || modeConfig.max_posts_per_run || dailyConfig.max_posts_per_run || 2)),
+    maxPosts: pickPostCountForRun({
+      mode,
+      minPosts,
+      maxPosts,
+    }),
     lookbackHours: Number(modeConfig.lookback_hours || dailyConfig.lookback_hours || 30),
     maxCandidateItems: Number(modeConfig.max_candidate_items || dailyConfig.max_candidate_items || 24),
     minSourcesPerTopic: Number(modeConfig.min_sources_per_topic || dailyConfig.min_sources_per_topic || 2),
@@ -548,6 +572,7 @@ async function chooseTopic({ researchPack, formatProfile, today }) {
     '要求：',
     '- outline 必须优先使用以下章节骨架，并允许同名章节下增加少量三级子标题。',
     ...formatProfile.required_sections.map((section) => `- ${section}`),
+    '- Add 2-4 third-level subheadings (###) across the middle and later sections so the article feels like a deep single-topic analysis.',
     '- image_sections 最多 3 个，只能从 outline 里挑。',
     '- thesis 是一句明确判断，不是摘要。',
     '- key_sources 用标题或 URL 标识真正重要的来源。',

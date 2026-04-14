@@ -21,6 +21,7 @@
     "timezone": "Asia/Shanghai",
     "lookback_hours": 30,
     "max_candidate_items": 24,
+    "min_posts_per_run": 1,
     "max_posts_per_run": 2,
     "min_sources_per_topic": 2,
     "cluster_similarity_threshold": 0.5,
@@ -108,10 +109,10 @@
       "min_sources": 2,
       "min_high_quality_sources": 1,
       "high_quality_source_types": ["official_blog", "independent_blog", "paper"],
-      "min_chars": 1600,
+      "min_chars": 2200,
       "max_banned_phrase_hits": 2,
-      "min_analysis_signals": 2,
-      "max_repair_attempts": 2
+      "min_analysis_signals": 3,
+      "max_repair_attempts": 3
     },
     "weekly_review": {
       "min_sources": 3,

@@ -4,7 +4,9 @@ import test from 'node:test'
 import {
   buildTopicKey,
   clusterResearchItemsByTopic,
+  createDailyBriefFormatProfile,
   parseCliArgs,
+  pickPostCountForRun,
   selectTopicsForPublishing,
 } from '../auto-blog.mjs'
 
@@ -37,6 +39,19 @@ test('buildTopicKey produces stable short keys', () => {
 
   assert.ok(key.length > 0)
   assert.ok(key.length <= 80)
+})
+
+test('pickPostCountForRun randomizes daily auto count between min and max', () => {
+  assert.equal(pickPostCountForRun({ mode: 'daily-auto', minPosts: 1, maxPosts: 2, randomValue: 0.1 }), 1)
+  assert.equal(pickPostCountForRun({ mode: 'daily-auto', minPosts: 1, maxPosts: 2, randomValue: 0.9 }), 2)
+  assert.equal(pickPostCountForRun({ mode: 'daily-manual', minPosts: 1, maxPosts: 3, randomValue: 0.1 }), 3)
+})
+
+test('createDailyBriefFormatProfile keeps the full long-form section structure', () => {
+  const profile = createDailyBriefFormatProfile()
+
+  assert.equal(profile.required_sections.length, 5)
+  assert.ok(profile.required_sections.includes('## 五、我的判断'))
 })
 
 test('clusterResearchItemsByTopic merges overlapping sources into one topic', () => {

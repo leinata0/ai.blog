@@ -1,8 +1,8 @@
-name: AI Daily Auto Blog
+name: AI Weekly Review
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '30 2 * * 1'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -12,11 +12,6 @@ on:
         type: boolean
       coverage_date:
         description: Coverage date in YYYY-MM-DD
-        required: false
-        default: ''
-        type: string
-      max_posts:
-        description: Override generated post count
         required: false
         default: ''
         type: string
@@ -53,7 +48,7 @@ jobs:
           if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
           echo "Secrets look good."
 
-      - name: Generate daily AI blog
+      - name: Generate weekly review
         env:
           SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
           SILICONFLOW_BASE_URL: ${{ vars.SILICONFLOW_BASE_URL }}
@@ -63,11 +58,10 @@ jobs:
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
-          ARGS="--mode daily-auto"
+          ARGS="--mode weekly-review"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
             if [ -n "${{ inputs.coverage_date }}" ]; then ARGS="$ARGS --coverage-date ${{ inputs.coverage_date }}"; fi
-            if [ -n "${{ inputs.max_posts }}" ]; then ARGS="$ARGS --max-posts ${{ inputs.max_posts }}"; fi
             if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
           fi
           echo "Running: node scripts/auto-blog.mjs $ARGS"
