@@ -460,6 +460,47 @@ function stringifyPromptPayload(payload, maxChars = 18000) {
   return smartTruncate(JSON.stringify(payload, null, 2), maxChars)
 }
 
+function stripMarkdownForLength(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*]\([^)]*\)/g, ' ')
+    .replace(/^#+\s+/gm, '')
+    .replace(/[>*_\-|]/g, ' ')
+    .replace(/\s+/g, '')
+}
+
+function extractArticleSections(contentMd, headings) {
+  const lines = String(contentMd || '').split('\n')
+  const indexes = headings
+    .map((heading) => ({ heading, index: lines.findIndex((line) => line.trim() === heading.trim()) }))
+    .filter((entry) => entry.index >= 0)
+
+  const sections = new Map()
+  for (let idx = 0; idx < indexes.length; idx += 1) {
+    const current = indexes[idx]
+    const next = indexes[idx + 1]
+    const endIndex = next ? next.index : lines.length
+    sections.set(current.heading, lines.slice(current.index, endIndex).join('\n').trim())
+  }
+
+  for (const heading of headings) {
+    if (!sections.has(heading)) {
+      sections.set(heading, `${heading}\n\n`)
+    }
+  }
+
+  return sections
+}
+
+function ensureSectionHeading(markdown, heading) {
+  const text = String(markdown || '').trim()
+  if (!text) return `${heading}\n\n`
+  if (text.startsWith(heading)) return text
+  return `${heading}\n\n${text.replace(/^#{1,6}\s+.*$/m, '').trim()}`
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -811,13 +852,15 @@ async function generateWeeklyReviewSection({
   today,
   targetChars,
 }) {
+  const markerHints = (formatProfile.analysis_markers || []).slice(0, 8).join(' / ')
   const system = [
     'You are writing one chapter of a long-form Chinese weekly AI review.',
     'Return only JSON with one key: markdown.',
     `The section must start with the exact heading: ${heading}`,
     `Target length for this section: about ${targetChars} Chinese characters.`,
     'Write in Simplified Chinese.',
-    'Use 3 to 5 substantial paragraphs.',
+    'Use at least 4 substantial paragraphs.',
+    `Include at least 2 explicit analytical turns, preferably using phrases such as ${markerHints}.`,
     'Where useful, add 1 to 3 third-level subheadings using Markdown ###.',
     'Do not output references, image sources, or a takeaway block.',
     'Do not repeat the whole article introduction in every section.',
@@ -848,7 +891,7 @@ async function generateWeeklyReviewSection({
     buildFormatPrompt(formatProfile),
   ].join('\n')
 
-  return callLLM(system, user, 4096)
+  return callLLM(system, user, 6144)
 }
 
 async function generateArticleForWorkflow({ outline, researchPack, formatProfile, workflow, today }) {
@@ -864,7 +907,7 @@ async function generateArticleForWorkflow({ outline, researchPack, formatProfile
     today,
   })
   const sectionBriefs = normalizeSectionBriefs(outline, formatProfile)
-  const sectionTargetChars = Number(workflow.section_target_chars || 1300)
+  const sectionTargetChars = Number(workflow.section_target_chars || 1600)
   const renderedSections = []
 
   for (const brief of sectionBriefs) {
@@ -891,6 +934,122 @@ async function generateArticleForWorkflow({ outline, researchPack, formatProfile
   }
 }
 
+async function repairWeeklyReviewSection({
+  heading,
+  brief,
+  currentMarkdown,
+  outline,
+  researchPack,
+  formatProfile,
+  workflow,
+  today,
+  targetChars,
+  attempt,
+}) {
+  const markerHints = (formatProfile.analysis_markers || []).slice(0, 8).join(' / ')
+  const system = [
+    'You are expanding one section of a Chinese weekly AI review after a quality-gate failure.',
+    'Return only JSON with one key: markdown.',
+    `The section must start with the exact heading: ${heading}`,
+    `Expand this section so it approaches ${targetChars} Chinese characters on its own.`,
+    'Preserve the current factual basis and thesis, but make the section deeper, broader, and more analytical.',
+    `Use at least 4 substantial paragraphs and at least 2 explicit analytical turns, preferably using phrases such as ${markerHints}.`,
+    'You may add 1 to 2 Markdown ### subheadings if they improve structure.',
+    'Do not output references, image sources, or article-level conclusions.',
+  ].join('\n')
+
+  const user = [
+    `Repair attempt: ${attempt}`,
+    `Date: ${today}`,
+    '',
+    'Current section markdown:',
+    smartTruncate(String(currentMarkdown || ''), 8000),
+    '',
+    'Section brief:',
+    stringifyPromptPayload({
+      heading,
+      goal: brief.goal,
+      key_points: brief.key_points,
+      source_focus: brief.source_focus,
+      suggested_subheads: brief.suggested_subheads,
+      weekly_axes: outline.weekly_axes || [],
+      watchlist: outline.watchlist || [],
+    }, 6000),
+    '',
+    'Research digest:',
+    stringifyPromptPayload(buildWeeklyResearchDigest(researchPack, 18), 16000),
+    '',
+    'Format profile:',
+    buildFormatPrompt(formatProfile),
+  ].join('\n')
+
+  const result = await callLLM(system, user, 6144)
+  return ensureSectionHeading(result.markdown || result.section_md || result.content_md || '', heading)
+}
+
+async function repairWeeklyReviewArticle({
+  post,
+  outline,
+  researchPack,
+  formatProfile,
+  workflow,
+  config,
+  today,
+  gate,
+  attempt,
+}) {
+  const gateProfile = resolveGateProfile(config, workflow?.content_type)
+  const requiredSections = formatProfile.required_sections || []
+  const currentSections = extractArticleSections(post.content_md, requiredSections)
+  const sectionBriefs = normalizeSectionBriefs(outline, formatProfile)
+  const minSectionChars = Math.max(
+    1100,
+    Math.floor((gateProfile.min_chars || 8500) / Math.max(1, requiredSections.length))
+  )
+  const targetSectionChars = Math.max(
+    Number(workflow.section_target_chars || 1600),
+    minSectionChars + 250
+  )
+  const needsAnalysisBoost = gate.reasons.some((reason) => reason.startsWith('analysis_signals:'))
+  const candidates = sectionBriefs.map((brief) => {
+    const markdown = currentSections.get(brief.heading) || `${brief.heading}\n\n`
+    const charCount = stripMarkdownForLength(markdown).length
+    return { brief, markdown, charCount }
+  })
+
+  let sectionsToRepair = candidates.filter((candidate) => candidate.charCount < minSectionChars)
+  if (sectionsToRepair.length === 0 && (needsAnalysisBoost || gate.reasons.some((reason) => reason.startsWith('chars:')))) {
+    sectionsToRepair = [...candidates].sort((left, right) => left.charCount - right.charCount).slice(0, 4)
+  } else {
+    sectionsToRepair = [...sectionsToRepair].sort((left, right) => left.charCount - right.charCount).slice(0, 4)
+  }
+
+  const repairedSections = new Map(currentSections)
+  for (const candidate of sectionsToRepair) {
+    const repairedMarkdown = await repairWeeklyReviewSection({
+      heading: candidate.brief.heading,
+      brief: candidate.brief,
+      currentMarkdown: candidate.markdown,
+      outline,
+      researchPack,
+      formatProfile,
+      workflow,
+      today,
+      targetChars: targetSectionChars,
+      attempt,
+    })
+    repairedSections.set(candidate.brief.heading, repairedMarkdown)
+  }
+
+  return {
+    ...post,
+    slug: workflow.slug,
+    content_md: requiredSections
+      .map((heading) => ensureSectionHeading(repairedSections.get(heading) || '', heading))
+      .join('\n\n'),
+  }
+}
+
 function canRepairQualityGate(gate) {
   const repairablePrefixes = [
     'chars:',
@@ -914,6 +1073,20 @@ async function repairArticle({
   gate,
   attempt,
 }) {
+  if (workflow?.content_type === 'weekly_review') {
+    return repairWeeklyReviewArticle({
+      post,
+      outline,
+      researchPack,
+      formatProfile,
+      workflow,
+      config,
+      today,
+      gate,
+      attempt,
+    })
+  }
+
   const gateProfile = resolveGateProfile(config, workflow?.content_type)
   const minChars = Math.max((gateProfile.min_chars || 2200) + 400, workflow?.content_type === 'weekly_review' ? 9000 : 2600)
   const minAnalysisSignals = Math.max(gateProfile.min_analysis_signals || 2, workflow?.content_type === 'weekly_review' ? 8 : 2)
@@ -1569,7 +1742,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
   const workflow = {
     ...getContentWorkflowProfile(config, 'weekly-review', today),
     target_min_chars: Number(weeklyConfig.target_min_chars || 9000),
-    section_target_chars: Number(weeklyConfig.section_target_chars || 1300),
+    section_target_chars: Number(weeklyConfig.section_target_chars || 1600),
   }
   const slug = workflow.slug
   const formatProfile = getBlogFormatProfile(resolveFormatProfileName(config, 'weekly-review'))

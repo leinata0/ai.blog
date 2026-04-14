@@ -17,27 +17,27 @@ const config = {
   },
 }
 
+function buildArticle(profile, bodies, tailItems = ['- a', '- b']) {
+  const lines = []
+  profile.required_sections.forEach((heading, index) => {
+    lines.push(heading, bodies[index] || `段落 ${index + 1}`)
+  })
+  profile.required_tail_sections.forEach((heading, index) => {
+    lines.push(heading, tailItems[index] || `- tail-${index + 1}`)
+  })
+  return lines.join('\n\n')
+}
+
 test('quality gate passes for a sufficiently structured post', () => {
   const result = evaluateQualityGate({
     post: {
-      content_md: [
-        '## 一、发生了什么',
-        '这件事意味着工程实践发生变化。',
-        '## 二、为什么这件事值得关注',
-        '问题在于成本和速度同时被改写。',
-        '## 三、不同来源怎么看',
-        '官方和独立博客给出了不同的取舍。',
-        '## 四、如果结合论文/历史脉络，该怎么理解',
-        '论文与产品落地之间有明显距离。',
-        '## 五、我的判断',
-        '更关键的是落地代价。',
-        '## 参考来源',
-        '- a',
-        '## 图片来源',
-        '- b',
-        '## 一句话结论',
-        '长期影响大于短期热度。',
-      ].join('\n\n'),
+      content_md: buildArticle(formatProfile, [
+        `这件事意味着工程实践的入口已经发生变化，团队会先从试点能力开始落地。`,
+        '值得关注的不是一次发布本身，而是成本、速度与风险开始被重新组合。',
+        '官方博客与行业媒体的判断并不完全一致，这让取舍问题变得更具体。',
+        '如果结合历史脉络来看，论文能力到产品能力之间始终存在明显落差。',
+        '我的判断是，真正关键的影响仍然落在组织协作和执行效率上。',
+      ]),
     },
     researchPack: {
       sources: [
@@ -55,7 +55,7 @@ test('quality gate passes for a sufficiently structured post', () => {
 
 test('quality gate rejects post with missing sections', () => {
   const result = evaluateQualityGate({
-    post: { content_md: '## 一、发生了什么\n\n让我们拭目以待。' },
+    post: { content_md: `${formatProfile.required_sections[0]}\n\n让我们拭目以待。` },
     researchPack: { sources: [{ source_type: 'industry_media' }] },
     formatProfile,
     config,
@@ -66,35 +66,23 @@ test('quality gate rejects post with missing sections', () => {
 })
 
 test('quality gate resolves nested daily brief rules from content type', () => {
+  const dailyProfile = createDailyBriefFormatProfile()
+  const dailyMarkers = dailyProfile.analysis_markers.slice(0, 3)
   const result = evaluateQualityGate({
     post: {
       content_type: 'daily_brief',
       gate_profile: 'daily_brief',
-      content_md: [
-        '## 一、发生了什么',
-        'OpenAI 发布了新的开发者代理能力，并同步开放 API 接入。',
-        '这意味着同一套能力开始从演示阶段走向真实工作流。',
-        '## 二、为什么这件事值得关注',
-        '官方和行业媒体都把重点放在开发效率与可靠性变化上。',
-        '更关键的是，这类产品开始直接竞争 IDE 和工作流入口。',
-        '## 三、不同来源怎么看',
-        '官方博客强调产品集成速度，行业媒体则更关注价格与团队替代边界。',
-        '换句话说，同一件事在不同来源眼里分别对应增长机会与组织代价。',
-        '### 技术媒体的观察',
-        '技术媒体认为问题在于真实团队是否愿意把高风险执行权限交给代理。',
-        '## 四、如果结合论文/历史脉络，该怎么理解',
-        '如果拉长来看，这和过去代码补全工具的扩张路径一致，只是这次更强调代理式执行。',
-        '问题在于，论文里的规划能力要落到真实工程环境，依然要补很多工具链细节。',
-        '### 历史脉络里的重复模式',
-        '每一轮工具升级都会先在低风险任务打开缺口，再向高价值流程扩张。',
-        '## 五、我的判断',
-        '我更看重它对团队工作分工的影响，而不只是单点提效。',
-        '真正值得注意的是，未来的竞争会从模型参数转向谁能占住开发入口。',
-        '## 参考来源',
-        '- a',
-        '## 图片来源',
-        '- 无正文插图',
-      ].join('\n\n'),
+      content_md: buildArticle(
+        dailyProfile,
+        [
+          `OpenAI 发布了新的开发者代理能力，${dailyMarkers[0]}工具开始从演示走向真实工作流。`,
+          `值得关注的不只是速度提升，${dailyMarkers[1]}也落在团队权限边界与稳定性上。`,
+          `官方博客强调集成效率，行业媒体则更关心价格与组织替代，这就是${dailyMarkers[2]}。`,
+          '如果把它放回更长的历史脉络，代理能力正在把代码补全工具推向主动执行。',
+          '我的判断是，真正的竞争会从模型参数转向谁能占住开发入口。',
+        ],
+        ['- a', '- 无正文插图']
+      ),
     },
     researchPack: {
       sources: [
@@ -102,7 +90,7 @@ test('quality gate resolves nested daily brief rules from content type', () => {
         { source_type: 'industry_media' },
       ],
     },
-    formatProfile: createDailyBriefFormatProfile(),
+    formatProfile: dailyProfile,
     config: {
       quality_gate: {
         daily_brief: {
@@ -118,4 +106,55 @@ test('quality gate resolves nested daily brief rules from content type', () => {
   })
 
   assert.equal(result.passed, true)
+})
+
+test('quality gate counts repeated analysis markers by occurrences', () => {
+  const weeklyProfile = getBlogFormatProfile('weekly-review-v2')
+  const markers = weeklyProfile.analysis_markers.slice(0, 4)
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'weekly_review',
+      gate_profile: 'weekly_review',
+      content_md: buildArticle(
+        weeklyProfile,
+        [
+          `${markers[0]}，模型厂商重新争夺开发者入口，推理产品开始直接改写团队工作流。${markers[0]}也说明平台想把分发权抓回自己手里。`,
+          `${markers[1]}最先落在算力采购和推理成本上，基础设施提供商因此重新获得议价权。${markers[1]}进一步放大了价格战的连锁反应。`,
+          `${markers[2]}体现在开源模型与闭源 API 的产品路线分化上，团队不得不在速度与控制力之间重新选择。${markers[2]}已经从技术问题变成经营问题。`,
+          `${markers[3]}不仅出现在融资节奏，也出现在招聘、合规和渠道扩张上。${markers[3]}会继续改变下周的市场判断。`,
+          `${markers[0]}延续到媒体判断层面时，不同来源开始对谁能吃到下一轮红利出现分歧。`,
+          `${markers[1]}如果持续上升，产业链位置会比单次发布热度更决定公司的战略空间。`,
+          `${markers[2]}放在一起看，下周最值得追踪的仍是成本、渠道和生态绑定的联动。`,
+        ]
+      ),
+    },
+    researchPack: {
+      sources: [
+        { source_type: 'official_blog' },
+        { source_type: 'independent_blog' },
+        { source_type: 'paper' },
+        { source_type: 'industry_media' },
+        { source_type: 'industry_media' },
+        { source_type: 'industry_media' },
+        { source_type: 'industry_media' },
+        { source_type: 'industry_media' },
+      ],
+    },
+    formatProfile: weeklyProfile,
+    config: {
+      quality_gate: {
+        weekly_review: {
+          min_sources: 8,
+          min_high_quality_sources: 3,
+          high_quality_source_types: ['official_blog', 'independent_blog', 'paper'],
+          min_chars: 50,
+          max_banned_phrase_hits: 0,
+          min_analysis_signals: 8,
+        },
+      },
+    },
+  })
+
+  assert.equal(result.passed, true)
+  assert.ok(result.metrics.analysis_signal_count >= 8)
 })

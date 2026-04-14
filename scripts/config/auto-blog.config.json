@@ -52,7 +52,7 @@
     "firecrawl_mode": "fallback",
     "exa_mode": "fallback",
     "target_min_chars": 9000,
-    "section_target_chars": 1300
+    "section_target_chars": 1600
   },
   "blogwatcher_enabled": true,
   "blogwatcher_sources": [

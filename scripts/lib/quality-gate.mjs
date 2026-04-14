@@ -18,9 +18,11 @@ function countPhraseHits(text, phrases) {
 }
 
 function countAnalysisSignals(text, signals) {
-  return signals.reduce((count, signal) => (
-    String(text || '').includes(signal) ? count + 1 : count
-  ), 0)
+  return signals.reduce((count, signal) => {
+    const safe = signal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const matches = String(text || '').match(new RegExp(safe, 'g'))
+    return count + Math.min(matches ? matches.length : 0, 3)
+  }, 0)
 }
 
 function hasSection(text, heading) {
