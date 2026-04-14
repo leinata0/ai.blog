@@ -38,15 +38,21 @@
     "skip_published_topic_keys": true
   },
   "weekly_review": {
-    "format_profile": "weekly-review-v1",
+    "format_profile": "weekly-review-v2",
+    "lookback_days": 7,
+    "base_feed_limit": 72,
+    "base_enrich_limit": 30,
+    "base_material_cap": 42,
     "blogwatcher_enabled": true,
-    "blogwatcher_max_items": 12,
+    "blogwatcher_max_items": 18,
     "arxiv_enabled": true,
     "arxiv_optional": true,
-    "arxiv_max_papers": 3,
-    "arxiv_min_score": 0.82,
+    "arxiv_max_papers": 4,
+    "arxiv_min_score": 0.8,
     "firecrawl_mode": "fallback",
-    "exa_mode": "fallback"
+    "exa_mode": "fallback",
+    "target_min_chars": 9000,
+    "section_target_chars": 1300
   },
   "blogwatcher_enabled": true,
   "blogwatcher_sources": [
@@ -115,13 +121,13 @@
       "max_repair_attempts": 3
     },
     "weekly_review": {
-      "min_sources": 3,
-      "min_high_quality_sources": 1,
+      "min_sources": 8,
+      "min_high_quality_sources": 3,
       "high_quality_source_types": ["official_blog", "independent_blog", "paper"],
-      "min_chars": 2200,
+      "min_chars": 8500,
       "max_banned_phrase_hits": 3,
-      "min_analysis_signals": 2,
-      "max_repair_attempts": 2
+      "min_analysis_signals": 8,
+      "max_repair_attempts": 3
     }
   }
 }

@@ -236,14 +236,57 @@ async function enrichWithFullText(items, concurrency = 5) {
   })
 }
 
-async function collectBaseMaterials(config) {
-  const feedItems = await fetchAllFeeds(config, 30)
-  const itemsWithLinks = feedItems.filter((item) => item.url).slice(0, 15)
+function buildCoverageWindowEnd(coverageDate) {
+  if (!coverageDate) return Date.now()
+  const end = Date.parse(`${coverageDate}T23:59:59Z`)
+  return Number.isFinite(end) ? end : Date.now()
+}
+
+function filterItemsForCoverageWindow(items, { coverageDate = '', lookbackDays = 0, minItems = 0 } = {}) {
+  if (!lookbackDays || lookbackDays <= 0) {
+    return dedupeResearchItems(items || [])
+  }
+
+  const endTs = buildCoverageWindowEnd(coverageDate)
+  const startTs = endTs - lookbackDays * 24 * 60 * 60 * 1000
+  const withTimestamp = []
+  const withoutTimestamp = []
+
+  for (const item of items || []) {
+    const ts = scoreTimestamp(item?.published_at)
+    if (ts > 0) {
+      if (ts >= startTs && ts <= endTs) withTimestamp.push(item)
+    } else {
+      withoutTimestamp.push(item)
+    }
+  }
+
+  const filtered = dedupeResearchItems([
+    ...withTimestamp.sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left)),
+    ...withoutTimestamp.sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left)),
+  ])
+
+  if (filtered.length >= minItems) return filtered
+  return dedupeResearchItems(items || [])
+}
+
+async function collectBaseMaterials(config, options = {}) {
+  const {
+    feedLimit = 30,
+    enrichLimit = 15,
+    maxReturnItems = 30,
+    coverageDate = '',
+    lookbackDays = 0,
+    fallbackMinText = 300,
+  } = options
+
+  const feedItems = await fetchAllFeeds(config, feedLimit)
+  const itemsWithLinks = feedItems.filter((item) => item.url).slice(0, enrichLimit)
   const enriched = await enrichWithFullText(itemsWithLinks)
 
   let materials = dedupeResearchItems(enriched)
   const combinedText = materials.map((item) => item.full_text || item.summary).join('\n')
-  if (combinedText.length < 300) {
+  if (combinedText.length < fallbackMinText) {
     console.log('Base RSS materials are weak, using fallback pages...')
     for (const url of config.fallback_urls || []) {
       const markdown = await jinaRead(url, 6000)
@@ -263,7 +306,15 @@ async function collectBaseMaterials(config) {
     }
   }
 
-  return dedupeResearchItems(materials)
+  const filtered = filterItemsForCoverageWindow(materials, {
+    coverageDate,
+    lookbackDays,
+    minItems: Math.min(10, Math.max(4, Math.floor(maxReturnItems / 2))),
+  })
+
+  return dedupeResearchItems(filtered)
+    .sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left))
+    .slice(0, maxReturnItems)
 }
 
 function compactResearchItem(item) {
@@ -632,6 +683,214 @@ async function generateArticle({ outline, researchPack, formatProfile, workflow,
   return callLLM(system, user, 16384)
 }
 
+function isWeeklyReviewWorkflow(workflow, formatProfile) {
+  return workflow?.content_type === 'weekly_review' || String(formatProfile?.name || '').startsWith('weekly-review')
+}
+
+function resolveGateProfile(config = {}, contentType = '') {
+  const root = config.quality_gate || {}
+  if (contentType && root[contentType] && typeof root[contentType] === 'object') {
+    return root[contentType]
+  }
+  return root
+}
+
+function normalizeSectionBriefs(outline, formatProfile) {
+  const byHeading = new Map()
+  for (const brief of Array.isArray(outline?.section_briefs) ? outline.section_briefs : []) {
+    const heading = String(brief?.heading || '').trim()
+    if (!heading) continue
+    byHeading.set(heading, {
+      heading,
+      goal: String(brief.goal || '').trim(),
+      key_points: Array.isArray(brief.key_points) ? brief.key_points.filter(Boolean).slice(0, 6) : [],
+      source_focus: Array.isArray(brief.source_focus) ? brief.source_focus.filter(Boolean).slice(0, 6) : [],
+      suggested_subheads: Array.isArray(brief.suggested_subheads) ? brief.suggested_subheads.filter(Boolean).slice(0, 4) : [],
+    })
+  }
+
+  return formatProfile.required_sections.map((heading, index) => byHeading.get(heading) || {
+    heading,
+    goal: index === 0
+      ? 'Open the article with a weekly overview and identify the main strategic shift.'
+      : 'Develop this section into a substantive analytical chapter tied to the week.',
+    key_points: [],
+    source_focus: [],
+    suggested_subheads: [],
+  })
+}
+
+function buildWeeklyResearchDigest(researchPack, maxSources = 18) {
+  return {
+    summary: researchPack.summary,
+    sources: (researchPack.sources || []).slice(0, maxSources).map(compactResearchItem),
+    paper_items: (researchPack.paper_items || []).slice(0, 4),
+  }
+}
+
+async function chooseTopicDetailed({ researchPack, formatProfile, today, workflow }) {
+  const isWeeklyReview = isWeeklyReviewWorkflow(workflow, formatProfile)
+  const system = isWeeklyReview
+    ? [
+        'You are planning a premium Chinese weekly AI review.',
+        'This is not a single-news article. It must synthesize the most important changes across the full week.',
+        'Return JSON with keys:',
+        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, weekly_axes, image_sections, key_sources, tags, cover_prompt, watchlist',
+        'Requirements:',
+        '- Cover the week as a whole, not one company announcement.',
+        '- The outline must use the exact required section headings provided by the format profile.',
+        '- Provide section_briefs as an array. Each item must have heading, goal, key_points, source_focus, suggested_subheads.',
+        '- weekly_axes must contain 3 to 4 major weekly themes.',
+        '- Add 8 to 14 third-level subheadings distributed across the middle and later sections.',
+        '- key_sources must identify the sources that are truly central to the weekly argument.',
+        '- image_sections can include at most 3 section headings.',
+        '- cover_prompt is only for Grok cover-image generation and must not mention inline images.',
+      ].join('\n')
+    : [
+        'You are planning a Chinese AI daily brief with one clear thesis.',
+        'Return JSON with keys:',
+        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, image_sections, key_sources, tags, cover_prompt',
+        'Requirements:',
+        '- Focus on one topic rather than a loose news digest.',
+        '- The outline must use the exact required section headings provided by the format profile.',
+        '- section_briefs is optional but preferred; if present, include heading, goal, key_points, source_focus, suggested_subheads.',
+        '- Add 2 to 4 third-level subheadings across the middle and later sections.',
+        '- image_sections can include at most 3 section headings.',
+        '- key_sources must identify the sources most worth citing.',
+        '- cover_prompt is only for Grok cover-image generation and must not mention inline images.',
+      ].join('\n')
+
+  const user = [
+    `Date: ${today}`,
+    `Workflow content type: ${workflow?.content_type || 'daily_brief'}`,
+    '',
+    'Format profile:',
+    buildFormatPrompt(formatProfile),
+    '',
+    'Research pack:',
+    stringifyPromptPayload(researchPack, isWeeklyReview ? 22000 : 14000),
+  ].join('\n')
+
+  return callLLM(system, user, isWeeklyReview ? 4096 : 3072)
+}
+
+async function generateWeeklyReviewPackage({ outline, researchPack, formatProfile, workflow, today }) {
+  const system = [
+    'You are preparing the metadata package for a premium Chinese weekly AI review.',
+    'Return only JSON with keys: title, slug, summary, tags, takeaway.',
+    `slug must be exactly ${workflow.slug}.`,
+    'The title must sound like a weekly strategic review, not a daily brief.',
+    'The summary must be concise but more forceful than a news summary.',
+    'The takeaway must be one judgment-led sentence.',
+    'Write all fields in Simplified Chinese except tags.',
+  ].join('\n')
+
+  const user = [
+    `Date: ${today}`,
+    '',
+    'Format profile:',
+    buildFormatPrompt(formatProfile),
+    '',
+    'Outline:',
+    stringifyPromptPayload(outline, 8000),
+    '',
+    'Research digest:',
+    stringifyPromptPayload(buildWeeklyResearchDigest(researchPack, 14), 12000),
+  ].join('\n')
+
+  return callLLM(system, user, 2048)
+}
+
+async function generateWeeklyReviewSection({
+  heading,
+  brief,
+  outline,
+  researchPack,
+  formatProfile,
+  workflow,
+  today,
+  targetChars,
+}) {
+  const system = [
+    'You are writing one chapter of a long-form Chinese weekly AI review.',
+    'Return only JSON with one key: markdown.',
+    `The section must start with the exact heading: ${heading}`,
+    `Target length for this section: about ${targetChars} Chinese characters.`,
+    'Write in Simplified Chinese.',
+    'Use 3 to 5 substantial paragraphs.',
+    'Where useful, add 1 to 3 third-level subheadings using Markdown ###.',
+    'Do not output references, image sources, or a takeaway block.',
+    'Do not repeat the whole article introduction in every section.',
+    'Keep facts attributable and make analytical claims explicit.',
+  ].join('\n')
+
+  const user = [
+    `Date: ${today}`,
+    `Weekly topic: ${outline.topic || ''}`,
+    `Weekly thesis: ${outline.thesis || ''}`,
+    `Workflow slug: ${workflow.slug}`,
+    '',
+    'Section brief:',
+    stringifyPromptPayload({
+      heading,
+      goal: brief.goal,
+      key_points: brief.key_points,
+      source_focus: brief.source_focus,
+      suggested_subheads: brief.suggested_subheads,
+      weekly_axes: outline.weekly_axes || [],
+      watchlist: outline.watchlist || [],
+    }, 6000),
+    '',
+    'Research digest:',
+    stringifyPromptPayload(buildWeeklyResearchDigest(researchPack, 18), 18000),
+    '',
+    'Format profile:',
+    buildFormatPrompt(formatProfile),
+  ].join('\n')
+
+  return callLLM(system, user, 4096)
+}
+
+async function generateArticleForWorkflow({ outline, researchPack, formatProfile, workflow, today }) {
+  if (!isWeeklyReviewWorkflow(workflow, formatProfile)) {
+    return generateArticle({ outline, researchPack, formatProfile, workflow, today })
+  }
+
+  const packageData = await generateWeeklyReviewPackage({
+    outline,
+    researchPack,
+    formatProfile,
+    workflow,
+    today,
+  })
+  const sectionBriefs = normalizeSectionBriefs(outline, formatProfile)
+  const sectionTargetChars = Number(workflow.section_target_chars || 1300)
+  const renderedSections = []
+
+  for (const brief of sectionBriefs) {
+    const section = await generateWeeklyReviewSection({
+      heading: brief.heading,
+      brief,
+      outline,
+      researchPack,
+      formatProfile,
+      workflow,
+      today,
+      targetChars: sectionTargetChars,
+    })
+    renderedSections.push(String(section.content_md || section.section_md || section.markdown || '').trim())
+  }
+
+  return {
+    title: packageData.title,
+    slug: workflow.slug,
+    summary: packageData.summary,
+    tags: packageData.tags,
+    takeaway: packageData.takeaway,
+    content_md: renderedSections.filter(Boolean).join('\n\n'),
+  }
+}
+
 function canRepairQualityGate(gate) {
   const repairablePrefixes = [
     'chars:',
@@ -655,8 +914,12 @@ async function repairArticle({
   gate,
   attempt,
 }) {
-  const minChars = Math.max((config.quality_gate?.min_chars || 2200) + 400, 2600)
-  const minAnalysisSignals = Math.max(config.quality_gate?.min_analysis_signals || 2, 2)
+  const gateProfile = resolveGateProfile(config, workflow?.content_type)
+  const minChars = Math.max((gateProfile.min_chars || 2200) + 400, workflow?.content_type === 'weekly_review' ? 9000 : 2600)
+  const minAnalysisSignals = Math.max(gateProfile.min_analysis_signals || 2, workflow?.content_type === 'weekly_review' ? 8 : 2)
+  const sectionGuidance = workflow?.content_type === 'weekly_review'
+    ? '- Rebuild the article as a true weekly review with broad weekly coverage, stronger section hierarchy, and deeper synthesis across multiple themes.'
+    : '- Keep the article focused as a single-topic daily brief.'
 
   const system = [
     '# Role',
@@ -673,6 +936,7 @@ async function repairArticle({
     `- Include at least ${minAnalysisSignals} explicit analytical turns using phrases such as ${(formatProfile.analysis_markers || []).slice(0, 8).join(' / ')}.`,
     '- Add comparison, impact, trade-off, cost, or implementation discussion instead of repeating facts.',
     '- If any required section is thin, rewrite and expand it rather than adding filler.',
+    sectionGuidance,
     '- Keep the tail sections absent; the program will append them.',
     `- slug must remain ${workflow.slug}.`,
   ].join('\n')
@@ -892,7 +1156,8 @@ function normalizeForApi(post, fixedSlug, outline, metadata = {}) {
     .slice(0, 200) || 'ai-daily-post'
 
   const title = String(post.title).slice(0, 200)
-  let summary = truncateSummary(post.summary || '', 50)
+  const summaryLimit = metadata.content_type === 'weekly_review' ? 110 : 50
+  let summary = truncateSummary(post.summary || '', summaryLimit)
   if (!summary) summary = 'AI 技术动态与开发者生态观察。'
 
   const rawTags = [
@@ -1072,7 +1337,7 @@ async function buildPublishablePost({
     })
   }
 
-  let generatedPost = await generateArticle({
+  let generatedPost = await generateArticleForWorkflow({
     outline,
     researchPack,
     formatProfile,
@@ -1200,10 +1465,11 @@ async function runDailyMode(config, cliOptions) {
       ? await runBlogwatcher({ config, topicHint: topic.candidate_title, maxItems: 6, mode: runtime.mode })
       : []
     const researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems: [] })
-    const outline = await chooseTopic({
+    const outline = await chooseTopicDetailed({
       researchPack,
       formatProfile,
       today: coverageDate,
+      workflow,
     })
     const metadata = {
       content_type: workflow.content_type,
@@ -1299,7 +1565,12 @@ async function runDailyMode(config, cliOptions) {
 
 async function runWeeklyReviewMode(config, cliOptions) {
   const today = toCoverageDate(cliOptions.coverageDate)
-  const workflow = getContentWorkflowProfile(config, 'weekly-review', today)
+  const weeklyConfig = config.weekly_review || {}
+  const workflow = {
+    ...getContentWorkflowProfile(config, 'weekly-review', today),
+    target_min_chars: Number(weeklyConfig.target_min_chars || 9000),
+    section_target_chars: Number(weeklyConfig.section_target_chars || 1300),
+  }
   const slug = workflow.slug
   const formatProfile = getBlogFormatProfile(resolveFormatProfileName(config, 'weekly-review'))
 
@@ -1332,25 +1603,42 @@ async function runWeeklyReviewMode(config, cliOptions) {
     return []
   }
 
-  const baseItems = await collectBaseMaterials(config)
+  const baseItems = await collectBaseMaterials(config, {
+    feedLimit: Number(weeklyConfig.base_feed_limit || 72),
+    enrichLimit: Number(weeklyConfig.base_enrich_limit || 30),
+    maxReturnItems: Number(weeklyConfig.base_material_cap || 42),
+    coverageDate: today,
+    lookbackDays: Number(weeklyConfig.lookback_days || 7),
+    fallbackMinText: 1200,
+  })
   if (baseItems.length === 0) {
     throw new Error('No usable base research items were collected')
   }
 
   let blogItems = []
   if (config.blogwatcher_enabled || config.weekly_review?.blogwatcher_enabled) {
-    blogItems = await runBlogwatcher({ config, maxItems: 10, mode: 'weekly-review' })
+    blogItems = await runBlogwatcher({
+      config,
+      maxItems: Number(weeklyConfig.blogwatcher_max_items || 18),
+      mode: 'weekly-review',
+    })
   }
 
   const preResearchPack = buildResearchPack({ baseItems, blogItems, paperItems: [] })
-  const outline = await chooseTopic({ researchPack: preResearchPack, formatProfile, today })
+  const outline = await chooseTopicDetailed({
+    researchPack: preResearchPack,
+    formatProfile,
+    today,
+    workflow,
+  })
 
   const arxivKeywords = normalizeKeywords(outline.arxiv_queries || outline.keywords || [])
   let paperItems = []
   if ((config.arxiv_enabled || config.weekly_review?.arxiv_enabled) && arxivKeywords.length > 0) {
     paperItems = await runArxiv({
       keywords: arxivKeywords,
-      maxPapers: config.arxiv_max_papers || 2,
+      maxPapers: weeklyConfig.arxiv_max_papers || config.arxiv_max_papers || 2,
+      minScore: weeklyConfig.arxiv_min_score || 0.8,
       config,
       mode: 'weekly-review',
     })
