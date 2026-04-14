@@ -19,7 +19,7 @@ const SILICONFLOW_BASE_URL = (
 const SILICONFLOW_MODEL = process.env.SILICONFLOW_MODEL?.trim() || 'deepseek-ai/DeepSeek-V3'
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
-const BLOG_API_BASE = process.env.BLOG_API_BASE || 'https://api.563118077.xyz'
+const BLOG_API_BASE = process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com'
 const XAI_API_KEY = process.env.XAI_API_KEY?.trim() || ''
 const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)
@@ -668,6 +668,7 @@ async function main() {
   console.log('Auto blog v3 starting...')
   const today = new Date().toISOString().split('T')[0]
   const slug = `ai-daily-${today}`
+  console.log(`Publishing target: ${BLOG_API_BASE}`)
 
   if (!SILICONFLOW_API_KEY) throw new Error('Missing SILICONFLOW_API_KEY')
   if (!ADMIN_PASSWORD && !DRY_RUN) throw new Error('Missing ADMIN_PASSWORD')

@@ -1,4 +1,4 @@
-const BLOG_API_BASE = "https://api.563118077.xyz"
+const BLOG_API_BASE = "https://ai-blog-hbur.onrender.com"
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 const SLUG = "auto-blog-architecture-and-cloudflare"
 

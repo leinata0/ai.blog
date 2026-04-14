@@ -30,7 +30,7 @@ jobs:
           COVER_PROMPT: ${{ github.event.inputs.cover_prompt }}
         run: |
           node -e "
-          const BLOG_API_BASE = process.env.BLOG_API_BASE || 'https://api.563118077.xyz'
+          const BLOG_API_BASE = process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com'
           async function main() {
             // Login
             const loginResp = await fetch(BLOG_API_BASE + '/api/admin/login', {
