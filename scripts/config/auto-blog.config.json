@@ -1,4 +1,5 @@
 {
+  "default_mode": "daily-auto",
   "rss_feeds": [
     { "url": "https://blog.openai.com/rss/", "tag": "AI", "lang": "en" },
     { "url": "https://www.anthropic.com/feed", "tag": "AI", "lang": "en" },
@@ -15,6 +16,37 @@
     "https://techcrunch.com/category/artificial-intelligence/",
     "https://www.reuters.com/technology/artificial-intelligence/"
   ],
+  "daily_auto": {
+    "publish_hour_local": 10,
+    "timezone": "Asia/Shanghai",
+    "lookback_hours": 30,
+    "max_candidate_items": 24,
+    "max_posts_per_run": 2,
+    "min_sources_per_topic": 2,
+    "cluster_similarity_threshold": 0.5,
+    "enable_blogwatcher_fallback": true,
+    "skip_published_topic_keys": true
+  },
+  "daily_manual": {
+    "max_posts_per_run": 3,
+    "lookback_hours": 36,
+    "max_candidate_items": 30,
+    "min_sources_per_topic": 1,
+    "cluster_similarity_threshold": 0.45,
+    "enable_blogwatcher_fallback": true,
+    "skip_published_topic_keys": true
+  },
+  "weekly_review": {
+    "format_profile": "weekly-review-v1",
+    "blogwatcher_enabled": true,
+    "blogwatcher_max_items": 12,
+    "arxiv_enabled": true,
+    "arxiv_optional": true,
+    "arxiv_max_papers": 3,
+    "arxiv_min_score": 0.82,
+    "firecrawl_mode": "fallback",
+    "exa_mode": "fallback"
+  },
   "blogwatcher_enabled": true,
   "blogwatcher_sources": [
     {
@@ -72,12 +104,23 @@
     "blocklist_keywords": ["logo", "avatar", "icon", "advert", "ads", "banner", "sprite", "emoji"]
   },
   "quality_gate": {
-    "min_sources": 3,
-    "min_high_quality_sources": 1,
-    "high_quality_source_types": ["official_blog", "independent_blog", "paper"],
-    "min_chars": 2200,
-    "max_banned_phrase_hits": 3,
-    "min_analysis_signals": 2,
-    "max_repair_attempts": 2
+    "daily_brief": {
+      "min_sources": 2,
+      "min_high_quality_sources": 1,
+      "high_quality_source_types": ["official_blog", "independent_blog", "paper"],
+      "min_chars": 1600,
+      "max_banned_phrase_hits": 2,
+      "min_analysis_signals": 2,
+      "max_repair_attempts": 2
+    },
+    "weekly_review": {
+      "min_sources": 3,
+      "min_high_quality_sources": 1,
+      "high_quality_source_types": ["official_blog", "independent_blog", "paper"],
+      "min_chars": 2200,
+      "max_banned_phrase_hits": 3,
+      "min_analysis_signals": 2,
+      "max_repair_attempts": 2
+    }
   }
 }

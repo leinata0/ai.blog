@@ -36,6 +36,12 @@ export const approveComment = (id) => apiPut(`/api/admin/comments/${id}/approve`
 export const deleteComment = (id) => apiDelete(`/api/admin/comments/${id}`, { auth: true })
 
 export const fetchAdminStats = () => apiGet('/api/admin/stats', { auth: true })
+export const fetchAdminPublishingStatus = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/publishing-status${qs ? '?' + qs : ''}`, { auth: true })
+}
+export const upsertAdminPublishingStatus = (data) =>
+  apiPost('/api/admin/publishing-status', data, { auth: true })
 
 export const fetchAdminImages = () => apiGet('/api/admin/images', { auth: true })
 export const deleteAdminImage = (filename) => apiDelete(`/api/admin/images/${filename}`, { auth: true })

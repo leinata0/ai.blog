@@ -1,16 +1,22 @@
+import json
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_access_token, get_current_admin, verify_admin
 from app.db import get_db
-from app.models import Comment, Post, Tag
+from app.models import Comment, Post, PublishingRun, Tag
 from app.schemas import (
     LoginRequest,
     LoginResponse,
     PostAdminOut,
     PostCreateRequest,
     PostUpdateRequest,
+    PublishingRunOut,
+    PublishingRunUpsertRequest,
+    PublishingStatusResponse,
     UploadOut,
 )
 from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
@@ -28,6 +34,10 @@ def _post_to_dict(post: Post) -> dict:
         "summary": post.summary,
         "content_md": post.content_md,
         "cover_image": post.cover_image or "",
+        "content_type": post.content_type or "post",
+        "topic_key": post.topic_key or "",
+        "published_mode": post.published_mode or "manual",
+        "coverage_date": post.coverage_date or "",
         "view_count": post.view_count or 0,
         "is_published": post.is_published if post.is_published is not None else True,
         "is_pinned": post.is_pinned if post.is_pinned is not None else False,
@@ -35,6 +45,93 @@ def _post_to_dict(post: Post) -> dict:
         "created_at": post.created_at.isoformat() if post.created_at else None,
         "updated_at": post.updated_at.isoformat() if post.updated_at else None,
         "tags": [{"name": tag.name, "slug": tag.slug} for tag in post.tags],
+    }
+
+
+def _serialize_datetime(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _normalize_topic_payload(items, default_mode: str, coverage_date: str) -> list[dict]:
+    normalized = []
+    for item in items:
+        source_names = [name for name in (item.source_names or []) if name]
+        normalized.append(
+            {
+                "topic_key": item.topic_key or item.post_slug or item.title.lower().replace(" ", "-")[:180],
+                "title": item.title,
+                "summary": item.summary,
+                "source_count": item.source_count or len(source_names),
+                "source_names": source_names,
+                "content_type": item.content_type or "daily_brief",
+                "published_mode": item.published_mode or default_mode,
+                "coverage_date": item.coverage_date or coverage_date,
+                "post_id": item.post_id,
+                "post_slug": item.post_slug,
+                "published_at": _serialize_datetime(item.published_at),
+                "reason": item.reason,
+                "status": item.status,
+            }
+        )
+    return normalized
+
+
+def _deserialize_topic_payload(items: list[dict], default_status: str) -> list[dict]:
+    deserialized = []
+    for item in items:
+        deserialized.append(
+            {
+                "topic_key": item.get("topic_key", ""),
+                "title": item.get("title", ""),
+                "summary": item.get("summary", ""),
+                "source_count": item.get("source_count", 0),
+                "source_names": item.get("source_names", []),
+                "content_type": item.get("content_type", "daily_brief"),
+                "published_mode": item.get("published_mode", ""),
+                "coverage_date": item.get("coverage_date", ""),
+                "post_id": item.get("post_id"),
+                "post_slug": item.get("post_slug", ""),
+                "published_at": item.get("published_at"),
+                "reason": item.get("reason", ""),
+                "status": item.get("status") or default_status,
+            }
+        )
+    return deserialized
+
+
+def _run_to_dict(run: PublishingRun) -> dict:
+    try:
+        payload = json.loads(run.payload_json or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+
+    candidate_topics = _deserialize_topic_payload(payload.get("candidate_topics", []), "candidate")
+    published_topics = _deserialize_topic_payload(payload.get("published_topics", []), "published")
+    skipped_topics = _deserialize_topic_payload(payload.get("skipped_topics", []), "skipped")
+    auto_published_count = sum(1 for topic in published_topics if topic.get("published_mode") == "auto")
+    manual_published_count = sum(1 for topic in published_topics if topic.get("published_mode") == "manual")
+
+    return {
+        "id": run.id,
+        "workflow_key": run.workflow_key,
+        "external_run_id": run.external_run_id or "",
+        "run_mode": run.run_mode,
+        "status": run.status,
+        "coverage_date": run.coverage_date or "",
+        "message": run.message or "",
+        "started_at": _serialize_datetime(run.started_at),
+        "finished_at": _serialize_datetime(run.finished_at),
+        "updated_at": _serialize_datetime(run.updated_at),
+        "summary": {
+            "candidate_count": run.candidate_count,
+            "published_count": run.published_count,
+            "skipped_count": run.skipped_count,
+            "auto_published_count": auto_published_count,
+            "manual_published_count": manual_published_count,
+        },
+        "candidate_topics": candidate_topics,
+        "published_topics": published_topics,
+        "skipped_topics": skipped_topics,
     }
 
 
@@ -79,6 +176,87 @@ def admin_stats(
     }
 
 
+@router.get("/publishing-status", response_model=PublishingStatusResponse)
+def get_publishing_status(
+    limit: int = Query(default=8, ge=1, le=20),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    runs = db.execute(
+        select(PublishingRun).order_by(PublishingRun.updated_at.desc()).limit(limit)
+    ).scalars().all()
+
+    latest_runs: dict[str, dict | None] = {"daily_auto": None, "weekly_review": None}
+    recent_runs = []
+    for run in runs:
+        serialized = _run_to_dict(run)
+        recent_runs.append(serialized)
+        if run.workflow_key not in latest_runs:
+            latest_runs[run.workflow_key] = None
+        if latest_runs[run.workflow_key] is None:
+            latest_runs[run.workflow_key] = serialized
+
+    recent_posts = db.execute(
+        select(Post).options(selectinload(Post.tags)).order_by(Post.created_at.desc()).limit(10)
+    ).scalars().all()
+
+    return {
+        "latest_runs": latest_runs,
+        "recent_runs": recent_runs,
+        "recent_posts": [_post_to_dict(post) for post in recent_posts],
+    }
+
+
+@router.post("/publishing-status", response_model=PublishingRunOut)
+def upsert_publishing_status(
+    body: PublishingRunUpsertRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    existing = None
+    if body.external_run_id:
+        existing = db.execute(
+            select(PublishingRun).where(
+                PublishingRun.workflow_key == body.workflow_key,
+                PublishingRun.external_run_id == body.external_run_id,
+            )
+        ).scalar_one_or_none()
+
+    candidate_topics = _normalize_topic_payload(body.candidate_topics, body.run_mode, body.coverage_date)
+    published_topics = _normalize_topic_payload(body.published_topics, body.run_mode, body.coverage_date)
+    skipped_topics = _normalize_topic_payload(body.skipped_topics, body.run_mode, body.coverage_date)
+
+    run = existing or PublishingRun(
+        workflow_key=body.workflow_key,
+        external_run_id=body.external_run_id,
+    )
+    run.run_mode = body.run_mode
+    run.status = body.status
+    run.coverage_date = body.coverage_date
+    run.message = body.message
+    run.started_at = body.started_at
+    run.finished_at = body.finished_at
+    run.candidate_count = len(candidate_topics)
+    run.published_count = len(published_topics)
+    run.skipped_count = len(skipped_topics)
+    run.payload_json = json.dumps(
+        {
+            "candidate_topics": candidate_topics,
+            "published_topics": published_topics,
+            "skipped_topics": skipped_topics,
+        },
+        ensure_ascii=False,
+    )
+    run.updated_at = datetime.now(timezone.utc)
+
+    if existing is None:
+        db.add(run)
+
+    db.commit()
+    db.refresh(run)
+    return _run_to_dict(run)
+
+
 @router.get("/posts")
 def admin_list_posts(
     q: str | None = Query(default=None),
@@ -118,6 +296,10 @@ def create_post(
         summary=body.summary,
         content_md=body.content_md,
         cover_image=body.cover_image,
+        content_type=body.content_type,
+        topic_key=body.topic_key,
+        published_mode=body.published_mode,
+        coverage_date=body.coverage_date,
         is_published=body.is_published,
         is_pinned=body.is_pinned,
     )
@@ -151,6 +333,14 @@ def update_post(
         post.content_md = body.content_md
     if body.cover_image is not None:
         post.cover_image = body.cover_image
+    if body.content_type is not None:
+        post.content_type = body.content_type
+    if body.topic_key is not None:
+        post.topic_key = body.topic_key
+    if body.published_mode is not None:
+        post.published_mode = body.published_mode
+    if body.coverage_date is not None:
+        post.coverage_date = body.coverage_date
     if body.is_published is not None:
         post.is_published = body.is_published
     if body.is_pinned is not None:

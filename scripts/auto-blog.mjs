@@ -6,11 +6,17 @@ import { fileURLToPath } from 'node:url'
 
 import { parseFeedXml, dedupeResearchItems, runBlogwatcher } from './lib/blogwatcher.mjs'
 import { runArxiv } from './lib/arxiv.mjs'
-import { getBlogFormatProfile, buildFormatPrompt } from './lib/blog-format.mjs'
+import {
+  getBlogFormatProfile,
+  buildFormatPrompt,
+  getContentWorkflowProfile,
+  resolveFormatProfileName,
+} from './lib/blog-format.mjs'
 import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 const SILICONFLOW_API_KEY = process.env.SILICONFLOW_API_KEY?.trim()
 const SILICONFLOW_BASE_URL = (
@@ -25,7 +31,22 @@ const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)
   : resolve(__dirname, 'config', 'auto-blog.config.json')
 
-const DRY_RUN = process.argv.includes('--dry-run')
+const DEFAULT_DAILY_REQUIRED_SECTIONS = [
+  '## 发生了什么',
+  '## 为什么值得关注',
+  '## 这件事可能带来的影响',
+]
+
+const DEFAULT_DAILY_TAIL_SECTIONS = ['## 参考来源', '## 图片来源']
+
+const DAILY_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'in', 'into', 'is',
+  'it', 'its', 'of', 'on', 'or', 'that', 'the', 'their', 'this', 'to', 'was', 'were', 'will',
+  'with', 'about', 'after', 'before', 'over', 'under', 'launch', 'launches', 'released',
+  'release', 'announces', 'announced', 'introduces', 'introduce', 'new', 'latest', 'today',
+  'daily', 'report', 'update', 'updates', 'breaking', 'says', 'say', 'ai', 'llm', 'model',
+  'models', 'china', 'openai', 'anthropic', 'google', 'meta', 'microsoft',
+])
 
 function trimText(value, max = 800) {
   const text = String(value || '').trim()
@@ -50,6 +71,80 @@ function smartTruncate(text, maxLen = 26000) {
   if (raw.length <= maxLen) return raw
   const cut = raw.lastIndexOf('\n\n', maxLen)
   return cut > maxLen * 0.5 ? raw.slice(0, cut) : raw.slice(0, maxLen)
+}
+
+function scoreTimestamp(value) {
+  const timestamp = Date.parse(value || '')
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function slugify(value, fallback = 'topic') {
+  const normalized = String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  if (!normalized) return fallback
+  return normalized.replace(/[\u4e00-\u9fff]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '') || fallback
+}
+
+function tokenizeTopicText(value) {
+  const raw = String(value || '').toLowerCase()
+  const matches = raw.match(/[a-z0-9]{2,}|[\u4e00-\u9fff]{2,}/g) || []
+  return matches.map((token) => token.trim()).filter((token) => token && !DAILY_STOP_WORDS.has(token))
+}
+
+function buildTokenSignature(item) {
+  const tokens = tokenizeTopicText([item?.title || '', item?.summary || '', item?.full_text || ''].join(' '))
+  return [...new Set(tokens)].slice(0, 12)
+}
+
+function countTokenOverlap(left, right) {
+  const set = new Set(left)
+  return right.reduce((count, token) => count + (set.has(token) ? 1 : 0), 0)
+}
+
+function computeTopicSimilarity(leftTokens, rightTokens) {
+  if (leftTokens.length === 0 || rightTokens.length === 0) return 0
+  return countTokenOverlap(leftTokens, rightTokens) / Math.min(leftTokens.length, rightTokens.length)
+}
+
+function itemRelevanceScore(item) {
+  const baseScore = Number(item?.score || 0)
+  const freshnessScore = scoreTimestamp(item?.published_at) / 1_000_000_000_000
+  const textScore = Math.min(String(item?.full_text || item?.summary || '').length / 1200, 1)
+  return Number((baseScore * 3 + freshnessScore + textScore).toFixed(4))
+}
+
+export function buildTopicKey(value) {
+  const source = typeof value === 'string' ? { title: value } : value
+  const signature = buildTokenSignature(source)
+  if (signature.length > 0) {
+    return slugify(signature.slice(0, 6).join('-'), 'daily-topic').slice(0, 80)
+  }
+  return slugify(source?.title || source?.url || 'daily-topic', 'daily-topic').slice(0, 80)
+}
+
+export function parseCliArgs(argv = process.argv.slice(2)) {
+  const options = { dryRun: false, mode: null, maxPosts: null, coverageDate: null, force: false }
+  for (let index = 0; index < argv.length; index += 1) {
+    const current = argv[index]
+    if (current === '--dry-run') options.dryRun = true
+    else if (current === '--force') options.force = true
+    else if (current === '--mode' && argv[index + 1]) options.mode = argv[++index]
+    else if (current.startsWith('--mode=')) options.mode = current.split('=')[1]
+    else if (current === '--max-posts' && argv[index + 1]) options.maxPosts = Number(argv[++index])
+    else if (current.startsWith('--max-posts=')) options.maxPosts = Number(current.split('=')[1])
+    else if (current === '--coverage-date' && argv[index + 1]) options.coverageDate = argv[++index]
+    else if (current.startsWith('--coverage-date=')) options.coverageDate = current.split('=')[1]
+  }
+  return options
+}
+
+function toCoverageDate(input) {
+  return input || new Date().toISOString().slice(0, 10)
 }
 
 function normalizeKeywords(values) {
@@ -206,6 +301,110 @@ function buildResearchPack({ baseItems, blogItems, paperItems }) {
   }
 }
 
+export function clusterResearchItemsByTopic(items, options = {}) {
+  const similarityThreshold = options.similarityThreshold ?? 0.5
+  const sorted = [...(items || []).filter((item) => item?.url)]
+    .sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left))
+  const clusters = []
+
+  for (const item of sorted) {
+    const signature = buildTokenSignature(item)
+    const titleKey = slugify(item.title, 'topic')
+    let targetCluster = null
+
+    for (const cluster of clusters) {
+      const similarity = computeTopicSimilarity(signature, cluster.signature)
+      if (similarity >= similarityThreshold || titleKey === cluster.title_key) {
+        targetCluster = cluster
+        break
+      }
+    }
+
+    if (!targetCluster) {
+      targetCluster = { title_key: titleKey, signature, items: [] }
+      clusters.push(targetCluster)
+    }
+
+    targetCluster.items.push(item)
+    targetCluster.signature = [...new Set([...targetCluster.signature, ...signature])].slice(0, 14)
+  }
+
+  return clusters.map((cluster) => {
+    const orderedItems = [...cluster.items].sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left))
+    const lead = orderedItems[0]
+    const sources = new Set(orderedItems.map((item) => `${item.source_name}:${item.url}`))
+    return {
+      topic_key: buildTopicKey(lead),
+      title_key: cluster.title_key,
+      candidate_title: lead?.title || 'AI 主题',
+      lead_source_name: lead?.source_name || '',
+      latest_published_at: orderedItems.map((item) => item.published_at).sort((left, right) => scoreTimestamp(right) - scoreTimestamp(left))[0] || '',
+      score: Number(orderedItems.reduce((total, item) => total + itemRelevanceScore(item), 0).toFixed(4)),
+      source_count: sources.size,
+      keywords: cluster.signature.slice(0, 8),
+      items: orderedItems,
+    }
+  }).sort((left, right) => {
+    if (right.source_count !== left.source_count) return right.source_count - left.source_count
+    if (right.score !== left.score) return right.score - left.score
+    return scoreTimestamp(right.latest_published_at) - scoreTimestamp(left.latest_published_at)
+  })
+}
+
+function inferTopicKeyFromSlug(slug, coverageDate) {
+  const prefix = `ai-brief-${coverageDate}-`
+  return String(slug || '').startsWith(prefix) ? String(slug).slice(prefix.length) : ''
+}
+
+async function fetchPublishedTopicKeys({ coverageDate }) {
+  const topicKeys = new Set()
+  let page = 1
+  const pageSize = 50
+
+  while (page <= 4) {
+    let response
+    try {
+      response = await fetch(`${BLOG_API_BASE}/api/posts?page=${page}&page_size=${pageSize}`, {
+        signal: AbortSignal.timeout(10000),
+      })
+    } catch {
+      break
+    }
+
+    if (!response.ok) break
+    const data = await response.json()
+    const items = Array.isArray(data?.items) ? data.items : []
+    for (const post of items) {
+      const topicKey = post.topic_key || inferTopicKeyFromSlug(post.slug, coverageDate)
+      if (topicKey) topicKeys.add(topicKey)
+    }
+    if (items.length < pageSize) break
+    page += 1
+  }
+
+  return topicKeys
+}
+
+export function selectTopicsForPublishing(topics, runtime) {
+  const publishedTopicKeys = runtime.publishedTopicKeys || new Set()
+  const maxPosts = Math.max(1, Number(runtime.maxPosts || 1))
+  const minSourcesSoft = Math.max(1, Number(runtime.minSourcesPerTopic || 1))
+
+  const queue = [...(topics || [])]
+    .filter((topic) => topic.items?.length > 0)
+    .filter((topic) => !publishedTopicKeys.has(topic.topic_key))
+    .sort((left, right) => {
+      const leftBoost = left.source_count >= minSourcesSoft ? 1 : 0
+      const rightBoost = right.source_count >= minSourcesSoft ? 1 : 0
+      if (rightBoost !== leftBoost) return rightBoost - leftBoost
+      if (right.source_count !== left.source_count) return right.source_count - left.source_count
+      if (right.score !== left.score) return right.score - left.score
+      return scoreTimestamp(right.latest_published_at) - scoreTimestamp(left.latest_published_at)
+    })
+
+  return { queue, target_count: maxPosts, skipped_topic_keys: [...publishedTopicKeys] }
+}
+
 function stringifyPromptPayload(payload, maxChars = 18000) {
   return smartTruncate(JSON.stringify(payload, null, 2), maxChars)
 }
@@ -292,6 +491,52 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
   throw new Error(`LLM failed after retries: ${lastError.slice(0, 500)}`)
 }
 
+export function createDailyBriefFormatProfile() {
+  const baseProfile = getBlogFormatProfile('tech-editorial-v1')
+  return {
+    ...baseProfile,
+    name: 'daily_brief',
+    required_sections: [...DEFAULT_DAILY_REQUIRED_SECTIONS],
+    required_tail_sections: [...DEFAULT_DAILY_TAIL_SECTIONS],
+    title_rules: [
+      '标题必须是中文，避免“日报”“快讯”式口吻。',
+      '标题应体现判断或变化，而不是只复述消息。',
+      '标题长度控制在 12-30 个中文字符。',
+    ],
+    summary_rules: [
+      '摘要只写一段，直接告诉读者最重要的变化。',
+      '摘要不要以“本文将”或“这篇文章”开头。',
+      '摘要不超过 80 个中文字符。',
+    ],
+    style_rules: [
+      '这是一篇单主题快评稿，不要写成消息堆砌。',
+      '必须区分事实、判断和潜在影响。',
+      '至少给出两处影响、取舍、成本或竞争格局分析。',
+    ],
+  }
+}
+
+function resolveDailyRuntime(config, cliOptions) {
+  const mode = cliOptions.mode || config.default_mode || 'daily-auto'
+  const dailyConfig = config.daily_auto || {}
+  const manualConfig = config.daily_manual || {}
+  const modeConfig = mode === 'daily-manual' ? manualConfig : dailyConfig
+
+  return {
+    mode,
+    dryRun: cliOptions.dryRun,
+    coverageDate: toCoverageDate(cliOptions.coverageDate),
+    maxPosts: Math.max(1, Number(cliOptions.maxPosts || modeConfig.max_posts_per_run || dailyConfig.max_posts_per_run || 2)),
+    lookbackHours: Number(modeConfig.lookback_hours || dailyConfig.lookback_hours || 30),
+    maxCandidateItems: Number(modeConfig.max_candidate_items || dailyConfig.max_candidate_items || 24),
+    minSourcesPerTopic: Number(modeConfig.min_sources_per_topic || dailyConfig.min_sources_per_topic || 2),
+    clusterSimilarityThreshold: Number(modeConfig.cluster_similarity_threshold || dailyConfig.cluster_similarity_threshold || 0.5),
+    enableBlogwatcherFallback: Boolean(modeConfig.enable_blogwatcher_fallback ?? dailyConfig.enable_blogwatcher_fallback ?? false),
+    skipPublishedTopicKeys: Boolean(modeConfig.skip_published_topic_keys ?? true),
+    force: cliOptions.force,
+  }
+}
+
 async function chooseTopic({ researchPack, formatProfile, today }) {
   const system = [
     '你是一位资深中文科技博客作者兼选题编辑。',
@@ -322,7 +567,7 @@ async function chooseTopic({ researchPack, formatProfile, today }) {
   return callLLM(system, user, 3072)
 }
 
-async function generateArticle({ outline, researchPack, formatProfile, today }) {
+async function generateArticle({ outline, researchPack, formatProfile, workflow, today }) {
   const system = [
     '# Role',
     '你是中文技术博客作者，文章直接发布到个人技术博客。',
@@ -338,7 +583,7 @@ async function generateArticle({ outline, researchPack, formatProfile, today }) 
     '- 如果 researchPack 中存在论文素材，必须解释论文与现实产品、新闻或工程实践的关系。',
     '- 禁止写成新闻罗列，禁止无来源结论。',
     '- 禁止让正文插图逻辑影响封面图内容。',
-    '- slug 必须返回 ai-daily-' + today,
+    `- slug 必须返回 ${workflow.slug}`,
     '- summary 不超过 50 字，不要以“本文将”开头。',
     '- takeaway 是一句简短结论，后续会被用于“一句话结论”区块。',
     '',
@@ -379,6 +624,7 @@ async function repairArticle({
   outline,
   researchPack,
   formatProfile,
+  workflow,
   config,
   today,
   gate,
@@ -403,7 +649,7 @@ async function repairArticle({
     '- Add comparison, impact, trade-off, cost, or implementation discussion instead of repeating facts.',
     '- If any required section is thin, rewrite and expand it rather than adding filler.',
     '- Keep the tail sections absent; the program will append them.',
-    `- slug must remain ai-daily-${today}.`,
+    `- slug must remain ${workflow.slug}.`,
   ].join('\n')
 
   const user = [
@@ -553,6 +799,10 @@ function buildTakeawayQuote(post, outline) {
   return `> ${takeaway}`
 }
 
+function buildMetadataComment(metadata) {
+  return `<!-- auto-blog-meta: ${JSON.stringify(metadata)} -->`
+}
+
 function insertImagesIntoContent(contentMd, imagePlans) {
   const lines = String(contentMd || '').split('\n')
   for (const plan of imagePlans) {
@@ -579,18 +829,20 @@ function insertImagesIntoContent(contentMd, imagePlans) {
   return lines.join('\n')
 }
 
-function finalizeArticle({ post, outline, researchPack, imagePlans }) {
+function finalizeArticle({ post, outline, researchPack, imagePlans, metadata = null }) {
   const mainContent = String(post.content_md || '').trim()
   const withImages = insertImagesIntoContent(mainContent, imagePlans)
-  return [
+  const sections = [
     withImages,
     buildReferencesSection(researchPack),
     buildImageSourcesSection(imagePlans),
     buildTakeawayQuote(post, outline),
-  ].join('\n\n')
+  ]
+  if (metadata) sections.push(buildMetadataComment(metadata))
+  return sections.join('\n\n')
 }
 
-function normalizeForApi(post, fixedSlug, outline) {
+function normalizeForApi(post, fixedSlug, outline, metadata = {}) {
   if (!post.title || !post.content_md) {
     throw new Error('LLM output missing title or content_md')
   }
@@ -621,6 +873,10 @@ function normalizeForApi(post, fixedSlug, outline) {
     slug,
     summary,
     content_md: String(post.content_md),
+    content_type: metadata.content_type || 'post',
+    topic_key: metadata.topic_key || '',
+    published_mode: metadata.published_mode || 'manual',
+    coverage_date: metadata.coverage_date || '',
     tags: tags.length > 0 ? tags : ['ai'],
   }
 }
@@ -637,6 +893,10 @@ async function publishPost(token, payload, coverImage = '') {
       slug: payload.slug,
       summary: payload.summary,
       content_md: payload.content_md,
+      content_type: payload.content_type,
+      topic_key: payload.topic_key,
+      published_mode: payload.published_mode,
+      coverage_date: payload.coverage_date,
       tags: payload.tags,
       is_published: true,
       is_pinned: false,
@@ -647,6 +907,50 @@ async function publishPost(token, payload, coverImage = '') {
     throw new Error(`Publish failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
   return resp.json()
+}
+
+function createTopicSnapshot(topic, overrides = {}) {
+  return {
+    topic_key: overrides.topic_key ?? topic?.topic_key ?? '',
+    title: overrides.title ?? topic?.candidate_title ?? topic?.title ?? '未命名主题',
+    summary: overrides.summary ?? topic?.summary ?? '',
+    source_count: overrides.source_count ?? topic?.source_count ?? 0,
+    source_names: overrides.source_names ?? (
+      Array.isArray(topic?.items)
+        ? [...new Set(topic.items.map((item) => item.source_name).filter(Boolean))]
+        : []
+    ),
+    content_type: overrides.content_type ?? topic?.content_type ?? '',
+    published_mode: overrides.published_mode ?? topic?.published_mode ?? '',
+    post_slug: overrides.post_slug ?? topic?.post_slug ?? '',
+    reason: overrides.reason ?? topic?.reason ?? '',
+    status: overrides.status ?? topic?.status ?? '',
+  }
+}
+
+async function upsertPublishingStatus(token, payload) {
+  const resp = await fetch(`${BLOG_API_BASE}/api/admin/publishing-status`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    throw new Error(`Publishing status update failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
+  }
+  return resp.json()
+}
+
+async function reportPublishingRun(token, payload) {
+  if (!token || !payload) return null
+  try {
+    return await upsertPublishingStatus(token, payload)
+  } catch (error) {
+    console.warn(`Failed to update publishing status: ${error.message}`)
+    return null
+  }
 }
 
 async function localizeImagePlans(imagePlans, token) {
@@ -664,50 +968,20 @@ async function localizeImagePlans(imagePlans, token) {
   return localizedPlans
 }
 
-async function main() {
-  console.log('Auto blog v3 starting...')
-  const today = new Date().toISOString().split('T')[0]
-  const slug = `ai-daily-${today}`
-  console.log(`Publishing target: ${BLOG_API_BASE}`)
-
-  if (!SILICONFLOW_API_KEY) throw new Error('Missing SILICONFLOW_API_KEY')
-  if (!ADMIN_PASSWORD && !DRY_RUN) throw new Error('Missing ADMIN_PASSWORD')
-
-  const config = await loadConfig()
-  const formatProfile = getBlogFormatProfile(config.format_profile)
-
-  if (!DRY_RUN && (await checkSlugExists(slug))) {
-    console.log(`Slug already exists: ${slug}`)
-    return
+async function buildPublishablePost({
+  outline,
+  researchPack,
+  formatProfile,
+  config,
+  today,
+  metadata,
+  fixedSlug,
+  workflow = null,
+}) {
+  const workflowProfile = workflow || {
+    slug: fixedSlug || `ai-brief-${today}`,
+    content_type: metadata?.content_type || 'daily_brief',
   }
-
-  const baseItems = await collectBaseMaterials(config)
-  if (baseItems.length === 0) {
-    throw new Error('No usable base research items were collected')
-  }
-
-  let blogItems = []
-  if (config.blogwatcher_enabled) {
-    blogItems = await runBlogwatcher({ config, maxItems: 10 })
-  }
-
-  const preResearchPack = buildResearchPack({ baseItems, blogItems, paperItems: [] })
-  const outline = await chooseTopic({
-    researchPack: preResearchPack,
-    formatProfile,
-    today,
-  })
-
-  const arxivKeywords = normalizeKeywords(outline.arxiv_queries || outline.keywords || [])
-  let paperItems = []
-  if (config.arxiv_enabled && arxivKeywords.length > 0) {
-    paperItems = await runArxiv({
-      keywords: arxivKeywords,
-      maxPapers: config.arxiv_max_papers || 2,
-    })
-  }
-
-  const researchPack = buildResearchPack({ baseItems, blogItems, paperItems })
   const desiredImageSections = (Array.isArray(outline.image_sections) ? outline.image_sections : [])
     .filter((heading) => formatProfile.required_sections.includes(heading))
     .slice(0, config.image_selection_rules?.max_images || 0)
@@ -728,10 +1002,12 @@ async function main() {
     outline,
     researchPack,
     formatProfile,
+    workflow: workflowProfile,
     today,
   })
-  const maxRepairAttempts = Math.max(0, Number(config.quality_gate?.max_repair_attempts ?? 2))
 
+  const gateConfig = config.quality_gate?.[metadata.content_type] || config.quality_gate || {}
+  const maxRepairAttempts = Math.max(0, Number(gateConfig.max_repair_attempts ?? 2))
   let postForGate = null
   let gate = null
 
@@ -741,10 +1017,13 @@ async function main() {
       outline,
       researchPack,
       imagePlans,
+      metadata,
     })
 
     postForGate = {
       ...generatedPost,
+      gate_profile: metadata.content_type,
+      content_type: metadata.content_type,
       content_md: finalizedContent,
     }
 
@@ -765,6 +1044,7 @@ async function main() {
       outline,
       researchPack,
       formatProfile,
+      workflow: workflowProfile,
       config,
       today,
       gate,
@@ -773,60 +1053,313 @@ async function main() {
   }
 
   if (!gate.passed) {
-    const message = `Quality gate failed after repair attempts: ${gate.reasons.join(', ')}`
-    if (DRY_RUN) {
-      throw new Error(message)
+    throw new Error(`Quality gate failed after repair attempts: ${gate.reasons.join(', ')}`)
+  }
+
+  return {
+    outline,
+    researchPack,
+    imagePlans,
+    gate,
+    post: normalizeForApi(postForGate, fixedSlug, outline, metadata),
+  }
+}
+
+async function runDailyMode(config, cliOptions) {
+  const runtime = resolveDailyRuntime(config, cliOptions)
+  const baseItems = await collectBaseMaterials(config)
+  if (baseItems.length === 0) {
+    throw new Error('No usable base research items were collected')
+  }
+
+  const coverageDate = runtime.coverageDate
+  const formatProfile = createDailyBriefFormatProfile()
+  const workflow = getContentWorkflowProfile(config, runtime.mode, coverageDate)
+  const clusteredTopics = clusterResearchItemsByTopic(baseItems.slice(0, runtime.maxCandidateItems), {
+    similarityThreshold: runtime.clusterSimilarityThreshold,
+  })
+  const publishedTopicKeys = runtime.skipPublishedTopicKeys && !runtime.force && !runtime.dryRun
+    ? await fetchPublishedTopicKeys({ coverageDate })
+    : new Set()
+  const selection = selectTopicsForPublishing(clusteredTopics, {
+    maxPosts: runtime.maxPosts,
+    minSourcesPerTopic: runtime.minSourcesPerTopic,
+    publishedTopicKeys,
+  })
+
+  const selectedTopics = selection.queue.slice(0, selection.target_count)
+  const token = runtime.dryRun ? null : await getAdminToken()
+  const candidateTopics = clusteredTopics.map((topic) => createTopicSnapshot(topic, {
+    content_type: workflow.content_type,
+  }))
+  const skippedTopics = []
+  const results = []
+
+  if (selectedTopics.length === 0) {
+    console.log('No eligible topics to publish for this coverage date.')
+    if (!runtime.dryRun) {
+      await reportPublishingRun(token, {
+        workflow_key: runtime.mode.replace('-', '_'),
+        external_run_id: process.env.GITHUB_RUN_ID || '',
+        run_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
+        status: 'skipped',
+        coverage_date: coverageDate,
+        message: 'No eligible topics to publish for this coverage date.',
+        candidate_topics: candidateTopics,
+        published_topics: [],
+        skipped_topics: selection.skipped_topic_keys.map((topicKey) => createTopicSnapshot(
+          clusteredTopics.find((topic) => topic.topic_key === topicKey),
+          {
+            topic_key: topicKey,
+            content_type: workflow.content_type,
+            reason: 'already published for coverage date',
+            status: 'skipped',
+          }
+        )),
+      })
     }
-    console.log(`Skipping publish: ${message}`)
-    return
+    return []
   }
 
-  let token = null
-  if (!DRY_RUN) {
-    token = await getAdminToken()
-  }
-
-  let publishImagePlans = imagePlans
-  let publishPostForApi = postForGate
-  if (!DRY_RUN && token && imagePlans.length > 0) {
-    publishImagePlans = await localizeImagePlans(imagePlans, token)
-    publishPostForApi = {
-      ...generatedPost,
-      content_md: finalizeArticle({
-        post: generatedPost,
-        outline,
-        researchPack,
-        imagePlans: publishImagePlans,
-      }),
+  for (const topic of selectedTopics) {
+    const topicBlogItems = runtime.enableBlogwatcherFallback && config.blogwatcher_enabled
+      ? await runBlogwatcher({ config, topicHint: topic.candidate_title, maxItems: 6, mode: runtime.mode })
+      : []
+    const researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems: [] })
+    const outline = await chooseTopic({
+      researchPack,
+      formatProfile,
+      today: coverageDate,
+    })
+    const metadata = {
+      content_type: workflow.content_type,
+      topic_key: topic.topic_key,
+      published_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
+      coverage_date: coverageDate,
     }
+    const slug = `${workflow.slug}-${topic.topic_key}`.slice(0, 200)
+
+    if (!runtime.dryRun && !runtime.force && (await checkSlugExists(slug))) {
+      console.log(`Skipping existing slug: ${slug}`)
+      skippedTopics.push(createTopicSnapshot(topic, {
+        content_type: workflow.content_type,
+        published_mode: metadata.published_mode,
+        reason: 'slug already exists',
+        status: 'skipped',
+      }))
+      continue
+    }
+
+    const artifact = await buildPublishablePost({
+      outline,
+      researchPack,
+      formatProfile,
+      config,
+      today: coverageDate,
+      metadata,
+      fixedSlug: slug,
+      workflow: {
+        ...workflow,
+        slug,
+      },
+    })
+
+    let coverImage = ''
+    if (XAI_API_KEY && token && artifact.outline.cover_prompt) {
+      console.log(`Generating Grok cover image for ${slug}...`)
+      coverImage = await generateCoverWithGrok(artifact.outline.cover_prompt, token) || ''
+    }
+
+    if (runtime.dryRun) {
+      results.push({ ...artifact, cover_image: coverImage || null })
+      continue
+    }
+
+    const result = await publishPost(token, artifact.post, coverImage)
+    console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
+    results.push({ ...artifact, result })
   }
 
-  const apiBody = normalizeForApi(publishPostForApi, slug, outline)
+  if (!runtime.dryRun) {
+    const publishedTopics = results.map((item) => createTopicSnapshot(item.outline, {
+      topic_key: item.post.topic_key,
+      title: item.post.title,
+      summary: item.post.summary,
+      content_type: item.post.content_type,
+      published_mode: item.post.published_mode,
+      post_slug: item.post.slug,
+      source_count: item.researchPack.sources.length,
+      source_names: [...new Set(item.researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+      status: 'published',
+    }))
+    const publishedKeys = new Set(publishedTopics.map((topic) => topic.topic_key).filter(Boolean))
+    const preSkippedTopics = selection.skipped_topic_keys
+      .filter((topicKey) => !publishedKeys.has(topicKey))
+      .map((topicKey) => createTopicSnapshot(
+        clusteredTopics.find((topic) => topic.topic_key === topicKey),
+        {
+          topic_key: topicKey,
+          content_type: workflow.content_type,
+          reason: 'already published for coverage date',
+          status: 'skipped',
+        }
+      ))
 
+    await reportPublishingRun(token, {
+      workflow_key: runtime.mode.replace('-', '_'),
+      external_run_id: process.env.GITHUB_RUN_ID || '',
+      run_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
+      status: results.length > 0 ? 'success' : 'skipped',
+      coverage_date: coverageDate,
+      message: results.length > 0
+        ? `Published ${results.length} post(s), skipped ${preSkippedTopics.length + skippedTopics.length} topic(s).`
+        : 'No posts were published in this run.',
+      candidate_topics: candidateTopics,
+      published_topics: publishedTopics,
+      skipped_topics: [...preSkippedTopics, ...skippedTopics],
+    })
+  }
+
+  return results
+}
+
+async function runWeeklyReviewMode(config, cliOptions) {
+  const today = toCoverageDate(cliOptions.coverageDate)
+  const workflow = getContentWorkflowProfile(config, 'weekly-review', today)
+  const slug = workflow.slug
+  const formatProfile = getBlogFormatProfile(resolveFormatProfileName(config, 'weekly-review'))
+
+  if (!cliOptions.dryRun && (await checkSlugExists(slug))) {
+    console.log(`Slug already exists: ${slug}`)
+    return []
+  }
+
+  const baseItems = await collectBaseMaterials(config)
+  if (baseItems.length === 0) {
+    throw new Error('No usable base research items were collected')
+  }
+
+  let blogItems = []
+  if (config.blogwatcher_enabled || config.weekly_review?.blogwatcher_enabled) {
+    blogItems = await runBlogwatcher({ config, maxItems: 10, mode: 'weekly-review' })
+  }
+
+  const preResearchPack = buildResearchPack({ baseItems, blogItems, paperItems: [] })
+  const outline = await chooseTopic({ researchPack: preResearchPack, formatProfile, today })
+
+  const arxivKeywords = normalizeKeywords(outline.arxiv_queries || outline.keywords || [])
+  let paperItems = []
+  if ((config.arxiv_enabled || config.weekly_review?.arxiv_enabled) && arxivKeywords.length > 0) {
+    paperItems = await runArxiv({
+      keywords: arxivKeywords,
+      maxPapers: config.arxiv_max_papers || 2,
+      config,
+      mode: 'weekly-review',
+    })
+  }
+
+  const researchPack = buildResearchPack({ baseItems, blogItems, paperItems })
+  const metadata = {
+    content_type: workflow.content_type,
+    topic_key: buildTopicKey(outline.topic || slug),
+    published_mode: 'auto',
+    coverage_date: today,
+  }
+  const artifact = await buildPublishablePost({
+    outline,
+    researchPack,
+    formatProfile,
+    config,
+    today,
+    metadata,
+    fixedSlug: slug,
+    workflow,
+  })
+
+  if (cliOptions.dryRun) {
+    return [{ ...artifact, cover_image: null }]
+  }
+
+  const token = await getAdminToken()
   let coverImage = ''
   if (XAI_API_KEY && token && outline.cover_prompt) {
     console.log('Generating Grok cover image...')
     coverImage = await generateCoverWithGrok(outline.cover_prompt, token) || ''
   }
-
-  if (DRY_RUN) {
-    console.log(JSON.stringify({
-      outline,
-      research_pack: researchPack,
-      image_plans: publishImagePlans,
-      quality_gate: gate,
-      post: apiBody,
-      cover_image: coverImage || null,
-    }, null, 2))
-    return
-  }
-
-  const result = await publishPost(token, apiBody, coverImage)
-  console.log(`Published successfully: id=${result.id} slug=${apiBody.slug}`)
+  const result = await publishPost(token, artifact.post, coverImage)
+  console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
+  await reportPublishingRun(token, {
+    workflow_key: 'weekly_review',
+    external_run_id: process.env.GITHUB_RUN_ID || '',
+    run_mode: 'auto',
+    status: 'success',
+    coverage_date: today,
+    message: 'Weekly review published successfully.',
+    candidate_topics: [
+      createTopicSnapshot(outline, {
+        topic_key: metadata.topic_key,
+        title: artifact.post.title,
+        summary: artifact.post.summary,
+        content_type: workflow.content_type,
+        source_count: researchPack.sources.length,
+        source_names: [...new Set(researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+      }),
+    ],
+    published_topics: [
+      createTopicSnapshot(outline, {
+        topic_key: metadata.topic_key,
+        title: artifact.post.title,
+        summary: artifact.post.summary,
+        content_type: artifact.post.content_type,
+        published_mode: artifact.post.published_mode,
+        post_slug: artifact.post.slug,
+        source_count: researchPack.sources.length,
+        source_names: [...new Set(researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+        status: 'published',
+      }),
+    ],
+    skipped_topics: [],
+  })
+  return [{ ...artifact, result }]
 }
 
-main().catch((err) => {
-  console.error(`Fatal error: ${err.message}`)
-  if (err.stack) console.error(err.stack)
-  process.exit(1)
-})
+async function main() {
+  console.log('Auto blog v4 starting...')
+  console.log(`Publishing target: ${BLOG_API_BASE}`)
+
+  const cliOptions = parseCliArgs()
+  const dryRun = cliOptions.dryRun
+
+  if (!SILICONFLOW_API_KEY) throw new Error('Missing SILICONFLOW_API_KEY')
+  if (!ADMIN_PASSWORD && !dryRun) throw new Error('Missing ADMIN_PASSWORD')
+
+  const config = await loadConfig()
+  const mode = cliOptions.mode || config.default_mode || 'daily-auto'
+  const modeHandler = mode === 'weekly-review' ? runWeeklyReviewMode : runDailyMode
+  const results = await modeHandler(config, cliOptions)
+
+  if (dryRun) {
+    console.log(JSON.stringify({
+      mode,
+      coverage_date: toCoverageDate(cliOptions.coverageDate),
+      posts: results.map((item) => ({
+        outline: item.outline,
+        research_pack: item.researchPack,
+        image_plans: item.imagePlans,
+        quality_gate: item.gate,
+        post: item.post,
+        cover_image: item.cover_image || null,
+      })),
+    }, null, 2))
+  }
+}
+
+const isMainModule = process.argv[1] ? resolve(process.argv[1]) === __filename : false
+
+if (isMainModule) {
+  main().catch((err) => {
+    console.error(`Fatal error: ${err.message}`)
+    if (err.stack) console.error(err.stack)
+    process.exit(1)
+  })
+}

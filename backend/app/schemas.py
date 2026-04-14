@@ -16,6 +16,10 @@ class PostListItemOut(BaseModel):
     slug: str
     summary: str
     cover_image: str
+    content_type: str
+    topic_key: str
+    published_mode: str
+    coverage_date: str
     view_count: int
     is_published: bool
     is_pinned: bool
@@ -41,6 +45,10 @@ class PostDetailOut(BaseModel):
     summary: str
     content_md: str
     cover_image: str
+    content_type: str
+    topic_key: str
+    published_mode: str
+    coverage_date: str
     view_count: int
     is_pinned: bool
     like_count: int
@@ -68,9 +76,13 @@ class PostCreateRequest(BaseModel):
     summary: str = Field(..., min_length=1, max_length=300)
     content_md: str
     cover_image: str = ""
+    content_type: str = "post"
+    topic_key: str = ""
+    published_mode: str = "manual"
+    coverage_date: str = ""
     is_published: bool = True
     is_pinned: bool = False
-    tags: list[str] = []
+    tags: list[str] = Field(default_factory=list)
 
 
 class PostUpdateRequest(BaseModel):
@@ -79,6 +91,10 @@ class PostUpdateRequest(BaseModel):
     summary: str | None = None
     content_md: str | None = None
     cover_image: str | None = None
+    content_type: str | None = None
+    topic_key: str | None = None
+    published_mode: str | None = None
+    coverage_date: str | None = None
     is_published: bool | None = None
     is_pinned: bool | None = None
     tags: list[str] | None = None
@@ -92,6 +108,10 @@ class PostAdminOut(BaseModel):
     summary: str
     content_md: str
     cover_image: str
+    content_type: str
+    topic_key: str
+    published_mode: str
+    coverage_date: str
     view_count: int
     is_published: bool
     is_pinned: bool
@@ -104,6 +124,67 @@ class PostAdminOut(BaseModel):
 class UploadOut(BaseModel):
     model_config = {"from_attributes": True}
     url: str
+
+
+class PublishingTopicOut(BaseModel):
+    topic_key: str = ""
+    title: str
+    summary: str = ""
+    source_count: int = 0
+    source_names: list[str] = Field(default_factory=list)
+    content_type: str = "daily_brief"
+    published_mode: str = ""
+    coverage_date: str = ""
+    post_id: int | None = None
+    post_slug: str = ""
+    published_at: datetime | None = None
+    reason: str = ""
+    status: str = ""
+
+
+class PublishingRunSummaryOut(BaseModel):
+    candidate_count: int = 0
+    published_count: int = 0
+    skipped_count: int = 0
+    auto_published_count: int = 0
+    manual_published_count: int = 0
+
+
+class PublishingRunOut(BaseModel):
+    id: int
+    workflow_key: str
+    external_run_id: str = ""
+    run_mode: str
+    status: str
+    coverage_date: str = ""
+    message: str = ""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    updated_at: datetime
+    summary: PublishingRunSummaryOut
+    candidate_topics: list[PublishingTopicOut] = Field(default_factory=list)
+    published_topics: list[PublishingTopicOut] = Field(default_factory=list)
+    skipped_topics: list[PublishingTopicOut] = Field(default_factory=list)
+
+
+class PublishingRunUpsertRequest(BaseModel):
+    workflow_key: str = Field(..., min_length=1, max_length=50)
+    external_run_id: str = ""
+    run_mode: str = "auto"
+    status: str = "success"
+    coverage_date: str = ""
+    message: str = ""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    candidate_topics: list[PublishingTopicOut] = Field(default_factory=list)
+    published_topics: list[PublishingTopicOut] = Field(default_factory=list)
+    skipped_topics: list[PublishingTopicOut] = Field(default_factory=list)
+
+
+class PublishingStatusResponse(BaseModel):
+    latest_runs: dict[str, PublishingRunOut | None]
+    recent_runs: list[PublishingRunOut] = Field(default_factory=list)
+    recent_posts: list[PostListItemOut] = Field(default_factory=list)
 
 
 # ── Settings schemas ──────────────────────────────
@@ -172,6 +253,11 @@ class ArchiveItem(BaseModel):
     title: str
     slug: str
     created_at: datetime
+    content_type: str = "post"
+    topic_key: str = ""
+    published_mode: str = "manual"
+    coverage_date: str = ""
+    is_pinned: bool = False
 
 
 class ArchiveGroup(BaseModel):

@@ -27,13 +27,22 @@ function hasSection(text, heading) {
   return String(text || '').includes(heading)
 }
 
+function resolveGateConfig(config, post) {
+  const root = config.quality_gate || {}
+  const gateKey = post?.gate_profile || post?.content_type || ''
+  if (gateKey && root[gateKey] && typeof root[gateKey] === 'object') {
+    return root[gateKey]
+  }
+  return root
+}
+
 export function evaluateQualityGate({
   post,
   researchPack,
   formatProfile,
   config,
 }) {
-  const gate = config.quality_gate || {}
+  const gate = resolveGateConfig(config, post)
   const content = String(post?.content_md || '')
   const plain = stripMarkdown(content)
   const allSources = researchPack?.sources || []

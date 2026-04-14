@@ -1,8 +1,29 @@
 import { apiGet, apiPost } from './client'
 
+function normalizeContentType(contentType) {
+  if (contentType === 'daily_brief' || contentType === 'weekly_review') {
+    return contentType
+  }
+  return null
+}
+
+export function normalizePost(payload = {}) {
+  return {
+    ...payload,
+    tags: Array.isArray(payload.tags) ? payload.tags : [],
+    content_type: normalizeContentType(payload.content_type),
+    topic_key: payload.topic_key ?? '',
+    published_mode:
+      payload.published_mode === 'auto' || payload.published_mode === 'manual'
+        ? payload.published_mode
+        : null,
+    coverage_date: payload.coverage_date ?? null,
+  }
+}
+
 export function normalizePostList(payload) {
   return {
-    items: payload.items ?? [],
+    items: Array.isArray(payload?.items) ? payload.items.map((item) => normalizePost(item)) : [],
     total: payload.total ?? 0,
     page: payload.page ?? 1,
     page_size: payload.page_size ?? 10,
@@ -20,7 +41,7 @@ export async function fetchPosts({ tag, q, page = 1, pageSize = 10 } = {}) {
 }
 
 export async function fetchPostDetail(slug) {
-  return apiGet(`/api/posts/${slug}`)
+  return normalizePost(await apiGet(`/api/posts/${slug}`))
 }
 
 export async function fetchComments(slug) {
@@ -32,7 +53,12 @@ export async function postComment(slug, nickname, content) {
 }
 
 export async function fetchArchive() {
-  return apiGet('/api/archive')
+  const groups = await apiGet('/api/archive')
+  if (!Array.isArray(groups)) return []
+  return groups.map((group) => ({
+    ...group,
+    posts: Array.isArray(group.posts) ? group.posts.map((post) => normalizePost(post)) : [],
+  }))
 }
 
 export async function fetchAllTags() {
@@ -40,5 +66,8 @@ export async function fetchAllTags() {
 }
 
 export const likePost = (slug) => apiPost(`/api/posts/${slug}/like`)
-export const fetchRelatedPosts = (slug) => apiGet(`/api/posts/${slug}/related`)
+export const fetchRelatedPosts = async (slug) => {
+  const posts = await apiGet(`/api/posts/${slug}/related`)
+  return Array.isArray(posts) ? posts.map((post) => normalizePost(post)) : []
+}
 export const fetchFriendLinks = () => apiGet('/api/friends')

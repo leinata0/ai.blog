@@ -13,6 +13,7 @@ from app.env import clean_env
 from app.models import Post, SiteSettings, Tag
 from app.routers.admin import router as admin_router
 from app.routers.posts import router as posts_router
+from app.schema_compat import ensure_schema_compat
 from app.schemas import SiteSettingsOut, SiteSettingsUpdate, StatsOut
 from app.seed import seed_data
 from app.storage import ensure_local_upload_dir, get_uploaded_image_bytes, is_r2_enabled
@@ -26,6 +27,7 @@ async def lifespan(app):
     if not is_r2_enabled():
         ensure_local_upload_dir()
     Base.metadata.create_all(bind=engine)
+    ensure_schema_compat(engine)
 
     with SessionLocal() as db:
         if AUTO_SEED_ON_EMPTY and db.query(Post).count() == 0:

@@ -1,119 +1,246 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Calendar, FileText, Pin } from 'lucide-react'
+
 import { fetchArchive } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 
+const CONTENT_TYPE_META = {
+  all: {
+    label: '全部',
+    accent: 'var(--text-secondary)',
+    background: 'var(--bg-surface)',
+  },
+  daily_brief: {
+    label: '日更快报',
+    accent: 'var(--accent)',
+    background: 'var(--accent-soft)',
+  },
+  weekly_review: {
+    label: '每周回顾',
+    accent: '#2563eb',
+    background: 'rgba(37,99,235,0.12)',
+  },
+}
+
+function getPostDateKey(post) {
+  return post.coverage_date || post.created_at?.slice(0, 10) || 'unknown'
+}
+
 function formatDate(dateStr) {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  if (!dateStr || dateStr === 'unknown') return '未标注日期'
+  const parsed = new Date(dateStr.length === 10 ? `${dateStr}T00:00:00` : dateStr)
+  if (Number.isNaN(parsed.getTime())) return dateStr
+  return parsed.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+}
+
+function groupPostsByDay(posts) {
+  const groups = new Map()
+  posts.forEach((post) => {
+    const dateKey = getPostDateKey(post)
+    const entry = groups.get(dateKey) ?? { dateKey, posts: [] }
+    entry.posts.push(post)
+    groups.set(dateKey, entry)
+  })
+  return Array.from(groups.values()).sort((left, right) => right.dateKey.localeCompare(left.dateKey))
 }
 
 export default function ArchivePage() {
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
+  const [activeType, setActiveType] = useState('all')
 
   useEffect(() => {
-    document.title = '归档 - 极客开发日志'
+    document.title = '归档 - 极客开发日记'
     fetchArchive()
       .then(setGroups)
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
-  const totalPosts = groups.reduce((acc, g) => acc + g.posts.length, 0)
+  const totalPosts = useMemo(() => groups.reduce((acc, group) => acc + group.posts.length, 0), [groups])
+  const counts = useMemo(
+    () =>
+      groups.reduce(
+        (acc, group) => {
+          group.posts.forEach((post) => {
+            if (post.content_type === 'daily_brief') acc.daily_brief += 1
+            if (post.content_type === 'weekly_review') acc.weekly_review += 1
+          })
+          return acc
+        },
+        { daily_brief: 0, weekly_review: 0 }
+      ),
+    [groups]
+  )
+
+  const filteredGroups = useMemo(() => {
+    return groups
+      .map((group) => {
+        const nextPosts =
+          activeType === 'all' ? group.posts : group.posts.filter((post) => post.content_type === activeType)
+        return {
+          ...group,
+          posts: nextPosts,
+          dayGroups: groupPostsByDay(nextPosts),
+        }
+      })
+      .filter((group) => group.posts.length > 0)
+  }, [activeType, groups])
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <Navbar />
 
-      <div className="mx-auto max-w-3xl px-6 sm:px-10 py-16">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+      <div className="mx-auto max-w-4xl px-6 py-16 sm:px-10">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <h1 className="mb-2 text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>
             文章归档
           </h1>
-          <p className="text-sm mb-12" style={{ color: 'var(--text-faint)' }}>
-            <FileText size={14} className="inline mr-1" />
-            共 {totalPosts} 篇文章
+          <p className="mb-8 text-sm" style={{ color: 'var(--text-faint)' }}>
+            <FileText size={14} className="mr-1 inline" />
+            共 {totalPosts} 篇文章，支持区分日更快报与每周回顾
           </p>
+
+          <div className="mb-12 flex flex-wrap gap-3" data-ui="archive-type-filter">
+            {['all', 'daily_brief', 'weekly_review'].map((type) => {
+              const meta = CONTENT_TYPE_META[type]
+              const total =
+                type === 'all' ? totalPosts : type === 'daily_brief' ? counts.daily_brief : counts.weekly_review
+              const active = activeType === type
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setActiveType(type)}
+                  data-ui="archive-type-chip"
+                  data-content-type={type}
+                  className="rounded-full px-4 py-2 text-sm font-medium transition-all duration-200"
+                  style={{
+                    backgroundColor: active ? meta.background : 'var(--bg-surface)',
+                    color: active ? meta.accent : 'var(--text-secondary)',
+                    border: `1px solid ${active ? meta.accent : 'var(--border-muted)'}`,
+                  }}
+                >
+                  {meta.label} {total}
+                </button>
+              )
+            })}
+          </div>
         </motion.div>
 
         {loading ? (
           <div className="space-y-8">
-            {[1, 2].map((i) => (
-              <div key={i} className="skeleton-pulse">
-                <div className="h-8 w-20 rounded mb-4" style={{ background: 'var(--bg-surface)' }} />
-                <div className="space-y-3 ml-6">
+            {[1, 2].map((index) => (
+              <div key={index} className="skeleton-pulse">
+                <div className="mb-4 h-8 w-20 rounded" style={{ background: 'var(--bg-surface)' }} />
+                <div className="ml-6 space-y-3">
                   <div className="h-5 w-3/4 rounded" style={{ background: 'var(--bg-surface)' }} />
                   <div className="h-5 w-2/3 rounded" style={{ background: 'var(--bg-surface)' }} />
                 </div>
               </div>
             ))}
           </div>
-        ) : groups.length === 0 ? (
-          <p style={{ color: 'var(--text-faint)' }}>暂无文章</p>
+        ) : filteredGroups.length === 0 ? (
+          <p style={{ color: 'var(--text-faint)' }}>当前筛选下暂无文章</p>
         ) : (
           <div className="space-y-12">
-            {groups.map((group, gi) => (
+            {filteredGroups.map((group, groupIndex) => (
               <motion.div
                 key={group.year}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: gi * 0.1, duration: 0.4 }}
+                transition={{ delay: groupIndex * 0.1, duration: 0.4 }}
               >
-                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
-                  <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: 'var(--accent)' }}
-                  />
+                <h2 className="mb-6 flex items-center gap-3 text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+                  <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
                   {group.year}
                   <span className="text-sm font-normal" style={{ color: 'var(--text-faint)' }}>
                     ({group.posts.length} 篇)
                   </span>
                 </h2>
 
-                <div className="ml-1.5 border-l-2 pl-8 space-y-4" style={{ borderColor: 'var(--border-muted)' }}>
-                  {group.posts.map((post, pi) => (
-                    <motion.div
-                      key={post.slug}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: gi * 0.1 + pi * 0.05 }}
-                      className="relative group"
+                <div className="ml-1.5 space-y-8 border-l-2 pl-8" style={{ borderColor: 'var(--border-muted)' }}>
+                  {group.dayGroups.map((dayGroup) => (
+                    <div
+                      key={`${group.year}-${dayGroup.dateKey}`}
+                      className="space-y-4"
+                      data-ui="archive-day-group"
+                      data-date={dayGroup.dateKey}
+                      data-group-size={String(dayGroup.posts.length)}
                     >
-                      <div
-                        className="absolute -left-[2.35rem] top-2 w-2.5 h-2.5 rounded-full border-2 transition-colors duration-200"
-                        style={{
-                          borderColor: 'var(--accent)',
-                          backgroundColor: 'var(--bg-canvas)',
-                        }}
-                      />
-                      <Link
-                        to={`/posts/${post.slug}`}
-                        className="flex items-baseline gap-4 py-2 transition-colors duration-200 group-hover:text-[var(--accent)]"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        <span className="text-xs flex-shrink-0 flex items-center gap-1" style={{ color: 'var(--text-faint)' }}>
-                          <Calendar size={12} />
-                          {formatDate(post.created_at)}
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="rounded-full px-3 py-1 text-xs font-semibold"
+                          style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+                        >
+                          {formatDate(dayGroup.dateKey)}
                         </span>
-                        <span className="font-medium text-[15px] group-hover:text-[var(--accent)] transition-colors duration-200 inline-flex items-center gap-1.5 flex-wrap" style={{ color: 'var(--text-primary)' }}>
-                          {post.is_pinned && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }} title="置顶">
-                              <Pin size={10} /> 置顶
-                            </span>
-                          )}
-                          {post.title}
+                        <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                          同日 {dayGroup.posts.length} 篇
                         </span>
-                      </Link>
-                    </motion.div>
+                      </div>
+
+                      <div className="space-y-4">
+                        {dayGroup.posts.map((post, postIndex) => {
+                          const typeMeta = CONTENT_TYPE_META[post.content_type]
+                          return (
+                            <motion.div
+                              key={post.slug}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: groupIndex * 0.08 + postIndex * 0.04 }}
+                              className="relative group"
+                            >
+                              <div
+                                className="absolute -left-[2.35rem] top-3 h-2.5 w-2.5 rounded-full border-2 transition-colors duration-200"
+                                style={{ borderColor: 'var(--accent)', backgroundColor: 'var(--bg-canvas)' }}
+                              />
+                              <Link
+                                to={`/posts/${post.slug}`}
+                                className="flex flex-col gap-2 rounded-2xl px-4 py-3 transition-colors duration-200 group-hover:bg-[var(--bg-surface)]"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <span className="flex flex-shrink-0 items-center gap-1 text-xs" style={{ color: 'var(--text-faint)' }}>
+                                    <Calendar size={12} />
+                                    {formatDate(post.created_at)}
+                                  </span>
+                                  {typeMeta ? (
+                                    <span
+                                      data-ui="archive-type-badge"
+                                      data-content-type={post.content_type}
+                                      className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
+                                      style={{ backgroundColor: typeMeta.background, color: typeMeta.accent }}
+                                    >
+                                      {typeMeta.label}
+                                    </span>
+                                  ) : null}
+                                  {post.is_pinned ? (
+                                    <span
+                                      className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                                      style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+                                      title="置顶"
+                                    >
+                                      <Pin size={10} /> 置顶
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <span
+                                  className="text-[15px] font-medium transition-colors duration-200 group-hover:text-[var(--accent)]"
+                                  style={{ color: 'var(--text-primary)' }}
+                                >
+                                  {post.title}
+                                </span>
+                              </Link>
+                            </motion.div>
+                          )
+                        })}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </motion.div>

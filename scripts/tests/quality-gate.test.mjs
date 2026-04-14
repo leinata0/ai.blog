@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+import { createDailyBriefFormatProfile } from '../auto-blog.mjs'
 import { getBlogFormatProfile } from '../lib/blog-format.mjs'
 import { evaluateQualityGate } from '../lib/quality-gate.mjs'
 
@@ -62,4 +63,49 @@ test('quality gate rejects post with missing sections', () => {
 
   assert.equal(result.passed, false)
   assert.ok(result.reasons.some((reason) => reason.startsWith('missing_sections:')))
+})
+
+test('quality gate resolves nested daily brief rules from content type', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: [
+        '## 发生了什么',
+        'OpenAI 发布了新的开发者代理，并同步开放 API 接入。',
+        '这意味着同一套能力开始从演示阶段走向真实工作流。',
+        '## 为什么值得关注',
+        '官方和行业媒体都把重点放在开发效率与可靠性变化上。',
+        '更关键的是，这类产品开始直接竞争 IDE 和工作流入口。',
+        '## 这件事可能带来的影响',
+        '代价在于团队需要重新评估代码审查与自动执行边界。',
+        '背后反映出模型竞争正在从参数规模转向工作流占位。',
+        '## 参考来源',
+        '- a',
+        '## 图片来源',
+        '- 无正文插图',
+      ].join('\n\n'),
+    },
+    researchPack: {
+      sources: [
+        { source_type: 'official_blog' },
+        { source_type: 'industry_media' },
+      ],
+    },
+    formatProfile: createDailyBriefFormatProfile(),
+    config: {
+      quality_gate: {
+        daily_brief: {
+          min_sources: 2,
+          min_high_quality_sources: 1,
+          high_quality_source_types: ['official_blog'],
+          min_chars: 30,
+          max_banned_phrase_hits: 0,
+          min_analysis_signals: 2,
+        },
+      },
+    },
+  })
+
+  assert.equal(result.passed, true)
 })

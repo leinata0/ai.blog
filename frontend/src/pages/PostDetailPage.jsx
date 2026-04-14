@@ -51,6 +51,19 @@ function MarkdownImage({ src, alt, title }) {
   )
 }
 
+const CONTENT_TYPE_META = {
+  daily_brief: {
+    label: '日更快报',
+    accent: 'var(--accent)',
+    background: 'var(--accent-soft)',
+  },
+  weekly_review: {
+    label: '每周回顾',
+    accent: '#2563eb',
+    background: 'rgba(37,99,235,0.12)',
+  },
+}
+
 export default function PostDetailPage({ slug: overrideSlug }) {
   const params = useParams()
   const slug = overrideSlug ?? params.slug
@@ -187,6 +200,18 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-3 mb-4">
+                {post.content_type && CONTENT_TYPE_META[post.content_type] && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-sm"
+                    style={{
+                      background: CONTENT_TYPE_META[post.content_type].background,
+                      color: CONTENT_TYPE_META[post.content_type].accent,
+                      border: '1px solid rgba(255,255,255,0.2)',
+                    }}
+                  >
+                    {CONTENT_TYPE_META[post.content_type].label}
+                  </span>
+                )}
                 {post.is_pinned && (
                   <motion.span
                     initial={{ opacity: 0, scale: 0.92 }}
@@ -213,6 +238,11 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                 <span className="flex items-center gap-1.5">
                   <Calendar size={14} style={{ color: 'var(--text-faint)' }} /> {formatDate(post.created_at)}
                 </span>
+                {post.coverage_date && (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar size={14} style={{ color: 'var(--text-faint)' }} /> 覆盖日期: {post.coverage_date}
+                  </span>
+                )}
                 <span className="flex items-center gap-1.5">
                   <Clock size={14} style={{ color: 'var(--text-faint)' }} /> 阅读时长: {readingTime} 分钟
                 </span>

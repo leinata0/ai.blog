@@ -33,12 +33,20 @@ def test_create_post(client):
         "slug": "test-post",
         "summary": "A test",
         "content_md": "# Hello",
+        "content_type": "daily_brief",
+        "topic_key": "openai-launches-x",
+        "published_mode": "auto",
+        "coverage_date": "2026-04-14",
         "tags": ["python", "test"],
     }, headers=_auth(token))
     assert resp.status_code == 200
     data = resp.json()
     assert data["title"] == "Test Post"
     assert data["slug"] == "test-post"
+    assert data["content_type"] == "daily_brief"
+    assert data["topic_key"] == "openai-launches-x"
+    assert data["published_mode"] == "auto"
+    assert data["coverage_date"] == "2026-04-14"
     assert len(data["tags"]) == 2
     assert data["id"] is not None
 
@@ -55,10 +63,74 @@ def test_update_post(client):
 
     resp = client.put(f"/api/admin/posts/{post_id}", json={
         "title": "Updated",
+        "content_type": "weekly_review",
+        "published_mode": "manual",
     }, headers=_auth(token))
     assert resp.status_code == 200
     assert resp.json()["title"] == "Updated"
     assert resp.json()["slug"] == "original"
+    assert resp.json()["content_type"] == "weekly_review"
+    assert resp.json()["published_mode"] == "manual"
+
+
+def test_upsert_and_fetch_publishing_status(client):
+    token = _login(client)
+    payload = {
+        "workflow_key": "daily_auto",
+        "external_run_id": "gha-123",
+        "run_mode": "auto",
+        "status": "success",
+        "coverage_date": "2026-04-14",
+        "message": "Published 2 posts, skipped 1 duplicate",
+        "candidate_topics": [
+            {
+                "topic_key": "openai-api-update",
+                "title": "OpenAI API update",
+                "summary": "A new API launch",
+                "source_count": 3,
+                "source_names": ["OpenAI Blog", "TechCrunch"],
+                "content_type": "daily_brief",
+            }
+        ],
+        "published_topics": [
+            {
+                "topic_key": "openai-api-update",
+                "title": "OpenAI API update",
+                "post_slug": "openai-api-update",
+                "published_mode": "auto",
+                "content_type": "daily_brief",
+            }
+        ],
+        "skipped_topics": [
+            {
+                "topic_key": "same-news",
+                "title": "Same news from another source",
+                "reason": "duplicate topic_key detected",
+                "status": "skipped",
+            }
+        ],
+    }
+
+    create_resp = client.post(
+        "/api/admin/publishing-status",
+        json=payload,
+        headers=_auth(token),
+    )
+    assert create_resp.status_code == 200
+    data = create_resp.json()
+    assert data["workflow_key"] == "daily_auto"
+    assert data["summary"]["candidate_count"] == 1
+    assert data["summary"]["published_count"] == 1
+    assert data["summary"]["skipped_count"] == 1
+    assert data["summary"]["auto_published_count"] == 1
+    assert data["published_topics"][0]["post_slug"] == "openai-api-update"
+
+    list_resp = client.get("/api/admin/publishing-status", headers=_auth(token))
+    assert list_resp.status_code == 200
+    status_data = list_resp.json()
+    assert status_data["latest_runs"]["daily_auto"]["external_run_id"] == "gha-123"
+    assert status_data["recent_runs"][0]["message"] == "Published 2 posts, skipped 1 duplicate"
+    assert status_data["latest_runs"]["weekly_review"] is None
 
 
 def test_delete_post(client):

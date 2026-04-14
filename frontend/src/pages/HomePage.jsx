@@ -30,6 +30,19 @@ const hoverGlow = {
   transition: { duration: 0.2 },
 }
 
+const CONTENT_TYPE_META = {
+  daily_brief: {
+    label: '日更快报',
+    accent: 'var(--accent)',
+    background: 'var(--accent-soft)',
+  },
+  weekly_review: {
+    label: '每周回顾',
+    accent: '#2563eb',
+    background: 'rgba(37,99,235,0.12)',
+  },
+}
+
 export default function HomePage() {
   const { settings } = useSite()
   const [tag, setTag] = useState('')
@@ -241,6 +254,20 @@ export default function HomePage() {
                       animate={post.is_pinned ? { boxShadow: ['0 0 24px rgba(73,177,245,0.2), var(--card-shadow)', '0 0 36px rgba(73,177,245,0.35), var(--card-shadow)', '0 0 24px rgba(73,177,245,0.2), var(--card-shadow)'] } : undefined}
                       transition={post.is_pinned ? { duration: 2.8, repeat: Infinity, ease: 'easeInOut' } : undefined}
                     >
+                      {post.content_type && CONTENT_TYPE_META[post.content_type] && (
+                        <div className="absolute left-4 top-4 z-10">
+                          <span
+                            className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold shadow-sm"
+                            style={{
+                              backgroundColor: CONTENT_TYPE_META[post.content_type].background,
+                              color: CONTENT_TYPE_META[post.content_type].accent,
+                              border: '1px solid rgba(255,255,255,0.2)',
+                            }}
+                          >
+                            {CONTENT_TYPE_META[post.content_type].label}
+                          </span>
+                        </div>
+                      )}
                       {post.is_pinned && (
                         <div
                           className="absolute top-4 right-4 z-10 flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold shadow-md"

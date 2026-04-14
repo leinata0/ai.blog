@@ -1,7 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { dedupeResearchItems, parseFeedXml, scoreResearchItem } from '../lib/blogwatcher.mjs'
+import {
+  dedupeResearchItems,
+  parseFeedXml,
+  resolveBlogwatcherPlan,
+  scoreResearchItem,
+} from '../lib/blogwatcher.mjs'
 
 const source = {
   name: 'Example Feed',
@@ -42,4 +47,31 @@ test('scoreResearchItem favors official sources and topic matches', () => {
   }, 'model')
 
   assert.ok(scored > 1.2)
+})
+
+test('resolveBlogwatcherPlan isolates weekly-review overrides', () => {
+  const plan = resolveBlogwatcherPlan({
+    blogwatcher_enabled: false,
+    blogwatcher_sources: [
+      { name: 'Base Blog', feed_url: 'https://base.example/rss.xml' },
+    ],
+    weekly_review: {
+      blogwatcher_enabled: true,
+      blogwatcher_max_items: 6,
+      firecrawl_mode: 'fallback',
+      exa_mode: 'fallback',
+      blogwatcher_sources: [
+        { name: 'Weekly Blog', feed_url: 'https://weekly.example/rss.xml' },
+        { name: 'Weekly Blog', feed_url: 'https://weekly.example/rss.xml' },
+      ],
+    },
+  }, { mode: 'weekly-review', topicHint: 'agents' })
+
+  assert.equal(plan.enabled, true)
+  assert.equal(plan.maxItems, 6)
+  assert.equal(plan.sources.length, 1)
+  assert.equal(plan.sources[0].name, 'Weekly Blog')
+  assert.equal(plan.enhanced_source_policy.firecrawl, 'fallback')
+  assert.equal(plan.enhanced_source_policy.exa, 'fallback')
+  assert.equal(plan.topicHint, 'agents')
 })

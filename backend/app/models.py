@@ -22,6 +22,10 @@ class Post(Base):
     summary = Column(String(300), nullable=False)
     content_md = Column(Text, nullable=False)
     cover_image = Column(String(500), nullable=False, default="")
+    content_type = Column(String(50), nullable=False, default="post")
+    topic_key = Column(String(200), nullable=False, default="")
+    published_mode = Column(String(20), nullable=False, default="manual")
+    coverage_date = Column(String(20), nullable=False, default="")
     view_count = Column(Integer, nullable=False, default=0)
     is_published = Column(Boolean, nullable=False, default=True)
     is_pinned = Column(Boolean, nullable=False, default=False)
@@ -80,3 +84,22 @@ class ViewLog(Base):
     post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
     ip_address = Column(String, nullable=False)
     created_at = Column(DateTime, default=func.now())
+
+
+class PublishingRun(Base):
+    __tablename__ = "publishing_runs"
+    id = Column(Integer, primary_key=True, index=True)
+    workflow_key = Column(String(50), nullable=False, index=True, default="daily_auto")
+    external_run_id = Column(String(120), nullable=False, index=True, default="")
+    run_mode = Column(String(20), nullable=False, default="auto")
+    status = Column(String(20), nullable=False, default="success")
+    coverage_date = Column(String(20), nullable=False, default="")
+    message = Column(Text, nullable=False, default="")
+    candidate_count = Column(Integer, nullable=False, default=0)
+    published_count = Column(Integer, nullable=False, default=0)
+    skipped_count = Column(Integer, nullable=False, default=0)
+    payload_json = Column(Text, nullable=False, default="{}")
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
