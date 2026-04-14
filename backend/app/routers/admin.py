@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_access_token, get_current_admin, verify_admin
@@ -145,6 +146,15 @@ def _resolve_tags(db: Session, tag_slugs: list[str]) -> list[Tag]:
             db.flush()
         tags.append(tag)
     return tags
+
+
+def _raise_integrity_http_error(error: IntegrityError) -> None:
+    message = str(getattr(error, "orig", error)).lower()
+    if "posts.slug" in message or "slug" in message or "unique constraint" in message:
+        raise HTTPException(status_code=409, detail="Post slug already exists")
+    if "tags.slug" in message:
+        raise HTTPException(status_code=409, detail="Tag slug already exists")
+    raise HTTPException(status_code=400, detail="Database constraint failed")
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -305,7 +315,11 @@ def create_post(
     )
     post.tags = _resolve_tags(db, body.tags)
     db.add(post)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        _raise_integrity_http_error(error)
     db.refresh(post)
     return _post_to_dict(post)
 
@@ -348,7 +362,11 @@ def update_post(
     if body.tags is not None:
         post.tags = _resolve_tags(db, body.tags)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        _raise_integrity_http_error(error)
     db.refresh(post)
     return _post_to_dict(post)
 

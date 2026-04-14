@@ -51,6 +51,23 @@ def test_create_post(client):
     assert data["id"] is not None
 
 
+def test_create_post_duplicate_slug_returns_409(client):
+    token = _login(client)
+    payload = {
+        "title": "Test Post",
+        "slug": "test-post",
+        "summary": "A test",
+        "content_md": "# Hello",
+    }
+
+    first = client.post("/api/admin/posts", json=payload, headers=_auth(token))
+    assert first.status_code == 200
+
+    duplicate = client.post("/api/admin/posts", json=payload, headers=_auth(token))
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "Post slug already exists"
+
+
 def test_update_post(client):
     token = _login(client)
     create = client.post("/api/admin/posts", json={

@@ -788,6 +788,18 @@ async function checkSlugExists(slug) {
   }
 }
 
+async function fetchExistingPost(slug) {
+  try {
+    const resp = await fetch(`${BLOG_API_BASE}/api/posts/${slug}`, {
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!resp.ok) return null
+    return await resp.json()
+  } catch {
+    return null
+  }
+}
+
 function truncateSummary(summary, max = 50) {
   const chars = Array.from(String(summary || '').trim())
   return chars.length <= max ? chars.join('') : chars.slice(0, max).join('')
@@ -907,27 +919,64 @@ function normalizeForApi(post, fixedSlug, outline, metadata = {}) {
 }
 
 async function publishPost(token, payload, coverImage = '') {
+  const requestBody = {
+    title: payload.title,
+    slug: payload.slug,
+    summary: payload.summary,
+    content_md: payload.content_md,
+    content_type: payload.content_type,
+    topic_key: payload.topic_key,
+    published_mode: payload.published_mode,
+    coverage_date: payload.coverage_date,
+    tags: payload.tags,
+    is_published: true,
+    is_pinned: false,
+    cover_image: coverImage,
+  }
+
+  const existingPost = await fetchExistingPost(payload.slug)
+  if (existingPost?.id) {
+    const updateResp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${existingPost.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(requestBody),
+    })
+    if (!updateResp.ok) {
+      throw new Error(`Publish update failed: ${updateResp.status} ${(await updateResp.text()).slice(0, 300)}`)
+    }
+    return updateResp.json()
+  }
+
   const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({
-      title: payload.title,
-      slug: payload.slug,
-      summary: payload.summary,
-      content_md: payload.content_md,
-      content_type: payload.content_type,
-      topic_key: payload.topic_key,
-      published_mode: payload.published_mode,
-      coverage_date: payload.coverage_date,
-      tags: payload.tags,
-      is_published: true,
-      is_pinned: false,
-      cover_image: coverImage,
-    }),
+    body: JSON.stringify(requestBody),
   })
+
+  if (resp.status === 409) {
+    const conflictPost = await fetchExistingPost(payload.slug)
+    if (conflictPost?.id) {
+      const retryResp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${conflictPost.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      })
+      if (!retryResp.ok) {
+        throw new Error(`Publish conflict-retry failed: ${retryResp.status} ${(await retryResp.text()).slice(0, 300)}`)
+      }
+      return retryResp.json()
+    }
+  }
+
   if (!resp.ok) {
     throw new Error(`Publish failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
@@ -1254,8 +1303,32 @@ async function runWeeklyReviewMode(config, cliOptions) {
   const slug = workflow.slug
   const formatProfile = getBlogFormatProfile(resolveFormatProfileName(config, 'weekly-review'))
 
-  if (!cliOptions.dryRun && (await checkSlugExists(slug))) {
+  if (!cliOptions.dryRun && !cliOptions.force && (await checkSlugExists(slug))) {
     console.log(`Slug already exists: ${slug}`)
+    const token = await getAdminToken()
+    await reportPublishingRun(token, {
+      workflow_key: 'weekly_review',
+      external_run_id: process.env.GITHUB_RUN_ID || '',
+      run_mode: 'auto',
+      status: 'skipped',
+      coverage_date: today,
+      message: `Weekly review skipped because slug already exists: ${slug}`,
+      candidate_topics: [],
+      published_topics: [],
+      skipped_topics: [
+        createTopicSnapshot(
+          { title: slug, topic_key: slug, summary: '' },
+          {
+            topic_key: slug,
+            title: slug,
+            content_type: workflow.content_type,
+            published_mode: 'auto',
+            reason: 'slug already exists',
+            status: 'skipped',
+          }
+        ),
+      ],
+    })
     return []
   }
 
