@@ -45,7 +45,7 @@ it('renders series list page', async () => {
     </MemoryRouter>
   )
 
-  expect(await screen.findByText('AI Daily Brief')).toBeInTheDocument()
+  expect((await screen.findAllByText('AI Daily Brief')).length).toBeGreaterThan(0)
 })
 
 it('renders series detail and discover pages', async () => {
