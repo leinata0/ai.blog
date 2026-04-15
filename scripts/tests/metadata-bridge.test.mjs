@@ -263,13 +263,13 @@ test('workflow contracts remain unchanged for script entry and required secrets'
     readFile(weeklyWorkflowPath, 'utf8'),
   ])
 
-  assert.ok(autoWorkflow.includes('name: AI Daily Auto Blog'))
+  assert.ok(autoWorkflow.includes('name: AI 日报自动发文'))
   assert.ok(autoWorkflow.includes('SILICONFLOW_API_KEY'))
   assert.ok(autoWorkflow.includes('ADMIN_PASSWORD'))
   assert.ok(autoWorkflow.includes('node scripts/auto-blog.mjs'))
   assert.ok(autoWorkflow.includes('--mode daily-auto'))
 
-  assert.ok(weeklyWorkflow.includes('name: AI Weekly Review'))
+  assert.ok(weeklyWorkflow.includes('name: AI 周报自动生成'))
   assert.ok(weeklyWorkflow.includes('SILICONFLOW_API_KEY'))
   assert.ok(weeklyWorkflow.includes('ADMIN_PASSWORD'))
   assert.ok(weeklyWorkflow.includes('node scripts/auto-blog.mjs'))

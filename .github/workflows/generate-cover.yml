@@ -8,14 +8,19 @@ on:
         required: true
         default: '6'
       cover_prompt:
-        description: 封面图提示词，建议使用英文
-        required: true
-        default: 'Wide landscape banner, cinematic, high quality: A futuristic automated content pipeline visualization, RSS feed icons flowing through glowing AI neural network nodes into a polished blog interface, dark tech theme with blue accent lighting, code snippets floating in background, minimalist and professional'
+        description: 可选，手动指定封面提示词；留空时自动根据文章内容生成
+        required: false
+        default: ''
+      overwrite_existing_cover:
+        description: 即使文章已有封面图也强制覆盖
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   generate-cover:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       # 拉取仓库代码
       - name: 拉取仓库代码
@@ -27,73 +32,31 @@ jobs:
         with:
           node-version: '22'
 
-      # 调用 Grok 生成封面并回写文章
+      # 安装脚本依赖
+      - name: 安装脚本依赖
+        run: cd scripts && npm install
+
+      # 检查必要密钥
+      - name: 检查必要密钥
+        env:
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
+          if [ -z "$XAI_API_KEY" ]; then echo "::error::Missing XAI_API_KEY"; exit 1; fi
+          echo "Secrets look good."
+
+      # 自动读取文章内容，生成提示词后调用 Grok 生图并回写封面
       - name: 生成封面图并更新文章
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
+          SILICONFLOW_BASE_URL: ${{ vars.SILICONFLOW_BASE_URL }}
+          SILICONFLOW_MODEL: ${{ vars.SILICONFLOW_MODEL }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
           POST_ID: ${{ github.event.inputs.post_id }}
           COVER_PROMPT: ${{ github.event.inputs.cover_prompt }}
-        run: |
-          node -e "
-          const BLOG_API_BASE = process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com'
-          async function main() {
-            // 登录后台
-            const loginResp = await fetch(BLOG_API_BASE + '/api/admin/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: process.env.ADMIN_USERNAME || 'admin', password: process.env.ADMIN_PASSWORD }),
-            })
-            if (!loginResp.ok) { console.log('Login failed'); process.exit(1) }
-            const token = (await loginResp.json()).access_token
-            console.log('Login OK')
-
-            // 调用 Grok 生图
-            console.log('Generating cover with Grok...')
-            const grokResp = await fetch('https://api.x.ai/v1/images/generations', {
-              method: 'POST',
-              headers: { Authorization: 'Bearer ' + process.env.XAI_API_KEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: 'grok-imagine-image', prompt: process.env.COVER_PROMPT, n: 1 }),
-              signal: AbortSignal.timeout(60000),
-            })
-            if (!grokResp.ok) { console.log('Grok failed:', await grokResp.text()); process.exit(1) }
-            const grokUrl = (await grokResp.json()).data?.[0]?.url
-            if (!grokUrl) { console.log('No image URL'); process.exit(1) }
-            console.log('Grok OK')
-
-            // 下载图片内容
-            const imgResp = await fetch(grokUrl, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0' } })
-            const buffer = Buffer.from(await imgResp.arrayBuffer())
-            const ct = imgResp.headers.get('content-type') || 'image/png'
-            const ext = ct.includes('png') ? '.png' : '.jpg'
-            const filename = 'cover-' + Date.now() + ext
-            console.log('Downloaded:', buffer.length, 'bytes')
-
-            // 上传到博客后台
-            const boundary = '----FormBoundary' + Date.now()
-            const head = '--' + boundary + '\\r\\nContent-Disposition: form-data; name=\"file\"; filename=\"' + filename + '\"\\r\\nContent-Type: ' + ct + '\\r\\n\\r\\n'
-            const foot = '\\r\\n--' + boundary + '--\\r\\n'
-            const body = Buffer.concat([Buffer.from(head), buffer, Buffer.from(foot)])
-            const upResp = await fetch(BLOG_API_BASE + '/api/admin/upload', {
-              method: 'POST',
-              headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'multipart/form-data; boundary=' + boundary },
-              body,
-            })
-            if (!upResp.ok) { console.log('Upload failed'); process.exit(1) }
-            const upData = await upResp.json()
-            const localUrl = upData.url?.startsWith('http') ? upData.url : BLOG_API_BASE + upData.url
-            console.log('Uploaded:', localUrl)
-
-            // 回写文章封面
-            const putResp = await fetch(BLOG_API_BASE + '/api/admin/posts/' + process.env.POST_ID, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-              body: JSON.stringify({ cover_image: localUrl }),
-            })
-            if (!putResp.ok) { console.log('Update failed'); process.exit(1) }
-            console.log('Cover updated for post', process.env.POST_ID)
-          }
-          main().catch(e => { console.error(e.message); process.exit(1) })
-          "
+          OVERWRITE_EXISTING_COVER: ${{ github.event.inputs.overwrite_existing_cover }}
+        run: node scripts/generate-cover-for-post.mjs

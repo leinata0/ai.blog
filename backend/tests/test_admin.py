@@ -108,6 +108,26 @@ def test_update_post(client):
     assert resp.json()["quality_score"] == 90.0
 
 
+def test_get_admin_post_by_id(client):
+    token = _login(client)
+    create = client.post("/api/admin/posts", json={
+        "title": "Existing Post",
+        "slug": "existing-post",
+        "summary": "s",
+        "content_md": "c",
+        "tags": ["ai"],
+    }, headers=_auth(token))
+    assert create.status_code == 200
+    post_id = create.json()["id"]
+
+    resp = client.get(f"/api/admin/posts/{post_id}", headers=_auth(token))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == post_id
+    assert data["slug"] == "existing-post"
+    assert len(data["tags"]) == 1
+
+
 def test_upsert_and_fetch_publishing_status(client):
     token = _login(client)
     payload = {

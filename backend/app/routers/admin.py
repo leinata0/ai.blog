@@ -977,6 +977,20 @@ def admin_list_posts(
     }
 
 
+@router.get("/posts/{post_id}", response_model=PostAdminOut)
+def get_admin_post(
+    post_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    post = db.execute(
+        select(Post).options(selectinload(Post.tags)).where(Post.id == post_id)
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return _post_to_dict(post)
+
+
 @router.post("/posts", response_model=PostAdminOut)
 def create_post(
     body: PostCreateRequest,
