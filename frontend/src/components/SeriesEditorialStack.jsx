@@ -19,17 +19,17 @@ function clampIndex(index, size) {
 }
 
 function getCardWidth(compact) {
-  return compact ? '74%' : '76%'
+  return compact ? '75%' : '77%'
 }
 
 function getDesktopOffsets(compact) {
   return compact
     ? {
-        future: ['0%', '15%', '27%', '37%', '46%', '53%'],
+        future: ['0%', '15%', '27%', '38%', '47%', '54%'],
         previous: ['0%', '-2%', '-4%', '-6%', '-8%'],
       }
     : {
-        future: ['0%', '14%', '25%', '35%', '44%', '52%'],
+        future: ['0%', '14%', '26%', '37%', '46%', '54%'],
         previous: ['0%', '-2%', '-4%', '-6%', '-8%'],
       }
 }
@@ -49,13 +49,13 @@ function buildDesktopCardStyle(index, activeIndex, compact, edgeNudge) {
     scale: isActive
       ? 1
       : delta > 0
-        ? Math.max(0.88, 0.98 - distance * 0.045)
-        : Math.max(0.92, 0.97 - distance * 0.018),
+        ? Math.max(0.9, 0.98 - distance * 0.04)
+        : Math.max(0.93, 0.97 - distance * 0.018),
     opacity: isActive
       ? 1
       : delta > 0
-        ? Math.max(0.22, 0.82 - distance * 0.14)
-        : Math.max(0.08, 0.18 - distance * 0.04),
+        ? Math.max(0.26, 0.84 - distance * 0.13)
+        : Math.max(0.08, 0.16 - distance * 0.04),
     zIndex: isActive ? 50 : delta > 0 ? 40 - distance : 8 - distance,
   }
 }
@@ -74,12 +74,12 @@ function SeriesCover({ series }) {
   }
 
   return (
-    <div className="flex h-full w-full items-end bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.32),transparent_46%),linear-gradient(140deg,rgba(37,99,235,0.2),rgba(15,23,42,0.08))] p-6">
+    <div className="flex h-full w-full items-end bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.32),transparent_46%),linear-gradient(140deg,rgba(47,140,255,0.28),rgba(15,23,42,0.08))] p-6">
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: '#2563eb' }}>
           Curated Series
         </div>
-        <div className="mt-2 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+        <div className="mt-2 font-display text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
           {getSeriesTitle(series)}
         </div>
       </div>
@@ -91,7 +91,7 @@ function SeriesCardContent({ series, compact = false }) {
   return (
     <div className="relative h-full">
       <SeriesCover series={series} />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.02),rgba(15,23,42,0.78))]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.04),rgba(15,23,42,0.84))]" />
       <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-5 py-5 sm:px-6">
         <span
           className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
@@ -110,7 +110,7 @@ function SeriesCardContent({ series, compact = false }) {
 
       <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-6">
         <div className={compact ? 'max-w-lg' : 'max-w-xl'}>
-          <h3 className="text-2xl font-semibold leading-tight sm:text-3xl">
+          <h3 className="font-display text-2xl font-semibold leading-tight sm:text-3xl">
             {getSeriesTitle(series)}
           </h3>
           <p className="mt-3 text-sm leading-7 text-white/80 sm:text-[15px]">
@@ -143,18 +143,18 @@ function StackTabs({ items, activeIndex, onActivate }) {
             type="button"
             onClick={() => onActivate(index)}
             aria-pressed={isActive}
-            className="min-h-[82px] rounded-[1.4rem] border px-4 py-3 text-left transition-all duration-300"
+            className="min-h-[86px] rounded-[1.4rem] border px-4 py-3 text-left transition-all duration-300"
             style={{
-              backgroundColor: isActive ? 'rgba(37, 99, 235, 0.12)' : 'var(--bg-surface)',
-              borderColor: isActive ? 'rgba(37, 99, 235, 0.24)' : 'var(--border-muted)',
+              backgroundColor: isActive ? 'rgba(47,140,255,0.12)' : 'var(--bg-surface)',
+              borderColor: isActive ? 'rgba(47,140,255,0.24)' : 'var(--border-muted)',
               color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: isActive ? '0 14px 36px rgba(37, 99, 235, 0.12)' : 'none',
+              boxShadow: isActive ? '0 16px 36px rgba(47,140,255,0.12)' : 'none',
             }}
           >
             <div className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: isActive ? '#2563eb' : 'var(--text-faint)' }}>
               系列
             </div>
-            <div className="mt-2 line-clamp-2 text-sm font-semibold leading-6">
+            <div className="mt-2 line-clamp-2 font-display text-base font-semibold leading-6">
               {getSeriesTitle(series)}
             </div>
             <div className="mt-2 text-xs" style={{ color: 'var(--text-faint)' }}>
@@ -177,7 +177,7 @@ function DesktopStack({
 }) {
   const wheelLockRef = useRef(0)
   const dragIntentRef = useRef(false)
-  const stageHeight = compact ? 420 : 500
+  const stageHeight = compact ? 440 : 520
 
   const handleWheel = useCallback((event) => {
     if (items.length <= 1) return
@@ -228,8 +228,8 @@ function DesktopStack({
     <div className="hidden md:block">
       <div
         data-ui="series-stack-stage"
-        className="relative overflow-hidden rounded-[2rem] border border-[rgba(148,163,184,0.18)] bg-[var(--bg-surface)] px-4 pb-4 pt-5"
-        style={{ minHeight: stageHeight, boxShadow: '0 26px 70px rgba(15, 23, 42, 0.08)' }}
+        className="relative overflow-hidden rounded-[2rem] border bg-[var(--bg-surface)] px-4 pb-4 pt-5"
+        style={{ minHeight: stageHeight, borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}
         onWheel={handleWheel}
       >
         <div className="relative" style={{ minHeight: stageHeight - 36 }}>
@@ -256,16 +256,12 @@ function DesktopStack({
                   style={{
                     width: cardWidth,
                     zIndex: motionStyle.zIndex,
-                    borderColor: 'rgba(37, 99, 235, 0.26)',
+                    borderColor: 'rgba(47,140,255,0.26)',
                     boxShadow: '0 28px 80px rgba(15, 23, 42, 0.16)',
                     touchAction: 'pan-y',
                   }}
                 >
-                  <Link
-                    to={`/series/${series.slug}`}
-                    className="block h-full"
-                    onClickCapture={handleActiveClickCapture}
-                  >
+                  <Link to={`/series/${series.slug}`} className="block h-full" onClickCapture={handleActiveClickCapture}>
                     <SeriesCardContent series={series} compact={compact} />
                   </Link>
                 </motion.article>
@@ -319,7 +315,7 @@ function MobileStack({ items, activeIndex, onActivate }) {
             className="overflow-hidden rounded-[1.5rem] border"
             style={{
               backgroundColor: 'var(--bg-surface)',
-              borderColor: expanded ? 'rgba(37, 99, 235, 0.24)' : 'var(--border-muted)',
+              borderColor: expanded ? 'rgba(47,140,255,0.24)' : 'var(--border-muted)',
               boxShadow: expanded ? '0 18px 40px rgba(15, 23, 42, 0.08)' : 'none',
             }}
           >
@@ -332,7 +328,7 @@ function MobileStack({ items, activeIndex, onActivate }) {
                 <div className="text-xs font-semibold" style={{ color: '#2563eb' }}>
                   系列
                 </div>
-                <div className="mt-1 text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                <div className="mt-1 font-display text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
                   {getSeriesTitle(series)}
                 </div>
               </div>
@@ -425,10 +421,10 @@ export default function SeriesEditorialStack({
     return (
       <div
         data-ui={dataUi}
-        className="rounded-[1.75rem] border px-6 py-10"
-        style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', color: 'var(--text-faint)' }}
+        className="empty-state-panel"
       >
-        {emptyText}
+        <h3 className="empty-state-panel__title">系列入口正在整理中</h3>
+        <p className="empty-state-panel__description">{emptyText}</p>
       </div>
     )
   }

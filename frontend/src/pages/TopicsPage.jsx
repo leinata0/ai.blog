@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Compass, Flame, Sparkles } from 'lucide-react'
 
@@ -7,6 +6,10 @@ import { fetchTopics } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
+import CoverCard from '../components/CoverCard'
+import EditorialSectionHeader from '../components/EditorialSectionHeader'
+import EmptyStatePanel from '../components/EmptyStatePanel'
+import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import { formatDate } from '../utils/date'
 import {
   getTopicBadgeLabel,
@@ -16,14 +19,13 @@ import {
   motionContainerVariants,
   motionItemVariants,
 } from '../utils/contentPresentation'
-import { proxyImageUrl } from '../utils/proxyImage'
 
 export default function TopicsPage() {
   const [topics, setTopics] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    document.title = '主题追踪'
+    document.title = '主题追踪 - AI 资讯观察'
     fetchTopics({ limit: 24 })
       .then((payload) => setTopics(Array.isArray(payload?.items) ? payload.items : []))
       .catch(() => setTopics([]))
@@ -38,19 +40,13 @@ export default function TopicsPage() {
           initial="hidden"
           animate="visible"
           variants={motionItemVariants}
-          className="editorial-panel rounded-3xl px-8 py-8"
-          style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
+          className="editorial-panel rounded-[2rem] px-8 py-8"
         >
-          <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#2563eb' }}>
-            <Compass size={16} />
-            主题总览
-          </div>
-          <h1 className="mt-3 text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            用主题，把分散消息串成长期主线
-          </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            这里聚合的是“内容在讲什么”。日报、周报和系列里的相关文章会沿着同一条主题继续沉淀，帮助你更快看清某家公司、模型或产品方向的持续变化。
-          </p>
+          <EditorialSectionHeader
+            eyebrow="主题总览"
+            title="用主题，把分散消息串成长期主线"
+            description="这里聚合的是“内容在讲什么”。日报、周报和系列里的相关文章会沿着同一条主题继续沉淀，帮助你更快看清某家公司、模型或产品方向的持续变化。"
+          />
         </motion.section>
 
         <motion.section
@@ -60,80 +56,45 @@ export default function TopicsPage() {
           className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3"
         >
           {loading ? (
-            [1, 2, 3, 4, 5, 6].map((item) => (
-              <motion.div
-                key={item}
-                variants={motionItemVariants}
-                className="h-72 rounded-3xl skeleton-pulse"
-                style={{ backgroundColor: 'var(--bg-surface)' }}
-              />
-            ))
+            <LoadingSkeletonSet count={6} className="contents" itemClassName="rounded-[1.8rem]" minHeight="20rem" />
           ) : topics.length > 0 ? (
             topics.map((topic) => (
-              <motion.article
-                key={topic.topic_key}
-                variants={motionItemVariants}
-                whileHover={hoverLift}
-                className="editorial-card overflow-hidden rounded-3xl border"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderColor: 'var(--border-muted)',
-                  boxShadow: 'var(--card-shadow)',
-                }}
-              >
-                <Link to={`/topics/${topic.topic_key}`} className="block">
-                  {topic.cover_image ? (
-                    <div className="editorial-cover h-44 overflow-hidden">
-                      <img
-                        src={proxyImageUrl(topic.cover_image)}
-                        alt={getTopicTitle(topic)}
-                        className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                      />
-                    </div>
-                  ) : null}
-                  <div className="px-6 py-6">
-                    <div className="flex items-center justify-between gap-3">
-                      <span
-                        className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
-                        style={{
-                          backgroundColor: topic.is_featured ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)',
-                          color: topic.is_featured ? '#2563eb' : 'var(--accent)',
-                        }}
-                      >
-                        {topic.is_featured ? <Sparkles size={12} /> : <Flame size={12} />}
-                        {getTopicBadgeLabel(topic)}
-                      </span>
-                      {topic.avg_quality_score ? (
-                        <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                          平均分 {topic.avg_quality_score}
-                        </span>
-                      ) : null}
-                    </div>
-                    <h2 className="mt-4 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
-                      {getTopicTitle(topic)}
-                    </h2>
-                    <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                      {getTopicDescription(topic)}
-                    </p>
-                    <div className="mt-4 flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
-                      {topic.post_count ? <span>{topic.post_count} 篇文章</span> : null}
-                      {topic.source_count ? <span>{topic.source_count} 个来源</span> : null}
-                      {topic.latest_post_at ? <span>最近更新于 {formatDate(topic.latest_post_at)}</span> : null}
-                    </div>
-                  </div>
-                </Link>
-              </motion.article>
+              <motion.div key={topic.topic_key} variants={motionItemVariants} whileHover={hoverLift}>
+                <CoverCard
+                  to={`/topics/${topic.topic_key}`}
+                  image={topic.cover_image}
+                  imageAlt={getTopicTitle(topic)}
+                  eyebrow={topic.is_featured ? '推荐主题' : '主题主线'}
+                  badge={(
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
+                      style={{
+                        backgroundColor: topic.is_featured ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)',
+                        color: topic.is_featured ? '#2563eb' : 'var(--accent)',
+                      }}
+                    >
+                      {topic.is_featured ? <Sparkles size={12} /> : <Flame size={12} />}
+                      {getTopicBadgeLabel(topic)}
+                    </span>
+                  )}
+                  title={getTopicTitle(topic)}
+                  description={getTopicDescription(topic)}
+                  meta={[
+                    topic.post_count ? `${topic.post_count} 篇文章` : '主题页',
+                    topic.source_count ? `${topic.source_count} 个来源` : '持续更新',
+                    topic.latest_post_at ? `最近更新于 ${formatDate(topic.latest_post_at)}` : '持续追踪中',
+                  ]}
+                />
+              </motion.div>
             ))
           ) : (
-            <motion.div
-              variants={motionItemVariants}
-              className="rounded-3xl px-6 py-10 md:col-span-2 xl:col-span-3"
-              style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-faint)' }}
-            >
-              当前还没有可展示的主题。等带有 `topic_key` 的文章发布后，这里会自动汇总主题入口。
-            </motion.div>
+            <div className="md:col-span-2 xl:col-span-3">
+              <EmptyStatePanel
+                title="当前还没有可展示的主题"
+                description="等带有 topic_key 的文章发布后，这里会自动汇总为主题入口。"
+                icon={Compass}
+              />
+            </div>
           )}
         </motion.section>
       </div>

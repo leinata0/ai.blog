@@ -14,9 +14,9 @@ export default function Footer() {
           <a href="/feed.xml" className="transition-colors duration-200 hover:text-[var(--accent)]">RSS</a>
         </div>
         <div className="flex items-center gap-4 text-sm" style={{ color: 'var(--text-faint)' }}>
-          <span>&copy; {new Date().getFullYear()} 极客开发日志</span>
+          <span>&copy; {new Date().getFullYear()} AI 资讯观察</span>
           <span>&middot;</span>
-          <span>Built with React + FastAPI</span>
+          <span>持续更新的 AI 资讯与观察</span>
           <span>&middot;</span>
           <Link to="/admin/login" className="transition-colors duration-200 hover:text-[var(--accent)] opacity-40 hover:opacity-70">管理</Link>
         </div>

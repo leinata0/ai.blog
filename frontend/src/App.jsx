@@ -24,8 +24,8 @@ function PageLoader() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg-canvas)]">
       <div className="text-center">
-        <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
-        <p className="text-sm text-[var(--text-tertiary)]">加载中...</p>
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+        <p className="text-sm font-medium text-[var(--text-tertiary)]">正在整理页面内容...</p>
       </div>
     </div>
   )

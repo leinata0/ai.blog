@@ -48,10 +48,10 @@ it('renders series list page', async () => {
     </MemoryRouter>
   )
 
-  expect((await screen.findAllByText('AI Daily Brief')).length).toBeGreaterThan(0)
-  expect((await screen.findAllByText('AI Weekly Review')).length).toBeGreaterThan(0)
-  expect((await screen.findAllByText('Product Strategy Watch')).length).toBeGreaterThan(0)
-  expect((await screen.findAllByText('Tooling Workflow')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('AI 日报')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('AI 周报')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('产品战略观察')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('工具与工作流')).length).toBeGreaterThan(0)
   expect(container.querySelector('[data-ui="series-page-showcase"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="series-stack-stage"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="series-stack-tabs"]')).toBeTruthy()
@@ -69,7 +69,7 @@ it('renders series detail and discover pages', async () => {
     </MemoryRouter>
   )
 
-  expect(await screen.findByRole('heading', { name: 'AI Daily Brief' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'AI 日报' })).toBeInTheDocument()
 
   render(
     <MemoryRouter initialEntries={['/discover']}>

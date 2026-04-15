@@ -10,13 +10,20 @@ import { proxyImageUrl } from '../utils/proxyImage'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
 import TagFilterBar from '../components/TagFilterBar'
-import ArticleSkeleton from '../components/ArticleSkeleton'
 import Pagination from '../components/Pagination'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import SeriesEditorialStack from '../components/SeriesEditorialStack'
+import AmbientHeroBackdrop from '../components/AmbientHeroBackdrop'
+import CoverCard from '../components/CoverCard'
+import EditorialSectionHeader from '../components/EditorialSectionHeader'
+import EmptyStatePanel from '../components/EmptyStatePanel'
+import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import {
   CONTENT_TYPE_META,
+  SITE_COPY,
+  getContentTypeMeta,
+  heroFloatAnimation,
   hoverLift,
   motionContainerVariants,
   motionItemVariants,
@@ -24,74 +31,76 @@ import {
 
 function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
   return (
-    <form onSubmit={onSubmit} className="mt-8 flex max-w-xl items-center gap-3">
+    <form onSubmit={onSubmit} className="mt-8 flex max-w-2xl flex-col gap-3 sm:flex-row">
       <label className="relative flex-1">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
+        <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
         <input
           value={searchInput}
           onChange={onInputChange}
           placeholder="搜索文章、主题或系列"
-          className="w-full rounded-2xl border px-10 py-3 text-sm outline-none"
+          className="w-full rounded-[1.3rem] border px-11 py-3.5 text-sm outline-none transition-colors"
           style={{
-            backgroundColor: 'rgba(255,255,255,0.9)',
-            borderColor: 'rgba(255,255,255,0.4)',
+            backgroundColor: 'var(--bg-surface-strong)',
+            borderColor: 'var(--border-muted)',
             color: 'var(--text-primary)',
+            boxShadow: 'var(--card-shadow-soft)',
           }}
         />
       </label>
-      <button type="submit" className="rounded-2xl px-5 py-3 text-sm font-semibold text-white" style={{ backgroundColor: 'var(--accent)' }}>
-        搜索
-      </button>
-      <button type="button" onClick={onClear} className="rounded-2xl px-4 py-3 text-sm font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.7)', color: 'var(--text-secondary)' }}>
-        清空
-      </button>
+
+      <div className="flex gap-3">
+        <button
+          type="submit"
+          className="rounded-[1.3rem] px-5 py-3.5 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5"
+          style={{ backgroundColor: 'var(--accent)' }}
+        >
+          开始搜索
+        </button>
+        <button
+          type="button"
+          onClick={onClear}
+          className="rounded-[1.3rem] px-4 py-3.5 text-sm font-semibold transition-colors duration-200"
+          style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)' }}
+        >
+          清空
+        </button>
+      </div>
     </form>
   )
 }
 
 function WeeklySpotlight({ post }) {
   return (
-    <motion.section
-      data-ui="home-weekly-spotlight"
-      variants={motionItemVariants}
-      className="editorial-panel rounded-3xl p-6 sm:p-8"
-      style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
-    >
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: 'rgba(37, 99, 235, 0.12)', color: '#2563eb' }}>
-            周报主卡
-          </div>
-          <h2 className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
-            先读一篇，看清这一周最重要的变化
-          </h2>
-          <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            周报会把一周内最值得回看的动态串成更清晰的脉络，方便你快速建立上下文。
-          </p>
-        </div>
-        <Link to="/weekly" className="inline-flex items-center gap-1 text-sm font-medium" style={{ color: '#2563eb' }}>
-          查看全部周报
-          <ArrowRight size={14} />
-        </Link>
-      </div>
+    <motion.section data-ui="home-weekly-spotlight" variants={motionItemVariants} className="space-y-4">
+      <EditorialSectionHeader
+        eyebrow="周报主卡"
+        title="先读一篇，迅速看清这一周的关键变化"
+        description="把一周里最值得回看的消息、产品动作和产业线索串成完整脉络，更适合从全局理解变化。"
+        actionLabel="查看全部周报"
+        actionTo="/weekly"
+        actionIcon={ArrowRight}
+      />
 
       {post ? (
-        <Link
+        <CoverCard
           to={`/posts/${post.slug}`}
-          className="mt-6 block rounded-3xl border border-[var(--border-muted)] px-5 py-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(37,99,235,0.28)]"
-          style={{ backgroundColor: 'var(--bg-canvas)' }}
-        >
-          <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
-            {post.coverage_date ? <span>{post.coverage_date}</span> : null}
-            <span>{CONTENT_TYPE_META.weekly_review.label}</span>
-          </div>
-          <h3 className="mt-3 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{post.title}</h3>
-          <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>{post.summary}</p>
-        </Link>
+          image={post.cover_image}
+          imageAlt={post.title}
+          overlay
+          eyebrow="本周精选"
+          title={post.title}
+          description={post.summary}
+          meta={[
+            post.coverage_date || formatDate(post.created_at),
+            CONTENT_TYPE_META.weekly_review.label,
+          ]}
+          footer={<span className="inline-flex items-center gap-2 font-semibold">进入这篇周报 <ArrowRight size={14} /></span>}
+        />
       ) : (
-        <div className="mt-6 rounded-3xl px-5 py-5" style={{ backgroundColor: 'var(--bg-canvas)' }}>
-          <p style={{ color: 'var(--text-faint)' }}>最新周报会出现在这里。</p>
-        </div>
+        <EmptyStatePanel
+          title="最新周报会出现在这里"
+          description="当新的周报发布后，这里会优先展示最新一篇，方便你快速进入本周主线。"
+        />
       )}
     </motion.section>
   )
@@ -100,25 +109,36 @@ function WeeklySpotlight({ post }) {
 function DailyCard({ post }) {
   return (
     <motion.article
-      data-ui="home-daily-rail"
       variants={motionItemVariants}
       whileHover={hoverLift}
-      className="editorial-card rounded-3xl border px-5 py-5"
-      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}
+      className="editorial-card rounded-[1.6rem] border px-5 py-5"
+      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow-soft)' }}
     >
       <Link to={`/posts/${post.slug}`} className="block">
-        <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
-          {post.coverage_date || formatDate(post.created_at)}
+        <div className="flex items-center justify-between gap-3">
+          <span
+            className="rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]"
+            style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+          >
+            今日关注
+          </span>
+          <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+            {post.coverage_date || formatDate(post.created_at)}
+          </span>
         </div>
-        <h3 className="mt-2 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{post.title}</h3>
-        <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>{post.summary}</p>
+        <h3 className="mt-4 font-display text-xl font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>
+          {post.title}
+        </h3>
+        <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
+          {post.summary}
+        </p>
       </Link>
     </motion.article>
   )
 }
 
 function PostCard({ post, onTagSelect }) {
-  const contentMeta = CONTENT_TYPE_META[post.content_type]
+  const contentMeta = getContentTypeMeta(post.content_type)
 
   return (
     <motion.article
@@ -126,63 +146,75 @@ function PostCard({ post, onTagSelect }) {
       variants={motionItemVariants}
       whileHover={hoverLift}
       data-ui="post-card"
-      className={`editorial-card relative overflow-hidden rounded-xl border ${post.is_pinned ? 'ring-2 ring-[rgba(73,177,245,0.55)] ring-offset-2 ring-offset-[var(--bg-canvas)]' : ''}`}
-      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}
+      className={`cover-card relative overflow-hidden ${post.is_pinned ? 'ring-2 ring-[var(--accent-border)] ring-offset-2 ring-offset-[var(--bg-canvas)]' : ''}`}
     >
-      {contentMeta ? (
-        <div className="absolute left-4 top-4 z-10">
-          <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: contentMeta.background, color: contentMeta.accent }}>
-            {contentMeta.label}
-          </span>
-        </div>
-      ) : null}
-
-      {post.is_pinned ? (
-        <div className="absolute right-4 top-4 z-10 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}>
-          <Pin size={12} />
-          置顶
-        </div>
-      ) : null}
-
-      {post.cover_image ? (
-        <Link to={`/posts/${post.slug}`} className="block">
-          <div className="editorial-cover h-52 overflow-hidden">
+      <Link to={`/posts/${post.slug}`} className="block">
+        {post.cover_image ? (
+          <div className="editorial-cover h-60 overflow-hidden">
             <img
               src={proxyImageUrl(post.cover_image)}
               alt={post.title}
-              className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
+              className="h-full w-full object-cover transition-transform duration-500 hover:scale-[1.05]"
               loading="lazy"
               referrerPolicy="no-referrer"
             />
           </div>
-        </Link>
-      ) : null}
+        ) : null}
 
-      <div className="p-8">
-        <Link to={`/posts/${post.slug}`} className="block">
-          <h2 className="mb-4 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+        <div className="p-7 sm:p-8">
+          <div className="flex flex-wrap items-center gap-2">
+            {contentMeta ? (
+              <span
+                className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
+                style={{ backgroundColor: contentMeta.background, color: contentMeta.accent }}
+              >
+                {contentMeta.label}
+              </span>
+            ) : null}
+
+            {post.is_pinned ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
+                style={{ backgroundColor: 'rgba(250, 204, 21, 0.14)', color: '#a16207' }}
+              >
+                <Pin size={12} />
+                推荐
+              </span>
+            ) : null}
+
+            <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
+              {formatDate(post.created_at)}
+            </span>
+          </div>
+
+          <h2 className="mt-5 font-display text-[1.9rem] font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>
             {post.title}
           </h2>
-          <p className="mb-4 text-[15px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          <p className="mt-4 text-[15px] leading-8" style={{ color: 'var(--text-secondary)' }}>
             {post.summary}
           </p>
-        </Link>
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="flex items-center gap-1.5 text-[13px]" style={{ color: 'var(--text-faint)' }}>
-            <Calendar size={13} /> {formatDate(post.created_at)}
-          </span>
-          {post.tags.map((item) => (
-            <button
-              key={item.slug}
-              onClick={() => onTagSelect(item.slug)}
-              className="flex cursor-pointer items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-200 hover:bg-[rgba(73,177,245,0.1)] hover:text-[var(--accent)]"
-              style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
-            >
-              <Tag size={12} /> {item.name}
-            </button>
-          ))}
+
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 text-[13px]" style={{ color: 'var(--text-faint)' }}>
+              <Calendar size={13} /> {post.coverage_date || formatDate(post.created_at)}
+            </span>
+
+            {post.tags.map((item) => (
+              <button
+                key={item.slug}
+                onClick={(event) => {
+                  event.preventDefault()
+                  onTagSelect(item.slug)
+                }}
+                className="inline-flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5"
+                style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+              >
+                <Tag size={12} /> {item.name}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      </Link>
     </motion.article>
   )
 }
@@ -204,7 +236,7 @@ export default function HomePage() {
   const heroImage = settings?.hero_image || settings?.avatar_url || ''
 
   useEffect(() => {
-    document.title = 'AI 资讯观察'
+    document.title = SITE_COPY.brand
   }, [])
 
   useEffect(() => {
@@ -229,12 +261,12 @@ export default function HomePage() {
         clearTimeout(timer)
       })
       .catch(() => {
-        setError('无法加载文章列表，请稍后重试。')
+        setError('暂时无法加载文章列表，请稍后再试。')
         setLoading(false)
         setSlowLoading(false)
         clearTimeout(timer)
       })
-  }, [tag, searchQuery, page, pageSize])
+  }, [page, pageSize, searchQuery, tag])
 
   useEffect(() => {
     loadPosts()
@@ -275,6 +307,7 @@ export default function HomePage() {
 
     return Array.from(deduped.values()).slice(0, 4)
   }, [seriesList])
+
   function handleSearch(event) {
     event.preventDefault()
     setSearchQuery(searchInput.trim())
@@ -294,58 +327,60 @@ export default function HomePage() {
     <main data-ui="home-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <Navbar />
 
-      <div
-        className="relative px-6 py-16 sm:px-10 sm:py-24 lg:px-20 lg:py-28"
-        style={{
-          background: 'linear-gradient(180deg, rgba(73,177,245,0.18) 0%, rgba(73,177,245,0.06) 42%, transparent 100%)',
-        }}
-      >
-        <div className="mx-auto flex max-w-7xl flex-col gap-10 lg:flex-row lg:items-center lg:justify-between">
+      <section className="relative overflow-hidden px-6 py-16 sm:px-10 sm:py-24 lg:px-20 lg:py-28">
+        <AmbientHeroBackdrop />
+        <div className="relative mx-auto flex max-w-7xl flex-col gap-12 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-3xl flex-1">
-            <h2 className="sr-only">AI 资讯观察</h2>
-            <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.72)', color: '#2563eb' }}>
+            <div className="section-kicker">
               <Sparkles size={12} />
-              AI 资讯观察站
+              {SITE_COPY.homeBadge}
             </div>
-            <h1 className="mt-5 text-5xl font-bold leading-tight tracking-tight" style={{ color: 'var(--text-primary)' }}>
-              持续更新 AI 最新动态与关键变化的中文博客
-            </h1>
-            <p className="mt-5 text-lg leading-8" style={{ color: 'var(--text-secondary)' }}>
-              聚焦值得持续追踪的消息、产品更新与产业线索，用更清晰的结构整理每一天和每一周的重要变化。
-            </p>
+            <h1 className="section-title max-w-4xl">{SITE_COPY.homeTitle}</h1>
+            <p className="section-description max-w-3xl">{SITE_COPY.homeSubtitle}</p>
+
             <HeroSearch
               searchInput={searchInput}
               onInputChange={(event) => setSearchInput(event.target.value)}
               onSubmit={handleSearch}
               onClear={clearSearch}
             />
+
+            {!searchQuery ? (
+              <div className="mt-6 flex flex-wrap gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                <span className="term-tag">日报</span>
+                <span className="term-tag">周报</span>
+                <span className="term-tag">系列</span>
+                <span className="term-tag">主题主线</span>
+              </div>
+            ) : null}
           </div>
 
           <motion.div
-            className="hidden h-[320px] w-[320px] overflow-hidden rounded-[2rem] lg:block"
-            animate={{ y: [0, -8, 0] }}
-            transition={{ repeat: Infinity, duration: 4.2, ease: 'easeInOut' }}
-            style={{ boxShadow: '0 24px 70px rgba(73,177,245,0.22)' }}
+            className="hidden lg:block lg:w-[360px]"
+            animate={heroFloatAnimation}
           >
-            {heroImage ? (
-              <img src={proxyImageUrl(heroImage)} alt="站点封面" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              <div className="flex h-full items-end bg-[linear-gradient(160deg,rgba(73,177,245,0.22),rgba(37,99,235,0.08))] p-8">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.28em]" style={{ color: '#2563eb' }}>AI Signals</div>
-                  <div className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>日报、周报、系列、主题</div>
-                </div>
-              </div>
-            )}
+            <CoverCard
+              image={heroImage}
+              imageAlt="站点主视觉"
+              overlay
+              eyebrow="持续更新"
+              title="从当日消息到长期主线"
+              description="把快速变化的 AI 动态整理成更清晰、更适合持续回看的阅读路径。"
+              meta={['日报 / 周报 / 系列 / 主题']}
+              className="min-h-[460px]"
+              bodyClassName="min-h-[460px] flex flex-col justify-end"
+            />
           </motion.div>
         </div>
-      </div>
+      </section>
 
       {searchQuery ? (
-        <div className="mx-auto max-w-7xl px-6 pt-6 sm:px-10 lg:px-20">
-          <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <span>搜索结果：“{searchQuery}”</span>
-            <span style={{ color: 'var(--text-faint)' }}>共 {total} 篇</span>
+        <div className="mx-auto max-w-7xl px-6 pt-2 sm:px-10 lg:px-20">
+          <div className="rounded-[1.3rem] border px-4 py-3 text-sm" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', color: 'var(--text-secondary)' }}>
+            搜索结果：“{searchQuery}”
+            <span className="ml-2" style={{ color: 'var(--text-faint)' }}>
+              共 {total} 篇
+            </span>
           </div>
         </div>
       ) : null}
@@ -366,75 +401,81 @@ export default function HomePage() {
             </div>
 
             {!loading && !error ? (
-              <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mb-10 space-y-8">
+              <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mb-12 space-y-12">
                 <WeeklySpotlight post={latestWeekly} />
 
-                <motion.section variants={motionItemVariants}>
-                  <div className="mb-4 flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>最新日报流</h2>
-                      <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        快速浏览当天值得跟进的 AI 消息、产品更新与行业变化。
-                      </p>
-                    </div>
-                    <Link to="/daily" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
-                      查看日报
-                    </Link>
-                  </div>
+                <motion.section data-ui="home-daily-rail" variants={motionItemVariants} className="space-y-4">
+                  <EditorialSectionHeader
+                    eyebrow="日报流"
+                    title="先看今天最值得跟进的消息"
+                    description="从更快的节奏里挑出真正值得继续追踪的更新，让首页更像一份经过编辑整理的内容首页。"
+                    actionLabel="查看日报"
+                    actionTo="/daily"
+                    actionIcon={ArrowRight}
+                  />
 
-                  <motion.div variants={motionContainerVariants} className="grid gap-4 md:grid-cols-2">
-                    {latestDaily.length > 0 ? latestDaily.map((post) => (
-                      <DailyCard key={post.slug} post={post} />
-                    )) : (
-                      <div className="rounded-3xl px-5 py-5 md:col-span-2" style={{ backgroundColor: 'var(--bg-surface)' }}>
-                        <p style={{ color: 'var(--text-faint)' }}>最新日报会出现在这里。</p>
-                      </div>
-                    )}
-                  </motion.div>
+                  {latestDaily.length > 0 ? (
+                    <motion.div variants={motionContainerVariants} className="grid gap-4 md:grid-cols-2">
+                      {latestDaily.map((post) => (
+                        <DailyCard key={post.slug} post={post} />
+                      ))}
+                    </motion.div>
+                  ) : (
+                    <EmptyStatePanel
+                      title="最新日报会出现在这里"
+                      description="当天的重要消息发布后，这里会优先展示最新日报入口。"
+                    />
+                  )}
                 </motion.section>
 
                 <motion.section variants={motionItemVariants}>
-                  <div className="mb-4 flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>系列入口</h2>
-                      <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        系列强调“如何组织阅读路径”，帮助你把分散文章串成一条更好追踪的栏目主线。
-                      </p>
-                    </div>
-                    <Link to="/series" className="text-sm font-medium" style={{ color: '#2563eb' }}>
-                      查看全部系列
-                    </Link>
-                  </div>
-
-                  <SeriesEditorialStack
-                    items={homeSeries}
-                    mode="compact"
-                    emptyText="系列入口正在整理中。"
-                    dataUi="home-series-showcase"
+                  <EditorialSectionHeader
+                    eyebrow="系列入口"
+                    title="沿着栏目路径继续阅读"
+                    description="系列强调的是“如何组织阅读”。它会把日报、周报和专题文章重新编排成更适合长期追踪的栏目路径。"
+                    actionLabel="查看全部系列"
+                    actionTo="/series"
+                    actionIcon={ArrowRight}
                   />
+
+                  <div className="mt-4">
+                    <SeriesEditorialStack
+                      items={homeSeries}
+                      mode="compact"
+                      emptyText="系列入口正在整理中。"
+                      dataUi="home-series-showcase"
+                    />
+                  </div>
                 </motion.section>
               </motion.div>
             ) : null}
 
             <section aria-label="文章列表">
+              <EditorialSectionHeader
+                eyebrow="最新文章"
+                title="继续阅读今天与本周的更新"
+                description="这里保留完整文章流，你可以按标签、搜索和分页继续向下浏览。"
+                className="mb-6"
+              />
+
               {loading ? (
-                <div>
+                <div className="space-y-5">
                   {slowLoading ? (
-                    <div className="mb-6 flex items-center gap-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                    <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
-                      正在唤醒服务...
+                      正在唤醒服务，请稍候...
                     </div>
                   ) : null}
-                  <div className="mb-6"><ArticleSkeleton size="hero" /></div>
-                  <div className="grid grid-cols-1 gap-6">
-                    <ArticleSkeleton size="grid" />
-                    <ArticleSkeleton size="grid" />
-                  </div>
+                  <LoadingSkeletonSet count={1} minHeight="18rem" />
+                  <LoadingSkeletonSet count={2} className="grid gap-5" minHeight="14rem" />
                 </div>
               ) : error ? (
-                <p className="pt-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>{error}</p>
+                <EmptyStatePanel title="加载失败" description={error} />
               ) : posts.length === 0 ? (
-                <p className="pt-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>暂无匹配的文章。</p>
+                <EmptyStatePanel
+                  title="当前筛选下没有匹配内容"
+                  description="可以换个标签、清空搜索，或直接从主题和系列页继续浏览。"
+                />
               ) : (
                 <motion.div className="space-y-6" variants={motionContainerVariants} initial="hidden" animate="visible">
                   {posts.map((post) => (
@@ -458,7 +499,7 @@ export default function HomePage() {
           </div>
 
           <div className="flex-shrink-0 lg:w-[380px]">
-            <div className="sticky top-20">
+            <div className="sticky top-24">
               <Sidebar />
             </div>
           </div>

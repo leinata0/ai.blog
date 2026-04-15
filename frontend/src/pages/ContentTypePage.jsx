@@ -1,146 +1,68 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { ArrowRight } from 'lucide-react'
 
 import { fetchDiscover, fetchPosts } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
+import CoverCard from '../components/CoverCard'
+import EditorialSectionHeader from '../components/EditorialSectionHeader'
+import EmptyStatePanel from '../components/EmptyStatePanel'
+import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import { formatDate } from '../utils/date'
-import { proxyImageUrl } from '../utils/proxyImage'
 import {
   CONTENT_TYPE_META,
   motionContainerVariants,
   motionItemVariants,
 } from '../utils/contentPresentation'
 
-const COPY = {
-  daily_brief: {
-    title: 'AI 日报',
-    englishTitle: 'AI Daily Brief',
-    description: '聚焦当天最值得跟进的 AI 消息、产品更新与行业信号。',
-  },
-  weekly_review: {
-    title: 'AI 周报',
-    englishTitle: 'AI Weekly Review',
-    description: '从一周视角梳理关键变化，帮助你快速回看主线与趋势。',
-  },
-}
-
 function sortByCreatedTime(posts) {
   return [...posts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 }
 
-function HeroCard({ post, label }) {
-  const cover = post?.cover_image ? proxyImageUrl(post.cover_image) : ''
-
+function HeroCard({ post, meta }) {
   if (!post) return null
 
   return (
-    <motion.article
-      variants={motionItemVariants}
-      className="group overflow-hidden rounded-3xl border"
-      style={{
-        backgroundColor: 'var(--bg-surface)',
-        borderColor: 'var(--border-muted)',
-        boxShadow: 'var(--card-shadow)',
-      }}
-    >
-      <Link to={`/posts/${post.slug}`} className="block">
-        <div className="relative h-72 overflow-hidden sm:h-80">
-          {cover ? (
-            <img
-              src={cover}
-              alt={post.title}
-              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-              loading="lazy"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div
-              className="h-full w-full"
-              style={{
-                background:
-                  'linear-gradient(140deg, rgba(37,99,235,0.2), rgba(14,165,233,0.08), rgba(255,255,255,0.7))',
-              }}
-            />
-          )}
-          <div className="absolute left-4 top-4">
-            <span
-              className="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
-              style={{
-                backgroundColor: CONTENT_TYPE_META[label]?.background || 'var(--accent-soft)',
-                color: CONTENT_TYPE_META[label]?.accent || 'var(--accent)',
-              }}
-            >
-              最新一篇
-            </span>
-          </div>
-        </div>
-
-        <div className="px-6 py-6 sm:px-8">
-          <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
-            {post.coverage_date || formatDate(post.created_at)}
-          </div>
-          <h2 className="mt-3 text-2xl font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>
-            {post.title}
-          </h2>
-          <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            {post.summary}
-          </p>
-        </div>
-      </Link>
-    </motion.article>
+    <motion.div variants={motionItemVariants}>
+      <CoverCard
+        to={`/posts/${post.slug}`}
+        image={post.cover_image}
+        imageAlt={post.title}
+        overlay
+        eyebrow={meta.kicker}
+        badge={(
+          <span
+            className="rounded-full px-3 py-1 text-xs font-semibold"
+            style={{ backgroundColor: meta.background, color: meta.accent }}
+          >
+            最新一篇
+          </span>
+        )}
+        title={post.title}
+        description={post.summary}
+        meta={[post.coverage_date || formatDate(post.created_at), meta.label]}
+        footer={<span className="inline-flex items-center gap-2 font-semibold">阅读全文 <ArrowRight size={14} /></span>}
+      />
+    </motion.div>
   )
 }
 
-function PostCard({ post }) {
-  const cover = post?.cover_image ? proxyImageUrl(post.cover_image) : ''
-
+function ListCard({ post, meta }) {
   return (
-    <motion.article
-      variants={motionItemVariants}
-      className="group overflow-hidden rounded-3xl border"
-      style={{
-        backgroundColor: 'var(--bg-surface)',
-        borderColor: 'var(--border-muted)',
-        boxShadow: 'var(--card-shadow)',
-      }}
-    >
-      <Link to={`/posts/${post.slug}`} className="block">
-        <div className="flex flex-col sm:flex-row">
-          <div className="h-44 w-full overflow-hidden sm:h-auto sm:w-64 sm:flex-shrink-0">
-            {cover ? (
-              <img
-                src={cover}
-                alt={post.title}
-                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div
-                className="h-full w-full min-h-44"
-                style={{
-                  background:
-                    'linear-gradient(135deg, rgba(37,99,235,0.15), rgba(14,165,233,0.06), rgba(255,255,255,0.7))',
-                }}
-              />
-            )}
-          </div>
-          <div className="flex-1 px-6 py-5">
-            <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
-              {post.coverage_date || formatDate(post.created_at)}
-            </div>
-            <h3 className="mt-2 text-xl font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>
-              {post.title}
-            </h3>
-            <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-              {post.summary}
-            </p>
-          </div>
-        </div>
-      </Link>
+    <motion.article variants={motionItemVariants}>
+      <CoverCard
+        to={`/posts/${post.slug}`}
+        image={post.cover_image}
+        imageAlt={post.title}
+        eyebrow={meta.label}
+        title={post.title}
+        description={post.summary}
+        meta={[post.coverage_date || formatDate(post.created_at)]}
+        className="h-full"
+      />
     </motion.article>
   )
 }
@@ -148,11 +70,12 @@ function PostCard({ post }) {
 export default function ContentTypePage({ contentType }) {
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
-  const copy = COPY[contentType] || COPY.daily_brief
+  const copy = CONTENT_TYPE_META[contentType] || CONTENT_TYPE_META.daily_brief
 
   useEffect(() => {
-    document.title = `${copy.title} - AI 博客`
+    document.title = `${copy.title} - AI 资讯观察`
     setLoading(true)
+
     fetchDiscover({ content_type: contentType })
       .then((payload) => setPosts(Array.isArray(payload?.items) ? payload.items : []))
       .catch(async () => {
@@ -171,33 +94,40 @@ export default function ContentTypePage({ contentType }) {
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
         <motion.div initial="hidden" animate="visible" variants={motionContainerVariants}>
-          <motion.section variants={motionItemVariants} className="mb-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: 'var(--text-faint)' }}>
-              {copy.englishTitle}
-            </p>
-            <h1 className="mt-3 text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
-              {copy.title}
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-              {copy.description}
-            </p>
+          <motion.section variants={motionItemVariants} className="editorial-panel rounded-[2rem] px-8 py-8">
+            <EditorialSectionHeader
+              eyebrow={copy.englishTitle}
+              title={copy.title}
+              description={`${copy.description} 这里会优先展示最新一篇，并把其余内容整理成更适合连续浏览的栏目列表。`}
+            />
           </motion.section>
 
-          <div className="space-y-5">
+          <div className="mt-8 space-y-6">
             {loading ? (
-              [1, 2, 3].map((item) => (
-                <div key={item} className="h-36 rounded-3xl skeleton-pulse" style={{ backgroundColor: 'var(--bg-surface)' }} />
-              ))
+              <>
+                <LoadingSkeletonSet count={1} minHeight="22rem" />
+                <LoadingSkeletonSet count={3} className="grid gap-5 lg:grid-cols-2" minHeight="16rem" />
+              </>
             ) : orderedPosts.length === 0 ? (
-              <div className="rounded-3xl px-8 py-10" style={{ backgroundColor: 'var(--bg-surface)' }}>
-                <p style={{ color: 'var(--text-faint)' }}>这里暂时还没有内容。</p>
-              </div>
+              <EmptyStatePanel
+                title={`${copy.title} 暂时还没有内容`}
+                description="新的栏目文章发布后，会优先展示在这里。"
+              />
             ) : (
-              <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="space-y-5">
-                <HeroCard post={heroPost} label={contentType} />
-                {restPosts.map((post) => (
-                  <PostCard key={post.slug} post={post} />
-                ))}
+              <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="space-y-6">
+                <HeroCard post={heroPost} meta={copy} />
+
+                <EditorialSectionHeader
+                  eyebrow="更多内容"
+                  title={`继续浏览${copy.title}`}
+                  description="向下浏览同栏目内容，保持同一阅读节奏与主题密度。"
+                />
+
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {restPosts.map((post) => (
+                    <ListCard key={post.slug} post={post} meta={copy} />
+                  ))}
+                </div>
               </motion.div>
             )}
           </div>
