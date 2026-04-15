@@ -288,6 +288,137 @@ class ContentHealthOut(BaseModel):
     items: list[ContentHealthItemOut] = Field(default_factory=list)
 
 
+class QualitySnapshotOut(BaseModel):
+    id: int
+    post_id: int
+    overall_score: float | None = None
+    structure_score: float | None = None
+    source_score: float | None = None
+    analysis_score: float | None = None
+    packaging_score: float | None = None
+    resonance_score: float | None = None
+    issues: list[str] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    notes: str = ""
+    generated_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class QualitySnapshotInput(BaseModel):
+    overall_score: float | None = None
+    structure_score: float | None = None
+    source_score: float | None = None
+    analysis_score: float | None = None
+    packaging_score: float | None = None
+    resonance_score: float | None = None
+    quality_score: float | None = None
+    source_count: int | None = None
+    reading_time: int | None = None
+    issues: list[str] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    notes: str = ""
+    generated_at: datetime | None = None
+
+
+class QualitySnapshotUpsertRequest(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    post_id: int | None = None
+    post_slug: str | None = None
+    quality_snapshot: QualitySnapshotInput
+
+
+class QualityReviewOut(BaseModel):
+    id: int
+    post_id: int
+    editor_verdict: str = ""
+    editor_labels: list[str] = Field(default_factory=list)
+    editor_note: str = ""
+    followup_recommended: bool | None = None
+    reviewed_at: datetime | None = None
+    reviewed_by: str = ""
+    updated_at: datetime | None = None
+
+
+class QualityReviewUpsertRequest(BaseModel):
+    editor_verdict: str = Field(default="", pattern=r"^(|excellent|solid|weak)$")
+    editor_labels: list[str] = Field(default_factory=list)
+    editor_note: str = ""
+    followup_recommended: bool | None = None
+    reviewed_by: str = ""
+
+
+class QualityInboxItemOut(BaseModel):
+    post_id: int
+    slug: str
+    title: str
+    content_type: str = "post"
+    series_slug: str | None = None
+    coverage_date: str = ""
+    overall_score: float | None = None
+    structure_score: float | None = None
+    source_score: float | None = None
+    analysis_score: float | None = None
+    packaging_score: float | None = None
+    resonance_score: float | None = None
+    editor_verdict: str = ""
+    followup_recommended: bool | None = None
+    issues: list[str] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    snapshot_updated_at: datetime | None = None
+    reviewed_at: datetime | None = None
+
+
+class QualityInboxSummaryOut(BaseModel):
+    total_posts: int = 0
+    with_snapshot_count: int = 0
+    reviewed_count: int = 0
+    followup_recommended_count: int = 0
+    avg_overall_score: float | None = None
+
+
+class QualityInboxOut(BaseModel):
+    summary: QualityInboxSummaryOut
+    items: list[QualityInboxItemOut] = Field(default_factory=list)
+
+
+class PostQualityDetailOut(BaseModel):
+    post: dict
+    quality_snapshot: QualitySnapshotOut | None = None
+    quality_review: QualityReviewOut | None = None
+
+
+class TopicFeedbackItemOut(BaseModel):
+    topic_key: str = ""
+    series_slug: str | None = None
+    content_type: str = "post"
+    post_count: int = 0
+    avg_overall_score: float | None = None
+    avg_structure_score: float | None = None
+    avg_source_score: float | None = None
+    avg_analysis_score: float | None = None
+    avg_packaging_score: float | None = None
+    avg_resonance_score: float | None = None
+    avg_views: float = 0
+    avg_likes: float = 0
+    followup_rate: float | None = None
+    dominant_issues: list[str] = Field(default_factory=list)
+    latest_post_title: str = ""
+    latest_post_slug: str = ""
+    recommendation: str = "maintain"
+
+
+class TopicFeedbackSummaryOut(BaseModel):
+    topic_count: int = 0
+    strong_topic_count: int = 0
+    weak_topic_count: int = 0
+
+
+class TopicFeedbackOut(BaseModel):
+    summary: TopicFeedbackSummaryOut
+    items: list[TopicFeedbackItemOut] = Field(default_factory=list)
+
+
 class PostSourceInput(BaseModel):
     source_type: str = "news"
     source_name: str

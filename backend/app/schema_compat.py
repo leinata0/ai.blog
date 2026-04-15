@@ -73,6 +73,36 @@ PUBLISHING_ARTIFACT_COLUMNS = {
     "updated_at": "DATETIME",
 }
 
+POST_QUALITY_SNAPSHOT_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "post_id": "INTEGER NOT NULL UNIQUE",
+    "overall_score": "FLOAT",
+    "structure_score": "FLOAT",
+    "source_score": "FLOAT",
+    "analysis_score": "FLOAT",
+    "packaging_score": "FLOAT",
+    "resonance_score": "FLOAT",
+    "issues_json": "TEXT NOT NULL DEFAULT '[]'",
+    "strengths_json": "TEXT NOT NULL DEFAULT '[]'",
+    "notes": "TEXT NOT NULL DEFAULT ''",
+    "generated_at": "DATETIME",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
+POST_QUALITY_REVIEW_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "post_id": "INTEGER NOT NULL UNIQUE",
+    "editor_verdict": "VARCHAR(20) NOT NULL DEFAULT ''",
+    "editor_labels_json": "TEXT NOT NULL DEFAULT '[]'",
+    "editor_note": "TEXT NOT NULL DEFAULT ''",
+    "followup_recommended": "BOOLEAN",
+    "reviewed_at": "DATETIME",
+    "reviewed_by": "VARCHAR(120) NOT NULL DEFAULT ''",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
 DEFAULT_SERIES_SEED = [
     {
         "slug": "ai-daily-brief",
@@ -186,6 +216,26 @@ def ensure_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_publishing_artifacts_post_id ON publishing_artifacts (post_id)",
             "CREATE INDEX IF NOT EXISTS ix_publishing_artifacts_workflow_key ON publishing_artifacts (workflow_key)",
             "CREATE INDEX IF NOT EXISTS ix_publishing_artifacts_run_id ON publishing_artifacts (publishing_run_id)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "post_quality_snapshots",
+        POST_QUALITY_SNAPSHOT_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_post_quality_snapshots_post_id ON post_quality_snapshots (post_id)",
+            "CREATE INDEX IF NOT EXISTS ix_post_quality_snapshots_updated_at ON post_quality_snapshots (updated_at)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "post_quality_reviews",
+        POST_QUALITY_REVIEW_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_post_quality_reviews_post_id ON post_quality_reviews (post_id)",
+            "CREATE INDEX IF NOT EXISTS ix_post_quality_reviews_reviewed_at ON post_quality_reviews (reviewed_at)",
         ],
     )
 

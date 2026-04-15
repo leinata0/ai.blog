@@ -326,6 +326,156 @@ def test_content_health_and_publishing_metadata_bridge_alias_contract(client):
     assert bridge_data["source_count"] == 1
 
 
+def test_quality_endpoints_contract_and_null_compat(client):
+    token = _login(client)
+    create = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Quality Contract Post",
+            "slug": "quality-contract-post",
+            "summary": "summary",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "topic_key": "quality-contract",
+            "coverage_date": "2026-04-15",
+        },
+        headers=_auth(token),
+    )
+    assert create.status_code == 200
+    post_id = create.json()["id"]
+
+    detail_before = client.get(f"/api/admin/posts/{post_id}/quality", headers=_auth(token))
+    assert detail_before.status_code == 200
+    before_payload = detail_before.json()
+    assert before_payload["post"]["id"] == post_id
+    assert before_payload["quality_snapshot"] is None
+    assert before_payload["quality_review"] is None
+
+    snapshot_resp = client.put(
+        f"/api/admin/posts/{post_id}/quality",
+        json={
+            "quality_snapshot": {
+                "overall_score": 84,
+                "structure_score": 88,
+                "source_score": 80,
+                "analysis_score": 82,
+                "packaging_score": 76,
+                "resonance_score": 34,
+                "quality_score": 83,
+                "source_count": 4,
+                "reading_time": 7,
+                "issues": ["missing_sources"],
+                "strengths": ["complete_structure"],
+                "notes": "quality snapshot contract",
+            }
+        },
+        headers=_auth(token),
+    )
+    assert snapshot_resp.status_code == 200
+    snapshot_payload = snapshot_resp.json()
+    assert snapshot_payload["post_id"] == post_id
+    assert snapshot_payload["overall_score"] == 84
+    assert snapshot_payload["issues"] == ["missing_sources"]
+    assert snapshot_payload["strengths"] == ["complete_structure"]
+
+    review_resp = client.put(
+        f"/api/admin/posts/{post_id}/quality-review",
+        json={
+            "editor_verdict": "solid",
+            "editor_labels": ["结构稳定", "可继续跟进"],
+            "editor_note": "manual review note",
+            "followup_recommended": True,
+        },
+        headers=_auth(token),
+    )
+    assert review_resp.status_code == 200
+    review_payload = review_resp.json()
+    assert review_payload["post_id"] == post_id
+    assert review_payload["editor_verdict"] == "solid"
+    assert review_payload["followup_recommended"] is True
+    assert len(review_payload["editor_labels"]) == 2
+
+    inbox_resp = client.get("/api/admin/quality-inbox", headers=_auth(token))
+    assert inbox_resp.status_code == 200
+    inbox_payload = inbox_resp.json()
+    assert "summary" in inbox_payload
+    assert "items" in inbox_payload
+    assert "total_posts" in inbox_payload["summary"]
+    assert "with_snapshot_count" in inbox_payload["summary"]
+    assert "reviewed_count" in inbox_payload["summary"]
+    assert "followup_recommended_count" in inbox_payload["summary"]
+    assert "avg_overall_score" in inbox_payload["summary"]
+    target = next((item for item in inbox_payload["items"] if item["post_id"] == post_id), None)
+    assert target is not None
+    assert target["overall_score"] == 84
+    assert target["editor_verdict"] == "solid"
+    assert target["followup_recommended"] is True
+    assert target["snapshot_updated_at"] is not None
+    assert target["reviewed_at"] is not None
+
+
+def test_topic_feedback_contract(client):
+    token = _login(client)
+    create = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Topic Feedback Sample",
+            "slug": "topic-feedback-sample",
+            "summary": "summary",
+            "content_md": "content",
+            "content_type": "weekly_review",
+            "topic_key": "agents",
+            "series_slug": "ai-weekly-review",
+            "coverage_date": "2026-04-15",
+            "view_count": 120,
+            "like_count": 8,
+        },
+        headers=_auth(token),
+    )
+    assert create.status_code == 200
+    post_id = create.json()["id"]
+
+    client.put(
+        f"/api/admin/posts/{post_id}/quality-review",
+        json={
+            "editor_verdict": "excellent",
+            "editor_labels": ["深度足够"],
+            "editor_note": "keep tracking",
+            "followup_recommended": True,
+        },
+        headers=_auth(token),
+    )
+
+    resp = client.get("/api/admin/topic-feedback", headers=_auth(token))
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "summary" in payload
+    assert "items" in payload
+    assert "topic_count" in payload["summary"]
+    assert "strong_topic_count" in payload["summary"]
+    assert "weak_topic_count" in payload["summary"]
+    assert isinstance(payload["items"], list)
+    assert len(payload["items"]) >= 1
+    first = payload["items"][0]
+    assert "topic_key" in first
+    assert "series_slug" in first
+    assert "content_type" in first
+    assert "post_count" in first
+    assert "avg_overall_score" in first
+    assert "avg_structure_score" in first
+    assert "avg_source_score" in first
+    assert "avg_analysis_score" in first
+    assert "avg_packaging_score" in first
+    assert "avg_resonance_score" in first
+    assert "avg_views" in first
+    assert "avg_likes" in first
+    assert "followup_rate" in first
+    assert "dominant_issues" in first
+    assert "latest_post_title" in first
+    assert "latest_post_slug" in first
+    assert "recommendation" in first
+
+
 def test_delete_post(client):
     token = _login(client)
     create = client.post("/api/admin/posts", json={

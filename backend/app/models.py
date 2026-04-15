@@ -42,6 +42,8 @@ class Post(Base):
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     sources = relationship("PostSource", back_populates="post", cascade="all, delete-orphan")
     publishing_artifacts = relationship("PublishingArtifact", back_populates="post", cascade="all, delete-orphan")
+    quality_snapshot = relationship("PostQualitySnapshot", back_populates="post", uselist=False, cascade="all, delete-orphan")
+    quality_review = relationship("PostQualityReview", back_populates="post", uselist=False, cascade="all, delete-orphan")
 
 
 class Series(Base):
@@ -156,3 +158,37 @@ class PublishingArtifact(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     post = relationship("Post", back_populates="publishing_artifacts")
+
+
+class PostQualitySnapshot(Base):
+    __tablename__ = "post_quality_snapshots"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    overall_score = Column(Float, nullable=True, default=None)
+    structure_score = Column(Float, nullable=True, default=None)
+    source_score = Column(Float, nullable=True, default=None)
+    analysis_score = Column(Float, nullable=True, default=None)
+    packaging_score = Column(Float, nullable=True, default=None)
+    resonance_score = Column(Float, nullable=True, default=None)
+    issues_json = Column(Text, nullable=False, default="[]")
+    strengths_json = Column(Text, nullable=False, default="[]")
+    notes = Column(Text, nullable=False, default="")
+    generated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    post = relationship("Post", back_populates="quality_snapshot")
+
+
+class PostQualityReview(Base):
+    __tablename__ = "post_quality_reviews"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    editor_verdict = Column(String(20), nullable=False, default="")
+    editor_labels_json = Column(Text, nullable=False, default="[]")
+    editor_note = Column(Text, nullable=False, default="")
+    followup_recommended = Column(Boolean, nullable=True, default=None)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(String(120), nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    post = relationship("Post", back_populates="quality_review")
