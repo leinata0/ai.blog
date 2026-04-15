@@ -1,13 +1,14 @@
-name: 生成封面图
+name: 手动生成封面图
+
 on:
   workflow_dispatch:
     inputs:
       post_id:
-        description: '文章 ID'
+        description: 需要更新封面的文章 ID
         required: true
         default: '6'
       cover_prompt:
-        description: '封面图描述（英文）'
+        description: 封面图提示词，建议使用英文
         required: true
         default: 'Wide landscape banner, cinematic, high quality: A futuristic automated content pipeline visualization, RSS feed icons flowing through glowing AI neural network nodes into a polished blog interface, dark tech theme with blue accent lighting, code snippets floating in background, minimalist and professional'
 
@@ -16,10 +17,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # 拉取仓库代码
+      - name: 拉取仓库代码
+        uses: actions/checkout@v4
+
+      # 安装 Node.js
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      # 调用 Grok 生成封面并回写文章
       - name: 生成封面图并更新文章
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
@@ -32,7 +40,7 @@ jobs:
           node -e "
           const BLOG_API_BASE = process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com'
           async function main() {
-            // Login
+            // 登录后台
             const loginResp = await fetch(BLOG_API_BASE + '/api/admin/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -42,7 +50,7 @@ jobs:
             const token = (await loginResp.json()).access_token
             console.log('Login OK')
 
-            // Generate cover
+            // 调用 Grok 生图
             console.log('Generating cover with Grok...')
             const grokResp = await fetch('https://api.x.ai/v1/images/generations', {
               method: 'POST',
@@ -55,7 +63,7 @@ jobs:
             if (!grokUrl) { console.log('No image URL'); process.exit(1) }
             console.log('Grok OK')
 
-            // Download
+            // 下载图片内容
             const imgResp = await fetch(grokUrl, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0' } })
             const buffer = Buffer.from(await imgResp.arrayBuffer())
             const ct = imgResp.headers.get('content-type') || 'image/png'
@@ -63,7 +71,7 @@ jobs:
             const filename = 'cover-' + Date.now() + ext
             console.log('Downloaded:', buffer.length, 'bytes')
 
-            // Upload
+            // 上传到博客后台
             const boundary = '----FormBoundary' + Date.now()
             const head = '--' + boundary + '\\r\\nContent-Disposition: form-data; name=\"file\"; filename=\"' + filename + '\"\\r\\nContent-Type: ' + ct + '\\r\\n\\r\\n'
             const foot = '\\r\\n--' + boundary + '--\\r\\n'
@@ -78,7 +86,7 @@ jobs:
             const localUrl = upData.url?.startsWith('http') ? upData.url : BLOG_API_BASE + upData.url
             console.log('Uploaded:', localUrl)
 
-            // Update post cover
+            // 回写文章封面
             const putResp = await fetch(BLOG_API_BASE + '/api/admin/posts/' + process.env.POST_ID, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },

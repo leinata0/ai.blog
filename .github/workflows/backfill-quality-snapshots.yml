@@ -1,30 +1,30 @@
-name: Backfill Quality Snapshots
+name: 质量快照补算
 
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Run without writing quality snapshots
+        description: 仅演练，不写入质量快照
         required: false
         default: false
         type: boolean
       force:
-        description: Recompute even when a quality snapshot already exists
+        description: 即使已有质量快照也强制重算
         required: false
         default: false
         type: boolean
       limit:
-        description: Number of posts fetched per page
+        description: 每页抓取文章数量
         required: false
         default: '50'
         type: string
       offset:
-        description: Starting offset for pagination
+        description: 从第几篇开始分页处理
         required: false
         default: '0'
         type: string
       max_pages:
-        description: Maximum number of pages to process
+        description: 最多处理多少页
         required: false
         default: '20'
         type: string
@@ -36,25 +36,30 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     timeout-minutes: 20
     steps:
-      - name: Checkout repository
+      # 拉取仓库代码
+      - name: 拉取仓库代码
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
+      # 安装 Node.js 运行环境
+      - name: 安装 Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 22
 
-      - name: Install script dependencies
+      # 安装脚本依赖
+      - name: 安装脚本依赖
         run: cd scripts && npm install
 
-      - name: Check required secrets
+      # 检查后台密码等必要密钥
+      - name: 检查必要密钥
         env:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
           if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
           echo "Secrets look good."
 
-      - name: Backfill quality snapshots
+      # 执行历史文章质量快照补算
+      - name: 执行质量快照补算
         env:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}

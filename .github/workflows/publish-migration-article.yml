@@ -1,4 +1,4 @@
-name: 发布迁移架构总结
+name: 发布架构迁移总结
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       article_file:
-        description: '要发布的文章模块路径'
+        description: 要发布的文章模块路径
         required: false
         default: './content/blog-migration-neon-r2.mjs'
 
@@ -18,14 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: 拉取代码
+      # 拉取仓库代码
+      - name: 拉取仓库代码
         uses: actions/checkout@v4
 
+      # 安装 Node.js
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      # 发布文章并生成 Grok 封面
       - name: 发布文章并生成 Grok 封面
         working-directory: scripts
         env:
