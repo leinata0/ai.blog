@@ -118,6 +118,74 @@ function SourceSummarySection({ post }) {
   )
 }
 
+function InsightMetric({ label, score, summary }) {
+  const numeric = Number(score)
+  const tone =
+    Number.isFinite(numeric) && numeric >= 85
+      ? { bg: 'rgba(16,185,129,0.12)', text: '#047857' }
+      : Number.isFinite(numeric) && numeric >= 70
+        ? { bg: 'rgba(14,165,233,0.12)', text: '#0369A1' }
+        : { bg: 'rgba(245,158,11,0.12)', text: '#B45309' }
+
+  return (
+    <div className="rounded-2xl p-4" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <div className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>{label}</div>
+      <div className="mt-2 inline-flex rounded-full px-3 py-1 text-sm font-semibold" style={{ backgroundColor: tone.bg, color: tone.text }}>
+        {Number.isFinite(numeric) ? `${numeric} / 100` : '待补齐'}
+      </div>
+      <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>{summary}</p>
+    </div>
+  )
+}
+
+function QualityInsightsSection({ post }) {
+  const insight = post?.quality_insights
+  if (!insight) return null
+
+  return (
+    <section className="mt-8 rounded-xl p-6 sm:p-8" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>质量洞察</h3>
+          <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
+            {insight.followup_summary}
+          </p>
+          {!insight.has_snapshot ? (
+            <p className="mt-2 text-xs" style={{ color: 'var(--text-faint)' }}>
+              当前为基于公开元数据生成的只读摘要，不会改动正文内容。
+            </p>
+          ) : null}
+        </div>
+        <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: 'var(--accent-soft)' }}>
+          <div className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>综合质量</div>
+          <div className="mt-1 text-2xl font-semibold" style={{ color: 'var(--accent)' }}>{insight.overall_score ?? '-'}</div>
+          <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
+            {insight.followup_recommended ? '值得继续追踪' : '继续观察'}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
+        {insight.source_count ? <span>来源数：{insight.source_count}</span> : null}
+        {insight.reading_time ? <span>阅读时长：{insight.reading_time} 分钟</span> : null}
+        {post?.series_slug ? <span>系列：{post.series_slug}</span> : null}
+      </div>
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        <InsightMetric label="结构维度" score={insight.structure_score} summary={insight.structure_summary} />
+        <InsightMetric label="来源维度" score={insight.source_score} summary={insight.source_summary} />
+        <InsightMetric label="分析维度" score={insight.analysis_score} summary={insight.analysis_summary} />
+      </div>
+
+      {insight.snapshot_notes ? (
+        <div className="mt-5 rounded-2xl px-4 py-3 text-sm" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)' }}>
+          {insight.snapshot_notes}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 export default function PostDetailPage({ slug: overrideSlug }) {
   const params = useParams()
   const slug = overrideSlug ?? params.slug
@@ -414,6 +482,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             </div>
 
             <SourceSummarySection post={post} />
+            <QualityInsightsSection post={post} />
 
             {/* 点赞按钮 */}
             <div className="flex items-center justify-center mt-8">
