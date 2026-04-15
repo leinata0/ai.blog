@@ -410,6 +410,141 @@ export function buildPublishingMetadataBridgePayload({
   }
 }
 
+function clampScore(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return 0
+  return Math.max(0, Math.min(100, Math.round(numeric)))
+}
+
+function safeRatio(numerator, denominator) {
+  const den = Number(denominator)
+  if (!Number.isFinite(den) || den <= 0) return 0
+  const num = Number(numerator)
+  if (!Number.isFinite(num) || num <= 0) return 0
+  return Math.max(0, Math.min(1, num / den))
+}
+
+function buildQualitySignals({ metrics, sourceCount, post, seriesSlug }) {
+  const issues = []
+  const strengths = []
+  const missingSections = Array.isArray(metrics?.missing_sections) ? metrics.missing_sections : []
+  const analysisSignals = Number(metrics?.analysis_signal_count || 0)
+  const bannedHits = Number(metrics?.banned_phrase_hits || 0)
+  const readingTime = estimateReadingTimeMinutes(post?.content_md || '')
+  const titleLength = String(post?.title || '').trim().length
+  const summaryLength = String(post?.summary || '').trim().length
+
+  if (sourceCount < 3) issues.push('missing_sources')
+  if (missingSections.length > 0) issues.push('missing_sections')
+  if (analysisSignals < 2) issues.push('analysis_thin')
+  if (bannedHits > 0) issues.push('banned_phrase_hit')
+  if (titleLength < 16) issues.push('weak_title')
+  if (summaryLength < 18) issues.push('weak_summary')
+  if (readingTime < 3) issues.push('too_short_for_depth')
+  if (!seriesSlug) issues.push('series_unassigned')
+
+  if (sourceCount >= 5) strengths.push('strong_source_mix')
+  if (missingSections.length === 0) strengths.push('complete_structure')
+  if (analysisSignals >= 4) strengths.push('analysis_depth_good')
+  if (titleLength >= 22) strengths.push('title_clarity_good')
+  if (readingTime >= 6) strengths.push('sufficient_depth')
+
+  return { issues, strengths }
+}
+
+export function buildQualitySnapshotPayload({
+  postId,
+  post,
+  outline,
+  metadata,
+  gate,
+  config,
+  researchPack,
+}) {
+  const metrics = gate?.metrics || {}
+  const gateProfile = resolveGateProfile(config, metadata?.content_type || post?.content_type || '')
+  const sourceCount = Number(metrics.source_count || researchPack?.sources?.length || 0)
+  const highQualitySourceCount = Number(metrics.high_quality_source_count || 0)
+  const analysisSignals = Number(metrics.analysis_signal_count || 0)
+  const bannedHits = Number(metrics.banned_phrase_hits || 0)
+  const missingSections = Array.isArray(metrics.missing_sections) ? metrics.missing_sections : []
+  const readingTime = estimateReadingTimeMinutes(post?.content_md || '')
+  const seriesDecision = assignSeriesForPost({
+    post,
+    outline,
+    metadata,
+    seriesAssignment: config?.series_assignment || {},
+  })
+
+  const minSources = Math.max(1, Number(gateProfile?.min_sources || 1))
+  const minHighQualitySources = Math.max(1, Number(gateProfile?.min_high_quality_sources || 1))
+  const minAnalysisSignals = Math.max(1, Number(gateProfile?.min_analysis_signals || 1))
+  const maxBannedHits = Math.max(1, Number(gateProfile?.max_banned_phrase_hits ?? 0) + 1)
+
+  const structureScore = clampScore(missingSections.length === 0 ? 100 : Math.max(0, 100 - missingSections.length * 25))
+  const sourceScore = clampScore(
+    (safeRatio(sourceCount, minSources) * 60 + safeRatio(highQualitySourceCount, minHighQualitySources) * 40) * 100 / 100
+  )
+  const analysisScore = clampScore(
+    (safeRatio(analysisSignals, minAnalysisSignals) * 70 + (1 - Math.min(1, bannedHits / maxBannedHits)) * 30) * 100 / 100
+  )
+
+  const hasCoverImage = String(post?.cover_image || '').trim().length > 0
+  const titleLength = String(post?.title || '').trim().length
+  const summaryLength = String(post?.summary || '').trim().length
+  const packagingScore = clampScore(
+    (Math.min(1, titleLength / 22) * 35
+      + Math.min(1, summaryLength / 40) * 25
+      + Math.min(1, readingTime / 8) * 25
+      + (seriesDecision.series_slug ? 10 : 0)
+      + (hasCoverImage ? 5 : 0))
+  )
+
+  const viewCount = Math.max(0, Number(post?.view_count || 0))
+  const likeCount = Math.max(0, Number(post?.like_count || 0))
+  const resonanceScore = clampScore(Math.min(100, viewCount * 0.25 + likeCount * 4))
+  const qualityScore = computeQualityScore({ gate, gateProfile })
+  const overallScore = clampScore(
+    qualityScore * 0.45
+    + structureScore * 0.2
+    + sourceScore * 0.15
+    + analysisScore * 0.15
+    + packagingScore * 0.05
+  )
+  const signals = buildQualitySignals({
+    metrics,
+    sourceCount,
+    post,
+    seriesSlug: seriesDecision.series_slug,
+  })
+
+  return {
+    post_id: Number.isFinite(Number(postId)) ? Number(postId) : null,
+    post_slug: String(post?.slug || '').trim(),
+    quality_snapshot: {
+      content_type: String(metadata?.content_type || post?.content_type || '').trim(),
+      topic_key: String(metadata?.topic_key || post?.topic_key || '').trim(),
+      coverage_date: String(metadata?.coverage_date || post?.coverage_date || '').trim(),
+      overall_score: overallScore,
+      structure_score: structureScore,
+      source_score: sourceScore,
+      analysis_score: analysisScore,
+      packaging_score: packagingScore,
+      resonance_score: resonanceScore,
+      quality_score: qualityScore,
+      source_count: sourceCount,
+      high_quality_source_count: highQualitySourceCount,
+      reading_time: readingTime,
+      issues: signals.issues,
+      strengths: signals.strengths,
+      notes: gate?.passed
+        ? 'Quality snapshot generated after a passed gate.'
+        : 'Quality snapshot generated in degraded mode.',
+      generated_at: new Date().toISOString(),
+    },
+  }
+}
+
 async function loadConfig() {
   const raw = await readFile(CONFIG_PATH, 'utf8')
   const parsed = JSON.parse(raw)
@@ -1747,6 +1882,68 @@ async function bridgePublishingMetadata(token, payload) {
   }
 }
 
+async function upsertQualitySnapshot(token, payload) {
+  if (!token || !payload?.post_id) return null
+  const postId = Number(payload.post_id)
+  const endpoints = [
+    {
+      method: 'PUT',
+      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/quality`,
+      body: {
+        quality_snapshot: payload.quality_snapshot,
+      },
+    },
+    {
+      method: 'PUT',
+      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/quality-snapshot`,
+      body: payload,
+    },
+    {
+      method: 'POST',
+      url: `${BLOG_API_BASE}/api/admin/quality-snapshots`,
+      body: payload,
+    },
+  ]
+
+  const failures = []
+  for (const endpoint of endpoints) {
+    const resp = await fetch(endpoint.url, {
+      method: endpoint.method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(endpoint.body),
+    })
+    if (resp.ok) {
+      const text = await resp.text()
+      if (!text) return null
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { status: 'ok' }
+      }
+    }
+    if (resp.status === 404 || resp.status === 405) {
+      failures.push(`${endpoint.method} ${endpoint.url} -> ${resp.status}`)
+      continue
+    }
+    throw new Error(`Quality snapshot bridge failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
+  }
+
+  throw new Error(`Quality snapshot endpoint unavailable (${failures.join('; ')})`)
+}
+
+async function bridgeQualitySnapshot(token, payload) {
+  if (!token || !payload) return null
+  try {
+    return await upsertQualitySnapshot(token, payload)
+  } catch (error) {
+    console.warn(`Failed to bridge quality snapshot: ${error.message}`)
+    return null
+  }
+}
+
 async function localizeImagePlans(imagePlans, token) {
   const localizedPlans = []
 
@@ -1990,21 +2187,38 @@ async function runDailyMode(config, cliOptions) {
         }),
       ],
     })
+    const qualitySnapshotPayload = buildQualitySnapshotPayload({
+      postId: null,
+      post: artifact.post,
+      outline: artifact.outline,
+      metadata,
+      gate: artifact.gate,
+      config,
+      researchPack: artifact.researchPack,
+    })
 
     if (runtime.dryRun) {
       results.push({
         ...artifact,
         cover_image: coverImage || null,
         publishing_metadata: metadataBridgePayload,
+        quality_snapshot: qualitySnapshotPayload,
       })
       continue
     }
 
     const result = await publishPost(token, artifact.post, coverImage)
     metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
+    qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
     await bridgePublishingMetadata(token, metadataBridgePayload)
+    await bridgeQualitySnapshot(token, qualitySnapshotPayload)
     console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
-    results.push({ ...artifact, result, publishing_metadata: metadataBridgePayload })
+    results.push({
+      ...artifact,
+      result,
+      publishing_metadata: metadataBridgePayload,
+      quality_snapshot: qualitySnapshotPayload,
+    })
   }
 
   if (!runtime.dryRun) {
@@ -2173,9 +2387,23 @@ async function runWeeklyReviewMode(config, cliOptions) {
       }),
     ],
   })
+  const qualitySnapshotPayload = buildQualitySnapshotPayload({
+    postId: null,
+    post: artifact.post,
+    outline: artifact.outline,
+    metadata,
+    gate: artifact.gate,
+    config,
+    researchPack: artifact.researchPack,
+  })
 
   if (cliOptions.dryRun) {
-    return [{ ...artifact, cover_image: null, publishing_metadata: metadataBridgePayload }]
+    return [{
+      ...artifact,
+      cover_image: null,
+      publishing_metadata: metadataBridgePayload,
+      quality_snapshot: qualitySnapshotPayload,
+    }]
   }
 
   const token = await getAdminToken()
@@ -2186,7 +2414,9 @@ async function runWeeklyReviewMode(config, cliOptions) {
   }
   const result = await publishPost(token, artifact.post, coverImage)
   metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
+  qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
   await bridgePublishingMetadata(token, metadataBridgePayload)
+  await bridgeQualitySnapshot(token, qualitySnapshotPayload)
   console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
   await reportPublishingRun(token, {
     workflow_key: 'weekly_review',
@@ -2220,7 +2450,12 @@ async function runWeeklyReviewMode(config, cliOptions) {
     ],
     skipped_topics: [],
   })
-  return [{ ...artifact, result, publishing_metadata: metadataBridgePayload }]
+  return [{
+    ...artifact,
+    result,
+    publishing_metadata: metadataBridgePayload,
+    quality_snapshot: qualitySnapshotPayload,
+  }]
 }
 
 async function main() {
@@ -2250,6 +2485,7 @@ async function main() {
         post: item.post,
         cover_image: item.cover_image || null,
         publishing_metadata: item.publishing_metadata || null,
+        quality_snapshot: item.quality_snapshot || null,
       })),
     }, null, 2))
   }
