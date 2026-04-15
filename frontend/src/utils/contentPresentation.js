@@ -59,11 +59,11 @@ export function getSeriesTitle(series) {
 }
 
 export function getTopicDescription(topic) {
-  return String(topic?.description || '围绕同一条新闻主线持续聚合日报、周报与延伸解读。').trim()
+  return String(topic?.description || '围绕同一条主线持续聚合日报、周报与延伸解读。').trim()
 }
 
 export function getSeriesDescription(series) {
-  return String(series?.description || '把分散内容组织为长期可追踪的编辑栏目。').trim()
+  return String(series?.description || '把分散内容整理成一条更容易持续阅读的栏目路径。').trim()
 }
 
 export function getTopicBadgeLabel(topic) {

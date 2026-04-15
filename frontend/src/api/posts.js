@@ -239,6 +239,11 @@ function normalizeTopic(payload = {}) {
     title: payload.title ?? profile.title ?? '',
     description: payload.description ?? profile.description ?? '',
     cover_image: payload.cover_image ?? profile.cover_image ?? '',
+    display_title_source: payload.display_title_source ?? profile.display_title_source ?? '',
+    latest_post_title: payload.latest_post_title ?? profile.latest_post_title ?? '',
+    latest_post_slug: payload.latest_post_slug ?? profile.latest_post_slug ?? '',
+    profile_exists: payload.profile_exists ?? Boolean(profile?.id),
+    is_virtual: payload.is_virtual ?? false,
     aliases:
       Array.isArray(payload.aliases)
         ? payload.aliases

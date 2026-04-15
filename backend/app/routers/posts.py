@@ -1,5 +1,8 @@
 import json
+import re
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, Response
@@ -24,6 +27,10 @@ from app.models import (
 from app.schemas import CommentCreate
 
 router = APIRouter(prefix="/api", tags=["posts"])
+
+_TOPIC_PRESENTATION_RULES_PATH = (
+    Path(__file__).resolve().parents[3] / "scripts" / "config" / "topic-presentation.rules.json"
+)
 
 
 def _get_client_ip(request: Request) -> str:
@@ -249,6 +256,259 @@ def _safe_json_list(value: str | None) -> list[str]:
     if not isinstance(parsed, list):
         return []
     return [str(item) for item in parsed if isinstance(item, (str, int, float))]
+
+
+def _has_cjk(value: str | None) -> bool:
+    return bool(re.search(r"[\u3400-\u9fff]", str(value or "")))
+
+
+def _normalize_topic_haystack(*parts: str | None) -> str:
+    return " ".join(str(part or "").strip().lower() for part in parts if str(part or "").strip())
+
+
+@lru_cache(maxsize=1)
+def _load_topic_presentation_config() -> dict:
+    try:
+        raw = _TOPIC_PRESENTATION_RULES_PATH.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+
+    rules = []
+    for rule in payload.get("rules") or []:
+        exact = [
+            str(item or "").strip().lower()
+            for item in (rule.get("topic_key_exact") or [])
+            if str(item or "").strip()
+        ]
+        prefixes = [
+            str(item or "").strip().lower()
+            for item in (rule.get("topic_key_prefixes") or [])
+            if str(item or "").strip()
+        ]
+        keywords = [
+            str(item or "").strip().lower()
+            for item in (rule.get("keyword_match") or [])
+            if str(item or "").strip()
+        ]
+        if not any([exact, prefixes, keywords]):
+            continue
+        presentation = rule.get("presentation") or {}
+        rules.append(
+            {
+                "topic_key_exact": exact,
+                "topic_key_prefixes": prefixes,
+                "keyword_match": keywords,
+                "presentation": {
+                    "zh_title": str(presentation.get("zh_title") or "").strip(),
+                    "zh_description": str(presentation.get("zh_description") or "").strip(),
+                },
+                "priority": int(rule.get("priority") or 0),
+                "topic_family": str(rule.get("topic_family") or "").strip(),
+            }
+        )
+
+    rules.sort(key=lambda item: item["priority"], reverse=True)
+    default_presentation = payload.get("default_presentation") or {}
+    return {
+        "enabled": bool(payload.get("enabled", True)),
+        "rules": rules,
+        "default_presentation": {
+            "zh_title_template": str(default_presentation.get("zh_title_template") or "").strip(),
+            "zh_description_template": str(default_presentation.get("zh_description_template") or "").strip(),
+        },
+    }
+
+
+def _render_template(template: str | None, context: dict[str, str]) -> str:
+    rendered = str(template or "")
+    for key, value in context.items():
+        rendered = rendered.replace(f"{{{key}}}", str(value or "").strip())
+    return rendered.strip()
+
+
+def _match_topic_presentation_rule(topic_key: str, haystack: str) -> dict | None:
+    config = _load_topic_presentation_config()
+    if not config.get("enabled"):
+        return None
+
+    normalized_key = str(topic_key or "").strip().lower()
+    for rule in config.get("rules") or []:
+        if rule["topic_key_exact"] and normalized_key in rule["topic_key_exact"]:
+            return rule
+        if rule["topic_key_prefixes"] and any(normalized_key.startswith(prefix) for prefix in rule["topic_key_prefixes"]):
+            return rule
+        if rule["keyword_match"] and any(keyword in haystack for keyword in rule["keyword_match"]):
+            return rule
+    return None
+
+
+def _topic_profile_is_manual(profile: TopicProfile | None) -> bool:
+    if profile is None:
+        return False
+    aliases = _safe_json_list(profile.aliases_json)
+    return any(
+        [
+            bool((profile.description or "").strip()),
+            bool((profile.cover_image or "").strip()),
+            bool(aliases),
+            bool(profile.is_featured),
+            bool(profile.priority or 0),
+            bool(profile.sort_order or 0),
+        ]
+    )
+
+
+def _normalize_topic_key_label(topic_key: str) -> str:
+    key = str(topic_key or "").strip()
+    if not key:
+        return ""
+    if any(fragment in key.lower() for fragment in ["http", "www.", "article-url-href", ".com", ".cn", ".xyz"]):
+        return ""
+    cleaned = re.sub(r"[-_]+", " ", key)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _compact_chinese_text(value: str | None, *, min_len: int = 6, max_len: int = 18) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.split(r"[：:|｜/]", text, maxsplit=1)[0].strip()
+    text = re.sub(r"\s+", "", text)
+    text = re.sub(r"[（(].*?[）)]", "", text).strip()
+    if len(text) > max_len:
+        text = text[:max_len].rstrip("，。；：、,.:;- ")
+    if len(text) < min_len:
+        return ""
+    return text
+
+
+def _compact_summary_text(value: str | None, *, max_len: int = 44) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if not text:
+        return ""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip("，。；：、,.:;- ") + "。"
+
+
+def _infer_topic_family(topic_key: str) -> str:
+    normalized = str(topic_key or "").lower()
+    if not normalized:
+        return "general"
+    if "agent" in normalized:
+        return "agent"
+    if "model" in normalized:
+        return "model"
+    if "open-source" in normalized or "opensource" in normalized:
+        return "open_source"
+    if "infra" in normalized or "deploy" in normalized or "inference" in normalized:
+        return "infrastructure"
+    return "general"
+
+
+def _build_topic_fallback_title(topic_key: str, latest_post: Post | None, content_type: str | None) -> str:
+    title = _compact_chinese_text(latest_post.title if latest_post else "")
+    if title:
+        return title
+
+    readable_key = _normalize_topic_key_label(topic_key)
+    family_label = {
+        "agent": "智能体",
+        "model": "模型",
+        "open_source": "开源 AI",
+        "infrastructure": "AI 基础设施",
+        "general": "AI 主题",
+    }.get(_infer_topic_family(topic_key), "AI 主题")
+
+    if readable_key:
+        if content_type == "weekly_review":
+            return f"AI 周报：{readable_key}"
+        if content_type == "daily_brief":
+            return f"AI 日报：{readable_key}"
+        return f"{family_label}追踪"
+
+    if content_type == "weekly_review":
+        return "AI 周报主线"
+    if content_type == "daily_brief":
+        return "AI 日报主题"
+    return family_label
+
+
+def _build_topic_fallback_description(title: str, latest_post: Post | None) -> str:
+    summary = _compact_summary_text(latest_post.summary if latest_post else "")
+    if summary and _has_cjk(summary):
+        return summary
+    compact_title = _compact_chinese_text(title, min_len=2, max_len=16) or title
+    return f"围绕{compact_title}持续整理相关消息、产品更新与延伸解读。"
+
+
+def _resolve_topic_presentation(
+    *,
+    topic_key: str,
+    profile: TopicProfile | None,
+    latest_post: Post | None = None,
+    content_types: list[str] | None = None,
+) -> dict:
+    normalized_key = str(topic_key or "").strip()
+    primary_type = (content_types or [latest_post.content_type if latest_post else ""])[0] or ""
+    haystack = _normalize_topic_haystack(
+        normalized_key,
+        latest_post.title if latest_post else "",
+        latest_post.summary if latest_post else "",
+        profile.title if profile else "",
+        profile.description if profile else "",
+    )
+    matched_rule = _match_topic_presentation_rule(normalized_key, haystack)
+
+    context = {
+        "topic_key": normalized_key,
+        "topic": str(latest_post.title if latest_post else "").strip(),
+        "thesis": str(latest_post.summary if latest_post else "").strip(),
+        "content_type": primary_type,
+    }
+    defaults = (_load_topic_presentation_config().get("default_presentation") or {})
+    fallback_rule_title = _render_template(defaults.get("zh_title_template"), context)
+    fallback_rule_desc = _render_template(defaults.get("zh_description_template"), context)
+
+    manual_title = str(profile.title or "").strip() if profile else ""
+    manual_description = str(profile.description or "").strip() if profile else ""
+
+    if profile and manual_title:
+        source = "manual" if _topic_profile_is_manual(profile) else "bridged"
+        return {
+            "display_title": manual_title,
+            "description": manual_description
+            or str((matched_rule or {}).get("presentation", {}).get("zh_description") or "").strip()
+            or fallback_rule_desc
+            or _build_topic_fallback_description(manual_title, latest_post),
+            "display_title_source": source,
+        }
+
+    if matched_rule and matched_rule.get("presentation", {}).get("zh_title"):
+        rule_title = matched_rule["presentation"]["zh_title"]
+        return {
+            "display_title": rule_title,
+            "description": str(matched_rule["presentation"].get("zh_description") or "").strip()
+            or fallback_rule_desc
+            or _build_topic_fallback_description(rule_title, latest_post),
+            "display_title_source": "derived",
+        }
+
+    if _has_cjk(fallback_rule_title):
+        return {
+            "display_title": fallback_rule_title,
+            "description": fallback_rule_desc or _build_topic_fallback_description(fallback_rule_title, latest_post),
+            "display_title_source": "derived",
+        }
+
+    fallback_title = _build_topic_fallback_title(normalized_key, latest_post, primary_type)
+    return {
+        "display_title": fallback_title or normalized_key,
+        "description": _build_topic_fallback_description(fallback_title or normalized_key, latest_post),
+        "display_title_source": "raw" if fallback_title == normalized_key else "derived",
+    }
 
 
 def _topic_profile_to_dict(profile: TopicProfile, db: Session) -> dict:
@@ -808,7 +1068,7 @@ def search_posts(
         items.append(payload)
 
     topic_profiles = db.execute(select(TopicProfile)).scalars().all()
-    titles_by_key = {profile.topic_key: profile.title or profile.topic_key for profile in topic_profiles}
+    profiles_by_key = {profile.topic_key: profile for profile in topic_profiles}
     topic_buckets: dict[str, dict] = {}
     for _, _, post in ranked:
         current_topic_key = (post.topic_key or "").strip()
@@ -818,19 +1078,32 @@ def search_posts(
             current_topic_key,
             {
                 "topic_key": current_topic_key,
-                "title": titles_by_key.get(current_topic_key, current_topic_key),
+                "latest_post": post,
                 "post_count": 0,
                 "latest_post_at": None,
             },
         )
         bucket["post_count"] += 1
+        bucket["latest_post"] = bucket["latest_post"] or post
         if post.created_at and (bucket["latest_post_at"] is None or post.created_at > bucket["latest_post_at"]):
             bucket["latest_post_at"] = post.created_at
+            bucket["latest_post"] = post
 
     topics = [
         {
             "topic_key": value["topic_key"],
-            "title": value["title"],
+            "title": _resolve_topic_presentation(
+                topic_key=value["topic_key"],
+                profile=profiles_by_key.get(value["topic_key"]),
+                latest_post=value.get("latest_post"),
+                content_types=[value.get("latest_post").content_type] if value.get("latest_post") else [],
+            )["display_title"],
+            "display_title": _resolve_topic_presentation(
+                topic_key=value["topic_key"],
+                profile=profiles_by_key.get(value["topic_key"]),
+                latest_post=value.get("latest_post"),
+                content_types=[value.get("latest_post").content_type] if value.get("latest_post") else [],
+            )["display_title"],
             "post_count": value["post_count"],
             "latest_post_at": value["latest_post_at"].isoformat() if value["latest_post_at"] else None,
         }
@@ -884,14 +1157,13 @@ def list_topics(
         if key not in grouped:
             grouped[key] = {
                 "topic_key": key,
-                "title": key,
-                "description": "",
                 "content_types": set(),
                 "series_slug": post.series_slug,
                 "post_count": 0,
                 "source_count": 0,
                 "latest_post_at": post.created_at,
                 "quality_scores": [],
+                "latest_post": post,
             }
         bucket = grouped[key]
         bucket["post_count"] += 1
@@ -899,6 +1171,7 @@ def list_topics(
         bucket["content_types"].add(post.content_type or "post")
         if post.created_at and (bucket["latest_post_at"] is None or post.created_at > bucket["latest_post_at"]):
             bucket["latest_post_at"] = post.created_at
+            bucket["latest_post"] = post
         if post.quality_score is not None:
             bucket["quality_scores"].append(float(post.quality_score))
 
@@ -908,8 +1181,14 @@ def list_topics(
     for key in all_keys:
         grouped_value = grouped.get(key)
         profile = profiles_by_key.get(key)
-        title = (profile.title if profile and profile.title else (grouped_value["title"] if grouped_value else key))
-        description = (profile.description if profile else "")
+        presentation = _resolve_topic_presentation(
+            topic_key=key,
+            profile=profile,
+            latest_post=grouped_value.get("latest_post") if grouped_value else None,
+            content_types=sorted(list(grouped_value["content_types"])) if grouped_value else _safe_json_list(profile.content_types_json if profile else "[]"),
+        )
+        title = presentation["display_title"]
+        description = presentation["description"]
         if query and query not in key.lower() and query not in title.lower() and query not in description.lower():
             continue
 
@@ -927,6 +1206,7 @@ def list_topics(
                 "source_count": (grouped_value["source_count"] if grouped_value else 0),
                 "latest_post_at": grouped_value["latest_post_at"].isoformat() if grouped_value and grouped_value["latest_post_at"] else None,
                 "avg_quality_score": round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None,
+                "display_title_source": presentation["display_title_source"],
                 "profile": _topic_profile_to_dict(profile, db) if profile else None,
             }
         )
@@ -959,18 +1239,26 @@ def get_topic_detail(topic_key: str, db: Session = Depends(get_db)):
     content_types = sorted(list({(post.content_type or "post") for post in posts}))
     source_count = sum(int(post.source_count or 0) for post in posts)
     latest = posts[0] if posts else None
+    presentation = _resolve_topic_presentation(
+        topic_key=normalized_topic_key,
+        profile=profile,
+        latest_post=latest,
+        content_types=content_types,
+    )
 
     return {
         "topic_key": normalized_topic_key,
-        "title": profile.title if profile and profile.title else normalized_topic_key,
-        "display_title": profile.title if profile and profile.title else normalized_topic_key,
-        "description": profile.description if profile else "",
+        "title": presentation["display_title"],
+        "display_title": presentation["display_title"],
+        "description": presentation["description"],
         "content_types": content_types if content_types else _safe_json_list(profile.content_types_json if profile else "[]"),
         "series_slug": (profile.series_slug if profile else (latest.series_slug if latest else None)),
         "taxonomy_type": "topic",
         "post_count": len(posts),
         "source_count": source_count,
         "avg_quality_score": round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None,
+        "latest_post_at": latest.created_at.isoformat() if latest and latest.created_at else None,
+        "display_title_source": presentation["display_title_source"],
         "profile": _topic_profile_to_dict(profile, db) if profile else None,
         "posts": [_post_list_item(post) for post in posts[:20]],
         "recent_posts": [_post_list_item(post) for post in posts[:20]],
