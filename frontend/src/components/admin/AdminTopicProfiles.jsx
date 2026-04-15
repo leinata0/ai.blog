@@ -20,10 +20,29 @@ const emptyForm = {
   sort_order: 100,
 }
 
-function normalizeProfiles(payload) {
-  if (Array.isArray(payload)) return payload
-  if (Array.isArray(payload?.items)) return payload.items
-  return []
+function normalizeTopicItems(payload) {
+  const source = Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : []
+  return source
+    .map((item) => ({
+      ...item,
+      id: item?.id ?? null,
+      topic_key: String(item?.topic_key || '').trim(),
+      display_title: String(item?.display_title || item?.title || item?.topic_key || '').trim(),
+      description: String(item?.description || '').trim(),
+      cover_image: String(item?.cover_image || '').trim(),
+      aliases: Array.isArray(item?.aliases) ? item.aliases : [],
+      is_featured: Boolean(item?.is_featured),
+      sort_order: Number(item?.sort_order ?? 100),
+      profile_exists: Boolean(item?.profile_exists ?? item?.id),
+      is_virtual: Boolean(item?.is_virtual ?? !item?.id),
+      post_count: Number(item?.post_count ?? 0),
+      source_count: Number(item?.source_count ?? 0),
+      latest_post_at: item?.latest_post_at || null,
+      latest_post_title: String(item?.latest_post_title || '').trim(),
+      latest_post_slug: String(item?.latest_post_slug || '').trim(),
+      display_title_source: String(item?.display_title_source || (item?.id ? 'manual' : 'raw')).trim(),
+    }))
+    .filter((item) => item.topic_key)
 }
 
 function normalizeStatus(payload) {
@@ -31,10 +50,22 @@ function normalizeStatus(payload) {
     provider: payload?.provider || 'grok',
     has_xai_api_key: Boolean(payload?.has_xai_api_key),
     can_generate: Boolean(payload?.can_generate),
-    message:
-      payload?.message ||
-      '暂时无法读取封面生成状态，请检查后端接口是否已经部署。',
+    message: payload?.message || '暂时无法读取封面生成状态，请稍后重试。',
   }
+}
+
+function formatDate(value) {
+  if (!value) return '暂无'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '暂无'
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+function displayTitleSourceLabel(source) {
+  if (source === 'manual') return '人工维护'
+  if (source === 'bridged') return '自动桥接'
+  if (source === 'derived') return '自动概括'
+  return '原始标识'
 }
 
 function CoverPreview({ src, alt }) {
@@ -89,17 +120,15 @@ function StatusPanel({ status }) {
 
 function formatGenerateMessage(result, overwrite) {
   if (result?.generated && result?.cover_image) {
-    return overwrite ? '主题封面已重生成。' : '主题封面已生成。'
+    return overwrite ? '主题封面已重新生成。' : '主题封面已生成。'
   }
   if (result?.error) return result.error
-  if (result?.error_code === 'cover_exists') {
-    return '当前主题已经有封面，如需覆盖请点击“重生成封面”。'
-  }
-  return '这次没有生成新封面。'
+  if (result?.error_code === 'cover_exists') return '当前主题已有封面，如需覆盖请点击“重新生成封面”。'
+  return '本次没有生成新封面。'
 }
 
 export default function AdminTopicProfiles() {
-  const [profiles, setProfiles] = useState([])
+  const [topics, setTopics] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [generatingId, setGeneratingId] = useState(null)
@@ -109,14 +138,14 @@ export default function AdminTopicProfiles() {
   const [form, setForm] = useState(emptyForm)
   const [coverStatus, setCoverStatus] = useState(null)
 
-  const loadProfiles = useCallback(async () => {
+  const loadTopics = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      setProfiles(normalizeProfiles(await fetchAdminTopicProfiles()))
+      setTopics(normalizeTopicItems(await fetchAdminTopicProfiles()))
     } catch (err) {
-      setProfiles([])
-      setError(err.message || '加载主题资料失败，请检查后端接口是否正常。')
+      setTopics([])
+      setError(err.message || '加载主题汇总失败，请检查后端接口是否正常。')
     } finally {
       setLoading(false)
     }
@@ -131,18 +160,20 @@ export default function AdminTopicProfiles() {
   }, [])
 
   useEffect(() => {
-    loadProfiles()
+    loadTopics()
     loadCoverStatus()
-  }, [loadProfiles, loadCoverStatus])
+  }, [loadTopics, loadCoverStatus])
 
-  const sortedProfiles = useMemo(() => {
-    return [...profiles].sort((a, b) => {
+  const sortedTopics = useMemo(() => {
+    return [...topics].sort((a, b) => {
+      const featuredSort = Number(b.is_featured) - Number(a.is_featured)
+      if (featuredSort !== 0) return featuredSort
       const ao = Number(a.sort_order ?? 9999)
       const bo = Number(b.sort_order ?? 9999)
       if (ao !== bo) return ao - bo
       return String(a.display_title || a.topic_key || '').localeCompare(String(b.display_title || b.topic_key || ''))
     })
-  }, [profiles])
+  }, [topics])
 
   function resetEditor() {
     setEditing(null)
@@ -178,7 +209,7 @@ export default function AdminTopicProfiles() {
       return
     }
     if (!displayTitle) {
-      setError('请先填写主题中文标题。')
+      setError('请先填写中文展示标题。')
       return
     }
 
@@ -208,9 +239,9 @@ export default function AdminTopicProfiles() {
         setNotice('主题资料已更新。')
       } else {
         await createAdminTopicProfile(payload)
-        setNotice('主题资料已创建。')
+        setNotice(editing?.is_virtual ? '已将自动汇总主题保存为正式主题。' : '主题资料已创建。')
       }
-      await loadProfiles()
+      await loadTopics()
       resetEditor()
     } catch (err) {
       setError(err.message || '保存主题资料失败。')
@@ -220,8 +251,11 @@ export default function AdminTopicProfiles() {
   }
 
   async function handleGenerateCover(item, overwrite = false) {
-    if (!item?.id) return
-    if (overwrite && !window.confirm(`确定重生成“${item.display_title || item.topic_key}”的封面吗？`)) return
+    if (!item?.id) {
+      setError('自动汇总主题需先保存为正式主题，才能生成封面。')
+      return
+    }
+    if (overwrite && !window.confirm(`确定重新生成“${item.display_title || item.topic_key}”的封面吗？`)) return
 
     setGeneratingId(item.id)
     setError('')
@@ -229,7 +263,7 @@ export default function AdminTopicProfiles() {
 
     try {
       const result = await generateAdminTopicProfileCover(item.id, { overwrite })
-      await Promise.all([loadProfiles(), loadCoverStatus()])
+      await Promise.all([loadTopics(), loadCoverStatus()])
 
       if (editing?.id === item.id) {
         setForm((current) => ({
@@ -257,14 +291,14 @@ export default function AdminTopicProfiles() {
         <div>
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">主题管理</h2>
           <p className="mt-1 text-sm text-[var(--text-faint)]">
-            主题代表“文章在讲什么”。后续命中相同 topic_key 的自动发布文章，会继续归入对应主题。
+            左侧展示主题汇总列表（含自动汇总主题与手工主题）。topic_key 仅用于内部识别，前台优先展示中文标题。
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => {
-              loadProfiles()
+              loadTopics()
               loadCoverStatus()
             }}
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
@@ -292,31 +326,35 @@ export default function AdminTopicProfiles() {
         <div className="mb-4 rounded-lg bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)]">{notice}</div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.35fr,1fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.45fr,1fr]">
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">已有主题资料</h3>
+          <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">主题汇总列表</h3>
           {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
-          {!loading && !sortedProfiles.length ? (
-            <div className="text-sm text-[var(--text-faint)]">还没有主题资料，可以先创建第一条。</div>
+          {!loading && !sortedTopics.length ? (
+            <div className="text-sm text-[var(--text-faint)]">
+              暂无可展示主题。请先发布包含 topic_key 的文章，或手动创建第一条主题资料。
+            </div>
           ) : null}
-          {sortedProfiles.length ? (
+          {sortedTopics.length ? (
             <div className="space-y-3">
-              {sortedProfiles.map((item) => {
+              {sortedTopics.map((item) => {
                 const isGenerating = generatingId === item.id
                 const aliases = Array.isArray(item.aliases) ? item.aliases : []
                 const hasCover = Boolean(item.cover_image)
 
                 return (
                   <div
-                    key={item.id || item.topic_key}
+                    key={`${item.id || 'virtual'}-${item.topic_key}`}
                     className="grid gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-4 md:grid-cols-[160px,1fr]"
                   >
                     <CoverPreview src={item.cover_image} alt={item.display_title || item.topic_key} />
                     <div>
                       <div className="mb-2 flex items-start justify-between gap-3">
                         <div>
-                          <div className="text-sm font-medium text-[var(--text-primary)]">{item.display_title || item.topic_key}</div>
-                          <div className="mt-1 text-xs text-[var(--text-faint)]">topic_key：{item.topic_key || '-'}</div>
+                          <div className="text-base font-semibold text-[var(--text-primary)]">
+                            {item.display_title || item.topic_key}
+                          </div>
+                          <div className="mt-1 text-xs text-[var(--text-faint)]">topic_key：{item.topic_key}</div>
                         </div>
                         <button
                           type="button"
@@ -324,21 +362,31 @@ export default function AdminTopicProfiles() {
                           className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-muted)] px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
                         >
                           <Pencil size={12} />
-                          编辑
+                          {item.profile_exists ? '编辑' : '创建正式主题'}
                         </button>
                       </div>
+
                       {item.description ? (
                         <p className="mb-3 text-sm leading-6 text-[var(--text-secondary)]">{item.description}</p>
                       ) : (
-                        <p className="mb-3 text-sm text-[var(--text-faint)]">暂未填写主题简介。</p>
+                        <p className="mb-3 text-sm text-[var(--text-faint)]">暂无简介，可在右侧编辑区补充。</p>
                       )}
+
                       <div className="mb-3 flex flex-wrap gap-2 text-xs text-[var(--text-faint)]">
-                        <span>排序：{item.sort_order ?? '-'}</span>
+                        <span>{item.profile_exists ? '手工主题' : '自动汇总主题'}</span>
                         <span>{item.is_featured ? '推荐主题' : '普通主题'}</span>
-                        {item.latest_post_at ? (
-                          <span>最近更新：{new Date(item.latest_post_at).toLocaleDateString('zh-CN')}</span>
-                        ) : null}
+                        <span>标题来源：{displayTitleSourceLabel(item.display_title_source)}</span>
+                        <span>文章数：{item.post_count}</span>
+                        <span>来源数：{item.source_count}</span>
+                        <span>最近更新时间：{formatDate(item.latest_post_at)}</span>
                       </div>
+
+                      {item.latest_post_title ? (
+                        <div className="mb-3 text-xs text-[var(--text-secondary)]">
+                          最近文章：{item.latest_post_title}
+                        </div>
+                      ) : null}
+
                       {aliases.length > 0 ? (
                         <div className="mb-3 flex flex-wrap gap-2">
                           {aliases.map((alias) => (
@@ -351,6 +399,7 @@ export default function AdminTopicProfiles() {
                           ))}
                         </div>
                       ) : null}
+
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -369,7 +418,7 @@ export default function AdminTopicProfiles() {
                             className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
                           >
                             <Sparkles size={13} />
-                            {isGenerating ? '重生成中...' : '重生成封面'}
+                            {isGenerating ? '重新生成中...' : '重新生成封面'}
                           </button>
                         ) : null}
                       </div>
@@ -383,10 +432,12 @@ export default function AdminTopicProfiles() {
 
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">
-            {editing ? `编辑主题：${editing.display_title || editing.topic_key}` : '创建主题'}
+            {editing
+              ? `${editing.profile_exists ? '编辑主题' : '保存自动汇总主题'}：${editing.display_title || editing.topic_key}`
+              : '创建主题'}
           </h3>
           <p className="mb-4 text-xs leading-6 text-[var(--text-faint)]">
-            前台默认展示中文标题；topic_key 只用于内部识别与自动同步，不会直接展示给读者。
+            选中“自动汇总主题”后保存，即可创建正式主题资料。topic_key 用于自动同步，前台默认展示中文标题。
           </p>
           <div className="space-y-3">
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
@@ -462,7 +513,7 @@ export default function AdminTopicProfiles() {
               className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
               <Save size={14} />
-              {saving ? '保存中...' : editing ? '保存修改' : '创建主题'}
+              {saving ? '保存中...' : editing?.profile_exists ? '保存修改' : '保存为正式主题'}
             </button>
             {editing ? (
               <>
@@ -482,7 +533,7 @@ export default function AdminTopicProfiles() {
                   className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-60"
                 >
                   <Sparkles size={14} />
-                  {generatingId === editing.id ? '重生成中...' : '重生成封面'}
+                  {generatingId === editing.id ? '重新生成中...' : '重新生成封面'}
                 </button>
                 <button
                   type="button"
