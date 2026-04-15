@@ -1,4 +1,5 @@
 import json
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
@@ -369,7 +370,123 @@ def _safe_json_list(value: str | None) -> list[str]:
     return [str(item) for item in parsed if isinstance(item, (str, int, float))]
 
 
-def _topic_profile_to_dict(profile: TopicProfile, db: Session) -> dict:
+def _contains_cjk(value: str) -> bool:
+    text = (value or "").strip()
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def _truncate_text(value: str, limit: int) -> str:
+    text = (value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
+
+
+def _compact_cn_phrase(value: str, limit: int = 18) -> str:
+    text = re.sub(r"\s+", " ", (value or "").strip())
+    if not text:
+        return ""
+    first = re.split(r"[。！？!?；;,.，、:\-—|/（）()\[\]【】]", text, maxsplit=1)[0].strip()
+    return _truncate_text(first or text, limit)
+
+
+def _derive_title_from_topic_key(topic_key: str) -> str:
+    key = (topic_key or "").strip().lower()
+    if not key:
+        return ""
+    tokens = [t for t in re.split(r"[^a-z0-9]+", key) if t]
+    if not tokens:
+        return ""
+    ignored = {
+        "http",
+        "https",
+        "www",
+        "com",
+        "net",
+        "org",
+        "cn",
+        "article",
+        "href",
+        "url",
+        "post",
+        "news",
+    }
+    mapped_tokens: list[str] = []
+    mapping = {
+        "ai": "AI",
+        "openai": "OpenAI",
+        "grok": "Grok",
+        "gemini": "Gemini",
+        "claude": "Claude",
+        "agent": "智能体",
+        "agents": "智能体",
+        "model": "模型",
+        "models": "模型",
+        "workflow": "工作流",
+        "product": "产品",
+        "strategy": "策略",
+        "launch": "发布",
+        "release": "发布",
+        "safety": "安全",
+        "reasoning": "推理",
+        "memory": "记忆",
+        "coding": "编程",
+        "search": "搜索",
+    }
+    for token in tokens:
+        if token in ignored:
+            continue
+        mapped_tokens.append(mapping.get(token, token.capitalize() if len(token) > 2 else token.upper()))
+    if not mapped_tokens:
+        return ""
+    compact = " ".join(mapped_tokens[:4]).strip()
+    if not compact:
+        return ""
+    return _truncate_text(f"{compact}主题", 18)
+
+
+def _resolve_topic_presentation(
+    *,
+    topic_key: str,
+    profile: TopicProfile | None,
+    latest_post_title: str,
+    latest_post_summary: str,
+) -> tuple[str, str, str]:
+    if profile is not None and (profile.title or "").strip():
+        title = (profile.title or "").strip()
+        description = (profile.description or "").strip()
+        if not description and _contains_cjk(latest_post_summary):
+            description = _truncate_text(latest_post_summary, 80)
+        if not description and _contains_cjk(latest_post_title):
+            description = f"围绕“{_compact_cn_phrase(latest_post_title, 24)}”持续追踪日报、周报与延伸解读。"
+        if not description:
+            description = f"围绕 {title} 持续跟踪 AI 主题动态。"
+        return title, description, "manual"
+
+    if _contains_cjk(latest_post_title):
+        title = _compact_cn_phrase(latest_post_title, 18)
+        description = _truncate_text(latest_post_summary, 80) if _contains_cjk(latest_post_summary) else ""
+        if not description:
+            description = f"围绕“{title}”持续追踪日报、周报与延伸解读。"
+        return title, description, "bridged"
+
+    derived = _derive_title_from_topic_key(topic_key)
+    if derived:
+        description = _truncate_text(latest_post_summary, 80) if _contains_cjk(latest_post_summary) else ""
+        if not description:
+            description = f"围绕 {derived} 持续追踪 AI 产品、公司与技术主线。"
+        return derived, description, "derived"
+
+    raw = (topic_key or "").strip()
+    return raw, f"围绕 {raw} 持续追踪 AI 主题动态。", "raw"
+
+
+def _topic_profile_to_dict(
+    profile: TopicProfile,
+    db: Session,
+    *,
+    aggregated: dict | None = None,
+) -> dict:
     post_count = db.execute(
         select(func.count(Post.id))
         .where(Post.is_published == True)
@@ -385,23 +502,45 @@ def _topic_profile_to_dict(profile: TopicProfile, db: Session) -> dict:
         .where(Post.is_published == True)
         .where(Post.topic_key == profile.topic_key)
     ).scalar()
+    latest_post = db.execute(
+        select(Post.title, Post.slug, Post.summary, Post.source_count)
+        .where(Post.is_published == True)
+        .where(Post.topic_key == profile.topic_key)
+        .order_by(Post.created_at.desc(), Post.id.desc())
+    ).first()
+    latest_post_title = latest_post.title if latest_post else ""
+    latest_post_slug = latest_post.slug if latest_post else ""
+    latest_post_summary = latest_post.summary if latest_post else ""
+    source_count = int(aggregated["source_count"]) if aggregated else int(latest_post.source_count or 0) if latest_post else 0
+    display_title, description, display_title_source = _resolve_topic_presentation(
+        topic_key=profile.topic_key,
+        profile=profile,
+        latest_post_title=latest_post_title,
+        latest_post_summary=latest_post_summary,
+    )
     return {
         "id": profile.id,
         "topic_key": profile.topic_key,
-        "title": profile.title or "",
-        "display_title": (profile.title or profile.topic_key or "").strip(),
-        "description": profile.description or "",
+        "title": profile.title or display_title,
+        "display_title": display_title,
+        "description": description,
         "cover_image": profile.cover_image or "",
         "aliases": _safe_json_list(profile.aliases_json),
         "focus_points": _safe_json_list(profile.focus_points_json),
-        "content_types": _safe_json_list(profile.content_types_json),
-        "series_slug": profile.series_slug,
+        "content_types": _safe_json_list(profile.content_types_json) or list(aggregated["content_types"]) if aggregated else [],
+        "series_slug": profile.series_slug or (aggregated["series_slug"] if aggregated else None),
         "is_featured": bool(profile.is_featured),
         "sort_order": profile.sort_order or 0,
         "is_active": bool(profile.is_active),
         "priority": profile.priority or 0,
+        "profile_exists": True,
+        "is_virtual": False,
         "post_count": post_count,
+        "source_count": source_count,
         "latest_post_at": _serialize_datetime(latest_post_at),
+        "latest_post_title": latest_post_title,
+        "latest_post_slug": latest_post_slug,
+        "display_title_source": display_title_source,
         "avg_quality_score": round(float(avg_quality_score), 2) if avg_quality_score is not None else None,
         "created_at": _serialize_datetime(profile.created_at),
         "updated_at": _serialize_datetime(profile.updated_at),
@@ -1092,15 +1231,124 @@ def get_topic_feedback(
     }
 
 
+def _build_topic_aggregation_index(db: Session) -> dict[str, dict]:
+    rows = db.execute(
+        select(
+            Post.topic_key,
+            Post.title,
+            Post.slug,
+            Post.summary,
+            Post.created_at,
+            Post.source_count,
+            Post.content_type,
+            Post.series_slug,
+            Post.quality_score,
+        )
+        .where(Post.is_published == True)
+        .where(Post.topic_key != "")
+        .order_by(Post.created_at.desc(), Post.id.desc())
+    ).all()
+
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        topic_key = (row.topic_key or "").strip()
+        if not topic_key:
+            continue
+        if topic_key not in grouped:
+            grouped[topic_key] = {
+                "topic_key": topic_key,
+                "post_count": 0,
+                "source_count": 0,
+                "latest_post_at": row.created_at,
+                "latest_post_title": row.title or "",
+                "latest_post_slug": row.slug or "",
+                "latest_post_summary": row.summary or "",
+                "content_types": set(),
+                "series_slug": row.series_slug or None,
+                "quality_scores": [],
+            }
+        bucket = grouped[topic_key]
+        bucket["post_count"] += 1
+        bucket["source_count"] += int(row.source_count or 0)
+        if row.content_type:
+            bucket["content_types"].add(str(row.content_type))
+        if row.series_slug and not bucket["series_slug"]:
+            bucket["series_slug"] = row.series_slug
+        if row.quality_score is not None:
+            bucket["quality_scores"].append(float(row.quality_score))
+
+    for bucket in grouped.values():
+        bucket["content_types"] = sorted(bucket["content_types"])
+        quality_scores = bucket.pop("quality_scores", [])
+        bucket["avg_quality_score"] = round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None
+    return grouped
+
+
 @router.get("/topic-profiles", response_model=list[TopicProfileOut])
 def admin_list_topic_profiles(
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
+    aggregated_index = _build_topic_aggregation_index(db)
     profiles = db.execute(
         select(TopicProfile).order_by(TopicProfile.priority.desc(), TopicProfile.updated_at.desc())
     ).scalars().all()
-    return [_topic_profile_to_dict(profile, db) for profile in profiles]
+    profile_map = {profile.topic_key: profile for profile in profiles}
+    merged_items: list[dict] = []
+
+    for profile in profiles:
+        aggregated = aggregated_index.get(profile.topic_key)
+        merged_items.append(_topic_profile_to_dict(profile, db, aggregated=aggregated))
+
+    for topic_key, aggregated in aggregated_index.items():
+        if topic_key in profile_map:
+            continue
+        display_title, description, display_title_source = _resolve_topic_presentation(
+            topic_key=topic_key,
+            profile=None,
+            latest_post_title=aggregated["latest_post_title"],
+            latest_post_summary=aggregated["latest_post_summary"],
+        )
+        merged_items.append(
+            {
+                "id": 0,
+                "topic_key": topic_key,
+                "title": display_title,
+                "display_title": display_title,
+                "description": description,
+                "cover_image": "",
+                "aliases": [],
+                "focus_points": [],
+                "content_types": aggregated["content_types"],
+                "series_slug": aggregated["series_slug"],
+                "is_featured": False,
+                "sort_order": 0,
+                "is_active": True,
+                "priority": 0,
+                "profile_exists": False,
+                "is_virtual": True,
+                "post_count": aggregated["post_count"],
+                "source_count": aggregated["source_count"],
+                "latest_post_at": _serialize_datetime(aggregated["latest_post_at"]),
+                "latest_post_title": aggregated["latest_post_title"],
+                "latest_post_slug": aggregated["latest_post_slug"],
+                "display_title_source": display_title_source,
+                "avg_quality_score": aggregated["avg_quality_score"],
+                "created_at": None,
+                "updated_at": None,
+            }
+        )
+
+    merged_items.sort(
+        key=lambda item: (
+            item.get("profile_exists", False),
+            item.get("priority", 0),
+            item.get("post_count", 0),
+            item.get("latest_post_at") or "",
+        ),
+        reverse=True,
+    )
+    return merged_items
 
 
 @router.post("/topic-profiles", response_model=TopicProfileOut)

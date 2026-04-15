@@ -457,6 +457,12 @@ class TopicProfileUpdateRequest(BaseModel):
 
 class TopicProfileOut(TopicProfileBase):
     id: int
+    profile_exists: bool = True
+    is_virtual: bool = False
+    source_count: int = 0
+    latest_post_title: str = ""
+    latest_post_slug: str = ""
+    display_title_source: str = "manual"
     post_count: int = 0
     latest_post_at: datetime | None = None
     avg_quality_score: float | None = None

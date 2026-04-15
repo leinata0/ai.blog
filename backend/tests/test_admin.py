@@ -529,7 +529,13 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
 
     list_profile = client.get("/api/admin/topic-profiles", headers=_auth(token))
     assert list_profile.status_code == 200
-    assert any(item["topic_key"] == "agent-runtime" for item in list_profile.json())
+    profile_item = next(item for item in list_profile.json() if item["topic_key"] == "agent-runtime")
+    assert profile_item["profile_exists"] is True
+    assert profile_item["is_virtual"] is False
+    assert "display_title_source" in profile_item
+    assert "source_count" in profile_item
+    assert "latest_post_title" in profile_item
+    assert "latest_post_slug" in profile_item
 
     update_profile = client.put(
         f"/api/admin/topic-profiles/{profile_id}",
@@ -601,6 +607,36 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
     assert "total" in insights_payload
     assert any(item["query"] == "agent runtime" for item in insights_payload["items"])
     assert all(len(item["query"]) >= 2 for item in insights_payload["items"])
+
+
+def test_admin_topic_profiles_include_virtual_topics_from_published_posts(client):
+    token = _login(client)
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "OpenAI 发布新一代智能体编排能力",
+            "slug": "openai-agent-orchestration-update",
+            "summary": "围绕新一代智能体编排能力，观察产品化落地与生态变化。",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "topic_key": "openai-agent-orchestration",
+            "source_count": 6,
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+
+    list_profile = client.get("/api/admin/topic-profiles", headers=_auth(token))
+    assert list_profile.status_code == 200
+    items = list_profile.json()
+    virtual = next(item for item in items if item["topic_key"] == "openai-agent-orchestration")
+    assert virtual["profile_exists"] is False
+    assert virtual["is_virtual"] is True
+    assert virtual["post_count"] >= 1
+    assert virtual["source_count"] >= 6
+    assert virtual["latest_post_slug"] == "openai-agent-orchestration-update"
+    assert virtual["display_title_source"] in {"bridged", "derived", "raw"}
 
 
 def test_admin_series_generate_cover(client):
