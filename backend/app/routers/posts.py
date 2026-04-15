@@ -121,6 +121,50 @@ def _source_to_dict(source: PostSource) -> dict:
     }
 
 
+def _json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if isinstance(item, (str, int, float))]
+
+
+def _snapshot_to_dict(snapshot) -> dict | None:
+    if snapshot is None:
+        return None
+    return {
+        "overall_score": snapshot.overall_score,
+        "structure_score": snapshot.structure_score,
+        "source_score": snapshot.source_score,
+        "analysis_score": snapshot.analysis_score,
+        "packaging_score": snapshot.packaging_score,
+        "resonance_score": snapshot.resonance_score,
+        "issues": _json_list(snapshot.issues_json),
+        "strengths": _json_list(snapshot.strengths_json),
+        "notes": snapshot.notes or "",
+        "generated_at": snapshot.generated_at.isoformat() if snapshot.generated_at else None,
+        "updated_at": snapshot.updated_at.isoformat() if snapshot.updated_at else None,
+    }
+
+
+def _review_to_dict(review) -> dict | None:
+    if review is None:
+        return None
+    return {
+        "editor_verdict": review.editor_verdict or "",
+        "editor_labels": _json_list(review.editor_labels_json),
+        "editor_note": review.editor_note or "",
+        "followup_recommended": review.followup_recommended,
+        "reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None,
+        "reviewed_by": review.reviewed_by or "",
+        "updated_at": review.updated_at.isoformat() if review.updated_at else None,
+    }
+
+
 def _build_source_summary(sources: list[PostSource], artifact: PublishingArtifact | None) -> str:
     if artifact and (artifact.research_pack_summary or "").strip():
         return artifact.research_pack_summary.strip()
@@ -199,7 +243,15 @@ def list_posts(
 
 @router.get("/posts/{slug}")
 def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
-    stmt = select(Post).options(selectinload(Post.tags)).where(Post.slug == slug)
+    stmt = (
+        select(Post)
+        .options(
+            selectinload(Post.tags),
+            selectinload(Post.quality_snapshot),
+            selectinload(Post.quality_review),
+        )
+        .where(Post.slug == slug)
+    )
     post = db.execute(stmt).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
@@ -296,6 +348,8 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
         "series": _series_to_dict(series, db, include_posts=False) if series else None,
         "sources": [_source_to_dict(source) for source in sources],
         "source_summary": _build_source_summary(sources, latest_artifact),
+        "quality_snapshot": _snapshot_to_dict(post.quality_snapshot),
+        "quality_review": _review_to_dict(post.quality_review),
         "same_series_posts": [_post_list_item(item) for item in same_series_posts],
         "same_topic_posts": [_post_list_item(item) for item in same_topic_posts],
         "same_week_posts": [_post_list_item(item) for item in same_week_posts],
