@@ -188,13 +188,13 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
               className="w-full px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="文章标题" />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">Slug</label>
+            <label className="text-sm font-medium text-[var(--text-secondary)]">固定链接 Slug</label>
             <div className="flex gap-2">
               <input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })}
                 className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none" style={inputStyle} placeholder="url-friendly-slug" />
               <button type="button" onClick={() => setForm({ ...form, slug: generateSlug(form.title) })}
                 className="px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-200 flex-shrink-0 text-[var(--accent)] border border-[var(--border-muted)]">
-                生成
+                自动生成
               </button>
             </div>
           </div>
@@ -251,7 +251,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingImage}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200 disabled:opacity-50 text-[var(--accent)] border border-[var(--border-muted)]">
-                {uploadingImage ? '上传中...' : '上传图片'}
+                {uploadingImage ? '上传中...' : '上传正文图片'}
               </button>
             </>
           </div>
