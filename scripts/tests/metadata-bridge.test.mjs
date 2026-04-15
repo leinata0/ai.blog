@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import {
   assignSeriesForPost,
   buildPublishingMetadataBridgePayload,
+  buildQualitySnapshotPayload,
   estimateReadingTimeMinutes,
 } from '../auto-blog.mjs'
 
@@ -19,7 +20,7 @@ function clone(value) {
 
 test('estimateReadingTimeMinutes returns bounded reading time', () => {
   assert.equal(estimateReadingTimeMinutes(''), 1)
-  assert.ok(estimateReadingTimeMinutes('这是一个很长的中文正文 '.repeat(300)) >= 2)
+  assert.ok(estimateReadingTimeMinutes('This is a long body. '.repeat(300)) >= 2)
 })
 
 test('assignSeriesForPost maps weekly content to weekly series rule', () => {
@@ -62,7 +63,8 @@ test('metadata bridge payload keeps core post fields unchanged and excludes cove
     title: 'A title',
     slug: 'a-title',
     summary: 'A summary',
-    content_md: '## 发生了什么\n\n正文\n\n## 参考来源\n\n- a\n\n## 图片来源\n\n- b',
+    cover_image: 'https://example.com/cover.png',
+    content_md: '## What happened\n\nBody\n\n## References\n\n- a\n\n## Image Sources\n\n- b',
     tags: ['ai'],
     content_type: 'daily_brief',
     topic_key: 'agent-tooling',
@@ -158,6 +160,7 @@ test('metadata bridge payload keeps core post fields unchanged and excludes cove
   assert.equal(post.title, postBefore.title)
   assert.equal(post.summary, postBefore.summary)
   assert.equal(post.content_md, postBefore.content_md)
+  assert.equal(post.cover_image, postBefore.cover_image)
   assert.equal(outline.cover_prompt, outlineBefore.cover_prompt)
   assert.equal(payload.post_id, 101)
   assert.equal(payload.post_slug, 'a-title')
@@ -169,6 +172,87 @@ test('metadata bridge payload keeps core post fields unchanged and excludes cove
   assert.equal(payload.post_sources.length, 2)
   assert.equal(payload.post_sources[0].is_primary, true)
   assert.ok(!payload.publishing_artifact.research_pack_summary.includes('cover_prompt'))
+})
+
+test('quality snapshot payload keeps core fields unchanged and exposes required readonly keys', () => {
+  const post = {
+    title: 'A title',
+    slug: 'a-title',
+    summary: 'A summary',
+    cover_image: 'https://example.com/cover.png',
+    content_md: '## What happened\n\nBody\n\n## References\n\n- a\n\n## Image Sources\n\n- b',
+    tags: ['ai'],
+    content_type: 'daily_brief',
+    topic_key: 'agent-tooling',
+    published_mode: 'auto',
+    coverage_date: '2026-04-15',
+  }
+  const outline = {
+    topic: 'Agent tooling',
+    thesis: 'Execution matters',
+  }
+  const metadata = {
+    content_type: 'daily_brief',
+    topic_key: 'agent-tooling',
+    published_mode: 'auto',
+    coverage_date: '2026-04-15',
+  }
+  const gate = {
+    passed: true,
+    metrics: {
+      source_count: 3,
+      high_quality_source_count: 1,
+      char_count: 2600,
+      banned_phrase_hits: 0,
+      analysis_signal_count: 3,
+      missing_sections: [],
+    },
+  }
+  const config = {
+    quality_gate: {
+      daily_brief: {
+        min_sources: 2,
+        min_high_quality_sources: 1,
+        min_chars: 2200,
+        max_banned_phrase_hits: 2,
+        min_analysis_signals: 3,
+      },
+    },
+    series_assignment: {
+      enabled: true,
+      default_series_slug: '',
+      rules: [{ series_slug: 'ai-daily-brief', content_types: ['daily_brief'], default_order: 100 }],
+    },
+  }
+  const postBefore = clone(post)
+
+  const payload = buildQualitySnapshotPayload({
+    postId: 101,
+    post,
+    outline,
+    metadata,
+    gate,
+    config,
+    researchPack: {
+      sources: [{ source_type: 'official_blog', source_name: 'OpenAI', url: 'https://example.com/a' }],
+    },
+  })
+
+  assert.equal(post.title, postBefore.title)
+  assert.equal(post.summary, postBefore.summary)
+  assert.equal(post.content_md, postBefore.content_md)
+  assert.equal(post.cover_image, postBefore.cover_image)
+  assert.equal(payload.post_id, 101)
+  assert.equal(payload.post_slug, 'a-title')
+  assert.equal(typeof payload.quality_snapshot.overall_score, 'number')
+  assert.equal(typeof payload.quality_snapshot.structure_score, 'number')
+  assert.equal(typeof payload.quality_snapshot.source_score, 'number')
+  assert.equal(typeof payload.quality_snapshot.analysis_score, 'number')
+  assert.equal(typeof payload.quality_snapshot.packaging_score, 'number')
+  assert.equal(typeof payload.quality_snapshot.resonance_score, 'number')
+  assert.ok(Array.isArray(payload.quality_snapshot.issues))
+  assert.ok(Array.isArray(payload.quality_snapshot.strengths))
+  assert.equal(typeof payload.quality_snapshot.notes, 'string')
 })
 
 test('workflow contracts remain unchanged for script entry and required secrets', async () => {
