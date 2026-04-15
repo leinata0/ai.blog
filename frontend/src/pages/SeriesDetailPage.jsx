@@ -9,7 +9,13 @@ import { proxyImageUrl } from '../utils/proxyImage'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
-import { getContentTypeLabel, getSeriesDescription, getSeriesTitle, motionContainerVariants, motionItemVariants } from '../utils/contentPresentation'
+import {
+  getContentTypeLabel,
+  getSeriesDescription,
+  getSeriesTitle,
+  motionContainerVariants,
+  motionItemVariants,
+} from '../utils/contentPresentation'
 
 export default function SeriesDetailPage() {
   const { slug } = useParams()
@@ -20,7 +26,7 @@ export default function SeriesDetailPage() {
     fetchSeriesDetail(slug)
       .then((payload) => {
         setSeries(payload)
-        document.title = `${payload.title || '系列'} - 极客开发日志`
+        document.title = `${payload.title || '内容系列'}`
       })
       .catch(() => setSeries(null))
       .finally(() => setLoading(false))

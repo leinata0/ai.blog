@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight, Calendar, Layers3, Pin, Search, Sparkles, Tag } from 'lucide-react'
+import { ArrowRight, Calendar, Pin, Search, Sparkles, Tag } from 'lucide-react'
 
 import { fetchPosts, fetchSeriesList, fetchTopics } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
@@ -16,6 +16,7 @@ import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import ContinueReadingSection from '../components/ContinueReadingSection'
 import RecentTopicsSection from '../components/RecentTopicsSection'
+import SeriesEditorialStack from '../components/SeriesEditorialStack'
 import {
   getContinueReadingItems,
   getFollowedTopics,
@@ -23,8 +24,6 @@ import {
 } from '../utils/topicRetention'
 import {
   CONTENT_TYPE_META,
-  getSeriesDescription,
-  getSeriesTitle,
   getTopicTitle,
   hoverLift,
   motionContainerVariants,
@@ -71,9 +70,11 @@ function WeeklySpotlight({ post }) {
           <div className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: 'rgba(37, 99, 235, 0.12)', color: '#2563eb' }}>
             周报主卡
           </div>
-          <h2 className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>先读一篇看清一周主线的长文</h2>
+          <h2 className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+            先读一篇，看清这一周最重要的变化
+          </h2>
           <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            周报负责把一周内最值得回看的变化串成一条清晰脉络，帮助你快速建立上下文。
+            周报会把一周内最值得回看的动态串成更清晰的脉络，方便你快速建立上下文。
           </p>
         </div>
         <Link to="/weekly" className="inline-flex items-center gap-1 text-sm font-medium" style={{ color: '#2563eb' }}>
@@ -83,7 +84,11 @@ function WeeklySpotlight({ post }) {
       </div>
 
       {post ? (
-        <Link to={`/posts/${post.slug}`} className="mt-6 block rounded-3xl border border-[var(--border-muted)] px-5 py-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(37,99,235,0.28)]" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+        <Link
+          to={`/posts/${post.slug}`}
+          className="mt-6 block rounded-3xl border border-[var(--border-muted)] px-5 py-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(37,99,235,0.28)]"
+          style={{ backgroundColor: 'var(--bg-canvas)' }}
+        >
           <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
             {post.coverage_date ? <span>{post.coverage_date}</span> : null}
             <span>{CONTENT_TYPE_META.weekly_review.label}</span>
@@ -93,7 +98,7 @@ function WeeklySpotlight({ post }) {
         </Link>
       ) : (
         <div className="mt-6 rounded-3xl px-5 py-5" style={{ backgroundColor: 'var(--bg-canvas)' }}>
-          <p style={{ color: 'var(--text-faint)' }}>最新周报会在这里出现。</p>
+          <p style={{ color: 'var(--text-faint)' }}>最新周报会出现在这里。</p>
         </div>
       )}
     </motion.section>
@@ -102,7 +107,13 @@ function WeeklySpotlight({ post }) {
 
 function DailyCard({ post }) {
   return (
-    <motion.article data-ui="home-daily-rail" variants={motionItemVariants} whileHover={hoverLift} className="editorial-card rounded-3xl border px-5 py-5" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
+    <motion.article
+      data-ui="home-daily-rail"
+      variants={motionItemVariants}
+      whileHover={hoverLift}
+      className="editorial-card rounded-3xl border px-5 py-5"
+      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}
+    >
       <Link to={`/posts/${post.slug}`} className="block">
         <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
           {post.coverage_date || formatDate(post.created_at)}
@@ -114,44 +125,32 @@ function DailyCard({ post }) {
   )
 }
 
-function SeriesCard({ series }) {
-  return (
-    <motion.article data-ui="home-series-showcase" variants={motionItemVariants} whileHover={hoverLift} className="editorial-card group overflow-hidden rounded-3xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
-      <Link to={`/series/${series.slug}`} className="block">
-        {series.cover_image ? (
-          <div className="editorial-cover h-40 overflow-hidden">
-            <img src={proxyImageUrl(series.cover_image)} alt={getSeriesTitle(series)} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
-          </div>
-        ) : null}
-        <div className="px-5 py-5">
-          <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: 'rgba(37, 99, 235, 0.12)', color: '#2563eb' }}>
-            <Layers3 size={12} />
-            系列
-          </div>
-          <h3 className="mt-3 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{getSeriesTitle(series)}</h3>
-          <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            {getSeriesDescription(series)}
-          </p>
-        </div>
-      </Link>
-    </motion.article>
-  )
-}
-
 function TopicCard({ topic }) {
   return (
-    <motion.article data-ui="home-hot-topics" variants={motionItemVariants} whileHover={hoverLift} className="editorial-card overflow-hidden rounded-3xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
+    <motion.article
+      data-ui="home-hot-topics"
+      variants={motionItemVariants}
+      whileHover={hoverLift}
+      className="editorial-card overflow-hidden rounded-3xl border"
+      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}
+    >
       <Link to={`/topics/${topic.topic_key}`} className="block">
         <div className="px-5 py-5">
           <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
-            <span className="rounded-full px-2.5 py-1" style={{ backgroundColor: topic.is_featured ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)', color: topic.is_featured ? '#2563eb' : 'var(--accent)' }}>
+            <span
+              className="rounded-full px-2.5 py-1"
+              style={{
+                backgroundColor: topic.is_featured ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)',
+                color: topic.is_featured ? '#2563eb' : 'var(--accent)',
+              }}
+            >
               {topic.is_featured ? '编辑推荐' : '持续追踪'}
             </span>
             {topic.post_count ? <span>{topic.post_count} 篇文章</span> : null}
           </div>
           <h3 className="mt-3 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{getTopicTitle(topic)}</h3>
           <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            主题用于追踪“内容在讲什么”，会持续沉淀同一问题的时间线。
+            主题强调“内容在讲什么”，帮助你沿着同一条线索持续跟进模型、公司与产品变化。
           </p>
         </div>
       </Link>
@@ -257,7 +256,7 @@ export default function HomePage() {
     fetchSeriesList({ featured: true })
       .then(setSeriesList)
       .catch(() => setSeriesList([]))
-    fetchTopics({ featured: true, page_size: 4, sort: 'activity' })
+    fetchTopics({ featured: true, limit: 4 })
       .then((payload) => setHotTopics(Array.isArray(payload?.items) ? payload.items : []))
       .catch(() => setHotTopics([]))
   }, [])
@@ -325,7 +324,7 @@ export default function HomePage() {
     () => posts.filter((post) => post.content_type === 'daily_brief').slice(0, 4),
     [posts],
   )
-  const featuredSeries = useMemo(() => seriesList.slice(0, 3), [seriesList])
+  const featuredSeries = useMemo(() => seriesList.slice(0, 4), [seriesList])
   const featuredTopics = useMemo(() => hotTopics.slice(0, 4), [hotTopics])
 
   function handleSearch(event) {
@@ -355,7 +354,7 @@ export default function HomePage() {
       >
         <div className="mx-auto flex max-w-7xl flex-col gap-10 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-3xl flex-1">
-            <h2 className="sr-only">极客开发日志</h2>
+            <h2 className="sr-only">AI 资讯观察</h2>
             <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.72)', color: '#2563eb' }}>
               <Sparkles size={12} />
               AI 资讯观察站
@@ -427,7 +426,7 @@ export default function HomePage() {
                     <div>
                       <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>最新日报流</h2>
                       <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        快速浏览当天值得跟进的 AI 消息与产品变化。
+                        快速浏览当天值得跟进的 AI 消息、产品更新与行业变化。
                       </p>
                     </div>
                     <Link to="/daily" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
@@ -440,7 +439,7 @@ export default function HomePage() {
                       <DailyCard key={post.slug} post={post} />
                     )) : (
                       <div className="rounded-3xl px-5 py-5 md:col-span-2" style={{ backgroundColor: 'var(--bg-surface)' }}>
-                        <p style={{ color: 'var(--text-faint)' }}>最新日报会在这里出现。</p>
+                        <p style={{ color: 'var(--text-faint)' }}>最新日报会出现在这里。</p>
                       </div>
                     )}
                   </motion.div>
@@ -451,22 +450,19 @@ export default function HomePage() {
                     <div>
                       <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>系列入口</h2>
                       <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        系列强调“如何组织阅读路径”，用于长期追踪同一栏目。
+                        系列强调“如何组织阅读路径”，帮助你把分散文章串成一条更好追踪的栏目主线。
                       </p>
                     </div>
                     <Link to="/series" className="text-sm font-medium" style={{ color: '#2563eb' }}>
                       查看全部系列
                     </Link>
                   </div>
-                  <motion.div variants={motionContainerVariants} className="grid gap-4 md:grid-cols-3">
-                    {featuredSeries.length > 0 ? featuredSeries.map((series) => (
-                      <SeriesCard key={series.slug} series={series} />
-                    )) : (
-                      <div className="rounded-3xl px-5 py-5 md:col-span-3" style={{ backgroundColor: 'var(--bg-surface)' }}>
-                        <p style={{ color: 'var(--text-faint)' }}>系列入口正在准备中。</p>
-                      </div>
-                    )}
-                  </motion.div>
+
+                  <SeriesEditorialStack
+                    items={featuredSeries}
+                    mode="compact"
+                    emptyText="系列入口正在整理中。"
+                  />
                 </motion.section>
 
                 <motion.section variants={motionItemVariants}>
@@ -474,7 +470,7 @@ export default function HomePage() {
                     <div>
                       <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>热门主题</h2>
                       <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        主题强调“内容在讲什么”，帮助你持续追踪同一问题线索。
+                        主题强调“内容在讲什么”，帮助你沿着同一条问题线索持续回看关键变化。
                       </p>
                     </div>
                     <Link to="/topics" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
@@ -497,7 +493,7 @@ export default function HomePage() {
                     <div>
                       <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>继续阅读与关注主题</h2>
                       <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        这些状态仅保存在当前浏览器，用于帮助你快速回到正在跟进的内容。
+                        这些状态仅保存在当前浏览器里，用于帮你快速回到正在跟进的文章和主题。
                       </p>
                     </div>
                     <Link to="/following" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
