@@ -7,6 +7,125 @@ function normalizeContentType(contentType) {
   return null
 }
 
+function normalizeQualitySnapshot(payload = null) {
+  if (!payload || typeof payload !== 'object') return null
+  return {
+    overall_score: payload.overall_score ?? null,
+    structure_score: payload.structure_score ?? null,
+    source_score: payload.source_score ?? null,
+    analysis_score: payload.analysis_score ?? null,
+    packaging_score: payload.packaging_score ?? null,
+    resonance_score: payload.resonance_score ?? null,
+    issues: Array.isArray(payload.issues) ? payload.issues : [],
+    strengths: Array.isArray(payload.strengths) ? payload.strengths : [],
+    notes: payload.notes ?? '',
+  }
+}
+
+function normalizeQualityReview(payload = null) {
+  if (!payload || typeof payload !== 'object') return null
+  return {
+    editor_verdict: payload.editor_verdict ?? '',
+    editor_labels: Array.isArray(payload.editor_labels) ? payload.editor_labels : [],
+    editor_note: payload.editor_note ?? '',
+    followup_recommended: payload.followup_recommended ?? null,
+  }
+}
+
+function clampScore(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return null
+  return Math.max(0, Math.min(100, Math.round(numeric)))
+}
+
+function buildHeuristicScore(sourceCount, weight) {
+  if (!Number.isFinite(Number(sourceCount)) || Number(sourceCount) <= 0) return null
+  return Math.max(45, Math.min(95, Math.round(Number(sourceCount) * weight)))
+}
+
+function deriveQualityInsights(payload = {}) {
+  const snapshot = normalizeQualitySnapshot(payload.quality_snapshot)
+  const review = normalizeQualityReview(payload.quality_review)
+  const sourceCount = Number(payload.source_count ?? 0)
+  const readingTime = Number(payload.reading_time ?? 0)
+  const overallScore = clampScore(snapshot?.overall_score ?? payload.quality_score)
+  const structureScore = clampScore(snapshot?.structure_score ?? (overallScore !== null ? overallScore + 4 : null))
+  const sourceScore = clampScore(snapshot?.source_score ?? buildHeuristicScore(sourceCount, 18))
+  const analysisScore = clampScore(
+    snapshot?.analysis_score ?? (
+      readingTime > 0
+        ? Math.min(92, Math.round(48 + readingTime * 6))
+        : overallScore !== null
+          ? Math.max(52, overallScore - 3)
+          : null
+    )
+  )
+  const sameTopicCount = Array.isArray(payload.same_topic_posts) ? payload.same_topic_posts.length : 0
+  const hasSourceSummary = Boolean(String(payload.source_summary || '').trim())
+  const hasSignal =
+    snapshot !== null ||
+    overallScore !== null ||
+    sourceCount > 0 ||
+    readingTime > 0 ||
+    hasSourceSummary ||
+    sameTopicCount > 0 ||
+    Boolean(payload.series_slug)
+
+  if (!hasSignal) return null
+
+  const structureSummary =
+    structureScore === null
+      ? '暂时缺少结构评分。'
+      : structureScore >= 85
+        ? '结构区块较完整，阅读路径清晰。'
+        : structureScore >= 70
+          ? '结构基本稳定，但仍有细节可继续优化。'
+          : '结构完整度一般，后续可继续补强章节层次。'
+
+  const sourceSummary =
+    sourceScore === null
+      ? '当前缺少来源计数信息。'
+      : sourceScore >= 85
+        ? '来源覆盖较充分，适合继续沿这条主线扩展。'
+        : sourceScore >= 70
+          ? '来源基础可用，但仍可补充更多高质量视角。'
+          : '来源支撑偏薄，后续更适合增加官方或一手信号。'
+
+  const analysisSummary =
+    analysisScore === null
+      ? '当前缺少分析深度信号。'
+      : analysisScore >= 85
+        ? '正文具备较好的分析展开空间，不止停留在信息罗列。'
+        : analysisScore >= 70
+          ? '正文已有一定分析，但仍可继续增强背景和取舍判断。'
+          : '正文分析密度偏弱，更适合后续继续补深。'
+
+  const followupRecommended =
+    review?.followup_recommended ??
+    Boolean((snapshot?.resonance_score ?? 0) >= 55 || sameTopicCount > 0 || (overallScore ?? 0) >= 82 || payload.series_slug)
+
+  const followupSummary = followupRecommended
+    ? '这条主线值得继续追踪，后续可以串联同主题和同系列文章。'
+    : '这篇内容更适合作为一次性观察点，后续是否追踪取决于新信号。'
+
+  return {
+    has_snapshot: Boolean(snapshot),
+    overall_score: overallScore,
+    structure_score: structureScore,
+    source_score: sourceScore,
+    analysis_score: analysisScore,
+    source_count: sourceCount || null,
+    reading_time: readingTime || null,
+    structure_summary: structureSummary,
+    source_summary: sourceSummary,
+    analysis_summary: analysisSummary,
+    followup_recommended: followupRecommended,
+    followup_summary: followupSummary,
+    review_verdict: review?.editor_verdict || '',
+    snapshot_notes: snapshot?.notes || '',
+  }
+}
+
 export function normalizePost(payload = {}) {
   return {
     ...payload,
@@ -22,6 +141,8 @@ export function normalizePost(payload = {}) {
     series: payload.series ?? null,
     sources: Array.isArray(payload.sources) ? payload.sources : [],
     source_summary: payload.source_summary ?? '',
+    quality_snapshot: normalizeQualitySnapshot(payload.quality_snapshot),
+    quality_review: normalizeQualityReview(payload.quality_review),
     same_series_posts: Array.isArray(payload.same_series_posts) ? payload.same_series_posts.map((item) => normalizePost(item)) : [],
     same_topic_posts: Array.isArray(payload.same_topic_posts) ? payload.same_topic_posts.map((item) => normalizePost(item)) : [],
     same_week_posts: Array.isArray(payload.same_week_posts) ? payload.same_week_posts.map((item) => normalizePost(item)) : [],
@@ -30,6 +151,7 @@ export function normalizePost(payload = {}) {
         ? payload.published_mode
         : null,
     coverage_date: payload.coverage_date ?? null,
+    quality_insights: deriveQualityInsights(payload),
   }
 }
 
