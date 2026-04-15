@@ -4,6 +4,12 @@ import { Activity, Clock3, PlayCircle, SkipForward } from 'lucide-react'
 import { fetchAdminPublishingStatus } from '../../api/admin'
 import { formatDate } from '../../utils/date'
 import AdminPublishingRunDetail from './AdminPublishingRunDetail'
+import {
+  getContentTypeLabel,
+  getPublishedModeLabel,
+  getRunStatusLabel,
+  localizeAdminText,
+} from './adminDisplay'
 
 function StatusPill({ status }) {
   const normalized = String(status || 'unknown').toLowerCase()
@@ -18,7 +24,7 @@ function StatusPill({ status }) {
 
   return (
     <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${palette}`}>
-      {status || 'unknown'}
+      {getRunStatusLabel(status)}
     </span>
   )
 }
@@ -28,15 +34,15 @@ function RunCard({ title, run }) {
     return (
       <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-5">
         <div className="mb-2 text-sm font-medium text-[var(--text-secondary)]">{title}</div>
-        <div className="text-sm text-[var(--text-faint)]">No run snapshot yet.</div>
+        <div className="text-sm text-[var(--text-faint)]">还没有运行快照。</div>
       </section>
     )
   }
 
   const stats = [
-    { label: 'Candidates', value: run.summary?.candidate_count ?? 0, icon: Activity },
-    { label: 'Published', value: run.summary?.published_count ?? 0, icon: PlayCircle },
-    { label: 'Skipped', value: run.summary?.skipped_count ?? 0, icon: SkipForward },
+    { label: '候选主题', value: run.summary?.candidate_count ?? 0, icon: Activity },
+    { label: '成功发布', value: run.summary?.published_count ?? 0, icon: PlayCircle },
+    { label: '跳过主题', value: run.summary?.skipped_count ?? 0, icon: SkipForward },
   ]
 
   return (
@@ -44,9 +50,9 @@ function RunCard({ title, run }) {
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <div className="mb-1 text-sm font-medium text-[var(--text-secondary)]">{title}</div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">{run.coverage_date || 'No coverage date'}</div>
+          <div className="text-lg font-semibold text-[var(--text-primary)]">{run.coverage_date || '未记录 coverage_date'}</div>
           <div className="mt-1 text-xs text-[var(--text-faint)]">
-            {(run.run_mode || 'auto') === 'manual' ? 'Manual run' : 'Auto run'} • Updated {formatDate(run.updated_at)}
+            {(run.run_mode || 'auto') === 'manual' ? '手动运行' : '自动运行'} • 更新于 {formatDate(run.updated_at)}
           </div>
         </div>
         <StatusPill status={run.status} />
@@ -62,7 +68,7 @@ function RunCard({ title, run }) {
       </div>
       {run.message ? (
         <div className="mt-4 rounded-lg bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-secondary)]">
-          {run.message}
+          {localizeAdminText(run.message)}
         </div>
       ) : null}
     </section>
@@ -83,20 +89,20 @@ function TopicList({ title, items, emptyText }) {
               <div className="mb-1 flex items-start justify-between gap-3">
                 <div className="font-medium text-[var(--text-primary)]">{item.title}</div>
                 <span className="rounded-full bg-[var(--accent-soft)] px-2 py-1 text-xs text-[var(--accent)]">
-                  {item.content_type || 'daily_brief'}
+                  {getContentTypeLabel(item.content_type || 'daily_brief')}
                 </span>
               </div>
               {item.summary ? <div className="mb-2 text-sm text-[var(--text-secondary)]">{item.summary}</div> : null}
               <div className="flex flex-wrap gap-2 text-xs text-[var(--text-faint)]">
-                <span>topic_key: {item.topic_key || 'n/a'}</span>
-                <span>source_count: {item.source_count ?? 0}</span>
-                {item.published_mode ? <span>mode: {item.published_mode}</span> : null}
-                {item.post_slug ? <span>slug: {item.post_slug}</span> : null}
+                <span>topic_key：{item.topic_key || 'n/a'}</span>
+                <span>来源数：{item.source_count ?? 0}</span>
+                {item.published_mode ? <span>模式：{getPublishedModeLabel(item.published_mode)}</span> : null}
+                {item.post_slug ? <span>slug：{item.post_slug}</span> : null}
               </div>
               {item.source_names?.length ? (
-                <div className="mt-2 text-xs text-[var(--text-faint)]">sources: {item.source_names.join(' / ')}</div>
+                <div className="mt-2 text-xs text-[var(--text-faint)]">来源：{item.source_names.join(' / ')}</div>
               ) : null}
-              {item.reason ? <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">{item.reason}</div> : null}
+              {item.reason ? <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">{localizeAdminText(item.reason)}</div> : null}
             </div>
           ))}
         </div>
@@ -110,24 +116,24 @@ function TopicList({ title, items, emptyText }) {
 function RecentPosts({ posts }) {
   return (
     <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-5">
-      <div className="mb-4 text-sm font-semibold text-[var(--text-primary)]">Recent Posts</div>
+      <div className="mb-4 text-sm font-semibold text-[var(--text-primary)]">最近发布文章</div>
       {posts?.length ? (
         <div className="space-y-3">
           {posts.map((post) => (
             <div key={post.id} className="rounded-lg bg-[var(--bg-canvas)] p-4">
               <div className="mb-1 font-medium text-[var(--text-primary)]">{post.title}</div>
               <div className="flex flex-wrap gap-2 text-xs text-[var(--text-faint)]">
-                <span>{post.content_type || 'post'}</span>
-                <span>{post.published_mode || 'manual'}</span>
-                {post.topic_key ? <span>topic_key: {post.topic_key}</span> : null}
-                {post.coverage_date ? <span>coverage: {post.coverage_date}</span> : null}
+                <span>{getContentTypeLabel(post.content_type || 'post')}</span>
+                <span>{getPublishedModeLabel(post.published_mode || 'manual')}</span>
+                {post.topic_key ? <span>topic_key：{post.topic_key}</span> : null}
+                {post.coverage_date ? <span>覆盖日期：{post.coverage_date}</span> : null}
                 <span>{formatDate(post.created_at)}</span>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="text-sm text-[var(--text-faint)]">No posts yet.</div>
+        <div className="text-sm text-[var(--text-faint)]">还没有发布文章。</div>
       )}
     </section>
   )
@@ -164,9 +170,9 @@ export default function AdminPublishingStatus() {
     <div data-ui="admin-publishing-status">
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Publishing Status</h2>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">发布状态</h2>
           <p className="mt-1 text-sm text-[var(--text-faint)]">
-            Monitor candidate topics, published/skipped decisions, and auto vs manual outcomes.
+            观察候选主题、发布或跳过决策，以及自动与手动发布的运行结果。
           </p>
         </div>
         <button
@@ -174,37 +180,37 @@ export default function AdminPublishingStatus() {
           onClick={loadStatus}
           className="rounded-lg border border-[var(--border-muted)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
         >
-          Refresh
+          刷新
         </button>
       </div>
 
       {error ? <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
 
       {loading && !data ? (
-        <div className="text-sm text-[var(--text-faint)]">Loading...</div>
+        <div className="text-sm text-[var(--text-faint)]">加载中...</div>
       ) : (
         <div className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-2">
-            <RunCard title="Latest Daily Auto Run" run={latestDaily} />
-            <RunCard title="Latest Weekly Review Run" run={latestWeekly} />
+            <RunCard title="最近一次日报运行" run={latestDaily} />
+            <RunCard title="最近一次周报运行" run={latestWeekly} />
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[1.2fr,1fr]">
             <div className="space-y-6">
               <TopicList
-                title="Candidate Topics"
+                title="候选主题"
                 items={spotlightRun?.candidate_topics || []}
-                emptyText="No candidate snapshot yet."
+                emptyText="还没有候选主题快照。"
               />
               <TopicList
-                title="Published Topics"
+                title="已发布主题"
                 items={spotlightRun?.published_topics || []}
-                emptyText="No published topic snapshot yet."
+                emptyText="还没有已发布主题快照。"
               />
               <TopicList
-                title="Skipped Topics & Reasons"
+                title="跳过主题与原因"
                 items={spotlightRun?.skipped_topics || []}
-                emptyText="No skipped topic snapshot yet."
+                emptyText="还没有跳过主题快照。"
               />
             </div>
 
@@ -213,7 +219,7 @@ export default function AdminPublishingStatus() {
               <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-5">
                 <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
                   <Clock3 size={16} className="text-[var(--accent)]" />
-                  Recent Runs
+                  最近运行记录
                 </div>
                 {data?.recent_runs?.length ? (
                   <div className="space-y-3">
@@ -226,23 +232,23 @@ export default function AdminPublishingStatus() {
                       >
                         <div className="mb-2 flex items-start justify-between gap-3">
                           <div>
-                            <div className="font-medium text-[var(--text-primary)]">{run.workflow_key}</div>
-                            <div className="text-xs text-[var(--text-faint)]">
-                              {run.coverage_date || 'No coverage date'} • {run.run_mode === 'manual' ? 'manual' : 'auto'}
-                            </div>
+                          <div className="font-medium text-[var(--text-primary)]">{run.workflow_key === 'weekly_review' ? '周报工作流' : '日报工作流'}</div>
+                          <div className="text-xs text-[var(--text-faint)]">
+                              {run.coverage_date || '未记录覆盖日期'} • {run.run_mode === 'manual' ? '手动' : '自动'}
                           </div>
+                        </div>
                           <StatusPill status={run.status} />
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-xs text-[var(--text-faint)]">
-                          <span>cand {run.summary?.candidate_count ?? 0}</span>
-                          <span>pub {run.summary?.published_count ?? 0}</span>
-                          <span>skip {run.summary?.skipped_count ?? 0}</span>
+                          <span>候选 {run.summary?.candidate_count ?? 0}</span>
+                          <span>发布 {run.summary?.published_count ?? 0}</span>
+                          <span>跳过 {run.summary?.skipped_count ?? 0}</span>
                         </div>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-sm text-[var(--text-faint)]">No historical runs yet.</div>
+                  <div className="text-sm text-[var(--text-faint)]">还没有历史运行记录。</div>
                 )}
               </section>
             </div>

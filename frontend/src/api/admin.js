@@ -49,6 +49,17 @@ export const deleteAdminImage = (filename) => apiDelete(`/api/admin/images/${fil
 export const fetchAdminContentHealth = () => apiGet('/api/admin/content-health', { auth: true })
 export const fetchAdminPublishingRunDetail = (id) =>
   apiGet(`/api/admin/publishing-runs/${id}`, { auth: true })
+export const fetchAdminQualityInbox = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/quality-inbox${qs ? '?' + qs : ''}`, { auth: true })
+}
+export const fetchAdminPostQuality = (id) => apiGet(`/api/admin/posts/${id}/quality`, { auth: true })
+export const updateAdminPostQualityReview = (id, data) =>
+  apiPut(`/api/admin/posts/${id}/quality-review`, data, { auth: true })
+export const fetchAdminTopicFeedback = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/topic-feedback${qs ? '?' + qs : ''}`, { auth: true })
+}
 
 export const fetchAdminSeries = () => apiGet('/api/admin/series', { auth: true })
 export const createAdminSeries = (data) => apiPost('/api/admin/series', data, { auth: true })

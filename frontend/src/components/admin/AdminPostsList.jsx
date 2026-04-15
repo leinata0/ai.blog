@@ -3,33 +3,38 @@ import { Eye, EyeOff, Pencil, Pin, Plus, Search, Trash2 } from 'lucide-react'
 
 import { formatDate } from '../../utils/date'
 import { proxyImageUrl } from '../../utils/proxyImage'
+import {
+  getContentTypeLabel,
+  getPublishedModeLabel,
+  getPublishStateLabel,
+} from './adminDisplay'
 
 const CONTENT_TYPE_OPTIONS = [
-  { value: '', label: 'all types' },
-  { value: 'daily_brief', label: 'daily_brief' },
-  { value: 'weekly_review', label: 'weekly_review' },
-  { value: 'post', label: 'post' },
+  { value: '', label: '全部类型' },
+  { value: 'daily_brief', label: '日报' },
+  { value: 'weekly_review', label: '周报' },
+  { value: 'post', label: '文章' },
 ]
 
 const PUBLISHED_OPTIONS = [
-  { value: '', label: 'all publish states' },
-  { value: 'published', label: 'published' },
-  { value: 'draft', label: 'draft' },
+  { value: '', label: '全部状态' },
+  { value: 'published', label: '已发布' },
+  { value: 'draft', label: '草稿' },
 ]
 
 const MODE_OPTIONS = [
-  { value: '', label: 'all modes' },
-  { value: 'auto', label: 'auto' },
-  { value: 'manual', label: 'manual' },
+  { value: '', label: '全部模式' },
+  { value: 'auto', label: '自动' },
+  { value: 'manual', label: '手动' },
 ]
 
 const BULK_ACTION_OPTIONS = [
-  { value: 'publish', label: 'Publish selected' },
-  { value: 'unpublish', label: 'Move selected to draft' },
-  { value: 'pin', label: 'Pin selected' },
-  { value: 'unpin', label: 'Unpin selected' },
-  { value: 'set_content_type', label: 'Set content type' },
-  { value: 'set_series', label: 'Set series slug' },
+  { value: 'publish', label: '批量发布' },
+  { value: 'unpublish', label: '批量转草稿' },
+  { value: 'pin', label: '批量置顶' },
+  { value: 'unpin', label: '批量取消置顶' },
+  { value: 'set_content_type', label: '批量修改类型' },
+  { value: 'set_series', label: '批量归入系列' },
 ]
 
 export default function AdminPostsList({
@@ -104,21 +109,21 @@ export default function AdminPostsList({
   return (
     <>
       <div className="mb-6 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-[var(--text-primary)]">Editorial Posts</h2>
+        <h2 className="text-lg font-semibold text-[var(--text-primary)]">文章管理</h2>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onRefresh}
             className="rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
           >
-            Refresh
+            刷新
           </button>
           <button
             onClick={onNew}
             className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white"
           >
             <Plus size={16} />
-            New Post
+            新建文章
           </button>
         </div>
       </div>
@@ -126,19 +131,19 @@ export default function AdminPostsList({
       <section className="mb-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <label className="text-xs font-medium text-[var(--text-secondary)]">
-            Search
+            搜索
             <div className="mt-1 flex items-center rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-2">
               <Search size={14} className="text-[var(--text-faint)]" />
               <input
                 value={draftFilters.search || ''}
                 onChange={(event) => setDraftFilters((prev) => ({ ...prev, search: event.target.value }))}
-                placeholder="title / slug / topic_key"
+                placeholder="标题 / slug / topic_key"
                 className="w-full bg-transparent px-2 py-2 text-sm text-[var(--text-primary)] outline-none"
               />
             </div>
           </label>
           <label className="text-xs font-medium text-[var(--text-secondary)]">
-            Content Type
+            内容类型
             <select
               value={draftFilters.content_type || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, content_type: event.target.value }))}
@@ -152,7 +157,7 @@ export default function AdminPostsList({
             </select>
           </label>
           <label className="text-xs font-medium text-[var(--text-secondary)]">
-            Publish State
+            发布状态
             <select
               value={draftFilters.published || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, published: event.target.value }))}
@@ -166,7 +171,7 @@ export default function AdminPostsList({
             </select>
           </label>
           <label className="text-xs font-medium text-[var(--text-secondary)]">
-            Publish Mode
+            发布模式
             <select
               value={draftFilters.published_mode || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, published_mode: event.target.value }))}
@@ -180,7 +185,7 @@ export default function AdminPostsList({
             </select>
           </label>
           <label className="text-xs font-medium text-[var(--text-secondary)]">
-            Coverage Date
+            覆盖日期
             <input
               type="date"
               value={draftFilters.coverage_date || ''}
@@ -189,7 +194,7 @@ export default function AdminPostsList({
             />
           </label>
           <label className="text-xs font-medium text-[var(--text-secondary)]">
-            Series Slug
+            系列 slug
             <input
               value={draftFilters.series_slug || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, series_slug: event.target.value }))}
@@ -204,21 +209,21 @@ export default function AdminPostsList({
             onClick={handleApplyFilters}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
           >
-            Apply Filters
+            应用筛选
           </button>
           <button
             type="button"
             onClick={handleResetFilters}
             className="rounded-lg border border-[var(--border-muted)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
           >
-            Reset
+            重置
           </button>
         </div>
       </section>
 
       <section className="mb-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-sm text-[var(--text-secondary)]">Selected: {selectedPostIds.size}</div>
+          <div className="text-sm text-[var(--text-secondary)]">已选择：{selectedPostIds.size}</div>
           <select
             value={bulkAction}
             onChange={(event) => setBulkAction(event.target.value)}
@@ -236,17 +241,17 @@ export default function AdminPostsList({
               onChange={(event) => setBulkValue(event.target.value)}
               className="rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
             >
-              <option value="">select type</option>
-              <option value="daily_brief">daily_brief</option>
-              <option value="weekly_review">weekly_review</option>
-              <option value="post">post</option>
+              <option value="">选择类型</option>
+              <option value="daily_brief">日报</option>
+              <option value="weekly_review">周报</option>
+              <option value="post">文章</option>
             </select>
           ) : null}
           {bulkAction === 'set_series' ? (
             <input
               value={bulkValue}
               onChange={(event) => setBulkValue(event.target.value)}
-              placeholder="series slug"
+              placeholder="输入系列 slug"
               className="rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
             />
           ) : null}
@@ -256,7 +261,7 @@ export default function AdminPostsList({
             disabled={bulkApplying || selectedPostIds.size === 0}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            {bulkApplying ? 'Applying...' : 'Apply Bulk Action'}
+            {bulkApplying ? '执行中...' : '执行批量操作'}
           </button>
         </div>
       </section>
@@ -269,21 +274,21 @@ export default function AdminPostsList({
                 <th className="px-4 py-3">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} />
                 </th>
-                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">Title</th>
-                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">Type</th>
-                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">Mode</th>
-                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">Coverage</th>
-                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">Series</th>
-                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">Quality</th>
-                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">Date</th>
-                <th className="px-4 py-3 text-right font-medium text-[var(--text-faint)]">Actions</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">标题</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">类型</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">模式</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">覆盖日期</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">系列</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">质量</th>
+                <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">发布时间</th>
+                <th className="px-4 py-3 text-right font-medium text-[var(--text-faint)]">操作</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-8 text-center text-[var(--text-faint)]">
-                    Loading posts...
+                    加载文章中...
                   </td>
                 </tr>
               ) : null}
@@ -313,37 +318,37 @@ export default function AdminPostsList({
                             {post.is_pinned ? <Pin size={12} className="text-[var(--accent)]" /> : null}
                             {post.is_published !== false ? (
                               <span className="inline-flex items-center gap-1">
-                                <Eye size={12} /> published
+                                <Eye size={12} /> {getPublishStateLabel('published')}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1">
-                                <EyeOff size={12} /> draft
+                                <EyeOff size={12} /> {getPublishStateLabel('draft')}
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-[var(--text-tertiary)]">{post.content_type || 'post'}</td>
-                    <td className="px-4 py-4 text-[var(--text-tertiary)]">{post.published_mode || '-'}</td>
+                    <td className="px-4 py-4 text-[var(--text-tertiary)]">{getContentTypeLabel(post.content_type || 'post')}</td>
+                    <td className="px-4 py-4 text-[var(--text-tertiary)]">{getPublishedModeLabel(post.published_mode || '')}</td>
                     <td className="px-4 py-4 text-[var(--text-tertiary)]">{post.coverage_date || '-'}</td>
                     <td className="px-4 py-4 text-[var(--text-tertiary)]">{post.series_slug || '-'}</td>
                     <td className="px-4 py-4 text-[var(--text-tertiary)]">
-                      {post.quality_score ?? '-'} / src {post.source_count ?? '-'}
+                      {post.quality_score ?? '-'} / 来源 {post.source_count ?? '-'}
                     </td>
                     <td className="px-4 py-4 text-[var(--text-tertiary)]">{formatDate(post.created_at)}</td>
                     <td className="px-4 py-4 text-right">
                       <button
                         onClick={() => onEdit(post)}
                         className="rounded-lg p-2 transition-colors duration-200 hover:bg-gray-100"
-                        title="Edit"
+                        title="编辑"
                       >
                         <Pencil size={15} className="text-[var(--accent)]" />
                       </button>
                       <button
                         onClick={() => onDelete(post)}
                         className="ml-1 rounded-lg p-2 transition-colors duration-200 hover:bg-red-50"
-                        title="Delete"
+                        title="删除"
                       >
                         <Trash2 size={15} className="text-[#ef4444]" />
                       </button>
@@ -353,7 +358,7 @@ export default function AdminPostsList({
               {!loading && posts.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-8 text-center text-[var(--text-faint)]">
-                    No posts found.
+                    当前筛选条件下没有文章。
                   </td>
                 </tr>
               ) : null}

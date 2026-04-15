@@ -6,7 +6,9 @@ import {
   FileText,
   HeartPulse,
   Image,
+  Inbox,
   LogOut,
+  MessagesSquare,
   MessageSquare,
   Radio,
   Settings,
@@ -20,9 +22,11 @@ import AdminImages from '../components/admin/AdminImages'
 import AdminPostEditor from '../components/admin/AdminPostEditor'
 import AdminPostsList from '../components/admin/AdminPostsList'
 import AdminPublishingStatus from '../components/admin/AdminPublishingStatus'
+import AdminQualityInbox from '../components/admin/AdminQualityInbox'
 import AdminSeriesManager from '../components/admin/AdminSeriesManager'
 import AdminSettings from '../components/admin/AdminSettings'
 import AdminStats from '../components/admin/AdminStats'
+import AdminTopicFeedback from '../components/admin/AdminTopicFeedback'
 
 const defaultPostFilters = {
   search: '',
@@ -84,7 +88,7 @@ export default function AdminDashboardPage() {
       setPosts(result.items || result || [])
       setError('')
     } catch (err) {
-      setError(err.message || 'Failed to load posts')
+      setError(err.message || '加载文章列表失败')
     } finally {
       setPostLoading(false)
     }
@@ -108,12 +112,12 @@ export default function AdminDashboardPage() {
   }
 
   async function handleDelete(post) {
-    if (!window.confirm(`Delete "${post.title}"?`)) return
+    if (!window.confirm(`确定删除《${post.title}》吗？`)) return
     try {
       await adminDeletePost(post.id)
       await loadPosts()
     } catch (err) {
-      setError(err.message || 'Failed to delete post')
+      setError(err.message || '删除文章失败')
     }
   }
 
@@ -131,7 +135,7 @@ export default function AdminDashboardPage() {
       await loadPosts()
       setError('')
     } catch (err) {
-      setError(err.message || 'Bulk action failed')
+      setError(err.message || '批量操作失败')
     } finally {
       setBulkApplying(false)
     }
@@ -148,14 +152,16 @@ export default function AdminDashboardPage() {
   }
 
   const tabItems = [
-    { key: 'posts', label: 'Posts', icon: FileText },
-    { key: 'publishing', label: 'Publishing', icon: Radio },
-    { key: 'health', label: 'Content Health', icon: HeartPulse },
-    { key: 'series', label: 'Series', icon: ActivitySquare },
-    { key: 'comments', label: 'Comments', icon: MessageSquare },
-    { key: 'settings', label: 'Settings', icon: Settings },
-    { key: 'stats', label: 'Stats', icon: BarChart3 },
-    { key: 'images', label: 'Images', icon: Image },
+    { key: 'posts', label: '文章管理', icon: FileText },
+    { key: 'publishing', label: '发布状态', icon: Radio },
+    { key: 'health', label: '内容健康', icon: HeartPulse },
+    { key: 'quality', label: '质量收件箱', icon: Inbox },
+    { key: 'topic-feedback', label: '主题反馈', icon: MessagesSquare },
+    { key: 'series', label: '系列管理', icon: ActivitySquare },
+    { key: 'comments', label: '评论管理', icon: MessageSquare },
+    { key: 'settings', label: '站点设置', icon: Settings },
+    { key: 'stats', label: '统计面板', icon: BarChart3 },
+    { key: 'images', label: '图片管理', icon: Image },
   ]
 
   return (
@@ -165,13 +171,13 @@ export default function AdminDashboardPage() {
         style={{ backdropFilter: 'blur(10px)', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
       >
         <div className="flex items-center justify-between py-4">
-          <h1 className="text-xl font-semibold text-[var(--accent)]">Editorial Operations Console</h1>
+          <h1 className="text-xl font-semibold text-[var(--accent)]">博客编辑运营台</h1>
           <button
             onClick={handleLogout}
             className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200"
           >
             <LogOut size={16} />
-            Logout
+            退出登录
           </button>
         </div>
         <div className="-mb-px flex gap-6 overflow-x-auto">
@@ -220,6 +226,8 @@ export default function AdminDashboardPage() {
         ) : null}
         {tab === 'publishing' ? <AdminPublishingStatus /> : null}
         {tab === 'health' ? <AdminContentHealth /> : null}
+        {tab === 'quality' ? <AdminQualityInbox /> : null}
+        {tab === 'topic-feedback' ? <AdminTopicFeedback /> : null}
         {tab === 'series' ? <AdminSeriesManager /> : null}
         {tab === 'comments' ? <AdminComments /> : null}
         {tab === 'settings' ? <AdminSettings /> : null}

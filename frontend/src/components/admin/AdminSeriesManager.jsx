@@ -35,7 +35,7 @@ export default function AdminSeriesManager() {
       setSeries(normalizeSeriesList(result))
     } catch (err) {
       setSeries([])
-      setError(err.message || 'Failed to load series')
+      setError(err.message || '加载系列列表失败')
     } finally {
       setLoading(false)
     }
@@ -99,7 +99,7 @@ export default function AdminSeriesManager() {
       setEditing(null)
       setForm(emptyForm)
     } catch (err) {
-      setError(err.message || 'Failed to save series')
+      setError(err.message || '保存系列失败')
     } finally {
       setSaving(false)
     }
@@ -109,9 +109,9 @@ export default function AdminSeriesManager() {
     <section data-ui="admin-series-manager">
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Series Management</h2>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">系列管理</h2>
           <p className="mt-1 text-sm text-[var(--text-faint)]">
-            Curate editorial series and map posts into repeatable topic lines.
+            管理内容系列，并把文章归入可持续扩展的主题主线。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -121,7 +121,7 @@ export default function AdminSeriesManager() {
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
           >
             <RefreshCcw size={14} />
-            Refresh
+            刷新
           </button>
           <button
             type="button"
@@ -129,7 +129,7 @@ export default function AdminSeriesManager() {
             className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
           >
             <Plus size={14} />
-            New Series
+            新建系列
           </button>
         </div>
       </div>
@@ -140,10 +140,10 @@ export default function AdminSeriesManager() {
 
       <div className="grid gap-6 xl:grid-cols-[1.3fr,1fr]">
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">Existing Series</h3>
-          {loading ? <div className="text-sm text-[var(--text-faint)]">Loading...</div> : null}
+          <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">现有系列</h3>
+          {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
           {!loading && !sortedSeries.length ? (
-            <div className="text-sm text-[var(--text-faint)]">No series found. You can create the first one now.</div>
+            <div className="text-sm text-[var(--text-faint)]">还没有系列，当前可以先创建第一条。</div>
           ) : null}
           {sortedSeries.length ? (
             <div className="space-y-3">
@@ -155,7 +155,7 @@ export default function AdminSeriesManager() {
                   <div className="mb-2 flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-medium text-[var(--text-primary)]">{item.title || item.slug}</div>
-                      <div className="mt-1 text-xs text-[var(--text-faint)]">slug: {item.slug || '-'}</div>
+                      <div className="mt-1 text-xs text-[var(--text-faint)]">slug：{item.slug || '-'}</div>
                     </div>
                     <button
                       type="button"
@@ -163,14 +163,14 @@ export default function AdminSeriesManager() {
                       className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-muted)] px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
                     >
                       <Pencil size={12} />
-                      Edit
+                      编辑
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs text-[var(--text-faint)]">
-                    <span>sort: {item.sort_order ?? '-'}</span>
-                    <span>{item.is_featured ? 'featured' : 'standard'}</span>
+                    <span>排序：{item.sort_order ?? '-'}</span>
+                    <span>{item.is_featured ? '推荐系列' : '普通系列'}</span>
                     {Array.isArray(item.content_types) && item.content_types.length ? (
-                      <span>types: {item.content_types.join(', ')}</span>
+                      <span>类型：{item.content_types.join(', ')}</span>
                     ) : null}
                   </div>
                 </div>
@@ -181,7 +181,7 @@ export default function AdminSeriesManager() {
 
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">
-            {editing ? `Edit Series: ${editing.title || editing.slug}` : 'Create Series'}
+            {editing ? `编辑系列：${editing.title || editing.slug}` : '创建系列'}
           </h3>
           <div className="space-y-3">
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
@@ -194,7 +194,7 @@ export default function AdminSeriesManager() {
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              Title
+              标题
               <input
                 value={form.title}
                 onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
@@ -203,7 +203,7 @@ export default function AdminSeriesManager() {
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              Description
+              描述
               <textarea
                 rows={3}
                 value={form.description}
@@ -212,7 +212,7 @@ export default function AdminSeriesManager() {
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              Cover Image URL
+              封面图 URL
               <input
                 value={form.cover_image}
                 onChange={(event) => setForm((prev) => ({ ...prev, cover_image: event.target.value }))}
@@ -221,7 +221,7 @@ export default function AdminSeriesManager() {
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              Content Types (comma separated)
+              内容类型（逗号分隔）
               <input
                 value={form.content_types}
                 onChange={(event) => setForm((prev) => ({ ...prev, content_types: event.target.value }))}
@@ -230,7 +230,7 @@ export default function AdminSeriesManager() {
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              Sort Order
+              排序权重
               <input
                 type="number"
                 value={form.sort_order}
@@ -244,7 +244,7 @@ export default function AdminSeriesManager() {
                 checked={form.is_featured}
                 onChange={(event) => setForm((prev) => ({ ...prev, is_featured: event.target.checked }))}
               />
-              Featured series
+              设为推荐系列
             </label>
           </div>
           <div className="mt-4 flex items-center gap-2">
@@ -255,7 +255,7 @@ export default function AdminSeriesManager() {
               className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
               <Save size={14} />
-              {saving ? 'Saving...' : editing ? 'Save Changes' : 'Create Series'}
+              {saving ? '保存中...' : editing ? '保存修改' : '创建系列'}
             </button>
             {editing ? (
               <button
@@ -264,7 +264,7 @@ export default function AdminSeriesManager() {
                 className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
               >
                 <X size={14} />
-                Cancel Edit
+                取消编辑
               </button>
             ) : null}
           </div>
