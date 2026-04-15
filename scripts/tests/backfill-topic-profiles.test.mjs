@@ -64,5 +64,5 @@ test('buildBackfillTopicMetadata builds payload using existing topic_key only', 
   assert.equal(payload.topic_metadata.topic_key, 'agent-tooling')
   assert.equal(payload.topic_metadata.source_count, 4)
   assert.equal(payload.topic_metadata.topic_zh_title, '智能体演进追踪')
+  assert.equal(payload.topic_metadata.topic_title, '智能体演进追踪')
 })
-

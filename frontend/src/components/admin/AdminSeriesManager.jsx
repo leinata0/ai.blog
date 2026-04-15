@@ -3,6 +3,7 @@ import { Pencil, Plus, RefreshCcw, Save, Sparkles, X } from 'lucide-react'
 
 import {
   createAdminSeries,
+  fetchAdminCoverGenerationStatus,
   fetchAdminSeries,
   generateAdminSeriesCover,
   updateAdminSeries,
@@ -19,10 +20,26 @@ const emptyForm = {
   sort_order: 100,
 }
 
+const CONTENT_TYPE_LABELS = {
+  daily_brief: 'AI 日报',
+  weekly_review: 'AI 周报',
+}
+
 function normalizeSeriesList(payload) {
   if (Array.isArray(payload)) return payload
   if (Array.isArray(payload?.items)) return payload.items
   return []
+}
+
+function normalizeStatus(payload) {
+  return {
+    provider: payload?.provider || 'grok',
+    has_xai_api_key: Boolean(payload?.has_xai_api_key),
+    can_generate: Boolean(payload?.can_generate),
+    message:
+      payload?.message ||
+      '暂时无法读取封面生成状态，请检查后端接口是否已经部署。',
+  }
 }
 
 function CoverPreview({ src, alt }) {
@@ -47,6 +64,49 @@ function CoverPreview({ src, alt }) {
   )
 }
 
+function StatusPanel({ status }) {
+  if (!status) return null
+  const tone = status.can_generate
+    ? {
+        bg: 'rgba(34, 197, 94, 0.08)',
+        border: 'rgba(34, 197, 94, 0.18)',
+        title: '系列封面生成已就绪',
+      }
+    : {
+        bg: 'rgba(245, 158, 11, 0.10)',
+        border: 'rgba(245, 158, 11, 0.18)',
+        title: '系列封面生成暂不可用',
+      }
+
+  return (
+    <div
+      className="mb-4 rounded-xl border px-4 py-3"
+      style={{ backgroundColor: tone.bg, borderColor: tone.border }}
+    >
+      <div className="text-sm font-medium text-[var(--text-primary)]">{tone.title}</div>
+      <div className="mt-1 text-sm text-[var(--text-secondary)]">{status.message}</div>
+      <div className="mt-2 text-xs text-[var(--text-faint)]">
+        提供方：{String(status.provider || 'grok').toUpperCase()}
+      </div>
+    </div>
+  )
+}
+
+function formatGenerateMessage(result, overwrite) {
+  if (result?.generated && result?.cover_image) {
+    return overwrite ? '系列封面已重生成。' : '系列封面已生成。'
+  }
+  if (result?.error) return result.error
+  if (result?.error_code === 'cover_exists') {
+    return '当前系列已经有封面，如需覆盖请点击“重生成封面”。'
+  }
+  return '这次没有生成新封面。'
+}
+
+function getContentTypeLabel(contentType) {
+  return CONTENT_TYPE_LABELS[contentType] || contentType || '未指定'
+}
+
 export default function AdminSeriesManager() {
   const [series, setSeries] = useState([])
   const [loading, setLoading] = useState(false)
@@ -56,24 +116,33 @@ export default function AdminSeriesManager() {
   const [notice, setNotice] = useState('')
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [coverStatus, setCoverStatus] = useState(null)
 
   const loadSeries = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const result = await fetchAdminSeries()
-      setSeries(normalizeSeriesList(result))
+      setSeries(normalizeSeriesList(await fetchAdminSeries()))
     } catch (err) {
       setSeries([])
-      setError(err.message || '加载系列列表失败')
+      setError(err.message || '加载系列列表失败，请检查后端接口是否正常。')
     } finally {
       setLoading(false)
     }
   }, [])
 
+  const loadCoverStatus = useCallback(async () => {
+    try {
+      setCoverStatus(normalizeStatus(await fetchAdminCoverGenerationStatus()))
+    } catch {
+      setCoverStatus(normalizeStatus(null))
+    }
+  }, [])
+
   useEffect(() => {
     loadSeries()
-  }, [loadSeries])
+    loadCoverStatus()
+  }, [loadSeries, loadCoverStatus])
 
   const sortedSeries = useMemo(() => {
     return [...series].sort((a, b) => {
@@ -111,12 +180,24 @@ export default function AdminSeriesManager() {
   }
 
   async function handleSave() {
+    const slug = form.slug.trim()
+    const title = form.title.trim()
+    if (!slug) {
+      setError('请先填写系列 slug。')
+      return
+    }
+    if (!title) {
+      setError('请先填写系列中文标题。')
+      return
+    }
+
     setSaving(true)
     setError('')
     setNotice('')
+
     const payload = {
-      slug: form.slug.trim(),
-      title: form.title.trim(),
+      slug,
+      title,
       description: form.description.trim(),
       cover_image: form.cover_image.trim(),
       content_types: form.content_types
@@ -138,7 +219,7 @@ export default function AdminSeriesManager() {
       await loadSeries()
       resetEditor()
     } catch (err) {
-      setError(err.message || '保存系列失败')
+      setError(err.message || '保存系列失败。')
     } finally {
       setSaving(false)
     }
@@ -146,7 +227,7 @@ export default function AdminSeriesManager() {
 
   async function handleGenerateCover(item, overwrite = false) {
     if (!item?.id) return
-    if (overwrite && !window.confirm(`确定重生成「${item.title || item.slug}」的封面吗？`)) return
+    if (overwrite && !window.confirm(`确定重生成“${item.title || item.slug}”的封面吗？`)) return
 
     setGeneratingId(item.id)
     setError('')
@@ -154,7 +235,7 @@ export default function AdminSeriesManager() {
 
     try {
       const result = await generateAdminSeriesCover(item.id, { overwrite })
-      await loadSeries()
+      await Promise.all([loadSeries(), loadCoverStatus()])
 
       if (editing?.id === item.id) {
         setForm((current) => ({
@@ -163,13 +244,14 @@ export default function AdminSeriesManager() {
         }))
       }
 
-      if (result?.generated && result?.cover_image) {
-        setNotice(overwrite ? '系列封面已重生成。' : '系列封面已生成。')
+      const message = formatGenerateMessage(result, overwrite)
+      if (result?.error_code === 'missing_backend_env' || result?.error_code === 'unexpected_error') {
+        setError(message)
       } else {
-        setNotice(result?.error || '这次没有生成新封面，可能当前系列已经有封面。')
+        setNotice(message)
       }
     } catch (err) {
-      setError(err.message || '生成系列封面失败')
+      setError(err.message || '生成系列封面失败。')
     } finally {
       setGeneratingId(null)
     }
@@ -180,12 +262,17 @@ export default function AdminSeriesManager() {
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">系列管理</h2>
-          <p className="mt-1 text-sm text-[var(--text-faint)]">管理内容系列、中文展示资料与系列封面图。</p>
+          <p className="mt-1 text-sm text-[var(--text-faint)]">
+            系列代表“如何组织长期阅读路径”。后续命中系列规则的自动发布文章，会继续归入对应系列。
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadSeries}
+            onClick={() => {
+              loadSeries()
+              loadCoverStatus()
+            }}
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
           >
             <RefreshCcw size={14} />
@@ -202,6 +289,8 @@ export default function AdminSeriesManager() {
         </div>
       </div>
 
+      <StatusPanel status={coverStatus} />
+
       {error ? (
         <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
       ) : null}
@@ -211,7 +300,7 @@ export default function AdminSeriesManager() {
 
       <div className="grid gap-6 xl:grid-cols-[1.35fr,1fr]">
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">现有系列</h3>
+          <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">已有系列</h3>
           {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
           {!loading && !sortedSeries.length ? (
             <div className="text-sm text-[var(--text-faint)]">还没有系列，可以先创建第一条。</div>
@@ -251,7 +340,7 @@ export default function AdminSeriesManager() {
                         <span>排序：{item.sort_order ?? '-'}</span>
                         <span>{item.is_featured ? '推荐系列' : '普通系列'}</span>
                         {Array.isArray(item.content_types) && item.content_types.length ? (
-                          <span>类型：{item.content_types.join(' / ')}</span>
+                          <span>内容类型：{item.content_types.map((value) => getContentTypeLabel(value)).join(' / ')}</span>
                         ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -288,6 +377,9 @@ export default function AdminSeriesManager() {
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">
             {editing ? `编辑系列：${editing.title || editing.slug}` : '创建系列'}
           </h3>
+          <p className="mb-4 text-xs leading-6 text-[var(--text-faint)]">
+            系列用于组织栏目与阅读路径，不等同于主题本身。读者前台看到的是中文标题，slug 主要用于链接和规则归属。
+          </p>
           <div className="space-y-3">
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               Slug

@@ -25,6 +25,7 @@ from app.models import (
     TopicProfile,
 )
 from app.schemas import (
+    CoverGenerationStatusOut,
     CoverGenerateRequest,
     CoverGenerateResponse,
     ContentHealthOut,
@@ -63,6 +64,13 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 XAI_IMAGE_MODEL = "grok-imagine-image"
+
+
+class CoverGenerationError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 def _build_series_cover_prompt(series: Series, recent_post: Post | None = None) -> str:
@@ -108,39 +116,81 @@ def _build_topic_cover_prompt(profile: TopicProfile, recent_post: Post | None = 
     return " ".join(parts)
 
 
+def _get_cover_generation_status_payload() -> dict:
+    has_xai_api_key = bool(clean_env("XAI_API_KEY"))
+    if has_xai_api_key:
+        message = "后端已检测到 XAI_API_KEY，可直接在后台为主题和系列生成封面。"
+    else:
+        message = (
+            "后端未检测到 XAI_API_KEY。系列/主题封面生成依赖 Render 后端运行环境中的该变量，"
+            "仅配置 GitHub Secret 不会让后台实时生图生效。"
+        )
+    return {
+        "provider": "grok",
+        "has_xai_api_key": has_xai_api_key,
+        "can_generate": has_xai_api_key,
+        "message": message,
+    }
+
+
+def _cover_response(item_id: int, cover_image: str, generated: bool, error: str = "", error_code: str = "") -> dict:
+    return {
+        "id": item_id,
+        "cover_image": cover_image or "",
+        "generated": generated,
+        "error": error,
+        "error_code": error_code,
+    }
+
+
 def _generate_grok_image_url(prompt: str) -> str:
     api_key = clean_env("XAI_API_KEY")
     if not api_key:
-        raise RuntimeError("Missing XAI_API_KEY")
+        raise CoverGenerationError(
+            "missing_backend_env",
+            "缺少后端运行环境变量 XAI_API_KEY。请把它配置到 Render 后端环境变量中，GitHub Secret 不会自动提供给后台实时生图。",
+        )
 
-    response = httpx.post(
-        "https://api.x.ai/v1/images/generations",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": XAI_IMAGE_MODEL,
-            "prompt": f"Wide landscape banner image, cinematic, high quality: {prompt}",
-            "n": 1,
-        },
-        timeout=60,
-    )
-    response.raise_for_status()
-    image_url = (response.json().get("data") or [{}])[0].get("url")
+    try:
+        response = httpx.post(
+            "https://api.x.ai/v1/images/generations",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": XAI_IMAGE_MODEL,
+                "prompt": f"Wide landscape banner image, cinematic, high quality: {prompt}",
+                "n": 1,
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise CoverGenerationError("generation_failed", f"Grok 生图请求失败，HTTP {exc.response.status_code}。") from exc
+    except httpx.HTTPError as exc:
+        raise CoverGenerationError("generation_failed", "Grok 生图请求失败，请稍后重试。") from exc
+
+    image_url = (data.get("data") or [{}])[0].get("url")
     if not image_url:
-        raise RuntimeError("Grok returned no image URL")
+        raise CoverGenerationError("generation_failed", "Grok 未返回可用图片地址。")
     return image_url
 
 
 def _download_image_bytes(image_url: str) -> tuple[bytes, str]:
-    response = httpx.get(
-        image_url,
-        headers={"User-Agent": "AIBlogCoverBot/1.0"},
-        timeout=30,
-        follow_redirects=True,
-    )
-    response.raise_for_status()
+    try:
+        response = httpx.get(
+            image_url,
+            headers={"User-Agent": "AIBlogCoverBot/1.0"},
+            timeout=30,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise CoverGenerationError("download_failed", f"下载 Grok 图片失败，HTTP {exc.response.status_code}。") from exc
+    except httpx.HTTPError as exc:
+        raise CoverGenerationError("download_failed", "下载 Grok 图片失败，请稍后重试。") from exc
     content_type = (response.headers.get("content-type") or "image/png").split(";")[0].strip() or "image/png"
     return response.content, content_type
 
@@ -148,7 +198,10 @@ def _download_image_bytes(image_url: str) -> tuple[bytes, str]:
 def _generate_cover_asset(prompt: str, filename_hint: str) -> str:
     image_url = _generate_grok_image_url(prompt)
     contents, content_type = _download_image_bytes(image_url)
-    stored = save_upload(filename_hint, contents, content_type)
+    try:
+        stored = save_upload(filename_hint, contents, content_type)
+    except Exception as exc:
+        raise CoverGenerationError("upload_failed", "封面图片已生成，但上传到博客存储失败。") from exc
     return stored.url
 
 
@@ -1192,6 +1245,13 @@ def get_topic_health(
     return {"items": items, "total": len(items)}
 
 
+@router.get("/cover-generation-status", response_model=CoverGenerationStatusOut)
+def get_cover_generation_status(
+    _admin: str = Depends(get_current_admin),
+):
+    return _get_cover_generation_status_payload()
+
+
 @router.post("/series/{series_id}/generate-cover", response_model=CoverGenerateResponse)
 def admin_generate_series_cover(
     series_id: int,
@@ -1209,12 +1269,7 @@ def admin_generate_series_cover(
             series.cover_image = image_url
         else:
             if (series.cover_image or "").strip() and not body.overwrite:
-                return {
-                    "id": series.id,
-                    "cover_image": series.cover_image or "",
-                    "generated": False,
-                    "error": "Cover already exists",
-                }
+                return _cover_response(series.id, series.cover_image or "", False, "当前系列已经有封面，如需覆盖请使用重生成。", "cover_exists")
             recent_post = db.execute(
                 select(Post)
                 .where(Post.series_slug == series.slug)
@@ -1223,38 +1278,21 @@ def admin_generate_series_cover(
             ).scalar_one_or_none()
             prompt = (body.prompt or "").strip() or _build_series_cover_prompt(series, recent_post)
             if not prompt:
-                return {
-                    "id": series.id,
-                    "cover_image": series.cover_image or "",
-                    "generated": False,
-                    "error": "No prompt available",
-                }
+                return _cover_response(series.id, series.cover_image or "", False, "当前系列缺少可用提示词，暂时无法生成封面。", "prompt_unavailable")
             series.cover_image = _generate_cover_asset(prompt, f"series-{series.slug}.png")
 
         if not (series.cover_image or "").strip():
-            return {
-                "id": series.id,
-                "cover_image": series.cover_image or "",
-                "generated": False,
-                "error": "Cover generation failed",
-            }
+            return _cover_response(series.id, series.cover_image or "", False, "封面生成失败，未得到可用图片。", "generation_failed")
         series.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(series)
-        return {
-            "id": series.id,
-            "cover_image": series.cover_image or "",
-            "generated": True,
-            "error": "",
-        }
+        return _cover_response(series.id, series.cover_image or "", True)
+    except CoverGenerationError as exc:
+        db.rollback()
+        return _cover_response(series.id, series.cover_image or "", False, exc.message, exc.code)
     except Exception as exc:
         db.rollback()
-        return {
-            "id": series.id,
-            "cover_image": series.cover_image or "",
-            "generated": False,
-            "error": str(exc),
-        }
+        return _cover_response(series.id, series.cover_image or "", False, f"封面生成出现未预期错误：{exc}", "unexpected_error")
 
 
 @router.post("/topic-profiles/{profile_id}/generate-cover", response_model=CoverGenerateResponse)
@@ -1274,12 +1312,7 @@ def admin_generate_topic_profile_cover(
             profile.cover_image = image_url
         else:
             if (profile.cover_image or "").strip() and not body.overwrite:
-                return {
-                    "id": profile.id,
-                    "cover_image": profile.cover_image or "",
-                    "generated": False,
-                    "error": "Cover already exists",
-                }
+                return _cover_response(profile.id, profile.cover_image or "", False, "当前主题已经有封面，如需覆盖请使用重生成。", "cover_exists")
             recent_post = db.execute(
                 select(Post)
                 .where(Post.topic_key == profile.topic_key)
@@ -1288,38 +1321,21 @@ def admin_generate_topic_profile_cover(
             ).scalar_one_or_none()
             prompt = (body.prompt or "").strip() or _build_topic_cover_prompt(profile, recent_post)
             if not prompt:
-                return {
-                    "id": profile.id,
-                    "cover_image": profile.cover_image or "",
-                    "generated": False,
-                    "error": "No prompt available",
-                }
+                return _cover_response(profile.id, profile.cover_image or "", False, "当前主题缺少可用提示词，暂时无法生成封面。", "prompt_unavailable")
             profile.cover_image = _generate_cover_asset(prompt, f"topic-{profile.topic_key}.png")
 
         if not (profile.cover_image or "").strip():
-            return {
-                "id": profile.id,
-                "cover_image": profile.cover_image or "",
-                "generated": False,
-                "error": "Cover generation failed",
-            }
+            return _cover_response(profile.id, profile.cover_image or "", False, "封面生成失败，未得到可用图片。", "generation_failed")
         profile.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(profile)
-        return {
-            "id": profile.id,
-            "cover_image": profile.cover_image or "",
-            "generated": True,
-            "error": "",
-        }
+        return _cover_response(profile.id, profile.cover_image or "", True)
+    except CoverGenerationError as exc:
+        db.rollback()
+        return _cover_response(profile.id, profile.cover_image or "", False, exc.message, exc.code)
     except Exception as exc:
         db.rollback()
-        return {
-            "id": profile.id,
-            "cover_image": profile.cover_image or "",
-            "generated": False,
-            "error": str(exc),
-        }
+        return _cover_response(profile.id, profile.cover_image or "", False, f"封面生成出现未预期错误：{exc}", "unexpected_error")
 
 
 @router.get("/search-insights", response_model=SearchInsightsOut)

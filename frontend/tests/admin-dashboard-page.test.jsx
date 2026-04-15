@@ -66,7 +66,7 @@ const mocks = vi.hoisted(() => ({
           id: 1,
           topic_key: 'openai-new-model',
           display_title: 'OpenAI 新模型',
-          description: '跟踪 OpenAI 新模型节奏',
+          description: '跟踪 OpenAI 新模型动态。',
           aliases: ['openai'],
           is_featured: true,
           sort_order: 10,
@@ -113,9 +113,19 @@ vi.mock('../src/api/admin', () => ({
   fetchAdminSeries: vi.fn(() => Promise.resolve({ items: [] })),
   createAdminSeries: vi.fn(() => Promise.resolve({})),
   updateAdminSeries: vi.fn(() => Promise.resolve({})),
+  generateAdminSeriesCover: vi.fn(() => Promise.resolve({ generated: false, cover_image: '', error: '' })),
+  fetchAdminCoverGenerationStatus: vi.fn(() =>
+    Promise.resolve({
+      provider: 'grok',
+      has_xai_api_key: true,
+      can_generate: true,
+      message: '后端已检测到 XAI_API_KEY。',
+    })
+  ),
   fetchAdminTopicProfiles: mocks.fetchTopicProfiles,
   createAdminTopicProfile: vi.fn(() => Promise.resolve({})),
   updateAdminTopicProfile: vi.fn(() => Promise.resolve({})),
+  generateAdminTopicProfileCover: vi.fn(() => Promise.resolve({ generated: false, cover_image: '', error: '' })),
   fetchAdminTopicHealth: mocks.fetchTopicHealth,
   fetchAdminSearchInsights: mocks.fetchSearchInsights,
 }))

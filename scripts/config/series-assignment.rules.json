@@ -4,8 +4,8 @@
     {
       "series_slug": "ai-weekly-review",
       "content_types": ["weekly_review"],
+      "topic_key_prefixes": ["ai-weekly-", "weekly-"],
       "keyword_match": ["weekly", "review", "week", "zhou", "周报", "本周"],
-      "tag_match": ["ai"],
       "default_order": 10,
       "priority": 100
     },

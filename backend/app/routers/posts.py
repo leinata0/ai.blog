@@ -918,9 +918,11 @@ def list_topics(
             {
                 "topic_key": key,
                 "title": title,
+                "display_title": title,
                 "description": description,
                 "content_types": sorted(list(grouped_value["content_types"])) if grouped_value else _safe_json_list(profile.content_types_json if profile else "[]"),
                 "series_slug": (profile.series_slug if profile else (grouped_value["series_slug"] if grouped_value else None)),
+                "taxonomy_type": "topic",
                 "post_count": (grouped_value["post_count"] if grouped_value else 0),
                 "source_count": (grouped_value["source_count"] if grouped_value else 0),
                 "latest_post_at": grouped_value["latest_post_at"].isoformat() if grouped_value and grouped_value["latest_post_at"] else None,
@@ -961,9 +963,11 @@ def get_topic_detail(topic_key: str, db: Session = Depends(get_db)):
     return {
         "topic_key": normalized_topic_key,
         "title": profile.title if profile and profile.title else normalized_topic_key,
+        "display_title": profile.title if profile and profile.title else normalized_topic_key,
         "description": profile.description if profile else "",
         "content_types": content_types if content_types else _safe_json_list(profile.content_types_json if profile else "[]"),
         "series_slug": (profile.series_slug if profile else (latest.series_slug if latest else None)),
+        "taxonomy_type": "topic",
         "post_count": len(posts),
         "source_count": source_count,
         "avg_quality_score": round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None,

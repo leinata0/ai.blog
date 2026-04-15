@@ -328,6 +328,16 @@ export function assignSeriesForPost({ post, outline, metadata, seriesAssignment 
     return { series_slug: null, series_order: null, matched_rule: null }
   }
 
+  const explicitSeriesSlug = String(metadata?.series_slug || post?.series_slug || '').trim()
+  if (explicitSeriesSlug) {
+    const explicitOrder = Number(metadata?.series_order ?? post?.series_order)
+    return {
+      series_slug: explicitSeriesSlug,
+      series_order: Number.isFinite(explicitOrder) ? explicitOrder : null,
+      matched_rule: 'manual_override',
+    }
+  }
+
   const contentType = String(metadata?.content_type || post?.content_type || '').trim()
   const topicKey = String(metadata?.topic_key || post?.topic_key || '').toLowerCase()
   const textHaystack = [
@@ -625,6 +635,43 @@ function renderTemplate(template, context = {}) {
   return String(template || '').replace(/\{(\w+)\}/g, (_, key) => String(context[key] || '').trim()).trim()
 }
 
+function hasCJK(value = '') {
+  return /[\u3400-\u9FFF]/.test(String(value || ''))
+}
+
+function toReadableTopicKey(topicKey = '') {
+  return String(topicKey || '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildChineseTopicFallback({ topicKey, outline, post, metadata }) {
+  const topicFromOutline = String(outline?.topic || '').trim()
+  if (hasCJK(topicFromOutline)) return topicFromOutline
+
+  const titleFromPost = String(post?.title || '').trim()
+  if (hasCJK(titleFromPost)) return titleFromPost
+
+  const keyLabel = toReadableTopicKey(topicKey)
+  const familyLabel = String(inferTopicFamily(topicKey) || 'general')
+  const familyZhMap = {
+    weekly_review: '周报主线',
+    agent: '智能体',
+    model: '模型',
+    open_source: '开源生态',
+    infrastructure: '基础设施',
+    general: '主题',
+  }
+  const familyZh = familyZhMap[familyLabel] || familyZhMap.general
+  if (!keyLabel) return `AI${familyZh}追踪`
+
+  const contentType = String(metadata?.content_type || post?.content_type || '').trim()
+  if (contentType === 'weekly_review') return `AI周报：${keyLabel}`
+  if (contentType === 'daily_brief') return `AI日报：${keyLabel}`
+  return `AI${familyZh}追踪：${keyLabel}`
+}
+
 function buildTopicTextHaystack({ topicKey, outline, post, metadata }) {
   return [
     String(topicKey || ''),
@@ -658,8 +705,14 @@ export function buildTopicPresentation({ topicKey, outline, post, metadata, topi
     content_type: String(metadata?.content_type || post?.content_type || '').trim(),
   }
   const fallback = topicPresentationConfig?.default_presentation || {}
-  const zhTitle = matchedRule?.presentation?.zh_title || renderTemplate(fallback.zh_title_template, context) || context.topic
-  const zhSubtitle = matchedRule?.presentation?.zh_subtitle || renderTemplate(fallback.zh_subtitle_template, context) || context.thesis
+  const renderedFallbackTitle = renderTemplate(fallback.zh_title_template, context)
+  const renderedFallbackSubtitle = renderTemplate(fallback.zh_subtitle_template, context)
+  const zhTitle = matchedRule?.presentation?.zh_title
+    || (hasCJK(renderedFallbackTitle) ? renderedFallbackTitle : '')
+    || buildChineseTopicFallback({ topicKey: key, outline, post, metadata })
+  const zhSubtitle = matchedRule?.presentation?.zh_subtitle
+    || (hasCJK(renderedFallbackSubtitle) ? renderedFallbackSubtitle : '')
+    || (hasCJK(context.thesis) ? context.thesis : '')
   const zhDescription = matchedRule?.presentation?.zh_description || renderTemplate(fallback.zh_description_template, context)
   const zhTags = matchedRule?.presentation?.zh_tags?.length > 0
     ? matchedRule.presentation.zh_tags
@@ -702,6 +755,10 @@ export function buildTopicMetadataPayload({
     metadata,
     topicPresentationConfig: config?.topic_presentation || {},
   })
+  const bridgeTopicTitle = String(presentation.zh_title || '').trim()
+    || buildChineseTopicFallback({ topicKey, outline, post, metadata })
+    || String(outline?.topic || post?.title || '').trim()
+    || topicKey
 
   return {
     post_id: Number.isFinite(Number(postId)) ? Number(postId) : null,
@@ -718,7 +775,7 @@ export function buildTopicMetadataPayload({
       reading_time: readingTime,
       source_names: sourceNames.slice(0, 10),
       primary_thesis: String(outline?.thesis || '').trim(),
-      topic_title: String(outline?.topic || post?.title || '').trim(),
+      topic_title: bridgeTopicTitle,
       topic_zh_title: presentation.zh_title,
       topic_zh_subtitle: presentation.zh_subtitle,
       topic_zh_description: presentation.zh_description,

@@ -23,10 +23,8 @@ import {
 } from '../utils/topicRetention'
 import {
   CONTENT_TYPE_META,
-  getContentTypeLabel,
   getSeriesDescription,
   getSeriesTitle,
-  getTopicDescription,
   getTopicTitle,
   hoverLift,
   motionContainerVariants,
@@ -43,7 +41,11 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
           onChange={onInputChange}
           placeholder="搜索文章、主题或系列"
           className="w-full rounded-2xl border px-10 py-3 text-sm outline-none"
-          style={{ backgroundColor: 'rgba(255,255,255,0.9)', borderColor: 'rgba(255,255,255,0.4)', color: 'var(--text-primary)' }}
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.9)',
+            borderColor: 'rgba(255,255,255,0.4)',
+            color: 'var(--text-primary)',
+          }}
         />
       </label>
       <button type="submit" className="rounded-2xl px-5 py-3 text-sm font-semibold text-white" style={{ backgroundColor: 'var(--accent)' }}>
@@ -59,6 +61,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
 function WeeklySpotlight({ post }) {
   return (
     <motion.section
+      data-ui="home-weekly-spotlight"
       variants={motionItemVariants}
       className="editorial-panel rounded-3xl p-6 sm:p-8"
       style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
@@ -68,9 +71,9 @@ function WeeklySpotlight({ post }) {
           <div className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: 'rgba(37, 99, 235, 0.12)', color: '#2563eb' }}>
             周报主卡
           </div>
-          <h2 className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>先读一篇解释一周节奏的长文</h2>
+          <h2 className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>先读一篇看清一周主线的长文</h2>
           <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            周报负责把这一周最值得回看与串联的变化压成一条清晰主线。
+            周报负责把一周内最值得回看的变化串成一条清晰脉络，帮助你快速建立上下文。
           </p>
         </div>
         <Link to="/weekly" className="inline-flex items-center gap-1 text-sm font-medium" style={{ color: '#2563eb' }}>
@@ -83,7 +86,7 @@ function WeeklySpotlight({ post }) {
         <Link to={`/posts/${post.slug}`} className="mt-6 block rounded-3xl border border-[var(--border-muted)] px-5 py-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(37,99,235,0.28)]" style={{ backgroundColor: 'var(--bg-canvas)' }}>
           <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
             {post.coverage_date ? <span>{post.coverage_date}</span> : null}
-            {post.topic_key ? <span>主题：{post.topic_key}</span> : null}
+            <span>{CONTENT_TYPE_META.weekly_review.label}</span>
           </div>
           <h3 className="mt-3 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{post.title}</h3>
           <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>{post.summary}</p>
@@ -99,7 +102,7 @@ function WeeklySpotlight({ post }) {
 
 function DailyCard({ post }) {
   return (
-    <motion.article variants={motionItemVariants} whileHover={hoverLift} className="editorial-card rounded-3xl border px-5 py-5" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
+    <motion.article data-ui="home-daily-rail" variants={motionItemVariants} whileHover={hoverLift} className="editorial-card rounded-3xl border px-5 py-5" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
       <Link to={`/posts/${post.slug}`} className="block">
         <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
           {post.coverage_date || formatDate(post.created_at)}
@@ -113,7 +116,7 @@ function DailyCard({ post }) {
 
 function SeriesCard({ series }) {
   return (
-    <motion.article variants={motionItemVariants} whileHover={hoverLift} className="editorial-card group overflow-hidden rounded-3xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
+    <motion.article data-ui="home-series-showcase" variants={motionItemVariants} whileHover={hoverLift} className="editorial-card group overflow-hidden rounded-3xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
       <Link to={`/series/${series.slug}`} className="block">
         {series.cover_image ? (
           <div className="editorial-cover h-40 overflow-hidden">
@@ -137,7 +140,7 @@ function SeriesCard({ series }) {
 
 function TopicCard({ topic }) {
   return (
-    <motion.article variants={motionItemVariants} whileHover={hoverLift} className="editorial-card overflow-hidden rounded-3xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
+    <motion.article data-ui="home-hot-topics" variants={motionItemVariants} whileHover={hoverLift} className="editorial-card overflow-hidden rounded-3xl border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}>
       <Link to={`/topics/${topic.topic_key}`} className="block">
         <div className="px-5 py-5">
           <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
@@ -148,7 +151,7 @@ function TopicCard({ topic }) {
           </div>
           <h3 className="mt-3 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{getTopicTitle(topic)}</h3>
           <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            {getTopicDescription(topic)}
+            主题用于追踪“内容在讲什么”，会持续沉淀同一问题的时间线。
           </p>
         </div>
       </Link>
@@ -164,6 +167,7 @@ function PostCard({ post, onTagSelect }) {
       key={post.slug}
       variants={motionItemVariants}
       whileHover={hoverLift}
+      data-ui="post-card"
       className={`editorial-card relative overflow-hidden rounded-xl border ${post.is_pinned ? 'ring-2 ring-[rgba(73,177,245,0.55)] ring-offset-2 ring-offset-[var(--bg-canvas)]' : ''}`}
       style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}
     >
@@ -246,7 +250,7 @@ export default function HomePage() {
   const heroImage = settings?.hero_image || settings?.avatar_url || ''
 
   useEffect(() => {
-    document.title = '极客开发日志'
+    document.title = 'AI 资讯观察'
   }, [])
 
   useEffect(() => {
@@ -351,17 +355,16 @@ export default function HomePage() {
       >
         <div className="mx-auto flex max-w-7xl flex-col gap-10 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-3xl flex-1">
+            <h2 className="sr-only">极客开发日志</h2>
             <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.72)', color: '#2563eb' }}>
               <Sparkles size={12} />
-              AI 内容产品站
+              AI 资讯观察站
             </div>
             <h1 className="mt-5 text-5xl font-bold leading-tight tracking-tight" style={{ color: 'var(--text-primary)' }}>
-              把自动发文升级成
-              <br />
-              可追踪、可发现、可沉淀的内容产品
+              持续更新 AI 最新动态与关键变化的中文博客
             </h1>
             <p className="mt-5 text-lg leading-8" style={{ color: 'var(--text-secondary)' }}>
-              这里持续发布 AI 日报、AI 周报、系列主线与主题聚合，让好内容不只停留在“一篇文章”的生命周期里。
+              聚焦值得持续追踪的消息、产品更新与产业线索，用更清晰的结构整理每一天和每一周的重要变化。
             </p>
             <HeroSearch
               searchInput={searchInput}
@@ -382,7 +385,7 @@ export default function HomePage() {
             ) : (
               <div className="flex h-full items-end bg-[linear-gradient(160deg,rgba(73,177,245,0.22),rgba(37,99,235,0.08))] p-8">
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.28em]" style={{ color: '#2563eb' }}>AI Briefing</div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.28em]" style={{ color: '#2563eb' }}>AI Signals</div>
                   <div className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>日报、周报、系列、主题</div>
                 </div>
               </div>
@@ -424,7 +427,7 @@ export default function HomePage() {
                     <div>
                       <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>最新日报流</h2>
                       <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        快速浏览当天最值得继续观察的 AI 新闻、产品更新与策略变化。
+                        快速浏览当天值得跟进的 AI 消息与产品变化。
                       </p>
                     </div>
                     <Link to="/daily" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
@@ -448,7 +451,7 @@ export default function HomePage() {
                     <div>
                       <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>系列入口</h2>
                       <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        把一次性内容沉淀成长期阅读入口，让同一条主线有连续性。
+                        系列强调“如何组织阅读路径”，用于长期追踪同一栏目。
                       </p>
                     </div>
                     <Link to="/series" className="text-sm font-medium" style={{ color: '#2563eb' }}>
@@ -471,7 +474,7 @@ export default function HomePage() {
                     <div>
                       <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>热门主题</h2>
                       <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        从单篇文章切换到主题视角，持续追踪真正值得反复回看的变化。
+                        主题强调“内容在讲什么”，帮助你持续追踪同一问题线索。
                       </p>
                     </div>
                     <Link to="/topics" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
@@ -494,7 +497,7 @@ export default function HomePage() {
                     <div>
                       <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>继续阅读与关注主题</h2>
                       <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        这些状态只保存在当前浏览器，本机刷新后依然保留，不影响自动发文链路。
+                        这些状态仅保存在当前浏览器，用于帮助你快速回到正在跟进的内容。
                       </p>
                     </div>
                     <Link to="/following" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
@@ -509,7 +512,7 @@ export default function HomePage() {
                       <RecentTopicsSection items={followedTopics} title="最近关注主题" emptyText="在文章页或主题页关注主题后，这里会形成快捷入口。" />
                     </motion.div>
                     <motion.div variants={motionItemVariants}>
-                      <RecentTopicsSection items={recentTopics} title="最近浏览主题" emptyText="阅读带 topic_key 的文章后，这里会自动沉淀最近主题。" />
+                      <RecentTopicsSection items={recentTopics} title="最近浏览主题" emptyText="阅读带有主题的文章后，这里会自动沉淀最近浏览记录。" />
                     </motion.div>
                   </motion.div>
                 </motion.section>
@@ -522,7 +525,7 @@ export default function HomePage() {
                   {slowLoading ? (
                     <div className="mb-6 flex items-center gap-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
-                      正在唤醒服务…
+                      正在唤醒服务...
                     </div>
                   ) : null}
                   <div className="mb-6"><ArticleSkeleton size="hero" /></div>

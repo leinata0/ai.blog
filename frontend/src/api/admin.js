@@ -66,6 +66,8 @@ export const createAdminSeries = (data) => apiPost('/api/admin/series', data, { 
 export const updateAdminSeries = (id, data) => apiPut(`/api/admin/series/${id}`, data, { auth: true })
 export const generateAdminSeriesCover = (id, data = {}) =>
   apiPost(`/api/admin/series/${id}/generate-cover`, data, { auth: true })
+export const fetchAdminCoverGenerationStatus = () =>
+  apiGet('/api/admin/cover-generation-status', { auth: true })
 
 export const fetchAdminTopicProfiles = () => apiGet('/api/admin/topic-profiles', { auth: true })
 export const createAdminTopicProfile = (data) => apiPost('/api/admin/topic-profiles', data, { auth: true })

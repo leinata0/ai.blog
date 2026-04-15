@@ -563,6 +563,7 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
     )
     assert topic_cover_noop.status_code == 200
     assert topic_cover_noop.json()["generated"] is False
+    assert topic_cover_noop.json()["error_code"] == "cover_exists"
 
     create_post = client.post(
         "/api/admin/posts",
@@ -624,6 +625,53 @@ def test_admin_series_generate_cover(client):
     )
     assert no_image.status_code == 200
     assert no_image.json()["generated"] is False
+    assert no_image.json()["error_code"] == "cover_exists"
+
+
+def test_cover_generation_status_reports_backend_env(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    monkeypatch.setattr(admin_mod, "clean_env", lambda key: "")
+
+    response = client.get("/api/admin/cover-generation-status", headers=_auth(token))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "grok"
+    assert payload["has_xai_api_key"] is False
+    assert payload["can_generate"] is False
+    assert "Render" in payload["message"]
+
+
+def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    created = client.post(
+        "/api/admin/series",
+        json={
+            "slug": "ai-topic-observer",
+            "title": "AI 主题观察",
+            "description": "跟踪重要 AI 主线的系列。",
+            "content_types": ["daily_brief"],
+        },
+        headers=_auth(token),
+    )
+    assert created.status_code == 200
+    series_id = created.json()["id"]
+
+    monkeypatch.setattr(admin_mod, "clean_env", lambda key: "")
+
+    response = client.post(
+        f"/api/admin/series/{series_id}/generate-cover",
+        json={},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["generated"] is False
+    assert payload["error_code"] == "missing_backend_env"
+    assert "Render" in payload["error"]
 
 
 def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):

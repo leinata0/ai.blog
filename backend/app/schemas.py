@@ -546,6 +546,14 @@ class CoverGenerateResponse(BaseModel):
     cover_image: str
     generated: bool = False
     error: str = ""
+    error_code: str = ""
+
+
+class CoverGenerationStatusOut(BaseModel):
+    provider: str = "grok"
+    has_xai_api_key: bool = False
+    can_generate: bool = False
+    message: str = ""
 
 
 class PostSourceInput(BaseModel):
