@@ -2,7 +2,7 @@ name: AI 日报自动发文
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '7 2 * * *'
   workflow_dispatch:
     inputs:
       dry_run:

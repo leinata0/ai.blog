@@ -2,7 +2,7 @@ name: AI 周报自动生成
 
 on:
   schedule:
-    - cron: '30 2 * * 1'
+    - cron: '37 2 * * 1'
   workflow_dispatch:
     inputs:
       dry_run:
