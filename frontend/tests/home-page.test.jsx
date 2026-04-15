@@ -55,8 +55,10 @@ vi.mock('../src/api/posts', () => ({
     return Promise.resolve({ items: filtered, total: filtered.length, page: 1, page_size: 10 })
   }),
   fetchSeriesList: vi.fn(() => Promise.resolve([
-    { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily AI coverage.' },
-    { slug: 'ai-weekly-review', title: 'AI Weekly Review', description: 'Weekly long-form review.' },
+    { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily AI coverage.', is_featured: true },
+    { slug: 'ai-weekly-review', title: 'AI Weekly Review', description: 'Weekly long-form review.', is_featured: false },
+    { slug: 'product-strategy-watch', title: 'Product Strategy Watch', description: 'Product and company moves.', is_featured: false },
+    { slug: 'tooling-workflow', title: 'Tooling Workflow', description: 'Tooling and workflow notes.', is_featured: false },
   ])),
   fetchTopics: vi.fn(() => Promise.resolve({
     items: [
@@ -82,12 +84,16 @@ it('renders content product sections and still filters by tag click', async () =
   )
 
   expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)
-  expect(await screen.findByRole('heading', { name: /极客开发日志/i })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '持续更新 AI 最新动态与关键变化的中文博客' })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="home-shell"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-hot-topics"]')).toBeTruthy()
+  expect((await screen.findAllByText('AI Daily Brief')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('AI Weekly Review')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('Product Strategy Watch')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('Tooling Workflow')).length).toBeGreaterThan(0)
   expect(await screen.findByText('OpenAI 模型')).toBeInTheDocument()
   expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="post-card"]')).toBeTruthy()

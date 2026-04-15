@@ -9,7 +9,10 @@ import DiscoverPage from '../src/pages/DiscoverPage'
 
 vi.mock('../src/api/posts', () => ({
   fetchSeriesList: vi.fn(() => Promise.resolve([
-    { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily coverage.' },
+    { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily coverage.', is_featured: true },
+    { slug: 'ai-weekly-review', title: 'AI Weekly Review', description: 'Weekly review.', is_featured: true },
+    { slug: 'product-strategy-watch', title: 'Product Strategy Watch', description: 'Product strategy.', is_featured: false },
+    { slug: 'tooling-workflow', title: 'Tooling Workflow', description: 'Tooling and workflow.', is_featured: false },
   ])),
   fetchSeriesDetail: vi.fn(() => Promise.resolve({
     slug: 'ai-daily-brief',
@@ -37,7 +40,7 @@ beforeEach(() => {
 })
 
 it('renders series list page', async () => {
-  render(
+  const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
         <SeriesPage />
@@ -46,6 +49,12 @@ it('renders series list page', async () => {
   )
 
   expect((await screen.findAllByText('AI Daily Brief')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('AI Weekly Review')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('Product Strategy Watch')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('Tooling Workflow')).length).toBeGreaterThan(0)
+  expect(container.querySelector('[data-ui="series-page-showcase"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="series-stack-stage"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="series-stack-tabs"]')).toBeTruthy()
 })
 
 it('renders series detail and discover pages', async () => {

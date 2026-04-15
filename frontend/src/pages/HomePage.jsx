@@ -253,7 +253,7 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    fetchSeriesList({ featured: true })
+    fetchSeriesList()
       .then(setSeriesList)
       .catch(() => setSeriesList([]))
     fetchTopics({ featured: true, limit: 4 })
@@ -324,7 +324,21 @@ export default function HomePage() {
     () => posts.filter((post) => post.content_type === 'daily_brief').slice(0, 4),
     [posts],
   )
-  const featuredSeries = useMemo(() => seriesList.slice(0, 4), [seriesList])
+  const homeSeries = useMemo(() => {
+    const deduped = new Map()
+    const featured = seriesList.filter((series) => series.is_featured)
+
+    featured.forEach((series) => {
+      deduped.set(series.slug, series)
+    })
+    seriesList.forEach((series) => {
+      if (!deduped.has(series.slug)) {
+        deduped.set(series.slug, series)
+      }
+    })
+
+    return Array.from(deduped.values()).slice(0, 4)
+  }, [seriesList])
   const featuredTopics = useMemo(() => hotTopics.slice(0, 4), [hotTopics])
 
   function handleSearch(event) {
@@ -459,9 +473,10 @@ export default function HomePage() {
                   </div>
 
                   <SeriesEditorialStack
-                    items={featuredSeries}
+                    items={homeSeries}
                     mode="compact"
                     emptyText="系列入口正在整理中。"
+                    dataUi="home-series-showcase"
                   />
                 </motion.section>
 

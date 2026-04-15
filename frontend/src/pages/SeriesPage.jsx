@@ -67,6 +67,7 @@ export default function SeriesPage() {
               items={seriesList}
               mode="full"
               emptyText="系列内容正在整理中，稍后这里会出现完整的阅读路径。"
+              dataUi="series-page-showcase"
             />
           )}
         </div>
