@@ -10,7 +10,16 @@ import HomePage from '../src/pages/HomePage'
 vi.mock('../src/api/client', () => ({
   apiGet: vi.fn((path) => {
     if (path === '/api/settings') {
-      return Promise.resolve({ author_name: 'Test', bio: '', avatar_url: '', hero_image: '', github_link: '', announcement: '', site_url: '', friend_links: '[]' })
+      return Promise.resolve({
+        author_name: 'Test',
+        bio: '',
+        avatar_url: '',
+        hero_image: '',
+        github_link: '',
+        announcement: '',
+        site_url: '',
+        friend_links: '[]',
+      })
     }
     if (path === '/api/stats') return Promise.resolve({ post_count: 3, tag_count: 2 })
     return Promise.resolve({})
@@ -60,19 +69,31 @@ vi.mock('../src/api/posts', () => ({
     { slug: 'product-strategy-watch', title: 'Product Strategy Watch', description: 'Product and company moves.', is_featured: false },
     { slug: 'tooling-workflow', title: 'Tooling Workflow', description: 'Tooling and workflow notes.', is_featured: false },
   ])),
-  fetchTopics: vi.fn(() => Promise.resolve({
-    items: [
-      { topic_key: 'openai-models', display_title: 'OpenAI 模型', description: '追踪 OpenAI 模型节奏', is_featured: true, post_count: 3 },
-      { topic_key: 'agent-platforms', display_title: 'Agent 平台', description: '追踪 Agent 产品化', is_featured: false, post_count: 2 },
-    ],
-  })),
 }))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.localStorage.clear()
+  window.localStorage.setItem('blog.followed_topics', JSON.stringify([
+    {
+      topic_key: 'openai-models',
+      display_title: 'OpenAI 模型',
+      followed_at: '2026-04-15T10:00:00.000Z',
+    },
+  ]))
+  window.localStorage.setItem('blog.reading_history', JSON.stringify([
+    {
+      slug: 'python-automation-selenium-pandas',
+      title: 'Python automation with Selenium and Pandas',
+      topic_key: 'openai-models',
+      topic_display_title: 'OpenAI 模型',
+      content_type: 'daily_brief',
+      visited_at: '2026-04-15T10:30:00.000Z',
+    },
+  ]))
 })
 
-it('renders content product sections and still filters by tag click', async () => {
+it('renders a lighter homepage and moves retention entry points into the navbar', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
@@ -89,14 +110,23 @@ it('renders content product sections and still filters by tag click', async () =
   expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="home-hot-topics"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="home-hot-topics"]')).toBeFalsy()
+  expect(screen.queryByRole('heading', { name: '热门主题' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: '继续阅读与关注主题' })).not.toBeInTheDocument()
   expect((await screen.findAllByText('AI Daily Brief')).length).toBeGreaterThan(0)
   expect((await screen.findAllByText('AI Weekly Review')).length).toBeGreaterThan(0)
   expect((await screen.findAllByText('Product Strategy Watch')).length).toBeGreaterThan(0)
   expect((await screen.findAllByText('Tooling Workflow')).length).toBeGreaterThan(0)
-  expect(await screen.findByText('OpenAI 模型')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '主题' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '打开追踪面板' })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="post-card"]')).toBeTruthy()
+
+  await userEvent.click(screen.getByRole('button', { name: '打开追踪面板' }))
+  expect(await screen.findByText('查看追踪页')).toBeInTheDocument()
+  expect(await screen.findByText('继续阅读')).toBeInTheDocument()
+  expect((await screen.findAllByText('OpenAI 模型')).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText('Python automation with Selenium and Pandas')).length).toBeGreaterThan(0)
 
   await userEvent.click(screen.getAllByRole('button', { name: /Python/i })[0])
   expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)

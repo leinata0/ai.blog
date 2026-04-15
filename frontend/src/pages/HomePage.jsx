@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Calendar, Pin, Search, Sparkles, Tag } from 'lucide-react'
 
-import { fetchPosts, fetchSeriesList, fetchTopics } from '../api/posts'
+import { fetchPosts, fetchSeriesList } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
@@ -14,17 +14,9 @@ import ArticleSkeleton from '../components/ArticleSkeleton'
 import Pagination from '../components/Pagination'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
-import ContinueReadingSection from '../components/ContinueReadingSection'
-import RecentTopicsSection from '../components/RecentTopicsSection'
 import SeriesEditorialStack from '../components/SeriesEditorialStack'
 import {
-  getContinueReadingItems,
-  getFollowedTopics,
-  getRecentTopics,
-} from '../utils/topicRetention'
-import {
   CONTENT_TYPE_META,
-  getTopicTitle,
   hoverLift,
   motionContainerVariants,
   motionItemVariants,
@@ -125,39 +117,6 @@ function DailyCard({ post }) {
   )
 }
 
-function TopicCard({ topic }) {
-  return (
-    <motion.article
-      data-ui="home-hot-topics"
-      variants={motionItemVariants}
-      whileHover={hoverLift}
-      className="editorial-card overflow-hidden rounded-3xl border"
-      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}
-    >
-      <Link to={`/topics/${topic.topic_key}`} className="block">
-        <div className="px-5 py-5">
-          <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
-            <span
-              className="rounded-full px-2.5 py-1"
-              style={{
-                backgroundColor: topic.is_featured ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)',
-                color: topic.is_featured ? '#2563eb' : 'var(--accent)',
-              }}
-            >
-              {topic.is_featured ? '编辑推荐' : '持续追踪'}
-            </span>
-            {topic.post_count ? <span>{topic.post_count} 篇文章</span> : null}
-          </div>
-          <h3 className="mt-3 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{getTopicTitle(topic)}</h3>
-          <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            主题强调“内容在讲什么”，帮助你沿着同一条线索持续跟进模型、公司与产品变化。
-          </p>
-        </div>
-      </Link>
-    </motion.article>
-  )
-}
-
 function PostCard({ post, onTagSelect }) {
   const contentMeta = CONTENT_TYPE_META[post.content_type]
 
@@ -235,10 +194,6 @@ export default function HomePage() {
   const [searchInput, setSearchInput] = useState('')
   const [posts, setPosts] = useState([])
   const [seriesList, setSeriesList] = useState([])
-  const [hotTopics, setHotTopics] = useState([])
-  const [followedTopics, setFollowedTopics] = useState([])
-  const [recentTopics, setRecentTopics] = useState([])
-  const [continueReading, setContinueReading] = useState([])
   const [loading, setLoading] = useState(true)
   const [slowLoading, setSlowLoading] = useState(false)
   const [error, setError] = useState('')
@@ -256,25 +211,6 @@ export default function HomePage() {
     fetchSeriesList()
       .then(setSeriesList)
       .catch(() => setSeriesList([]))
-    fetchTopics({ featured: true, limit: 4 })
-      .then((payload) => setHotTopics(Array.isArray(payload?.items) ? payload.items : []))
-      .catch(() => setHotTopics([]))
-  }, [])
-
-  useEffect(() => {
-    function syncRetentionState() {
-      setFollowedTopics(getFollowedTopics().slice(0, 4))
-      setRecentTopics(getRecentTopics(4))
-      setContinueReading(getContinueReadingItems(4))
-    }
-
-    syncRetentionState()
-    window.addEventListener('focus', syncRetentionState)
-    window.addEventListener('storage', syncRetentionState)
-    return () => {
-      window.removeEventListener('focus', syncRetentionState)
-      window.removeEventListener('storage', syncRetentionState)
-    }
   }, [])
 
   const loadPosts = useCallback(() => {
@@ -339,8 +275,6 @@ export default function HomePage() {
 
     return Array.from(deduped.values()).slice(0, 4)
   }, [seriesList])
-  const featuredTopics = useMemo(() => hotTopics.slice(0, 4), [hotTopics])
-
   function handleSearch(event) {
     event.preventDefault()
     setSearchQuery(searchInput.trim())
@@ -478,54 +412,6 @@ export default function HomePage() {
                     emptyText="系列入口正在整理中。"
                     dataUi="home-series-showcase"
                   />
-                </motion.section>
-
-                <motion.section variants={motionItemVariants}>
-                  <div className="mb-4 flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>热门主题</h2>
-                      <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        主题强调“内容在讲什么”，帮助你沿着同一条问题线索持续回看关键变化。
-                      </p>
-                    </div>
-                    <Link to="/topics" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
-                      查看主题页
-                    </Link>
-                  </div>
-                  <motion.div variants={motionContainerVariants} className="grid gap-4 md:grid-cols-2">
-                    {featuredTopics.length > 0 ? featuredTopics.map((topic) => (
-                      <TopicCard key={topic.topic_key} topic={topic} />
-                    )) : (
-                      <div className="rounded-3xl px-5 py-5 md:col-span-2" style={{ backgroundColor: 'var(--bg-surface)' }}>
-                        <p style={{ color: 'var(--text-faint)' }}>热门主题会在这里展示。</p>
-                      </div>
-                    )}
-                  </motion.div>
-                </motion.section>
-
-                <motion.section variants={motionItemVariants}>
-                  <div className="mb-4 flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>继续阅读与关注主题</h2>
-                      <p className="mt-1 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-                        这些状态仅保存在当前浏览器里，用于帮你快速回到正在跟进的文章和主题。
-                      </p>
-                    </div>
-                    <Link to="/following" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
-                      打开追踪页
-                    </Link>
-                  </div>
-                  <motion.div variants={motionContainerVariants} className="grid gap-4 lg:grid-cols-3">
-                    <motion.div variants={motionItemVariants}>
-                      <ContinueReadingSection items={continueReading} />
-                    </motion.div>
-                    <motion.div variants={motionItemVariants}>
-                      <RecentTopicsSection items={followedTopics} title="最近关注主题" emptyText="在文章页或主题页关注主题后，这里会形成快捷入口。" />
-                    </motion.div>
-                    <motion.div variants={motionItemVariants}>
-                      <RecentTopicsSection items={recentTopics} title="最近浏览主题" emptyText="阅读带有主题的文章后，这里会自动沉淀最近浏览记录。" />
-                    </motion.div>
-                  </motion.div>
                 </motion.section>
               </motion.div>
             ) : null}
