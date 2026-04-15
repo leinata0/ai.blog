@@ -11,7 +11,10 @@ import {
   MessagesSquare,
   MessageSquare,
   Radio,
+  Search,
   Settings,
+  Shapes,
+  Waypoints,
 } from 'lucide-react'
 
 import { clearToken, getToken } from '../api/auth'
@@ -23,10 +26,13 @@ import AdminPostEditor from '../components/admin/AdminPostEditor'
 import AdminPostsList from '../components/admin/AdminPostsList'
 import AdminPublishingStatus from '../components/admin/AdminPublishingStatus'
 import AdminQualityInbox from '../components/admin/AdminQualityInbox'
+import AdminSearchInsights from '../components/admin/AdminSearchInsights'
 import AdminSeriesManager from '../components/admin/AdminSeriesManager'
 import AdminSettings from '../components/admin/AdminSettings'
 import AdminStats from '../components/admin/AdminStats'
 import AdminTopicFeedback from '../components/admin/AdminTopicFeedback'
+import AdminTopicHealth from '../components/admin/AdminTopicHealth'
+import AdminTopicProfiles from '../components/admin/AdminTopicProfiles'
 
 const defaultPostFilters = {
   search: '',
@@ -157,6 +163,9 @@ export default function AdminDashboardPage() {
     { key: 'health', label: '内容健康', icon: HeartPulse },
     { key: 'quality', label: '质量收件箱', icon: Inbox },
     { key: 'topic-feedback', label: '主题反馈', icon: MessagesSquare },
+    { key: 'topics', label: '主题管理', icon: Shapes },
+    { key: 'topic-health', label: '主题健康', icon: Waypoints },
+    { key: 'search-insights', label: '搜索洞察', icon: Search },
     { key: 'series', label: '系列管理', icon: ActivitySquare },
     { key: 'comments', label: '评论管理', icon: MessageSquare },
     { key: 'settings', label: '站点设置', icon: Settings },
@@ -228,6 +237,9 @@ export default function AdminDashboardPage() {
         {tab === 'health' ? <AdminContentHealth /> : null}
         {tab === 'quality' ? <AdminQualityInbox /> : null}
         {tab === 'topic-feedback' ? <AdminTopicFeedback /> : null}
+        {tab === 'topics' ? <AdminTopicProfiles /> : null}
+        {tab === 'topic-health' ? <AdminTopicHealth /> : null}
+        {tab === 'search-insights' ? <AdminSearchInsights /> : null}
         {tab === 'series' ? <AdminSeriesManager /> : null}
         {tab === 'comments' ? <AdminComments /> : null}
         {tab === 'settings' ? <AdminSettings /> : null}

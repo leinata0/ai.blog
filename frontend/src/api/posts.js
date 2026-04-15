@@ -223,6 +223,34 @@ function normalizeSeries(payload = {}) {
   }
 }
 
+function normalizeTopic(payload = {}) {
+  const topicPosts = Array.isArray(payload.posts)
+    ? payload.posts
+    : Array.isArray(payload.timeline)
+      ? payload.timeline
+      : Array.isArray(payload.recent_posts)
+        ? payload.recent_posts
+        : []
+  return {
+    topic_key: payload.topic_key ?? '',
+    display_title: payload.display_title ?? payload.title ?? payload.topic_key ?? '',
+    description: payload.description ?? '',
+    cover_image: payload.cover_image ?? '',
+    aliases: Array.isArray(payload.aliases) ? payload.aliases : Array.isArray(payload.aliases_json) ? payload.aliases_json : [],
+    is_featured: Boolean(payload.is_featured),
+    sort_order: payload.sort_order ?? 0,
+    latest_post_at: payload.latest_post_at ?? null,
+    post_count: payload.post_count ?? 0,
+    source_count: payload.source_count ?? 0,
+    avg_quality_score: payload.avg_quality_score ?? null,
+    followup_recommended: payload.followup_recommended ?? null,
+    posts: topicPosts.map((post) => normalizePost(post)),
+    related_series: Array.isArray(payload.related_series) ? payload.related_series.map((series) => normalizeSeries(series)) : [],
+    timeline: topicPosts.map((post) => normalizePost(post)),
+    quality_summary: payload.quality_summary ?? null,
+  }
+}
+
 function buildQuery(params = {}) {
   const qs = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -268,4 +296,32 @@ export async function fetchDiscover(params = {}) {
     total: payload?.total ?? itemSource.length,
     facets: payload?.facets ?? {},
   }
+}
+
+export async function fetchSearch(params = {}) {
+  const payload = await apiGet(`/api/search${buildQuery(params)}`)
+  const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : []
+  return {
+    ...payload,
+    items: items.map((post) => normalizePost(post)),
+    total: payload?.total ?? items.length,
+    page: payload?.page ?? 1,
+    page_size: payload?.page_size ?? items.length,
+    topics: Array.isArray(payload?.topics) ? payload.topics.map((topic) => normalizeTopic(topic)) : [],
+    facets: payload?.facets ?? {},
+  }
+}
+
+export async function fetchTopics(params = {}) {
+  const payload = await apiGet(`/api/topics${buildQuery(params)}`)
+  const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : []
+  return {
+    ...payload,
+    items: items.map((topic) => normalizeTopic(topic)),
+    total: payload?.total ?? items.length,
+  }
+}
+
+export async function fetchTopicDetail(topicKey) {
+  return normalizeTopic(await apiGet(`/api/topics/${encodeURIComponent(topicKey)}`))
 }

@@ -64,6 +64,17 @@ export const fetchAdminTopicFeedback = (params = {}) => {
 export const fetchAdminSeries = () => apiGet('/api/admin/series', { auth: true })
 export const createAdminSeries = (data) => apiPost('/api/admin/series', data, { auth: true })
 export const updateAdminSeries = (id, data) => apiPut(`/api/admin/series/${id}`, data, { auth: true })
+export const fetchAdminTopicProfiles = () => apiGet('/api/admin/topic-profiles', { auth: true })
+export const createAdminTopicProfile = (data) => apiPost('/api/admin/topic-profiles', data, { auth: true })
+export const updateAdminTopicProfile = (id, data) => apiPut(`/api/admin/topic-profiles/${id}`, data, { auth: true })
+export const fetchAdminTopicHealth = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/topic-health${qs ? '?' + qs : ''}`, { auth: true })
+}
+export const fetchAdminSearchInsights = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/search-insights${qs ? '?' + qs : ''}`, { auth: true })
+}
 
 export const upsertAdminPublishingMetadata = (data) =>
   apiPost('/api/admin/publishing-metadata', data, { auth: true })

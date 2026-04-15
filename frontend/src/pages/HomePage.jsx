@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Calendar, Eye, Tag, Search, X, Pin, Layers3, ArrowRight } from 'lucide-react'
 
-import { fetchPosts, fetchSeriesList } from '../api/posts'
+import { fetchPosts, fetchSeriesList, fetchTopics } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
@@ -14,6 +14,13 @@ import ArticleSkeleton from '../components/ArticleSkeleton'
 import Pagination from '../components/Pagination'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
+import ContinueReadingSection from '../components/ContinueReadingSection'
+import RecentTopicsSection from '../components/RecentTopicsSection'
+import {
+  getContinueReadingItems,
+  getFollowedTopics,
+  getRecentTopics,
+} from '../utils/topicRetention'
 
 const containerVariants = {
   hidden: {},
@@ -51,6 +58,10 @@ export default function HomePage() {
   const [searchInput, setSearchInput] = useState('')
   const [posts, setPosts] = useState([])
   const [seriesList, setSeriesList] = useState([])
+  const [hotTopics, setHotTopics] = useState([])
+  const [followedTopics, setFollowedTopics] = useState([])
+  const [recentTopics, setRecentTopics] = useState([])
+  const [continueReading, setContinueReading] = useState([])
   const [loading, setLoading] = useState(true)
   const [slowLoading, setSlowLoading] = useState(false)
   const [error, setError] = useState('')
@@ -68,6 +79,25 @@ export default function HomePage() {
     fetchSeriesList({ featured: true })
       .then(setSeriesList)
       .catch(() => setSeriesList([]))
+    fetchTopics({ featured: true, page_size: 4, sort: 'activity' })
+      .then((payload) => setHotTopics(Array.isArray(payload?.items) ? payload.items : []))
+      .catch(() => setHotTopics([]))
+  }, [])
+
+  useEffect(() => {
+    function syncRetentionState() {
+      setFollowedTopics(getFollowedTopics().slice(0, 4))
+      setRecentTopics(getRecentTopics(4))
+      setContinueReading(getContinueReadingItems(4))
+    }
+
+    syncRetentionState()
+    window.addEventListener('focus', syncRetentionState)
+    window.addEventListener('storage', syncRetentionState)
+    return () => {
+      window.removeEventListener('focus', syncRetentionState)
+      window.removeEventListener('storage', syncRetentionState)
+    }
   }, [])
 
   const loadPosts = useCallback(() => {
@@ -118,6 +148,7 @@ export default function HomePage() {
     [posts]
   )
   const featuredSeries = useMemo(() => seriesList.slice(0, 3), [seriesList])
+  const featuredTopics = useMemo(() => hotTopics.slice(0, 4), [hotTopics])
 
   function handleSearch(event) {
     event.preventDefault()
@@ -339,6 +370,65 @@ export default function HomePage() {
                         <p style={{ color: 'var(--text-faint)' }}>系列入口正在准备中。</p>
                       </div>
                     )}
+                  </div>
+                </section>
+
+                <section data-ui="home-hot-topics">
+                  <div className="mb-4 flex items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>热门主题</h2>
+                      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        从单篇文章切换到主题主线，按 topic_key 持续追踪日报、周报和专题沉淀。
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Link to="/topics" className="text-sm font-medium" style={{ color: '#2563eb' }}>查看主题页</Link>
+                      <Link to="/search" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>进入搜索</Link>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {featuredTopics.length > 0 ? featuredTopics.map((topic) => (
+                      <Link
+                        key={topic.topic_key}
+                        to={`/topics/${topic.topic_key}`}
+                        className="block rounded-3xl px-5 py-5"
+                        style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
+                      >
+                        <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
+                          <span>{topic.is_featured ? '编辑推荐' : '持续追踪'}</span>
+                          {topic.post_count ? <span>{topic.post_count} 篇文章</span> : null}
+                        </div>
+                        <h3 className="mt-2 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{topic.display_title}</h3>
+                        <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
+                          {topic.description || '进入主题页查看这一条主线下的日报、周报与系列内容。'}
+                        </p>
+                      </Link>
+                    )) : (
+                      <div className="rounded-3xl px-5 py-5 md:col-span-2" style={{ backgroundColor: 'var(--bg-surface)' }}>
+                        <p style={{ color: 'var(--text-faint)' }}>热门主题会在这里展示。</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section data-ui="home-retention-rails">
+                  <div className="mb-4 flex items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>继续阅读与关注主题</h2>
+                      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        这些内容只保存在当前浏览器，本机刷新后依然保留，不会影响现有自动发文链路。
+                      </p>
+                    </div>
+                    <Link to="/following" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                      打开追踪页
+                    </Link>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <ContinueReadingSection items={continueReading} />
+                    <RecentTopicsSection items={followedTopics} title="最近关注主题" emptyText="在文章页或主题页关注主题后，这里会形成快捷入口。" />
+                    <RecentTopicsSection items={recentTopics} title="最近浏览主题" emptyText="阅读带 topic_key 的文章后，这里会自动沉淀最近主题。" />
                   </div>
                 </section>
               </div>

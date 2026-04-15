@@ -263,3 +263,69 @@ def test_split_feeds(client):
     assert "<rss" in all_feed.text
     assert "daily-one" in daily_feed.text
     assert "weekly-one" in weekly_feed.text
+
+
+def test_search_topics_and_topic_feed_contract(client):
+    token = _login(client)
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "OpenAI Search Update",
+            "slug": "openai-search-update",
+            "summary": "Search stack improvements",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "topic_key": "openai-search",
+            "series_slug": "ai-daily-brief",
+            "quality_score": 91,
+            "tags": ["search", "openai"],
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "OpenAI Topic Deep Dive",
+            "slug": "openai-topic-deep-dive",
+            "summary": "Topic perspective",
+            "content_md": "content",
+            "content_type": "weekly_review",
+            "topic_key": "openai-search",
+            "series_slug": "ai-weekly-review",
+            "quality_score": 87,
+            "tags": ["topic"],
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+
+    search_resp = client.get("/api/search?q=openai")
+    assert search_resp.status_code == 200
+    search_payload = search_resp.json()
+    assert search_payload["query"] == "openai"
+    assert search_payload["total"] >= 2
+    assert len(search_payload["items"]) >= 1
+    assert "match_reason" in search_payload["items"][0]
+
+    ignored_resp = client.get("/api/search?q=o")
+    assert ignored_resp.status_code == 200
+
+    topics_resp = client.get("/api/topics?q=openai")
+    assert topics_resp.status_code == 200
+    topics_payload = topics_resp.json()
+    assert "items" in topics_payload
+    assert "total" in topics_payload
+    assert any(item["topic_key"] == "openai-search" for item in topics_payload["items"])
+
+    topic_detail_resp = client.get("/api/topics/openai-search")
+    assert topic_detail_resp.status_code == 200
+    detail_payload = topic_detail_resp.json()
+    assert detail_payload["topic_key"] == "openai-search"
+    assert detail_payload["post_count"] >= 2
+    assert len(detail_payload["recent_posts"]) >= 1
+
+    topic_feed_resp = client.get("/api/feeds/topics/openai-search.xml")
+    assert topic_feed_resp.status_code == 200
+    assert "<rss" in topic_feed_resp.text
+    assert "openai-search-update" in topic_feed_resp.text

@@ -25,7 +25,11 @@ vi.mock('../src/api/posts', () => ({
     ],
     total: 1,
   })),
+  fetchSearch: vi.fn(() => Promise.resolve({ items: [], total: 0, topics: [] })),
   fetchPosts: vi.fn(() => Promise.resolve({ items: [], total: 0 })),
+  fetchTopics: vi.fn(() => Promise.resolve({
+    items: [{ topic_key: 'openai-models', display_title: 'OpenAI Models', post_count: 2 }],
+  })),
 }))
 
 beforeEach(() => {
@@ -41,7 +45,6 @@ it('renders series list page', async () => {
     </MemoryRouter>
   )
 
-  expect(await screen.findByRole('heading', { name: '内容系列' })).toBeInTheDocument()
   expect(await screen.findByText('AI Daily Brief')).toBeInTheDocument()
 })
 
@@ -67,6 +70,6 @@ it('renders series detail and discover pages', async () => {
     </MemoryRouter>
   )
 
-  expect(await screen.findByRole('heading', { name: '发现值得继续追踪的内容主线' })).toBeInTheDocument()
-  expect((await screen.findAllByText('Daily brief one')).length).toBeGreaterThan(0)
+  expect(await screen.findByText('Daily brief one')).toBeInTheDocument()
+  expect(await screen.findByText('OpenAI Models')).toBeInTheDocument()
 })

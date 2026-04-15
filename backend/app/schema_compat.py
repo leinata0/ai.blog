@@ -103,6 +103,31 @@ POST_QUALITY_REVIEW_COLUMNS = {
     "updated_at": "DATETIME",
 }
 
+TOPIC_PROFILE_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "topic_key": "VARCHAR(200) NOT NULL UNIQUE",
+    "title": "VARCHAR(200) NOT NULL DEFAULT ''",
+    "description": "TEXT NOT NULL DEFAULT ''",
+    "focus_points_json": "TEXT NOT NULL DEFAULT '[]'",
+    "content_types_json": "TEXT NOT NULL DEFAULT '[]'",
+    "series_slug": "VARCHAR(120)",
+    "is_active": "BOOLEAN NOT NULL DEFAULT TRUE",
+    "priority": "INTEGER NOT NULL DEFAULT 0",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
+SEARCH_INSIGHT_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "query": "VARCHAR(200) NOT NULL UNIQUE",
+    "search_count": "INTEGER NOT NULL DEFAULT 0",
+    "last_result_count": "INTEGER NOT NULL DEFAULT 0",
+    "first_searched_at": "DATETIME",
+    "last_searched_at": "DATETIME",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
 DEFAULT_SERIES_SEED = [
     {
         "slug": "ai-daily-brief",
@@ -236,6 +261,27 @@ def ensure_schema_compat(engine) -> None:
         indexes=[
             "CREATE INDEX IF NOT EXISTS ix_post_quality_reviews_post_id ON post_quality_reviews (post_id)",
             "CREATE INDEX IF NOT EXISTS ix_post_quality_reviews_reviewed_at ON post_quality_reviews (reviewed_at)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "topic_profiles",
+        TOPIC_PROFILE_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_topic_profiles_topic_key ON topic_profiles (topic_key)",
+            "CREATE INDEX IF NOT EXISTS ix_topic_profiles_series_slug ON topic_profiles (series_slug)",
+            "CREATE INDEX IF NOT EXISTS ix_topic_profiles_priority ON topic_profiles (priority)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "search_insights",
+        SEARCH_INSIGHT_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_search_insights_query ON search_insights (query)",
+            "CREATE INDEX IF NOT EXISTS ix_search_insights_last_searched_at ON search_insights (last_searched_at)",
         ],
     )
 

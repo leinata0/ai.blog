@@ -17,8 +17,10 @@ from app.models import (
     PostSource,
     PublishingArtifact,
     PublishingRun,
+    SearchInsight,
     Series,
     Tag,
+    TopicProfile,
 )
 from app.schemas import (
     ContentHealthOut,
@@ -42,6 +44,13 @@ from app.schemas import (
     SeriesCreateRequest,
     SeriesOut,
     SeriesUpdateRequest,
+    SearchInsightsOut,
+    TopicHealthOut,
+    TopicMetadataUpsertRequest,
+    TopicMetadataUpsertResponse,
+    TopicProfileCreateRequest,
+    TopicProfileOut,
+    TopicProfileUpdateRequest,
     UploadOut,
 )
 from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
@@ -201,6 +210,156 @@ def _to_avg(values: list[float]) -> float | None:
     if not values:
         return None
     return round(sum(values) / len(values), 2)
+
+
+def _safe_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if isinstance(item, (str, int, float))]
+
+
+def _topic_profile_to_dict(profile: TopicProfile, db: Session) -> dict:
+    post_count = db.execute(
+        select(func.count(Post.id))
+        .where(Post.is_published == True)
+        .where(Post.topic_key == profile.topic_key)
+    ).scalar() or 0
+    latest_post_at = db.execute(
+        select(func.max(Post.created_at))
+        .where(Post.is_published == True)
+        .where(Post.topic_key == profile.topic_key)
+    ).scalar()
+    avg_quality_score = db.execute(
+        select(func.avg(Post.quality_score))
+        .where(Post.is_published == True)
+        .where(Post.topic_key == profile.topic_key)
+    ).scalar()
+    return {
+        "id": profile.id,
+        "topic_key": profile.topic_key,
+        "title": profile.title or "",
+        "description": profile.description or "",
+        "focus_points": _safe_json_list(profile.focus_points_json),
+        "content_types": _safe_json_list(profile.content_types_json),
+        "series_slug": profile.series_slug,
+        "is_active": bool(profile.is_active),
+        "priority": profile.priority or 0,
+        "post_count": post_count,
+        "latest_post_at": _serialize_datetime(latest_post_at),
+        "avg_quality_score": round(float(avg_quality_score), 2) if avg_quality_score is not None else None,
+        "created_at": _serialize_datetime(profile.created_at),
+        "updated_at": _serialize_datetime(profile.updated_at),
+    }
+
+
+def _merge_topic_content_types(existing_json: str | None, content_type: str | None) -> str:
+    values = _safe_json_list(existing_json)
+    normalized = str(content_type or "").strip()
+    if normalized and normalized not in values:
+        values.append(normalized)
+    return json.dumps(values, ensure_ascii=False)
+
+
+def _upsert_topic_metadata_payload(
+    body: TopicMetadataUpsertRequest,
+    *,
+    post_id_override: int | None,
+    db: Session,
+) -> dict:
+    target_post_id = post_id_override or body.post_id
+    if target_post_id is None and not body.post_slug:
+        raise HTTPException(status_code=400, detail="post_id or post_slug is required")
+
+    post_query = select(Post)
+    if target_post_id is not None:
+        post_query = post_query.where(Post.id == target_post_id)
+    else:
+        post_query = post_query.where(Post.slug == body.post_slug)
+
+    post = db.execute(post_query).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    snapshot = body.topic_metadata
+    resolved_topic_key = (body.resolved_topic_key() or post.topic_key or "").strip()
+    if not resolved_topic_key:
+        raise HTTPException(status_code=400, detail="topic_key is required")
+
+    if not (post.topic_key or "").strip():
+        post.topic_key = resolved_topic_key
+
+    if snapshot and snapshot.source_count is not None:
+        post.source_count = snapshot.source_count
+    if snapshot and snapshot.reading_time is not None:
+        post.reading_time = snapshot.reading_time
+
+    profile = db.execute(
+        select(TopicProfile).where(TopicProfile.topic_key == resolved_topic_key)
+    ).scalar_one_or_none()
+
+    topic_title = (snapshot.topic_title if snapshot else "") or resolved_topic_key
+    topic_description = (snapshot.notes if snapshot else "") or ""
+    if profile is None:
+        profile = TopicProfile(
+            topic_key=resolved_topic_key,
+            title=topic_title,
+            description=topic_description,
+            focus_points_json=json.dumps([], ensure_ascii=False),
+            content_types_json=_merge_topic_content_types("[]", post.content_type),
+            series_slug=post.series_slug,
+            is_active=True,
+            priority=1,
+        )
+        db.add(profile)
+        db.flush()
+    else:
+        if topic_title and not (profile.title or "").strip():
+            profile.title = topic_title
+        if topic_description and not (profile.description or "").strip():
+            profile.description = topic_description
+        profile.content_types_json = _merge_topic_content_types(profile.content_types_json, post.content_type)
+        if not profile.series_slug and post.series_slug:
+            profile.series_slug = post.series_slug
+
+    artifact = db.execute(
+        select(PublishingArtifact)
+        .where(PublishingArtifact.post_id == post.id)
+        .order_by(PublishingArtifact.updated_at.desc(), PublishingArtifact.created_at.desc())
+    ).scalar_one_or_none()
+
+    if artifact is None:
+        artifact = PublishingArtifact(
+            post_id=post.id,
+            workflow_key="topic_metadata",
+            coverage_date=(snapshot.coverage_date if snapshot else "") or (post.coverage_date or ""),
+        )
+        db.add(artifact)
+        db.flush()
+
+    if snapshot is not None:
+        artifact.candidate_topics_json = json.dumps([snapshot.model_dump(mode="json")], ensure_ascii=False)
+        if not artifact.coverage_date:
+            artifact.coverage_date = snapshot.coverage_date or (post.coverage_date or "")
+        artifact.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(post)
+    db.refresh(profile)
+    db.refresh(artifact)
+
+    return {
+        "post_id": post.id,
+        "post_slug": post.slug,
+        "topic_key": resolved_topic_key,
+        "profile_id": profile.id if profile else None,
+        "artifact_id": artifact.id if artifact else None,
+    }
 
 
 def _normalize_topic_payload(items, default_mode: str, coverage_date: str) -> list[dict]:
@@ -779,6 +938,175 @@ def get_topic_feedback(
     }
 
 
+@router.get("/topic-profiles", response_model=list[TopicProfileOut])
+def admin_list_topic_profiles(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    profiles = db.execute(
+        select(TopicProfile).order_by(TopicProfile.priority.desc(), TopicProfile.updated_at.desc())
+    ).scalars().all()
+    return [_topic_profile_to_dict(profile, db) for profile in profiles]
+
+
+@router.post("/topic-profiles", response_model=TopicProfileOut)
+def admin_create_topic_profile(
+    body: TopicProfileCreateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    existing = db.execute(
+        select(TopicProfile).where(TopicProfile.topic_key == body.topic_key)
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Topic profile already exists")
+
+    profile = TopicProfile(
+        topic_key=body.topic_key,
+        title=body.title or body.topic_key,
+        description=body.description or "",
+        focus_points_json=json.dumps(body.focus_points, ensure_ascii=False),
+        content_types_json=json.dumps(body.content_types, ensure_ascii=False),
+        series_slug=body.series_slug,
+        is_active=body.is_active,
+        priority=body.priority,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    return _topic_profile_to_dict(profile, db)
+
+
+@router.put("/topic-profiles/{profile_id}", response_model=TopicProfileOut)
+def admin_update_topic_profile(
+    profile_id: int,
+    body: TopicProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    profile = db.execute(select(TopicProfile).where(TopicProfile.id == profile_id)).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Topic profile not found")
+
+    if body.topic_key is not None:
+        conflict = db.execute(
+            select(TopicProfile).where(TopicProfile.topic_key == body.topic_key, TopicProfile.id != profile_id)
+        ).scalar_one_or_none()
+        if conflict is not None:
+            raise HTTPException(status_code=409, detail="Topic profile already exists")
+        profile.topic_key = body.topic_key
+    if body.title is not None:
+        profile.title = body.title
+    if body.description is not None:
+        profile.description = body.description
+    if body.focus_points is not None:
+        profile.focus_points_json = json.dumps(body.focus_points, ensure_ascii=False)
+    if body.content_types is not None:
+        profile.content_types_json = json.dumps(body.content_types, ensure_ascii=False)
+    if body.series_slug is not None:
+        profile.series_slug = body.series_slug
+    if body.is_active is not None:
+        profile.is_active = body.is_active
+    if body.priority is not None:
+        profile.priority = body.priority
+
+    db.commit()
+    db.refresh(profile)
+    return _topic_profile_to_dict(profile, db)
+
+
+@router.get("/topic-health", response_model=TopicHealthOut)
+def get_topic_health(
+    limit: int = Query(default=100, ge=1, le=300),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    profiles = db.execute(select(TopicProfile)).scalars().all()
+    profiles_by_key = {profile.topic_key: profile for profile in profiles}
+    posts = db.execute(
+        select(Post)
+        .where(Post.is_published == True)
+        .where(Post.topic_key != "")
+        .order_by(Post.created_at.desc())
+    ).scalars().all()
+
+    grouped: dict[str, dict] = {}
+    for post in posts:
+        topic_key = (post.topic_key or "").strip()
+        if not topic_key:
+            continue
+        if topic_key not in grouped:
+            grouped[topic_key] = {
+                "series_slug": post.series_slug,
+                "post_count": 0,
+                "quality_scores": [],
+                "latest_post_at": post.created_at,
+            }
+        bucket = grouped[topic_key]
+        bucket["post_count"] += 1
+        if post.quality_score is not None:
+            bucket["quality_scores"].append(float(post.quality_score))
+        if post.created_at and (bucket["latest_post_at"] is None or post.created_at > bucket["latest_post_at"]):
+            bucket["latest_post_at"] = post.created_at
+        if not bucket["series_slug"] and post.series_slug:
+            bucket["series_slug"] = post.series_slug
+
+    items = []
+    for topic_key, bucket in grouped.items():
+        avg_quality = _to_avg(bucket["quality_scores"])
+        profile = profiles_by_key.get(topic_key)
+        recommendation = "maintain"
+        if avg_quality is not None and avg_quality < 65:
+            recommendation = "improve"
+        elif avg_quality is not None and avg_quality >= 85:
+            recommendation = "expand"
+        items.append(
+            {
+                "topic_key": topic_key,
+                "series_slug": profile.series_slug if profile and profile.series_slug else bucket["series_slug"],
+                "post_count": bucket["post_count"],
+                "avg_quality_score": avg_quality,
+                "latest_post_at": _serialize_datetime(bucket["latest_post_at"]),
+                "profile_exists": profile is not None,
+                "recommendation": recommendation,
+            }
+        )
+
+    items.sort(key=lambda item: (item["post_count"], item["avg_quality_score"] or -1), reverse=True)
+    items = items[:limit]
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/search-insights", response_model=SearchInsightsOut)
+def get_search_insights(
+    q: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    stmt = select(SearchInsight).order_by(SearchInsight.last_searched_at.desc(), SearchInsight.updated_at.desc())
+    if q:
+        pattern = f"%{q.strip().lower()}%"
+        stmt = stmt.where(SearchInsight.query.ilike(pattern))
+    insights = db.execute(stmt.limit(limit)).scalars().all()
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "query": item.query,
+                "search_count": item.search_count or 0,
+                "last_result_count": item.last_result_count or 0,
+                "first_searched_at": _serialize_datetime(item.first_searched_at),
+                "last_searched_at": _serialize_datetime(item.last_searched_at),
+                "created_at": _serialize_datetime(item.created_at),
+                "updated_at": _serialize_datetime(item.updated_at),
+            }
+            for item in insights
+        ],
+        "total": len(insights),
+    }
+
+
 @router.get("/series", response_model=list[SeriesOut])
 def admin_list_series(
     db: Session = Depends(get_db),
@@ -948,6 +1276,35 @@ def upsert_post_publishing_metadata(
         "workflow_key": artifact.workflow_key,
         "coverage_date": artifact.coverage_date,
     }
+
+
+@router.put("/posts/{post_id}/topic-metadata", response_model=TopicMetadataUpsertResponse)
+def upsert_post_topic_metadata(
+    post_id: int,
+    body: TopicMetadataUpsertRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    return _upsert_topic_metadata_payload(body, post_id_override=post_id, db=db)
+
+
+@router.put("/posts/{post_id}/topic-profile", response_model=TopicMetadataUpsertResponse)
+def upsert_post_topic_profile_alias(
+    post_id: int,
+    body: TopicMetadataUpsertRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    return _upsert_topic_metadata_payload(body, post_id_override=post_id, db=db)
+
+
+@router.post("/topic-metadata", response_model=TopicMetadataUpsertResponse)
+def upsert_topic_metadata_from_body(
+    body: TopicMetadataUpsertRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    return _upsert_topic_metadata_payload(body, post_id_override=None, db=db)
 
 
 @router.get("/posts")

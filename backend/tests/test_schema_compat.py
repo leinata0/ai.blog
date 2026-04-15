@@ -3,7 +3,9 @@ from app.schema_compat import (
     POST_QUALITY_REVIEW_COLUMNS,
     POST_QUALITY_SNAPSHOT_COLUMNS,
     POST_SOURCE_COLUMNS,
+    SEARCH_INSIGHT_COLUMNS,
     SERIES_COLUMNS,
+    TOPIC_PROFILE_COLUMNS,
 )
 
 
@@ -26,3 +28,12 @@ def test_quality_tables_contract_columns_exist():
     assert "editor_verdict" in POST_QUALITY_REVIEW_COLUMNS
     assert "editor_labels_json" in POST_QUALITY_REVIEW_COLUMNS
     assert "followup_recommended" in POST_QUALITY_REVIEW_COLUMNS
+
+
+def test_topic_search_tables_contract_columns_exist():
+    assert "topic_key" in TOPIC_PROFILE_COLUMNS
+    assert "focus_points_json" in TOPIC_PROFILE_COLUMNS
+    assert "content_types_json" in TOPIC_PROFILE_COLUMNS
+    assert "query" in SEARCH_INSIGHT_COLUMNS
+    assert "search_count" in SEARCH_INSIGHT_COLUMNS
+    assert "last_searched_at" in SEARCH_INSIGHT_COLUMNS

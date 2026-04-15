@@ -15,6 +15,8 @@ import CommentSection from '../components/CommentSection'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import ArticleSkeleton from '../components/ArticleSkeleton'
+import FollowTopicButton from '../components/FollowTopicButton'
+import { recordReadingHistory } from '../utils/topicRetention'
 
 function calcReadingTime(text) {
   if (!text) return 1
@@ -186,6 +188,49 @@ function QualityInsightsSection({ post }) {
   )
 }
 
+function TopicTrackingSection({ post }) {
+  const topicKey = String(post?.topic_key || '').trim()
+  if (!topicKey) return null
+
+  return (
+    <section className="mt-8 rounded-xl p-6 sm:p-8" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>继续追踪这条主线</h3>
+          <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
+            这篇文章归属到主题 <strong>{topicKey}</strong>。如果你想持续看这条主线后续怎么发展，可以直接进入主题页或订阅主题 RSS。
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <FollowTopicButton
+            topic={{
+              topic_key: topicKey,
+              display_title: topicKey,
+              description: post?.summary || '',
+            }}
+          />
+          <Link
+            to={`/topics/${topicKey}`}
+            className="inline-flex items-center rounded-2xl px-4 py-3 text-sm font-semibold"
+            style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+          >
+            进入主题页
+          </Link>
+          <a
+            href={`/api/feeds/topics/${encodeURIComponent(topicKey)}.xml`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center rounded-2xl px-4 py-3 text-sm font-semibold"
+            style={{ backgroundColor: 'rgba(37,99,235,0.12)', color: '#2563eb' }}
+          >
+            订阅主题 RSS
+          </a>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export default function PostDetailPage({ slug: overrideSlug }) {
   const params = useParams()
   const slug = overrideSlug ?? params.slug
@@ -220,6 +265,14 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         setSameSeriesPosts(Array.isArray(data.same_series_posts) ? data.same_series_posts : [])
         setSameTopicPosts(Array.isArray(data.same_topic_posts) ? data.same_topic_posts : [])
         setSameWeekPosts(Array.isArray(data.same_week_posts) ? data.same_week_posts : [])
+        recordReadingHistory({
+          slug: data.slug,
+          title: data.title,
+          summary: data.summary,
+          topic_key: data.topic_key,
+          content_type: data.content_type,
+          coverage_date: data.coverage_date,
+        })
         setLoading(false)
       })
       .catch(() => {
@@ -483,6 +536,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
             <SourceSummarySection post={post} />
             <QualityInsightsSection post={post} />
+            <TopicTrackingSection post={post} />
 
             {/* 点赞按钮 */}
             <div className="flex items-center justify-center mt-8">

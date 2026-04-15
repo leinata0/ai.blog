@@ -33,6 +33,7 @@ Combining Selenium flows with Pandas cleansed data enables quick automation scri
 
 ![Example image](https://example.com/markdown.jpg)
 `,
+      topic_key: 'topic-follow-up',
       tags: [{ name: 'Python', slug: 'python' }],
       source_summary: 'This article combines an official source with two independent commentaries.',
       sources: [
@@ -62,7 +63,7 @@ Combining Selenium flows with Pandas cleansed data enables quick automation scri
         reading_time: 7,
         structure_summary: '结构区块较完整，阅读路径清晰。',
         source_summary: '来源覆盖较充分，适合继续沿这条主线扩展。',
-        analysis_summary: '正文具备较好的分析展开空间，不止停留在信息罗列。',
+        analysis_summary: '正文具备较好的分析展开空间，不只停留在信息罗列。',
         followup_recommended: true,
         followup_summary: '这条主线值得继续追踪，后续可以串联同主题和同系列文章。',
         snapshot_notes: 'Quality snapshot generated after a passed gate.',
@@ -92,7 +93,7 @@ afterEach(() => {
   cleanup()
 })
 
-it('renders post detail and additional discovery rails', async () => {
+it('renders post detail and topic tracking rails', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
@@ -100,6 +101,7 @@ it('renders post detail and additional discovery rails', async () => {
       </ThemeProvider>
     </MemoryRouter>
   )
+
   const headings = await screen.findAllByRole('heading', { name: /python automation/i })
   expect(headings.length).toBeGreaterThan(0)
   expect(container.querySelector('[data-ui="detail-shell"]')).toBeTruthy()
@@ -107,6 +109,8 @@ it('renders post detail and additional discovery rails', async () => {
   expect(await screen.findByText(/来源摘要/i)).toBeInTheDocument()
   expect((await screen.findAllByText(/质量洞察/i)).length).toBeGreaterThan(0)
   expect(screen.getAllByText(/值得继续追踪/i).length).toBeGreaterThan(0)
+  expect(await screen.findByText(/继续追踪这条主线/i)).toBeInTheDocument()
+  expect(await screen.findByRole('link', { name: /进入主题页/i })).toHaveAttribute('href', '/topics/topic-follow-up')
   expect(await screen.findByText(/同系列继续阅读/i)).toBeInTheDocument()
   expect(await screen.findByText(/同主题相关文章/i)).toBeInTheDocument()
   expect(await screen.findByText(/同周上下文/i)).toBeInTheDocument()

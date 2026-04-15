@@ -9,6 +9,10 @@ const ArchivePage = lazy(() => import('./pages/ArchivePage'))
 const SeriesPage = lazy(() => import('./pages/SeriesPage'))
 const SeriesDetailPage = lazy(() => import('./pages/SeriesDetailPage'))
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage'))
+const SearchPage = lazy(() => import('./pages/SearchPage'))
+const TopicsPage = lazy(() => import('./pages/TopicsPage'))
+const TopicDetailPage = lazy(() => import('./pages/TopicDetailPage'))
+const FollowingPage = lazy(() => import('./pages/FollowingPage'))
 const ContentTypePage = lazy(() => import('./pages/ContentTypePage'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))
 const FriendsPage = lazy(() => import('./pages/FriendsPage'))
@@ -38,6 +42,10 @@ export default function App() {
           <Route path="/series" element={<SeriesPage />} />
           <Route path="/series/:slug" element={<SeriesDetailPage />} />
           <Route path="/discover" element={<DiscoverPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/topics" element={<TopicsPage />} />
+          <Route path="/topics/:topicKey" element={<TopicDetailPage />} />
+          <Route path="/following" element={<FollowingPage />} />
           <Route path="/daily" element={<ContentTypePage contentType="daily_brief" />} />
           <Route path="/weekly" element={<ContentTypePage contentType="weekly_review" />} />
           <Route path="/tags" element={<TagsPage />} />

@@ -496,6 +496,79 @@ def test_topic_feedback_contract(client):
     assert "recommendation" in first
 
 
+def test_admin_topic_profiles_topic_health_and_search_insights(client):
+    token = _login(client)
+
+    create_profile = client.post(
+        "/api/admin/topic-profiles",
+        json={
+            "topic_key": "agent-runtime",
+            "title": "Agent Runtime",
+            "description": "runtime topic profile",
+            "focus_points": ["latency", "quality"],
+            "content_types": ["daily_brief", "weekly_review"],
+            "series_slug": "tooling-workflow",
+            "is_active": True,
+            "priority": 50,
+        },
+        headers=_auth(token),
+    )
+    assert create_profile.status_code == 200
+    profile_payload = create_profile.json()
+    assert profile_payload["topic_key"] == "agent-runtime"
+    profile_id = profile_payload["id"]
+
+    list_profile = client.get("/api/admin/topic-profiles", headers=_auth(token))
+    assert list_profile.status_code == 200
+    assert any(item["topic_key"] == "agent-runtime" for item in list_profile.json())
+
+    update_profile = client.put(
+        f"/api/admin/topic-profiles/{profile_id}",
+        json={"title": "Agent Runtime Updated", "priority": 80},
+        headers=_auth(token),
+    )
+    assert update_profile.status_code == 200
+    assert update_profile.json()["title"] == "Agent Runtime Updated"
+    assert update_profile.json()["priority"] == 80
+
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Agent Runtime Post",
+            "slug": "agent-runtime-post",
+            "summary": "summary",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "topic_key": "agent-runtime",
+            "series_slug": "tooling-workflow",
+            "quality_score": 89,
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+
+    search_hit = client.get("/api/search?q=agent runtime")
+    assert search_hit.status_code == 200
+    search_short = client.get("/api/search?q=a")
+    assert search_short.status_code == 200
+
+    topic_health = client.get("/api/admin/topic-health", headers=_auth(token))
+    assert topic_health.status_code == 200
+    health_payload = topic_health.json()
+    assert "items" in health_payload
+    assert "total" in health_payload
+    assert any(item["topic_key"] == "agent-runtime" for item in health_payload["items"])
+
+    insights = client.get("/api/admin/search-insights", headers=_auth(token))
+    assert insights.status_code == 200
+    insights_payload = insights.json()
+    assert "items" in insights_payload
+    assert "total" in insights_payload
+    assert any(item["query"] == "agent runtime" for item in insights_payload["items"])
+    assert all(len(item["query"]) >= 2 for item in insights_payload["items"])
+
+
 def test_delete_post(client):
     token = _login(client)
     create = client.post("/api/admin/posts", json={

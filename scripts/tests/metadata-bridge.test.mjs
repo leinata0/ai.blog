@@ -8,6 +8,7 @@ import {
   assignSeriesForPost,
   buildPublishingMetadataBridgePayload,
   buildQualitySnapshotPayload,
+  buildTopicMetadataPayload,
   estimateReadingTimeMinutes,
 } from '../auto-blog.mjs'
 
@@ -253,6 +254,67 @@ test('quality snapshot payload keeps core fields unchanged and exposes required 
   assert.ok(Array.isArray(payload.quality_snapshot.issues))
   assert.ok(Array.isArray(payload.quality_snapshot.strengths))
   assert.equal(typeof payload.quality_snapshot.notes, 'string')
+})
+
+test('topic metadata payload keeps core fields unchanged and uses existing topic_key', () => {
+  const post = {
+    title: 'A title',
+    slug: 'a-title',
+    summary: 'A summary',
+    cover_image: 'https://example.com/cover.png',
+    content_md: '## What happened\n\nBody\n\n## References\n\n- a\n\n## Image Sources\n\n- b',
+    tags: ['ai'],
+    content_type: 'daily_brief',
+    topic_key: 'agent-tooling',
+    published_mode: 'auto',
+    coverage_date: '2026-04-15',
+  }
+  const outline = {
+    topic: 'Agent tooling',
+    thesis: 'Execution matters',
+  }
+  const metadata = {
+    content_type: 'daily_brief',
+    topic_key: 'agent-tooling',
+    published_mode: 'auto',
+    coverage_date: '2026-04-15',
+  }
+  const gate = {
+    passed: true,
+    metrics: {
+      source_count: 3,
+      high_quality_source_count: 1,
+      analysis_signal_count: 2,
+      missing_sections: [],
+    },
+  }
+  const postBefore = clone(post)
+
+  const payload = buildTopicMetadataPayload({
+    postId: 101,
+    post,
+    outline,
+    metadata,
+    gate,
+    researchPack: {
+      sources: [{ source_name: 'OpenAI', source_type: 'official_blog', url: 'https://example.com/a' }],
+    },
+  })
+
+  assert.equal(post.title, postBefore.title)
+  assert.equal(post.summary, postBefore.summary)
+  assert.equal(post.content_md, postBefore.content_md)
+  assert.equal(post.cover_image, postBefore.cover_image)
+  assert.equal(payload.post_id, 101)
+  assert.equal(payload.post_slug, 'a-title')
+  assert.equal(payload.topic_key, 'agent-tooling')
+  assert.equal(payload.topic_metadata.topic_key, 'agent-tooling')
+  assert.equal(typeof payload.topic_metadata.source_count, 'number')
+  assert.equal(typeof payload.topic_metadata.high_quality_source_count, 'number')
+  assert.equal(typeof payload.topic_metadata.analysis_signal_count, 'number')
+  assert.equal(typeof payload.topic_metadata.reading_time, 'number')
+  assert.ok(Array.isArray(payload.topic_metadata.source_names))
+  assert.equal(typeof payload.topic_metadata.notes, 'string')
 })
 
 test('workflow contracts remain unchanged for script entry and required secrets', async () => {

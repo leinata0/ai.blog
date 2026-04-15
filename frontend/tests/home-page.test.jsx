@@ -58,6 +58,12 @@ vi.mock('../src/api/posts', () => ({
     { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily AI coverage.' },
     { slug: 'ai-weekly-review', title: 'AI Weekly Review', description: 'Weekly long-form review.' },
   ])),
+  fetchTopics: vi.fn(() => Promise.resolve({
+    items: [
+      { topic_key: 'openai-models', display_title: 'OpenAI 模型', description: '追踪 OpenAI 模型节奏', is_featured: true, post_count: 3 },
+      { topic_key: 'agent-platforms', display_title: 'Agent 平台', description: '追踪 Agent 产品化', is_featured: false, post_count: 2 },
+    ],
+  })),
 }))
 
 beforeEach(() => {
@@ -81,6 +87,8 @@ it('renders content product sections and still filters by tag click', async () =
   expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="home-hot-topics"]')).toBeTruthy()
+  expect(await screen.findByText('OpenAI 模型')).toBeInTheDocument()
   expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="post-card"]')).toBeTruthy()
 

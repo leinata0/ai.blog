@@ -419,6 +419,112 @@ class TopicFeedbackOut(BaseModel):
     items: list[TopicFeedbackItemOut] = Field(default_factory=list)
 
 
+class TopicProfileBase(BaseModel):
+    topic_key: str = Field(..., min_length=1, max_length=200)
+    title: str = ""
+    description: str = ""
+    focus_points: list[str] = Field(default_factory=list)
+    content_types: list[str] = Field(default_factory=list)
+    series_slug: str | None = None
+    is_active: bool = True
+    priority: int = 0
+
+
+class TopicProfileCreateRequest(TopicProfileBase):
+    pass
+
+
+class TopicProfileUpdateRequest(BaseModel):
+    topic_key: str | None = Field(default=None, min_length=1, max_length=200)
+    title: str | None = None
+    description: str | None = None
+    focus_points: list[str] | None = None
+    content_types: list[str] | None = None
+    series_slug: str | None = None
+    is_active: bool | None = None
+    priority: int | None = None
+
+
+class TopicProfileOut(TopicProfileBase):
+    id: int
+    post_count: int = 0
+    latest_post_at: datetime | None = None
+    avg_quality_score: float | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class TopicListItemOut(BaseModel):
+    topic_key: str
+    title: str
+    description: str = ""
+    content_types: list[str] = Field(default_factory=list)
+    series_slug: str | None = None
+    post_count: int = 0
+    latest_post_at: datetime | None = None
+    avg_quality_score: float | None = None
+    profile: TopicProfileOut | None = None
+
+
+class TopicsOut(BaseModel):
+    items: list[TopicListItemOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class TopicDetailOut(BaseModel):
+    topic_key: str
+    title: str
+    description: str = ""
+    content_types: list[str] = Field(default_factory=list)
+    series_slug: str | None = None
+    post_count: int = 0
+    avg_quality_score: float | None = None
+    profile: TopicProfileOut | None = None
+    recent_posts: list[PostListItemOut] = Field(default_factory=list)
+
+
+class SearchResultItemOut(PostListItemOut):
+    match_score: float = 0
+    match_reason: str = ""
+
+
+class SearchOut(BaseModel):
+    query: str
+    items: list[SearchResultItemOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class SearchInsightOut(BaseModel):
+    id: int
+    query: str
+    search_count: int = 0
+    last_result_count: int = 0
+    first_searched_at: datetime | None = None
+    last_searched_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class SearchInsightsOut(BaseModel):
+    items: list[SearchInsightOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class TopicHealthItemOut(BaseModel):
+    topic_key: str
+    series_slug: str | None = None
+    post_count: int = 0
+    avg_quality_score: float | None = None
+    latest_post_at: datetime | None = None
+    profile_exists: bool = False
+    recommendation: str = "maintain"
+
+
+class TopicHealthOut(BaseModel):
+    items: list[TopicHealthItemOut] = Field(default_factory=list)
+    total: int = 0
+
+
 class PostSourceInput(BaseModel):
     source_type: str = "news"
     source_name: str
@@ -490,6 +596,47 @@ class PublishingMetadataUpsertResponse(BaseModel):
     artifact_id: int
     workflow_key: str
     coverage_date: str
+
+
+class TopicMetadataSnapshotInput(BaseModel):
+    topic_key: str = ""
+    topic_family: str = ""
+    content_type: str = ""
+    coverage_date: str = ""
+    source_count: int | None = None
+    high_quality_source_count: int | None = None
+    analysis_signal_count: int | None = None
+    reading_time: int | None = None
+    source_names: list[str] = Field(default_factory=list)
+    primary_thesis: str = ""
+    topic_title: str = ""
+    gate_passed: bool | None = None
+    notes: str = ""
+    generated_at: str = ""
+    snapshot_version: str = ""
+    freshness_window: str = ""
+
+
+class TopicMetadataUpsertRequest(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    post_id: int | None = None
+    post_slug: str | None = None
+    topic_key: str | None = None
+    topic_metadata: TopicMetadataSnapshotInput | None = None
+
+    def resolved_topic_key(self) -> str:
+        if self.topic_metadata and self.topic_metadata.topic_key:
+            return self.topic_metadata.topic_key
+        return self.topic_key or ""
+
+
+class TopicMetadataUpsertResponse(BaseModel):
+    post_id: int
+    post_slug: str
+    topic_key: str
+    profile_id: int | None = None
+    artifact_id: int | None = None
 
 
 # ── Settings schemas ──────────────────────────────

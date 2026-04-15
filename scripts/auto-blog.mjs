@@ -545,6 +545,61 @@ export function buildQualitySnapshotPayload({
   }
 }
 
+function inferTopicFamily(topicKey = '') {
+  const normalized = String(topicKey || '').toLowerCase()
+  if (!normalized) return 'general'
+  if (normalized.includes('agent')) return 'agent'
+  if (normalized.includes('model')) return 'model'
+  if (normalized.includes('open-source') || normalized.includes('opensource')) return 'open_source'
+  if (normalized.includes('inference') || normalized.includes('deployment')) return 'infrastructure'
+  return 'general'
+}
+
+export function buildTopicMetadataPayload({
+  postId,
+  post,
+  outline,
+  metadata,
+  gate,
+  researchPack,
+}) {
+  const metrics = gate?.metrics || {}
+  const topicKey = String(metadata?.topic_key || post?.topic_key || '').trim()
+  const coverageDate = String(metadata?.coverage_date || post?.coverage_date || '').trim()
+  const sourceCount = Number(metrics?.source_count || researchPack?.sources?.length || 0)
+  const highQualitySourceCount = Number(metrics?.high_quality_source_count || 0)
+  const analysisSignalCount = Number(metrics?.analysis_signal_count || 0)
+  const readingTime = estimateReadingTimeMinutes(post?.content_md || '')
+  const freshnessWindow = String(coverageDate || '').trim()
+  const sourceNames = [...new Set((researchPack?.sources || []).map((item) => String(item?.source_name || '').trim()).filter(Boolean))]
+
+  return {
+    post_id: Number.isFinite(Number(postId)) ? Number(postId) : null,
+    post_slug: String(post?.slug || '').trim(),
+    topic_key: topicKey,
+    topic_metadata: {
+      topic_key: topicKey,
+      topic_family: inferTopicFamily(topicKey),
+      content_type: String(metadata?.content_type || post?.content_type || '').trim(),
+      coverage_date: coverageDate,
+      source_count: sourceCount,
+      high_quality_source_count: highQualitySourceCount,
+      analysis_signal_count: analysisSignalCount,
+      reading_time: readingTime,
+      source_names: sourceNames.slice(0, 10),
+      primary_thesis: String(outline?.thesis || '').trim(),
+      topic_title: String(outline?.topic || post?.title || '').trim(),
+      gate_passed: Boolean(gate?.passed),
+      notes: gate?.passed
+        ? 'Topic metadata captured from post-publish artifact.'
+        : 'Topic metadata captured in degraded mode.',
+      generated_at: new Date().toISOString(),
+      snapshot_version: 'topic_metadata_v1',
+      freshness_window: freshnessWindow,
+    },
+  }
+}
+
 async function loadConfig() {
   const raw = await readFile(CONFIG_PATH, 'utf8')
   const parsed = JSON.parse(raw)
@@ -1944,6 +1999,66 @@ async function bridgeQualitySnapshot(token, payload) {
   }
 }
 
+async function upsertTopicMetadata(token, payload) {
+  if (!token || !payload?.post_id) return null
+  const postId = Number(payload.post_id)
+  const endpoints = [
+    {
+      method: 'PUT',
+      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-metadata`,
+      body: payload,
+    },
+    {
+      method: 'PUT',
+      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-profile`,
+      body: payload,
+    },
+    {
+      method: 'POST',
+      url: `${BLOG_API_BASE}/api/admin/topic-metadata`,
+      body: payload,
+    },
+  ]
+
+  const failures = []
+  for (const endpoint of endpoints) {
+    const resp = await fetch(endpoint.url, {
+      method: endpoint.method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(endpoint.body),
+    })
+    if (resp.ok) {
+      const text = await resp.text()
+      if (!text) return null
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { status: 'ok' }
+      }
+    }
+    if (resp.status === 404 || resp.status === 405) {
+      failures.push(`${endpoint.method} ${endpoint.url} -> ${resp.status}`)
+      continue
+    }
+    throw new Error(`Topic metadata bridge failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
+  }
+
+  throw new Error(`Topic metadata endpoint unavailable (${failures.join('; ')})`)
+}
+
+async function bridgeTopicMetadata(token, payload) {
+  if (!token || !payload) return null
+  try {
+    return await upsertTopicMetadata(token, payload)
+  } catch (error) {
+    console.warn(`Failed to bridge topic metadata: ${error.message}`)
+    return null
+  }
+}
+
 async function localizeImagePlans(imagePlans, token) {
   const localizedPlans = []
 
@@ -2196,6 +2311,14 @@ async function runDailyMode(config, cliOptions) {
       config,
       researchPack: artifact.researchPack,
     })
+    const topicMetadataPayload = buildTopicMetadataPayload({
+      postId: null,
+      post: artifact.post,
+      outline: artifact.outline,
+      metadata,
+      gate: artifact.gate,
+      researchPack: artifact.researchPack,
+    })
 
     if (runtime.dryRun) {
       results.push({
@@ -2203,6 +2326,7 @@ async function runDailyMode(config, cliOptions) {
         cover_image: coverImage || null,
         publishing_metadata: metadataBridgePayload,
         quality_snapshot: qualitySnapshotPayload,
+        topic_metadata: topicMetadataPayload,
       })
       continue
     }
@@ -2210,14 +2334,17 @@ async function runDailyMode(config, cliOptions) {
     const result = await publishPost(token, artifact.post, coverImage)
     metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
     qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
+    topicMetadataPayload.post_id = metadataBridgePayload.post_id
     await bridgePublishingMetadata(token, metadataBridgePayload)
     await bridgeQualitySnapshot(token, qualitySnapshotPayload)
+    await bridgeTopicMetadata(token, topicMetadataPayload)
     console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
     results.push({
       ...artifact,
       result,
       publishing_metadata: metadataBridgePayload,
       quality_snapshot: qualitySnapshotPayload,
+      topic_metadata: topicMetadataPayload,
     })
   }
 
@@ -2396,6 +2523,14 @@ async function runWeeklyReviewMode(config, cliOptions) {
     config,
     researchPack: artifact.researchPack,
   })
+  const topicMetadataPayload = buildTopicMetadataPayload({
+    postId: null,
+    post: artifact.post,
+    outline: artifact.outline,
+    metadata,
+    gate: artifact.gate,
+    researchPack: artifact.researchPack,
+  })
 
   if (cliOptions.dryRun) {
     return [{
@@ -2403,6 +2538,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
       cover_image: null,
       publishing_metadata: metadataBridgePayload,
       quality_snapshot: qualitySnapshotPayload,
+      topic_metadata: topicMetadataPayload,
     }]
   }
 
@@ -2415,8 +2551,10 @@ async function runWeeklyReviewMode(config, cliOptions) {
   const result = await publishPost(token, artifact.post, coverImage)
   metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
   qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
+  topicMetadataPayload.post_id = metadataBridgePayload.post_id
   await bridgePublishingMetadata(token, metadataBridgePayload)
   await bridgeQualitySnapshot(token, qualitySnapshotPayload)
+  await bridgeTopicMetadata(token, topicMetadataPayload)
   console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
   await reportPublishingRun(token, {
     workflow_key: 'weekly_review',
@@ -2455,6 +2593,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
     result,
     publishing_metadata: metadataBridgePayload,
     quality_snapshot: qualitySnapshotPayload,
+    topic_metadata: topicMetadataPayload,
   }]
 }
 
@@ -2486,6 +2625,7 @@ async function main() {
         cover_image: item.cover_image || null,
         publishing_metadata: item.publishing_metadata || null,
         quality_snapshot: item.quality_snapshot || null,
+        topic_metadata: item.topic_metadata || null,
       })),
     }, null, 2))
   }

@@ -15,7 +15,9 @@ from app.models import (
     PublishingArtifact,
     Series,
     SiteSettings,
+    SearchInsight,
     Tag,
+    TopicProfile,
     ViewLog,
     post_tags,
 )
@@ -204,6 +206,129 @@ def _build_feed_xml(posts: list[Post], site_url: str, title: str, description: s
                 created_at = created_at.replace(tzinfo=timezone.utc)
             SubElement(item, "pubDate").text = created_at.astimezone(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(rss, encoding="unicode")
+
+
+def _normalize_query(value: str | None) -> str:
+    if value is None:
+        return ""
+    return " ".join(value.strip().split()).lower()
+
+
+def _record_search_insight(db: Session, query: str, result_count: int) -> None:
+    normalized_query = _normalize_query(query)
+    if len(normalized_query) < 2:
+        return
+    now = datetime.now(timezone.utc)
+    insight = db.execute(
+        select(SearchInsight).where(SearchInsight.query == normalized_query)
+    ).scalar_one_or_none()
+    if insight is None:
+        insight = SearchInsight(
+            query=normalized_query,
+            search_count=1,
+            last_result_count=result_count,
+            first_searched_at=now,
+            last_searched_at=now,
+        )
+        db.add(insight)
+    else:
+        insight.search_count = (insight.search_count or 0) + 1
+        insight.last_result_count = result_count
+        insight.last_searched_at = now
+        insight.updated_at = now
+    db.commit()
+
+
+def _safe_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if isinstance(item, (str, int, float))]
+
+
+def _topic_profile_to_dict(profile: TopicProfile, db: Session) -> dict:
+    post_count = db.execute(
+        select(func.count(Post.id))
+        .where(Post.is_published == True)
+        .where(Post.topic_key == profile.topic_key)
+    ).scalar() or 0
+    latest_post_at = db.execute(
+        select(func.max(Post.created_at))
+        .where(Post.is_published == True)
+        .where(Post.topic_key == profile.topic_key)
+    ).scalar()
+    avg_quality = db.execute(
+        select(func.avg(Post.quality_score))
+        .where(Post.is_published == True)
+        .where(Post.topic_key == profile.topic_key)
+    ).scalar()
+    return {
+        "id": profile.id,
+        "topic_key": profile.topic_key,
+        "title": profile.title or "",
+        "description": profile.description or "",
+        "focus_points": _safe_json_list(profile.focus_points_json),
+        "content_types": _safe_json_list(profile.content_types_json),
+        "series_slug": profile.series_slug,
+        "is_active": bool(profile.is_active),
+        "priority": profile.priority or 0,
+        "post_count": post_count,
+        "latest_post_at": latest_post_at.isoformat() if latest_post_at else None,
+        "avg_quality_score": round(float(avg_quality), 2) if avg_quality is not None else None,
+        "created_at": profile.created_at.isoformat() if profile.created_at else None,
+        "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+    }
+
+
+def _resolved_post_date(post: Post) -> str:
+    if (post.coverage_date or "").strip():
+        return post.coverage_date.strip()
+    if post.created_at:
+        return post.created_at.date().isoformat()
+    return ""
+
+
+def _search_rank(post: Post, query: str) -> tuple[tuple, str]:
+    q = _normalize_query(query)
+    title = (post.title or "").lower()
+    topic = (post.topic_key or "").lower()
+    summary = (post.summary or "").lower()
+    series = (post.series_slug or "").lower()
+    tags = " ".join([(tag.name or "").lower() + " " + (tag.slug or "").lower() for tag in post.tags])
+
+    title_match = q in title
+    topic_match = q in topic
+    summary_match = q in summary
+    tag_or_series_match = (q in tags) or (q in series)
+    if not any([title_match, topic_match, summary_match, tag_or_series_match]):
+        return ((0, 0, 0, 0, 0, 0, 0), "")
+
+    if title_match:
+        reason = "title"
+    elif topic_match:
+        reason = "topic"
+    elif summary_match:
+        reason = "summary"
+    else:
+        reason = "tag_or_series"
+
+    freshness = post.created_at.timestamp() if post.created_at else 0
+    quality = post.quality_score if post.quality_score is not None else -1
+    rank = (
+        1 if title_match else 0,
+        1 if topic_match else 0,
+        1 if summary_match else 0,
+        1 if tag_or_series_match else 0,
+        freshness,
+        quality,
+        post.id or 0,
+    )
+    return (rank, reason)
 
 
 @router.get("/posts")
@@ -606,6 +731,243 @@ def get_discover(
     }
 
 
+@router.get("/search")
+def search_posts(
+    q: str = Query(default="", max_length=200),
+    content_type: str | None = Query(default=None),
+    series_slug: str | None = Query(default=None),
+    topic_key: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    sort: str = Query(default="relevance"),
+    limit: int = Query(default=20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    query = _normalize_query(q)
+    if not query:
+        return {"query": "", "items": [], "total": 0, "topics": [], "facets": {}}
+
+    stmt = (
+        select(Post)
+        .options(selectinload(Post.tags))
+        .where(Post.is_published == True)
+    )
+    if content_type:
+        stmt = stmt.where(Post.content_type == content_type)
+    if series_slug:
+        stmt = stmt.where(Post.series_slug == series_slug)
+    if topic_key:
+        stmt = stmt.where(Post.topic_key == topic_key)
+
+    posts = db.execute(
+        stmt.order_by(Post.created_at.desc()).limit(500)
+    ).scalars().all()
+
+    ranked: list[tuple[tuple, str, Post]] = []
+    for post in posts:
+        coverage = _resolved_post_date(post)
+        if date_from and coverage and coverage < date_from:
+            continue
+        if date_to and coverage and coverage > date_to:
+            continue
+        rank, reason = _search_rank(post, query)
+        if reason:
+            ranked.append((rank, reason, post))
+
+    if sort == "latest":
+        ranked.sort(
+            key=lambda item: (
+                item[2].created_at.timestamp() if item[2].created_at else 0,
+                item[0],
+            ),
+            reverse=True,
+        )
+    elif sort == "quality":
+        ranked.sort(
+            key=lambda item: (
+                item[2].quality_score if item[2].quality_score is not None else -1,
+                item[0],
+                item[2].created_at.timestamp() if item[2].created_at else 0,
+            ),
+            reverse=True,
+        )
+    else:
+        ranked.sort(key=lambda item: item[0], reverse=True)
+
+    selected = ranked[:limit]
+    items = []
+    for rank, reason, post in selected:
+        payload = _post_list_item(post)
+        payload["match_score"] = round(float(rank[4]), 2)
+        payload["match_reason"] = reason
+        items.append(payload)
+
+    topic_profiles = db.execute(select(TopicProfile)).scalars().all()
+    titles_by_key = {profile.topic_key: profile.title or profile.topic_key for profile in topic_profiles}
+    topic_buckets: dict[str, dict] = {}
+    for _, _, post in ranked:
+        current_topic_key = (post.topic_key or "").strip()
+        if not current_topic_key:
+            continue
+        bucket = topic_buckets.setdefault(
+            current_topic_key,
+            {
+                "topic_key": current_topic_key,
+                "title": titles_by_key.get(current_topic_key, current_topic_key),
+                "post_count": 0,
+                "latest_post_at": None,
+            },
+        )
+        bucket["post_count"] += 1
+        if post.created_at and (bucket["latest_post_at"] is None or post.created_at > bucket["latest_post_at"]):
+            bucket["latest_post_at"] = post.created_at
+
+    topics = [
+        {
+            "topic_key": value["topic_key"],
+            "title": value["title"],
+            "post_count": value["post_count"],
+            "latest_post_at": value["latest_post_at"].isoformat() if value["latest_post_at"] else None,
+        }
+        for value in sorted(
+            topic_buckets.values(),
+            key=lambda item: (item["post_count"], item["latest_post_at"] or datetime.min.replace(tzinfo=timezone.utc)),
+            reverse=True,
+        )[:6]
+    ]
+
+    _record_search_insight(db, query, len(ranked))
+    return {
+        "query": query,
+        "items": items,
+        "total": len(ranked),
+        "topics": topics,
+        "facets": {
+            "content_type": content_type or "",
+            "series_slug": series_slug or "",
+            "topic_key": topic_key or "",
+            "date_from": date_from or "",
+            "date_to": date_to or "",
+            "sort": sort,
+        },
+    }
+
+
+@router.get("/topics")
+def list_topics(
+    q: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    profiles = db.execute(
+        select(TopicProfile).order_by(TopicProfile.priority.desc(), TopicProfile.updated_at.desc())
+    ).scalars().all()
+    profiles_by_key = {profile.topic_key: profile for profile in profiles}
+
+    posts = db.execute(
+        select(Post)
+        .where(Post.is_published == True)
+        .where(Post.topic_key != "")
+        .order_by(Post.created_at.desc())
+    ).scalars().all()
+
+    grouped: dict[str, dict] = {}
+    for post in posts:
+        key = (post.topic_key or "").strip()
+        if not key:
+            continue
+        if key not in grouped:
+            grouped[key] = {
+                "topic_key": key,
+                "title": key,
+                "description": "",
+                "content_types": set(),
+                "series_slug": post.series_slug,
+                "post_count": 0,
+                "source_count": 0,
+                "latest_post_at": post.created_at,
+                "quality_scores": [],
+            }
+        bucket = grouped[key]
+        bucket["post_count"] += 1
+        bucket["source_count"] += int(post.source_count or 0)
+        bucket["content_types"].add(post.content_type or "post")
+        if post.created_at and (bucket["latest_post_at"] is None or post.created_at > bucket["latest_post_at"]):
+            bucket["latest_post_at"] = post.created_at
+        if post.quality_score is not None:
+            bucket["quality_scores"].append(float(post.quality_score))
+
+    items = []
+    query = _normalize_query(q)
+    all_keys = set(grouped.keys()) | set(profiles_by_key.keys())
+    for key in all_keys:
+        grouped_value = grouped.get(key)
+        profile = profiles_by_key.get(key)
+        title = (profile.title if profile and profile.title else (grouped_value["title"] if grouped_value else key))
+        description = (profile.description if profile else "")
+        if query and query not in key.lower() and query not in title.lower() and query not in description.lower():
+            continue
+
+        quality_scores = grouped_value["quality_scores"] if grouped_value else []
+        items.append(
+            {
+                "topic_key": key,
+                "title": title,
+                "description": description,
+                "content_types": sorted(list(grouped_value["content_types"])) if grouped_value else _safe_json_list(profile.content_types_json if profile else "[]"),
+                "series_slug": (profile.series_slug if profile else (grouped_value["series_slug"] if grouped_value else None)),
+                "post_count": (grouped_value["post_count"] if grouped_value else 0),
+                "source_count": (grouped_value["source_count"] if grouped_value else 0),
+                "latest_post_at": grouped_value["latest_post_at"].isoformat() if grouped_value and grouped_value["latest_post_at"] else None,
+                "avg_quality_score": round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None,
+                "profile": _topic_profile_to_dict(profile, db) if profile else None,
+            }
+        )
+
+    items.sort(key=lambda item: (item["post_count"], item["avg_quality_score"] or -1), reverse=True)
+    return {"items": items[:limit], "total": len(items)}
+
+
+@router.get("/topics/{topic_key}")
+def get_topic_detail(topic_key: str, db: Session = Depends(get_db)):
+    normalized_topic_key = topic_key.strip()
+    if not normalized_topic_key:
+        raise HTTPException(status_code=400, detail="topic_key is required")
+
+    profile = db.execute(
+        select(TopicProfile).where(TopicProfile.topic_key == normalized_topic_key)
+    ).scalar_one_or_none()
+    posts = db.execute(
+        select(Post)
+        .options(selectinload(Post.tags))
+        .where(Post.is_published == True)
+        .where(Post.topic_key == normalized_topic_key)
+        .order_by(Post.created_at.desc())
+    ).scalars().all()
+
+    if profile is None and not posts:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    quality_scores = [float(post.quality_score) for post in posts if post.quality_score is not None]
+    content_types = sorted(list({(post.content_type or "post") for post in posts}))
+    source_count = sum(int(post.source_count or 0) for post in posts)
+    latest = posts[0] if posts else None
+
+    return {
+        "topic_key": normalized_topic_key,
+        "title": profile.title if profile and profile.title else normalized_topic_key,
+        "description": profile.description if profile else "",
+        "content_types": content_types if content_types else _safe_json_list(profile.content_types_json if profile else "[]"),
+        "series_slug": (profile.series_slug if profile else (latest.series_slug if latest else None)),
+        "post_count": len(posts),
+        "source_count": source_count,
+        "avg_quality_score": round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None,
+        "profile": _topic_profile_to_dict(profile, db) if profile else None,
+        "posts": [_post_list_item(post) for post in posts[:20]],
+        "recent_posts": [_post_list_item(post) for post in posts[:20]],
+    }
+
+
 @router.get("/feeds/all.xml")
 def feed_all(db: Session = Depends(get_db)):
     settings = db.query(SiteSettings).first()
@@ -647,4 +1009,27 @@ def feed_weekly(db: Session = Depends(get_db)):
         .limit(30)
     ).scalars().all()
     xml_str = _build_feed_xml(posts, site_url, "AI Dev Blog - Weekly Review", "Weekly review feed.")
+    return Response(content=xml_str, media_type="application/xml")
+
+
+@router.get("/feeds/topics/{topic_key}.xml")
+def feed_topic(topic_key: str, db: Session = Depends(get_db)):
+    normalized_topic_key = topic_key.strip()
+    if not normalized_topic_key:
+        raise HTTPException(status_code=400, detail="topic_key is required")
+    settings = db.query(SiteSettings).first()
+    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    posts = db.execute(
+        select(Post)
+        .where(Post.is_published == True)
+        .where(Post.topic_key == normalized_topic_key)
+        .order_by(Post.created_at.desc())
+        .limit(30)
+    ).scalars().all()
+    xml_str = _build_feed_xml(
+        posts,
+        site_url,
+        f"AI Dev Blog - Topic: {normalized_topic_key}",
+        f"Topic feed for {normalized_topic_key}.",
+    )
     return Response(content=xml_str, media_type="application/xml")

@@ -192,3 +192,30 @@ class PostQualityReview(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     post = relationship("Post", back_populates="quality_review")
+
+
+class TopicProfile(Base):
+    __tablename__ = "topic_profiles"
+    id = Column(Integer, primary_key=True, index=True)
+    topic_key = Column(String(200), nullable=False, unique=True, index=True)
+    title = Column(String(200), nullable=False, default="")
+    description = Column(Text, nullable=False, default="")
+    focus_points_json = Column(Text, nullable=False, default="[]")
+    content_types_json = Column(Text, nullable=False, default="[]")
+    series_slug = Column(String(120), nullable=True, default=None)
+    is_active = Column(Boolean, nullable=False, default=True)
+    priority = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class SearchInsight(Base):
+    __tablename__ = "search_insights"
+    id = Column(Integer, primary_key=True, index=True)
+    query = Column(String(200), nullable=False, unique=True, index=True)
+    search_count = Column(Integer, nullable=False, default=0)
+    last_result_count = Column(Integer, nullable=False, default=0)
+    first_searched_at = Column(DateTime, nullable=True)
+    last_searched_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
