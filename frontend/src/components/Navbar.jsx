@@ -27,22 +27,23 @@ const NAV_ITEMS = [
   { label: '友链', to: '/friends' },
 ]
 
+const TRACKING_CLOSE_DELAY_MS = 220
+
 function NavLink({ to, active, children, onClick }) {
-  const cls = 'relative font-medium transition-colors duration-200 pb-1 group'
+  const className = 'relative font-medium transition-colors duration-200 pb-1 group'
   const style = { color: active ? 'var(--accent)' : 'var(--text-secondary)' }
-  const underline = (
-    <span
-      className="absolute left-0 bottom-0 h-[2px] w-0 group-hover:w-full transition-all duration-300"
-      style={{ backgroundColor: 'var(--accent)' }}
-    />
-  )
 
   return (
-    <Link to={to} className={cls} style={style} onClick={onClick}>
+    <Link to={to} className={className} style={style} onClick={onClick}>
       {children}
       {active ? (
         <span className="absolute left-0 bottom-0 h-[2px] w-full" style={{ backgroundColor: 'var(--accent)' }} />
-      ) : underline}
+      ) : (
+        <span
+          className="absolute left-0 bottom-0 h-[2px] w-0 group-hover:w-full transition-all duration-300"
+          style={{ backgroundColor: 'var(--accent)' }}
+        />
+      )}
     </Link>
   )
 }
@@ -72,16 +73,17 @@ function TrackingPreview({
   followedTopics,
   recentTopics,
   onNavigate,
+  dark = false,
 }) {
   return (
     <div
       data-ui="tracking-dropdown"
-      className="w-[360px] rounded-[1.5rem] border p-4"
+      className="w-[380px] rounded-[1.5rem] border p-4"
       style={{
-        backgroundColor: 'rgba(255,255,255,0.9)',
-        borderColor: 'rgba(148, 163, 184, 0.2)',
-        boxShadow: '0 22px 60px rgba(15, 23, 42, 0.12)',
-        backdropFilter: 'blur(14px)',
+        backgroundColor: dark ? 'rgba(22, 27, 34, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+        borderColor: dark ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.18)',
+        boxShadow: '0 26px 70px rgba(15, 23, 42, 0.18)',
+        backdropFilter: 'blur(16px)',
       }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -181,16 +183,19 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [mobileTrackingOpen, setMobileTrackingOpen] = useState(false)
   const [trackingOpen, setTrackingOpen] = useState(false)
+  const [trackingPinned, setTrackingPinned] = useState(false)
   const [continueReading, setContinueReading] = useState([])
   const [followedTopics, setFollowedTopics] = useState([])
   const [recentTopics, setRecentTopics] = useState([])
   const panelRef = useRef(null)
+  const closeTimerRef = useRef(null)
   const { dark, toggleTheme } = useTheme()
 
   useEffect(() => {
     setMobileOpen(false)
     setMobileTrackingOpen(false)
     setTrackingOpen(false)
+    setTrackingPinned(false)
   }, [location.pathname])
 
   useEffect(() => {
@@ -213,11 +218,29 @@ export default function Navbar() {
     function handlePointerDown(event) {
       if (!panelRef.current?.contains(event.target)) {
         setTrackingOpen(false)
+        setTrackingPinned(false)
+      }
+    }
+
+    function handleEscape(event) {
+      if (event.key === 'Escape') {
+        setTrackingOpen(false)
+        setTrackingPinned(false)
       }
     }
 
     document.addEventListener('mousedown', handlePointerDown)
-    return () => document.removeEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [])
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current)
+    }
   }, [])
 
   const hasTrackingData = useMemo(
@@ -225,10 +248,44 @@ export default function Navbar() {
     [continueReading.length, followedTopics.length, recentTopics.length],
   )
 
+  function clearCloseTimer() {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }
+
+  function scheduleClose() {
+    clearCloseTimer()
+    closeTimerRef.current = window.setTimeout(() => {
+      if (!trackingPinned) {
+        setTrackingOpen(false)
+      }
+    }, TRACKING_CLOSE_DELAY_MS)
+  }
+
+  function openTrackingPreview() {
+    clearCloseTimer()
+    setTrackingOpen(true)
+  }
+
   function closeTracking() {
+    clearCloseTimer()
     setTrackingOpen(false)
+    setTrackingPinned(false)
     setMobileOpen(false)
     setMobileTrackingOpen(false)
+  }
+
+  function handleTrackingButtonClick() {
+    clearCloseTimer()
+    if (trackingOpen && trackingPinned) {
+      setTrackingOpen(false)
+      setTrackingPinned(false)
+      return
+    }
+    setTrackingOpen(true)
+    setTrackingPinned(true)
   }
 
   return (
@@ -255,13 +312,17 @@ export default function Navbar() {
           <div
             ref={panelRef}
             className="relative"
-            onMouseEnter={() => setTrackingOpen(true)}
-            onMouseLeave={() => setTrackingOpen(false)}
+            onMouseEnter={openTrackingPreview}
+            onMouseLeave={() => {
+              if (!trackingPinned) {
+                scheduleClose()
+              }
+            }}
           >
             <button
               type="button"
-              onClick={() => setTrackingOpen(true)}
-              onFocus={() => setTrackingOpen(true)}
+              onClick={handleTrackingButtonClick}
+              onFocus={openTrackingPreview}
               className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors duration-200"
               style={{
                 backgroundColor: trackingOpen ? 'rgba(37, 99, 235, 0.12)' : 'transparent',
@@ -276,12 +337,21 @@ export default function Navbar() {
             </button>
 
             {trackingOpen ? (
-              <div className="absolute right-0 top-[calc(100%+12px)]">
+              <div
+                className="absolute right-0 top-full z-[70] pt-2"
+                onMouseEnter={openTrackingPreview}
+                onMouseLeave={() => {
+                  if (!trackingPinned) {
+                    scheduleClose()
+                  }
+                }}
+              >
                 <TrackingPreview
                   continueReading={continueReading}
                   followedTopics={followedTopics}
                   recentTopics={recentTopics}
                   onNavigate={closeTracking}
+                  dark={dark}
                 />
               </div>
             ) : null}

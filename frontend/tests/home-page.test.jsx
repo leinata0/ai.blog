@@ -93,7 +93,7 @@ beforeEach(() => {
   ]))
 })
 
-it('renders a lighter homepage and moves retention entry points into the navbar', async () => {
+it('keeps the homepage lighter and makes the tracking panel clickable', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
@@ -113,20 +113,19 @@ it('renders a lighter homepage and moves retention entry points into the navbar'
   expect(container.querySelector('[data-ui="home-hot-topics"]')).toBeFalsy()
   expect(screen.queryByRole('heading', { name: '热门主题' })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: '继续阅读与关注主题' })).not.toBeInTheDocument()
-  expect((await screen.findAllByText('AI Daily Brief')).length).toBeGreaterThan(0)
-  expect((await screen.findAllByText('AI Weekly Review')).length).toBeGreaterThan(0)
-  expect((await screen.findAllByText('Product Strategy Watch')).length).toBeGreaterThan(0)
-  expect((await screen.findAllByText('Tooling Workflow')).length).toBeGreaterThan(0)
   expect(screen.getByRole('link', { name: '主题' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '打开追踪面板' })).toBeInTheDocument()
-  expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="post-card"]')).toBeTruthy()
 
   await userEvent.click(screen.getByRole('button', { name: '打开追踪面板' }))
   expect(await screen.findByText('查看追踪页')).toBeInTheDocument()
   expect(await screen.findByText('继续阅读')).toBeInTheDocument()
+  expect(await screen.findByText('最近关注')).toBeInTheDocument()
+  expect(await screen.findByText('最近浏览')).toBeInTheDocument()
   expect((await screen.findAllByText('OpenAI 模型')).length).toBeGreaterThan(0)
   expect((await screen.findAllByText('Python automation with Selenium and Pandas')).length).toBeGreaterThan(0)
+
+  expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="post-card"]')).toBeTruthy()
 
   await userEvent.click(screen.getAllByRole('button', { name: /Python/i })[0])
   expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)
