@@ -1,0 +1,48 @@
+{
+  "rules": [
+    {
+      "priority": 100,
+      "topic_key_exact": ["ai-weekly-review"],
+      "presentation": {
+        "zh_title": "AI 周报主线观察",
+        "zh_subtitle": "一周关键信号、分歧与落地趋势",
+        "zh_description": "聚焦一周内最值得跟踪的 AI 变化，强调跨来源对比和策略影响。",
+        "zh_tags": ["AI周报", "主线观察", "策略"]
+      },
+      "topic_family": "weekly_review"
+    },
+    {
+      "priority": 90,
+      "topic_key_prefixes": ["agent-", "agents-"],
+      "presentation": {
+        "zh_title": "智能体演进追踪",
+        "zh_subtitle": "从能力堆叠到可用产品",
+        "zh_description": "跟踪 Agent 方向的能力变化、成本结构和真实可用性。",
+        "zh_tags": ["智能体", "产品化", "工程落地"]
+      },
+      "topic_family": "agent"
+    },
+    {
+      "priority": 80,
+      "topic_key_prefixes": ["model-", "models-"],
+      "presentation": {
+        "zh_title": "模型竞争与能力边界",
+        "zh_subtitle": "性能、成本与生态位的再平衡",
+        "zh_description": "关注模型能力变化与商业约束，避免只看基准分数。",
+        "zh_tags": ["模型", "成本", "生态"]
+      },
+      "topic_family": "model"
+    },
+    {
+      "priority": 70,
+      "keyword_match": ["open source", "open-source", "开源", "huggingface", "github"],
+      "presentation": {
+        "zh_title": "开源 AI 动向",
+        "zh_subtitle": "社区速度与工程可复现性",
+        "zh_description": "聚焦开源社区中的高价值变化，强调可复现与可迁移经验。",
+        "zh_tags": ["开源AI", "社区", "可复现"]
+      },
+      "topic_family": "open_source"
+    }
+  ]
+}

@@ -29,6 +29,7 @@ function normalizeTopic(topic = {}) {
     topic_key: String(topic.topic_key || '').trim(),
     display_title: String(topic.display_title || topic.title || topic.topic_key || '').trim(),
     description: String(topic.description || '').trim(),
+    cover_image: String(topic.cover_image || '').trim(),
     latest_post_at: topic.latest_post_at || null,
     followed_at: topic.followed_at || new Date().toISOString(),
   }
@@ -40,6 +41,7 @@ function normalizeHistoryEntry(entry = {}) {
     title: String(entry.title || '').trim(),
     summary: String(entry.summary || '').trim(),
     topic_key: String(entry.topic_key || '').trim(),
+    topic_display_title: String(entry.topic_display_title || entry.display_title || entry.topic_key || '').trim(),
     content_type: String(entry.content_type || '').trim(),
     coverage_date: String(entry.coverage_date || '').trim(),
     visited_at: entry.visited_at || new Date().toISOString(),
@@ -105,7 +107,7 @@ export function getRecentTopics(limit = 6) {
     seen.add(item.topic_key)
     topics.push({
       topic_key: item.topic_key,
-      display_title: item.topic_key,
+      display_title: item.topic_display_title || item.topic_key,
       latest_post_at: item.visited_at,
     })
     if (topics.length >= limit) break

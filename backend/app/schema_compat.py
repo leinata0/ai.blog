@@ -108,9 +108,13 @@ TOPIC_PROFILE_COLUMNS = {
     "topic_key": "VARCHAR(200) NOT NULL UNIQUE",
     "title": "VARCHAR(200) NOT NULL DEFAULT ''",
     "description": "TEXT NOT NULL DEFAULT ''",
+    "cover_image": "VARCHAR(500) NOT NULL DEFAULT ''",
+    "aliases_json": "TEXT NOT NULL DEFAULT '[]'",
     "focus_points_json": "TEXT NOT NULL DEFAULT '[]'",
     "content_types_json": "TEXT NOT NULL DEFAULT '[]'",
     "series_slug": "VARCHAR(120)",
+    "is_featured": "BOOLEAN NOT NULL DEFAULT FALSE",
+    "sort_order": "INTEGER NOT NULL DEFAULT 0",
     "is_active": "BOOLEAN NOT NULL DEFAULT TRUE",
     "priority": "INTEGER NOT NULL DEFAULT 0",
     "created_at": "DATETIME",
@@ -131,45 +135,68 @@ SEARCH_INSIGHT_COLUMNS = {
 DEFAULT_SERIES_SEED = [
     {
         "slug": "ai-daily-brief",
-        "title": "AI Daily Brief",
-        "description": "Single-topic daily AI brief with analysis and context.",
+        "title": "AI 日报简报",
+        "description": "聚焦单一主题的 AI 日报，强调背景、影响与判断。",
         "content_types": '["daily_brief"]',
         "is_featured": True,
         "sort_order": 10,
     },
     {
         "slug": "ai-weekly-review",
-        "title": "AI Weekly Review",
-        "description": "Weekly synthesis with deeper structure and strategic takeaways.",
+        "title": "AI 周报综述",
+        "description": "面向一周趋势的结构化复盘，突出策略脉络与关键结论。",
         "content_types": '["weekly_review"]',
         "is_featured": True,
         "sort_order": 20,
     },
     {
         "slug": "product-strategy-watch",
-        "title": "Product Strategy Watch",
-        "description": "Company and product strategy shifts in AI.",
+        "title": "产品战略观察",
+        "description": "跟踪 AI 公司与产品战略变化，解读竞争与路线调整。",
         "content_types": '["daily_brief", "weekly_review", "post"]',
         "is_featured": False,
         "sort_order": 30,
     },
     {
         "slug": "paper-to-product",
-        "title": "Paper to Product",
-        "description": "From papers to practical product and engineering implications.",
+        "title": "论文到产品",
+        "description": "连接论文进展与工程落地，关注可用性与产品化价值。",
         "content_types": '["weekly_review", "post"]',
         "is_featured": False,
         "sort_order": 40,
     },
     {
         "slug": "tooling-workflow",
-        "title": "Tooling Workflow",
-        "description": "Toolchain, workflow, and automation practices for builders.",
+        "title": "工具与工作流",
+        "description": "聚焦开发工具链、自动化流程与构建者效率实践。",
         "content_types": '["daily_brief", "post"]',
         "is_featured": False,
         "sort_order": 50,
     },
 ]
+
+LEGACY_SERIES_DEFAULTS = {
+    "ai-daily-brief": {
+        "title": "AI Daily Brief",
+        "description": "Single-topic daily AI brief with analysis and context.",
+    },
+    "ai-weekly-review": {
+        "title": "AI Weekly Review",
+        "description": "Weekly synthesis with deeper structure and strategic takeaways.",
+    },
+    "product-strategy-watch": {
+        "title": "Product Strategy Watch",
+        "description": "Company and product strategy shifts in AI.",
+    },
+    "paper-to-product": {
+        "title": "Paper to Product",
+        "description": "From papers to practical product and engineering implications.",
+    },
+    "tooling-workflow": {
+        "title": "Tooling Workflow",
+        "description": "Toolchain, workflow, and automation practices for builders.",
+    },
+}
 
 
 def _create_table_if_missing(engine, table_name: str, columns: dict[str, str], indexes: list[str] | None = None) -> None:
@@ -271,6 +298,8 @@ def ensure_schema_compat(engine) -> None:
         indexes=[
             "CREATE INDEX IF NOT EXISTS ix_topic_profiles_topic_key ON topic_profiles (topic_key)",
             "CREATE INDEX IF NOT EXISTS ix_topic_profiles_series_slug ON topic_profiles (series_slug)",
+            "CREATE INDEX IF NOT EXISTS ix_topic_profiles_sort_order ON topic_profiles (sort_order)",
+            "CREATE INDEX IF NOT EXISTS ix_topic_profiles_is_featured ON topic_profiles (is_featured)",
             "CREATE INDEX IF NOT EXISTS ix_topic_profiles_priority ON topic_profiles (priority)",
         ],
     )
@@ -286,6 +315,17 @@ def ensure_schema_compat(engine) -> None:
     )
 
     inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "topic_profiles" in table_names:
+        existing_columns = {column["name"] for column in inspector.get_columns("topic_profiles")}
+        missing_columns = {
+            name: ddl for name, ddl in TOPIC_PROFILE_COLUMNS.items() if name not in existing_columns
+        }
+        if missing_columns:
+            with engine.begin() as connection:
+                for column_name, ddl in missing_columns.items():
+                    connection.execute(text(f"ALTER TABLE topic_profiles ADD COLUMN {column_name} {ddl}"))
+
     if "series" in set(inspector.get_table_names()):
         with engine.begin() as connection:
             count = connection.execute(text("SELECT COUNT(1) FROM series")).scalar() or 0
@@ -301,3 +341,34 @@ def ensure_schema_compat(engine) -> None:
                         ),
                         item,
                     )
+            else:
+                existing_series = connection.execute(
+                    text("SELECT slug, title, description FROM series")
+                ).mappings().all()
+                for row in existing_series:
+                    slug = row["slug"]
+                    if slug not in LEGACY_SERIES_DEFAULTS:
+                        continue
+                    latest = next((item for item in DEFAULT_SERIES_SEED if item["slug"] == slug), None)
+                    if latest is None:
+                        continue
+                    current_title = (row["title"] or "").strip()
+                    current_desc = (row["description"] or "").strip()
+                    old = LEGACY_SERIES_DEFAULTS[slug]
+                    should_update_title = (not current_title) or (current_title == old["title"])
+                    should_update_desc = (not current_desc) or (current_desc == old["description"])
+                    if should_update_title or should_update_desc:
+                        connection.execute(
+                            text(
+                                """
+                                UPDATE series
+                                SET title = :title, description = :description, updated_at = CURRENT_TIMESTAMP
+                                WHERE slug = :slug
+                                """
+                            ),
+                            {
+                                "slug": slug,
+                                "title": latest["title"] if should_update_title else current_title,
+                                "description": latest["description"] if should_update_desc else current_desc,
+                            },
+                        )

@@ -3,11 +3,11 @@ import { Link } from 'react-router-dom'
 export default function RecentTopicsSection({
   items = [],
   title = '最近关注主题',
-  emptyText = '关注或阅读过的主题会在这里出现。',
+  emptyText = '关注或浏览过的主题会在这里出现。',
 }) {
   return (
     <section
-      className="rounded-3xl px-5 py-5"
+      className="editorial-panel rounded-3xl px-5 py-5"
       style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
     >
       <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
@@ -17,7 +17,7 @@ export default function RecentTopicsSection({
             <Link
               key={item.topic_key}
               to={`/topics/${item.topic_key}`}
-              className="block rounded-2xl px-4 py-3 transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
+              className="block rounded-2xl border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
             >
               <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                 {item.display_title || item.topic_key}

@@ -31,6 +31,7 @@ const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)
   : resolve(__dirname, 'config', 'auto-blog.config.json')
 const DEFAULT_SERIES_RULES_PATH = resolve(__dirname, 'config', 'series-assignment.rules.json')
+const DEFAULT_TOPIC_PRESENTATION_RULES_PATH = resolve(__dirname, 'config', 'topic-presentation.rules.json')
 
 const DEFAULT_DAILY_REQUIRED_SECTIONS = [
   '## 发生了什么',
@@ -163,6 +164,13 @@ function resolveSeriesRulesPath(rawConfig = {}) {
   return resolve(dirname(CONFIG_PATH), configuredPath)
 }
 
+function resolveTopicPresentationRulesPath(rawConfig = {}) {
+  const configuredPath = rawConfig?.topic_presentation?.rules_path || process.env.AUTO_BLOG_TOPIC_PRESENTATION_RULES_PATH || ''
+  if (!configuredPath) return DEFAULT_TOPIC_PRESENTATION_RULES_PATH
+  if (isAbsolute(configuredPath)) return configuredPath
+  return resolve(dirname(CONFIG_PATH), configuredPath)
+}
+
 function normalizeSeriesAssignmentConfig(rawConfig = {}, rulesConfig = {}) {
   const root = rawConfig?.series_assignment || {}
   const rules = Array.isArray(rulesConfig?.rules) ? rulesConfig.rules : []
@@ -195,6 +203,64 @@ async function loadSeriesAssignmentConfig(rawConfig = {}) {
     return normalizeSeriesAssignmentConfig(rawConfig, parsed)
   } catch {
     return normalizeSeriesAssignmentConfig(rawConfig, {})
+  }
+}
+
+function normalizeTopicPresentationConfig(rawConfig = {}, rulesConfig = {}) {
+  const root = rawConfig?.topic_presentation || {}
+  const rules = Array.isArray(rulesConfig?.rules) ? rulesConfig.rules : []
+  const normalizedRules = rules
+    .map((rule) => ({
+      topic_key_exact: Array.isArray(rule?.topic_key_exact)
+        ? rule.topic_key_exact.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+        : [],
+      topic_key_prefixes: Array.isArray(rule?.topic_key_prefixes)
+        ? rule.topic_key_prefixes.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+        : [],
+      keyword_match: Array.isArray(rule?.keyword_match)
+        ? rule.keyword_match.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+        : [],
+      presentation: {
+        zh_title: String(rule?.presentation?.zh_title || '').trim(),
+        zh_subtitle: String(rule?.presentation?.zh_subtitle || '').trim(),
+        zh_description: String(rule?.presentation?.zh_description || '').trim(),
+        zh_tags: Array.isArray(rule?.presentation?.zh_tags)
+          ? rule.presentation.zh_tags.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 8)
+          : [],
+      },
+      topic_family: String(rule?.topic_family || '').trim(),
+      priority: Number.isFinite(Number(rule?.priority)) ? Number(rule.priority) : 0,
+    }))
+    .filter((rule) => (
+      rule.topic_key_exact.length > 0
+      || rule.topic_key_prefixes.length > 0
+      || rule.keyword_match.length > 0
+    ))
+    .sort((left, right) => right.priority - left.priority)
+
+  return {
+    enabled: Boolean(root.enabled ?? true),
+    rules: normalizedRules,
+    default_presentation: {
+      zh_title_template: String(root?.default_presentation?.zh_title_template || '').trim(),
+      zh_subtitle_template: String(root?.default_presentation?.zh_subtitle_template || '').trim(),
+      zh_description_template: String(root?.default_presentation?.zh_description_template || '').trim(),
+      zh_tags: Array.isArray(root?.default_presentation?.zh_tags)
+        ? root.default_presentation.zh_tags.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 8)
+        : [],
+    },
+    source_path: resolveTopicPresentationRulesPath(rawConfig),
+  }
+}
+
+async function loadTopicPresentationConfig(rawConfig = {}) {
+  const rulesPath = resolveTopicPresentationRulesPath(rawConfig)
+  try {
+    const raw = await readFile(rulesPath, 'utf8')
+    const parsed = JSON.parse(raw)
+    return normalizeTopicPresentationConfig(rawConfig, parsed)
+  } catch {
+    return normalizeTopicPresentationConfig(rawConfig, {})
   }
 }
 
@@ -555,6 +621,62 @@ function inferTopicFamily(topicKey = '') {
   return 'general'
 }
 
+function renderTemplate(template, context = {}) {
+  return String(template || '').replace(/\{(\w+)\}/g, (_, key) => String(context[key] || '').trim()).trim()
+}
+
+function buildTopicTextHaystack({ topicKey, outline, post, metadata }) {
+  return [
+    String(topicKey || ''),
+    String(outline?.topic || ''),
+    String(outline?.thesis || ''),
+    String(post?.title || ''),
+    String(post?.summary || ''),
+    String(metadata?.content_type || ''),
+  ].join(' ').toLowerCase()
+}
+
+function matchTopicPresentationRule({ topicKey, haystack, config }) {
+  if (!config?.enabled) return null
+  const key = String(topicKey || '').toLowerCase()
+  return (config?.rules || []).find((rule) => {
+    if (rule.topic_key_exact.length > 0 && rule.topic_key_exact.includes(key)) return true
+    if (rule.topic_key_prefixes.length > 0 && rule.topic_key_prefixes.some((prefix) => key.startsWith(prefix))) return true
+    if (rule.keyword_match.length > 0 && rule.keyword_match.some((keyword) => haystack.includes(keyword))) return true
+    return false
+  }) || null
+}
+
+export function buildTopicPresentation({ topicKey, outline, post, metadata, topicPresentationConfig }) {
+  const key = String(topicKey || '').trim()
+  const haystack = buildTopicTextHaystack({ topicKey: key, outline, post, metadata })
+  const matchedRule = matchTopicPresentationRule({ topicKey: key, haystack, config: topicPresentationConfig || {} })
+  const context = {
+    topic_key: key,
+    topic: String(outline?.topic || post?.title || '').trim(),
+    thesis: String(outline?.thesis || post?.summary || '').trim(),
+    content_type: String(metadata?.content_type || post?.content_type || '').trim(),
+  }
+  const fallback = topicPresentationConfig?.default_presentation || {}
+  const zhTitle = matchedRule?.presentation?.zh_title || renderTemplate(fallback.zh_title_template, context) || context.topic
+  const zhSubtitle = matchedRule?.presentation?.zh_subtitle || renderTemplate(fallback.zh_subtitle_template, context) || context.thesis
+  const zhDescription = matchedRule?.presentation?.zh_description || renderTemplate(fallback.zh_description_template, context)
+  const zhTags = matchedRule?.presentation?.zh_tags?.length > 0
+    ? matchedRule.presentation.zh_tags
+    : (Array.isArray(fallback.zh_tags) ? fallback.zh_tags : [])
+
+  return {
+    zh_title: String(zhTitle || '').trim(),
+    zh_subtitle: String(zhSubtitle || '').trim(),
+    zh_description: String(zhDescription || '').trim(),
+    zh_tags: zhTags.slice(0, 8),
+    matched_rule: matchedRule ? {
+      priority: matchedRule.priority,
+      topic_family: matchedRule.topic_family || '',
+    } : null,
+  }
+}
+
 export function buildTopicMetadataPayload({
   postId,
   post,
@@ -562,6 +684,7 @@ export function buildTopicMetadataPayload({
   metadata,
   gate,
   researchPack,
+  config = {},
 }) {
   const metrics = gate?.metrics || {}
   const topicKey = String(metadata?.topic_key || post?.topic_key || '').trim()
@@ -572,6 +695,13 @@ export function buildTopicMetadataPayload({
   const readingTime = estimateReadingTimeMinutes(post?.content_md || '')
   const freshnessWindow = String(coverageDate || '').trim()
   const sourceNames = [...new Set((researchPack?.sources || []).map((item) => String(item?.source_name || '').trim()).filter(Boolean))]
+  const presentation = buildTopicPresentation({
+    topicKey,
+    outline,
+    post,
+    metadata,
+    topicPresentationConfig: config?.topic_presentation || {},
+  })
 
   return {
     post_id: Number.isFinite(Number(postId)) ? Number(postId) : null,
@@ -589,6 +719,10 @@ export function buildTopicMetadataPayload({
       source_names: sourceNames.slice(0, 10),
       primary_thesis: String(outline?.thesis || '').trim(),
       topic_title: String(outline?.topic || post?.title || '').trim(),
+      topic_zh_title: presentation.zh_title,
+      topic_zh_subtitle: presentation.zh_subtitle,
+      topic_zh_description: presentation.zh_description,
+      topic_zh_tags: presentation.zh_tags,
       gate_passed: Boolean(gate?.passed),
       notes: gate?.passed
         ? 'Topic metadata captured from post-publish artifact.'
@@ -596,6 +730,8 @@ export function buildTopicMetadataPayload({
       generated_at: new Date().toISOString(),
       snapshot_version: 'topic_metadata_v1',
       freshness_window: freshnessWindow,
+      topic_cover_image: String(post?.topic_cover_image || '').trim(),
+      presentation_rule: presentation.matched_rule,
     },
   }
 }
@@ -604,6 +740,7 @@ async function loadConfig() {
   const raw = await readFile(CONFIG_PATH, 'utf8')
   const parsed = JSON.parse(raw)
   parsed.series_assignment = await loadSeriesAssignmentConfig(parsed)
+  parsed.topic_presentation = await loadTopicPresentationConfig(parsed)
   return parsed
 }
 
@@ -2049,10 +2186,77 @@ async function upsertTopicMetadata(token, payload) {
   throw new Error(`Topic metadata endpoint unavailable (${failures.join('; ')})`)
 }
 
-async function bridgeTopicMetadata(token, payload) {
+async function fetchExistingTopicMetadata(token, postId) {
+  const candidates = [
+    `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-metadata`,
+    `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-profile`,
+  ]
+  for (const url of candidates) {
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+    if (resp.ok) {
+      const data = await resp.json()
+      if (data?.topic_metadata) return data.topic_metadata
+      return data || {}
+    }
+    if (resp.status === 404 || resp.status === 405) continue
+  }
+  return null
+}
+
+function buildTopicCoverPrompt(payload, post = {}) {
+  const topicMetadata = payload?.topic_metadata || {}
+  const zhTitle = String(topicMetadata.topic_zh_title || '').trim()
+  const zhSubtitle = String(topicMetadata.topic_zh_subtitle || '').trim()
+  const thesis = String(topicMetadata.primary_thesis || '').trim()
+  const topicTitle = String(topicMetadata.topic_title || post?.title || '').trim()
+  const family = String(topicMetadata.topic_family || '').trim()
+  return [
+    'Editorial hero image for a Chinese AI topic line.',
+    `Topic: ${zhTitle || topicTitle}.`,
+    zhSubtitle ? `Subtitle: ${zhSubtitle}.` : '',
+    thesis ? `Thesis: ${thesis}.` : '',
+    family ? `Theme family: ${family}.` : '',
+    'No text overlay, no watermark, cinematic composition, wide landscape banner.',
+  ].filter(Boolean).join(' ')
+}
+
+async function enrichTopicMetadataCoverIfNeeded(token, payload, context = {}) {
+  const postId = Number(payload?.post_id)
+  if (!Number.isFinite(postId) || !XAI_API_KEY) return payload
+  const post = context?.post || {}
+  const postCoverImage = String(post?.cover_image || '').trim()
+  const existingCover = String(payload?.topic_metadata?.topic_cover_image || '').trim()
+  if (existingCover || postCoverImage) return payload
+
+  const existingProfile = await fetchExistingTopicMetadata(token, postId)
+  if (existingProfile) return payload
+
+  try {
+    const prompt = buildTopicCoverPrompt(payload, post)
+    const topicCoverImage = await generateCoverWithGrok(prompt, token)
+    if (!topicCoverImage) return payload
+    return {
+      ...payload,
+      topic_metadata: {
+        ...(payload.topic_metadata || {}),
+        topic_cover_image: topicCoverImage,
+      },
+    }
+  } catch (error) {
+    console.warn(`Failed to generate topic cover image: ${error.message}`)
+    return payload
+  }
+}
+
+async function bridgeTopicMetadata(token, payload, context = {}) {
   if (!token || !payload) return null
   try {
-    return await upsertTopicMetadata(token, payload)
+    const payloadWithCover = await enrichTopicMetadataCoverIfNeeded(token, payload, context)
+    return await upsertTopicMetadata(token, payloadWithCover)
   } catch (error) {
     console.warn(`Failed to bridge topic metadata: ${error.message}`)
     return null
@@ -2318,6 +2522,7 @@ async function runDailyMode(config, cliOptions) {
       metadata,
       gate: artifact.gate,
       researchPack: artifact.researchPack,
+      config,
     })
 
     if (runtime.dryRun) {
@@ -2337,7 +2542,7 @@ async function runDailyMode(config, cliOptions) {
     topicMetadataPayload.post_id = metadataBridgePayload.post_id
     await bridgePublishingMetadata(token, metadataBridgePayload)
     await bridgeQualitySnapshot(token, qualitySnapshotPayload)
-    await bridgeTopicMetadata(token, topicMetadataPayload)
+    await bridgeTopicMetadata(token, topicMetadataPayload, { post: artifact.post })
     console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
     results.push({
       ...artifact,
@@ -2530,6 +2735,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
     metadata,
     gate: artifact.gate,
     researchPack: artifact.researchPack,
+    config,
   })
 
   if (cliOptions.dryRun) {
@@ -2554,7 +2760,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
   topicMetadataPayload.post_id = metadataBridgePayload.post_id
   await bridgePublishingMetadata(token, metadataBridgePayload)
   await bridgeQualitySnapshot(token, qualitySnapshotPayload)
-  await bridgeTopicMetadata(token, topicMetadataPayload)
+  await bridgeTopicMetadata(token, topicMetadataPayload, { post: artifact.post })
   console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
   await reportPublishingRun(token, {
     workflow_key: 'weekly_review',

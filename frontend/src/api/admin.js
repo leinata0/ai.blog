@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete } from './client'
+import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
 const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 
@@ -24,12 +24,12 @@ export const updateSettings = (data) => apiPut('/api/settings', data, { auth: tr
 
 export const fetchAdminPosts = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/posts${qs ? '?' + qs : ''}`, { auth: true })
+  return apiGet(`/api/admin/posts${qs ? `?${qs}` : ''}`, { auth: true })
 }
 
 export const fetchAdminComments = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/comments${qs ? '?' + qs : ''}`, { auth: true })
+  return apiGet(`/api/admin/comments${qs ? `?${qs}` : ''}`, { auth: true })
 }
 
 export const approveComment = (id) => apiPut(`/api/admin/comments/${id}/approve`, {}, { auth: true })
@@ -38,7 +38,7 @@ export const deleteComment = (id) => apiDelete(`/api/admin/comments/${id}`, { au
 export const fetchAdminStats = () => apiGet('/api/admin/stats', { auth: true })
 export const fetchAdminPublishingStatus = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/publishing-status${qs ? '?' + qs : ''}`, { auth: true })
+  return apiGet(`/api/admin/publishing-status${qs ? `?${qs}` : ''}`, { auth: true })
 }
 export const upsertAdminPublishingStatus = (data) =>
   apiPost('/api/admin/publishing-status', data, { auth: true })
@@ -51,29 +51,36 @@ export const fetchAdminPublishingRunDetail = (id) =>
   apiGet(`/api/admin/publishing-runs/${id}`, { auth: true })
 export const fetchAdminQualityInbox = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/quality-inbox${qs ? '?' + qs : ''}`, { auth: true })
+  return apiGet(`/api/admin/quality-inbox${qs ? `?${qs}` : ''}`, { auth: true })
 }
 export const fetchAdminPostQuality = (id) => apiGet(`/api/admin/posts/${id}/quality`, { auth: true })
 export const updateAdminPostQualityReview = (id, data) =>
   apiPut(`/api/admin/posts/${id}/quality-review`, data, { auth: true })
 export const fetchAdminTopicFeedback = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/topic-feedback${qs ? '?' + qs : ''}`, { auth: true })
+  return apiGet(`/api/admin/topic-feedback${qs ? `?${qs}` : ''}`, { auth: true })
 }
 
 export const fetchAdminSeries = () => apiGet('/api/admin/series', { auth: true })
 export const createAdminSeries = (data) => apiPost('/api/admin/series', data, { auth: true })
 export const updateAdminSeries = (id, data) => apiPut(`/api/admin/series/${id}`, data, { auth: true })
+export const generateAdminSeriesCover = (id, data = {}) =>
+  apiPost(`/api/admin/series/${id}/generate-cover`, data, { auth: true })
+
 export const fetchAdminTopicProfiles = () => apiGet('/api/admin/topic-profiles', { auth: true })
 export const createAdminTopicProfile = (data) => apiPost('/api/admin/topic-profiles', data, { auth: true })
-export const updateAdminTopicProfile = (id, data) => apiPut(`/api/admin/topic-profiles/${id}`, data, { auth: true })
+export const updateAdminTopicProfile = (id, data) =>
+  apiPut(`/api/admin/topic-profiles/${id}`, data, { auth: true })
+export const generateAdminTopicProfileCover = (id, data = {}) =>
+  apiPost(`/api/admin/topic-profiles/${id}/generate-cover`, data, { auth: true })
+
 export const fetchAdminTopicHealth = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/topic-health${qs ? '?' + qs : ''}`, { auth: true })
+  return apiGet(`/api/admin/topic-health${qs ? `?${qs}` : ''}`, { auth: true })
 }
 export const fetchAdminSearchInsights = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/search-insights${qs ? '?' + qs : ''}`, { auth: true })
+  return apiGet(`/api/admin/search-insights${qs ? `?${qs}` : ''}`, { auth: true })
 }
 
 export const upsertAdminPublishingMetadata = (data) =>

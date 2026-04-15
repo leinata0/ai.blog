@@ -504,10 +504,15 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
         json={
             "topic_key": "agent-runtime",
             "title": "Agent Runtime",
+            "display_title": "Agent Runtime",
             "description": "runtime topic profile",
+            "cover_image": "",
+            "aliases": ["agents-runtime", "agent-orchestration"],
             "focus_points": ["latency", "quality"],
             "content_types": ["daily_brief", "weekly_review"],
             "series_slug": "tooling-workflow",
+            "is_featured": True,
+            "sort_order": 10,
             "is_active": True,
             "priority": 50,
         },
@@ -516,6 +521,10 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
     assert create_profile.status_code == 200
     profile_payload = create_profile.json()
     assert profile_payload["topic_key"] == "agent-runtime"
+    assert profile_payload["display_title"] == "Agent Runtime"
+    assert profile_payload["aliases"] == ["agents-runtime", "agent-orchestration"]
+    assert profile_payload["is_featured"] is True
+    assert profile_payload["sort_order"] == 10
     profile_id = profile_payload["id"]
 
     list_profile = client.get("/api/admin/topic-profiles", headers=_auth(token))
@@ -524,12 +533,36 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
 
     update_profile = client.put(
         f"/api/admin/topic-profiles/{profile_id}",
-        json={"title": "Agent Runtime Updated", "priority": 80},
+        json={
+            "display_title": "Agent Runtime Updated",
+            "cover_image": "https://img.example.com/topic-cover.png",
+            "aliases": ["agent-runtime-v2"],
+            "priority": 80,
+        },
         headers=_auth(token),
     )
     assert update_profile.status_code == 200
-    assert update_profile.json()["title"] == "Agent Runtime Updated"
+    assert update_profile.json()["display_title"] == "Agent Runtime Updated"
+    assert update_profile.json()["cover_image"] == "https://img.example.com/topic-cover.png"
+    assert update_profile.json()["aliases"] == ["agent-runtime-v2"]
     assert update_profile.json()["priority"] == 80
+
+    topic_cover_resp = client.post(
+        f"/api/admin/topic-profiles/{profile_id}/generate-cover",
+        json={"image_url": "https://img.example.com/topic-generate.png"},
+        headers=_auth(token),
+    )
+    assert topic_cover_resp.status_code == 200
+    assert topic_cover_resp.json()["generated"] is True
+    assert topic_cover_resp.json()["cover_image"] == "https://img.example.com/topic-generate.png"
+
+    topic_cover_noop = client.post(
+        f"/api/admin/topic-profiles/{profile_id}/generate-cover",
+        json={},
+        headers=_auth(token),
+    )
+    assert topic_cover_noop.status_code == 200
+    assert topic_cover_noop.json()["generated"] is False
 
     create_post = client.post(
         "/api/admin/posts",
@@ -567,6 +600,133 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
     assert "total" in insights_payload
     assert any(item["query"] == "agent runtime" for item in insights_payload["items"])
     assert all(len(item["query"]) >= 2 for item in insights_payload["items"])
+
+
+def test_admin_series_generate_cover(client):
+    token = _login(client)
+    list_resp = client.get("/api/admin/series", headers=_auth(token))
+    assert list_resp.status_code == 200
+    series_id = list_resp.json()[0]["id"]
+
+    generated = client.post(
+        f"/api/admin/series/{series_id}/generate-cover",
+        json={"image_url": "https://img.example.com/series-cover.png"},
+        headers=_auth(token),
+    )
+    assert generated.status_code == 200
+    assert generated.json()["generated"] is True
+    assert generated.json()["cover_image"] == "https://img.example.com/series-cover.png"
+
+    no_image = client.post(
+        f"/api/admin/series/{series_id}/generate-cover",
+        json={"prompt": "no-url"},
+        headers=_auth(token),
+    )
+    assert no_image.status_code == 200
+    assert no_image.json()["generated"] is False
+
+
+def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    created = client.post(
+        "/api/admin/topic-profiles",
+        json={
+            "topic_key": "agent-memory",
+            "display_title": "智能体记忆",
+            "description": "聚焦智能体长期记忆、上下文管理和状态持久化。",
+        },
+        headers=_auth(token),
+    )
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "智能体记忆正在从上下文窗口走向产品能力",
+            "slug": "agent-memory-post",
+            "summary": "讨论记忆层、检索层与工具调用如何配合。",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "topic_key": "agent-memory",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+
+    captured = {}
+
+    def fake_generate_cover_asset(prompt, filename_hint):
+        captured["prompt"] = prompt
+        captured["filename_hint"] = filename_hint
+        return "https://img.example.com/topic-auto.png"
+
+    monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
+
+    response = client.post(
+        f"/api/admin/topic-profiles/{profile_id}/generate-cover",
+        json={},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    assert response.json()["generated"] is True
+    assert response.json()["cover_image"] == "https://img.example.com/topic-auto.png"
+    assert "智能体记忆" in captured["prompt"]
+    assert captured["filename_hint"] == "topic-agent-memory.png"
+
+
+def test_admin_series_generate_cover_with_grok(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    create_series = client.post(
+        "/api/admin/series",
+        json={
+            "slug": "ai-agent-ops",
+            "title": "智能体运营",
+            "description": "覆盖智能体生产化、监控和运营方法。",
+            "content_types": ["daily_brief", "weekly_review"],
+        },
+        headers=_auth(token),
+    )
+    assert create_series.status_code == 200
+    series_id = create_series.json()["id"]
+
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "智能体运营开始进入指标和流程双优化阶段",
+            "slug": "ai-agent-ops-post",
+            "summary": "观察智能体监控、回溯与评估体系。",
+            "content_md": "content",
+            "content_type": "weekly_review",
+            "series_slug": "ai-agent-ops",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+
+    captured = {}
+
+    def fake_generate_cover_asset(prompt, filename_hint):
+        captured["prompt"] = prompt
+        captured["filename_hint"] = filename_hint
+        return "https://img.example.com/series-auto.png"
+
+    monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
+
+    response = client.post(
+        f"/api/admin/series/{series_id}/generate-cover",
+        json={},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    assert response.json()["generated"] is True
+    assert response.json()["cover_image"] == "https://img.example.com/series-auto.png"
+    assert "智能体运营" in captured["prompt"]
+    assert captured["filename_hint"] == "series-ai-agent-ops.png"
 
 
 def test_delete_post(client):

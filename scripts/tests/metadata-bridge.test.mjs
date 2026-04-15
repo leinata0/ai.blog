@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   assignSeriesForPost,
+  buildTopicPresentation,
   buildPublishingMetadataBridgePayload,
   buildQualitySnapshotPayload,
   buildTopicMetadataPayload,
@@ -299,6 +300,32 @@ test('topic metadata payload keeps core fields unchanged and uses existing topic
     researchPack: {
       sources: [{ source_name: 'OpenAI', source_type: 'official_blog', url: 'https://example.com/a' }],
     },
+    config: {
+      topic_presentation: {
+        enabled: true,
+        rules: [
+          {
+            topic_key_exact: ['agent-tooling'],
+            topic_key_prefixes: [],
+            keyword_match: [],
+            presentation: {
+              zh_title: '智能体演进追踪',
+              zh_subtitle: '从能力堆叠到可用产品',
+              zh_description: '跟踪 Agent 方向的能力变化与工程落地。',
+              zh_tags: ['智能体', '产品化'],
+            },
+            topic_family: 'agent',
+            priority: 100,
+          },
+        ],
+        default_presentation: {
+          zh_title_template: '{topic}',
+          zh_subtitle_template: '{thesis}',
+          zh_description_template: '围绕 {topic} 的持续追踪。',
+          zh_tags: ['AI追踪'],
+        },
+      },
+    },
   })
 
   assert.equal(post.title, postBefore.title)
@@ -309,12 +336,106 @@ test('topic metadata payload keeps core fields unchanged and uses existing topic
   assert.equal(payload.post_slug, 'a-title')
   assert.equal(payload.topic_key, 'agent-tooling')
   assert.equal(payload.topic_metadata.topic_key, 'agent-tooling')
+  assert.equal(payload.topic_metadata.topic_zh_title, '智能体演进追踪')
+  assert.equal(payload.topic_metadata.topic_zh_subtitle, '从能力堆叠到可用产品')
+  assert.equal(payload.topic_metadata.topic_zh_description, '跟踪 Agent 方向的能力变化与工程落地。')
+  assert.deepEqual(payload.topic_metadata.topic_zh_tags, ['智能体', '产品化'])
   assert.equal(typeof payload.topic_metadata.source_count, 'number')
   assert.equal(typeof payload.topic_metadata.high_quality_source_count, 'number')
   assert.equal(typeof payload.topic_metadata.analysis_signal_count, 'number')
   assert.equal(typeof payload.topic_metadata.reading_time, 'number')
   assert.ok(Array.isArray(payload.topic_metadata.source_names))
   assert.equal(typeof payload.topic_metadata.notes, 'string')
+})
+
+test('topic presentation supports exact/prefix/keyword matching with fallback templates', () => {
+  const config = {
+    enabled: true,
+    rules: [
+      {
+        topic_key_exact: ['exact-key'],
+        topic_key_prefixes: [],
+        keyword_match: [],
+        presentation: {
+          zh_title: '精确命中标题',
+          zh_subtitle: '精确命中副标题',
+          zh_description: '精确命中描述',
+          zh_tags: ['精确'],
+        },
+        topic_family: 'exact',
+        priority: 100,
+      },
+      {
+        topic_key_exact: [],
+        topic_key_prefixes: ['prefix-'],
+        keyword_match: [],
+        presentation: {
+          zh_title: '前缀命中标题',
+          zh_subtitle: '前缀命中副标题',
+          zh_description: '前缀命中描述',
+          zh_tags: ['前缀'],
+        },
+        topic_family: 'prefix',
+        priority: 90,
+      },
+      {
+        topic_key_exact: [],
+        topic_key_prefixes: [],
+        keyword_match: ['keyword'],
+        presentation: {
+          zh_title: '关键词命中标题',
+          zh_subtitle: '关键词命中副标题',
+          zh_description: '关键词命中描述',
+          zh_tags: ['关键词'],
+        },
+        topic_family: 'keyword',
+        priority: 80,
+      },
+    ],
+    default_presentation: {
+      zh_title_template: '{topic}',
+      zh_subtitle_template: '{thesis}',
+      zh_description_template: '围绕 {topic} 的持续追踪。',
+      zh_tags: ['默认'],
+    },
+  }
+
+  const exact = buildTopicPresentation({
+    topicKey: 'exact-key',
+    outline: { topic: 'A', thesis: 'B' },
+    post: {},
+    metadata: { content_type: 'daily_brief' },
+    topicPresentationConfig: config,
+  })
+  assert.equal(exact.zh_title, '精确命中标题')
+
+  const prefix = buildTopicPresentation({
+    topicKey: 'prefix-agent',
+    outline: { topic: 'A', thesis: 'B' },
+    post: {},
+    metadata: { content_type: 'daily_brief' },
+    topicPresentationConfig: config,
+  })
+  assert.equal(prefix.zh_title, '前缀命中标题')
+
+  const keyword = buildTopicPresentation({
+    topicKey: 'random',
+    outline: { topic: 'Contains keyword here', thesis: 'B' },
+    post: {},
+    metadata: { content_type: 'daily_brief' },
+    topicPresentationConfig: config,
+  })
+  assert.equal(keyword.zh_title, '关键词命中标题')
+
+  const fallback = buildTopicPresentation({
+    topicKey: 'none',
+    outline: { topic: '默认标题', thesis: '默认副标题' },
+    post: {},
+    metadata: { content_type: 'daily_brief' },
+    topicPresentationConfig: config,
+  })
+  assert.equal(fallback.zh_title, '默认标题')
+  assert.equal(fallback.zh_subtitle, '默认副标题')
 })
 
 test('workflow contracts remain unchanged for script entry and required secrets', async () => {

@@ -422,10 +422,15 @@ class TopicFeedbackOut(BaseModel):
 class TopicProfileBase(BaseModel):
     topic_key: str = Field(..., min_length=1, max_length=200)
     title: str = ""
+    display_title: str = ""
     description: str = ""
+    cover_image: str = ""
+    aliases: list[str] = Field(default_factory=list)
     focus_points: list[str] = Field(default_factory=list)
     content_types: list[str] = Field(default_factory=list)
     series_slug: str | None = None
+    is_featured: bool = False
+    sort_order: int = 0
     is_active: bool = True
     priority: int = 0
 
@@ -437,10 +442,15 @@ class TopicProfileCreateRequest(TopicProfileBase):
 class TopicProfileUpdateRequest(BaseModel):
     topic_key: str | None = Field(default=None, min_length=1, max_length=200)
     title: str | None = None
+    display_title: str | None = None
     description: str | None = None
+    cover_image: str | None = None
+    aliases: list[str] | None = None
     focus_points: list[str] | None = None
     content_types: list[str] | None = None
     series_slug: str | None = None
+    is_featured: bool | None = None
+    sort_order: int | None = None
     is_active: bool | None = None
     priority: int | None = None
 
@@ -523,6 +533,19 @@ class TopicHealthItemOut(BaseModel):
 class TopicHealthOut(BaseModel):
     items: list[TopicHealthItemOut] = Field(default_factory=list)
     total: int = 0
+
+
+class CoverGenerateRequest(BaseModel):
+    prompt: str | None = None
+    image_url: str | None = None
+    overwrite: bool = False
+
+
+class CoverGenerateResponse(BaseModel):
+    id: int
+    cover_image: str
+    generated: bool = False
+    error: str = ""
 
 
 class PostSourceInput(BaseModel):

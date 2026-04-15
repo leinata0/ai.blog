@@ -24,7 +24,7 @@ function PageLoader() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg-canvas)]">
       <div className="text-center">
-        <div className="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
         <p className="text-sm text-[var(--text-tertiary)]">加载中...</p>
       </div>
     </div>
@@ -51,7 +51,14 @@ export default function App() {
           <Route path="/tags" element={<TagsPage />} />
           <Route path="/friends" element={<FriendsPage />} />
           <Route path="/admin/login" element={<AdminLoginPage />} />
-          <Route path="/admin/dashboard" element={<ProtectedRoute><AdminDashboardPage /></ProtectedRoute>} />
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedRoute>
+                <AdminDashboardPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>

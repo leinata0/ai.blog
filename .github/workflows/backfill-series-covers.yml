@@ -1,0 +1,65 @@
+name: 系列封面补齐
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 仅演练，不写入系列封面
+        required: false
+        default: false
+        type: boolean
+      force:
+        description: 即使已有封面也强制重生成
+        required: false
+        default: false
+        type: boolean
+      limit:
+        description: 本次最多处理系列数量
+        required: false
+        default: '50'
+        type: string
+      offset:
+        description: 从第几个系列开始
+        required: false
+        default: '0'
+        type: string
+
+jobs:
+  backfill-series-covers:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    timeout-minutes: 20
+    steps:
+      - name: 拉取仓库代码
+        uses: actions/checkout@v6
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: 安装脚本依赖
+        run: cd scripts && npm install
+
+      - name: 检查必要密钥
+        env:
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
+          if [ -z "$XAI_API_KEY" ]; then echo "::error::Missing XAI_API_KEY"; exit 1; fi
+          echo "Secrets look good."
+
+      - name: 执行系列封面补齐
+        env:
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          ARGS="--limit=${{ inputs.limit }} --offset=${{ inputs.offset }}"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          echo "Running: node scripts/backfill-series-covers.mjs $ARGS"
+          node scripts/backfill-series-covers.mjs $ARGS

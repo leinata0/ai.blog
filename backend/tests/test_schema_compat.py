@@ -12,6 +12,8 @@ from app.schema_compat import (
 def test_series_seed_uses_boolean_flags():
     assert DEFAULT_SERIES_SEED
     assert all(isinstance(item["is_featured"], bool) for item in DEFAULT_SERIES_SEED)
+    assert any(item["title"] == "AI 日报简报" for item in DEFAULT_SERIES_SEED)
+    assert any(item["title"] == "AI 周报综述" for item in DEFAULT_SERIES_SEED)
 
 
 def test_boolean_defaults_are_postgres_friendly():
@@ -32,6 +34,10 @@ def test_quality_tables_contract_columns_exist():
 
 def test_topic_search_tables_contract_columns_exist():
     assert "topic_key" in TOPIC_PROFILE_COLUMNS
+    assert "cover_image" in TOPIC_PROFILE_COLUMNS
+    assert "aliases_json" in TOPIC_PROFILE_COLUMNS
+    assert "is_featured" in TOPIC_PROFILE_COLUMNS
+    assert "sort_order" in TOPIC_PROFILE_COLUMNS
     assert "focus_points_json" in TOPIC_PROFILE_COLUMNS
     assert "content_types_json" in TOPIC_PROFILE_COLUMNS
     assert "query" in SEARCH_INSIGHT_COLUMNS

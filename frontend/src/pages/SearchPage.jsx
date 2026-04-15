@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { CalendarRange, Compass, Search, Sparkles } from 'lucide-react'
 
 import { fetchSearch, fetchSeriesList, fetchTopics } from '../api/posts'
@@ -7,6 +8,14 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import { formatDate } from '../utils/date'
+import {
+  getContentTypeLabel,
+  getSeriesTitle,
+  getTopicTitle,
+  hoverLift,
+  motionContainerVariants,
+  motionItemVariants,
+} from '../utils/contentPresentation'
 
 const DEFAULT_FILTERS = {
   content_type: '',
@@ -17,26 +26,41 @@ const DEFAULT_FILTERS = {
   sort: 'relevance',
 }
 
-function SearchResultCard({ post }) {
+function getMatchReasonLabel(reason) {
+  if (reason === 'title') return '标题命中'
+  if (reason === 'topic') return '主题命中'
+  if (reason === 'summary') return '摘要命中'
+  if (reason === 'tag_or_series') return '标签或系列命中'
+  return '相关结果'
+}
+
+function SearchResultCard({ post, seriesTitle, topicTitle }) {
   return (
-    <Link
-      to={`/posts/${post.slug}`}
-      className="block rounded-3xl px-6 py-5"
-      style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
+    <motion.article
+      variants={motionItemVariants}
+      whileHover={hoverLift}
+      className="editorial-card rounded-3xl border px-6 py-5"
+      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow)' }}
     >
-      <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
-        {post.content_type ? <span>{post.content_type === 'weekly_review' ? '周报' : '日报'}</span> : null}
-        {post.topic_key ? <span>主题：{post.topic_key}</span> : null}
-        {post.coverage_date ? <span>{post.coverage_date}</span> : null}
-      </div>
-      <h2 className="mt-2 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{post.title}</h2>
-      <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{post.summary}</p>
-      <div className="mt-3 flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
+      <Link to={`/posts/${post.slug}`} className="block">
+        <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
+          <span className="rounded-full px-2.5 py-1" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
+            {getContentTypeLabel(post.content_type)}
+          </span>
+          {topicTitle ? <span>主题：{topicTitle}</span> : null}
+          {seriesTitle ? <span>系列：{seriesTitle}</span> : null}
+          {post.coverage_date ? <span>{post.coverage_date}</span> : null}
+        </div>
+        <h2 className="mt-2 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{post.title}</h2>
+        <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>{post.summary}</p>
+      </Link>
+      <div className="mt-4 flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
         {post.quality_score ? <span>质量分 {post.quality_score}</span> : null}
         {post.reading_time ? <span>阅读 {post.reading_time} 分钟</span> : null}
         <span>{formatDate(post.created_at)}</span>
+        {post.match_reason ? <span>{getMatchReasonLabel(post.match_reason)}</span> : null}
       </div>
-    </Link>
+    </motion.article>
   )
 }
 
@@ -98,6 +122,15 @@ export default function SearchPage() {
     return '暂时没有找到匹配结果，可以换个关键词，或先从推荐主题继续追踪。'
   }, [hasActiveQuery])
 
+  const seriesBySlug = useMemo(
+    () => Object.fromEntries(seriesList.map((series) => [series.slug, getSeriesTitle(series)])),
+    [seriesList],
+  )
+  const topicByKey = useMemo(
+    () => Object.fromEntries(topics.map((topic) => [topic.topic_key, getTopicTitle(topic)])),
+    [topics],
+  )
+
   function handleSubmit(event) {
     event.preventDefault()
     const trimmed = queryInput.trim()
@@ -114,14 +147,22 @@ export default function SearchPage() {
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
-        <section className="rounded-3xl px-8 py-8" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+        <motion.section
+          initial="hidden"
+          animate="visible"
+          variants={motionItemVariants}
+          className="editorial-panel rounded-3xl px-8 py-8"
+          style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
+        >
           <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--accent)' }}>
             <Search size={16} />
             站内搜索
           </div>
-          <h1 className="mt-3 text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>搜索主题、文章与主线变化</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
-            先找具体信息，再顺着同一条主题主线继续读日报、周报和专题内容。
+          <h1 className="mt-3 text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>
+            搜索主题、文章与主线变化
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
+            先找到具体信息，再顺着同一条主题主线继续阅读日报、周报与系列内容。
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
@@ -195,32 +236,39 @@ export default function SearchPage() {
               开始搜索
             </button>
           </form>
-        </section>
+        </motion.section>
 
         <section className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr),280px]">
-          <div className="space-y-4">
+          <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="space-y-4">
             {loading ? (
               [1, 2, 3].map((item) => (
-                <div key={item} className="h-32 rounded-3xl skeleton-pulse" style={{ backgroundColor: 'var(--bg-surface)' }} />
+                <motion.div key={item} variants={motionItemVariants} className="h-32 rounded-3xl skeleton-pulse" style={{ backgroundColor: 'var(--bg-surface)' }} />
               ))
             ) : results.length > 0 ? (
-              results.map((post) => <SearchResultCard key={post.slug} post={post} />)
+              results.map((post) => (
+                <SearchResultCard
+                  key={post.slug}
+                  post={post}
+                  seriesTitle={post.series_slug ? seriesBySlug[post.series_slug] || post.series_slug : ''}
+                  topicTitle={post.topic_key ? topicByKey[post.topic_key] || post.topic_key : ''}
+                />
+              ))
             ) : (
-              <div className="rounded-3xl px-8 py-10" style={{ backgroundColor: 'var(--bg-surface)' }}>
+              <motion.div variants={motionItemVariants} className="rounded-3xl px-8 py-10" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
                 <p style={{ color: 'var(--text-faint)' }}>{emptyMessage}</p>
-              </div>
+              </motion.div>
             )}
-          </div>
+          </motion.div>
 
-          <aside className="space-y-4">
-            <section className="rounded-3xl px-5 py-5" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+          <motion.aside initial="hidden" animate="visible" variants={motionContainerVariants} className="space-y-4">
+            <motion.section variants={motionItemVariants} className="editorial-panel rounded-3xl px-5 py-5" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
               <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#2563eb' }}>
                 <Compass size={15} />
                 推荐主题
               </div>
               <div className="mt-4 space-y-3">
                 {(topicSuggestions.length > 0 ? topicSuggestions : topics.slice(0, 5)).map((topic) => (
-                  <Link key={topic.topic_key} to={`/topics/${topic.topic_key}`} className="block rounded-2xl px-4 py-3 transition-colors duration-200 hover:bg-[var(--bg-canvas)]">
+                  <Link key={topic.topic_key} to={`/topics/${topic.topic_key}`} className="block rounded-2xl border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]">
                     <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{topic.display_title}</div>
                     <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
                       {topic.post_count ? `${topic.post_count} 篇文章` : '主题页'}
@@ -228,9 +276,9 @@ export default function SearchPage() {
                   </Link>
                 ))}
               </div>
-            </section>
+            </motion.section>
 
-            <section className="rounded-3xl px-5 py-5" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
+            <motion.section variants={motionItemVariants} className="editorial-panel rounded-3xl px-5 py-5" style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}>
               <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--accent)' }}>
                 <Sparkles size={15} />
                 搜索建议
@@ -238,10 +286,10 @@ export default function SearchPage() {
               <ul className="mt-4 space-y-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
                 <li>先搜公司名或产品名，再切到同主题页继续追踪。</li>
                 <li>想看长期变化时，优先选“按质量优先”或进入周报。</li>
-                <li>找某条主线时，可以先筛选主题，再限定日期区间。</li>
+                <li>找某条主线时，可以先筛主题，再限定日期区间。</li>
               </ul>
-            </section>
-          </aside>
+            </motion.section>
+          </motion.aside>
         </section>
       </div>
       <Footer />

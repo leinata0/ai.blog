@@ -108,7 +108,7 @@ export function localizeAdminText(value) {
     .replace(/^topic already published$/i, '该主题已发布')
     .replace(/^missing sources$/i, '来源不足')
     .replace(/^quality snapshot generated after a passed gate\.$/i, '质量快照已在质量闸门通过后生成。')
-    .replace(/^quality snapshot generated in degraded mode\.$/i, '质量快照以降级模式生成。')
+    .replace(/^quality snapshot generated in degraded mode\.$/i, '质量快照已以降级模式生成。')
 }
 
 export function getScoreTone(score) {

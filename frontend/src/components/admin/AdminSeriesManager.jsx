@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pencil, Plus, RefreshCcw, Save, X } from 'lucide-react'
+import { Pencil, Plus, RefreshCcw, Save, Sparkles, X } from 'lucide-react'
 
-import { createAdminSeries, fetchAdminSeries, updateAdminSeries } from '../../api/admin'
+import {
+  createAdminSeries,
+  fetchAdminSeries,
+  generateAdminSeriesCover,
+  updateAdminSeries,
+} from '../../api/admin'
+import { proxyImageUrl } from '../../utils/proxyImage'
 
 const emptyForm = {
   slug: '',
@@ -19,11 +25,35 @@ function normalizeSeriesList(payload) {
   return []
 }
 
+function CoverPreview({ src, alt }) {
+  if (!src) {
+    return (
+      <div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-[var(--border-muted)] bg-[var(--bg-canvas)] text-xs text-[var(--text-faint)]">
+        暂无封面
+      </div>
+    )
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--border-muted)] bg-[var(--bg-canvas)]">
+      <img
+        src={proxyImageUrl(src)}
+        alt={alt}
+        className="h-24 w-full object-cover"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+      />
+    </div>
+  )
+}
+
 export default function AdminSeriesManager() {
   const [series, setSeries] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [generatingId, setGeneratingId] = useState(null)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(emptyForm)
 
@@ -54,10 +84,15 @@ export default function AdminSeriesManager() {
     })
   }, [series])
 
-  function startCreate() {
+  function resetEditor() {
     setEditing(null)
     setForm(emptyForm)
+  }
+
+  function startCreate() {
+    resetEditor()
     setError('')
+    setNotice('')
   }
 
   function startEdit(item) {
@@ -72,11 +107,13 @@ export default function AdminSeriesManager() {
       sort_order: Number(item.sort_order ?? 100),
     })
     setError('')
+    setNotice('')
   }
 
   async function handleSave() {
     setSaving(true)
     setError('')
+    setNotice('')
     const payload = {
       slug: form.slug.trim(),
       title: form.title.trim(),
@@ -89,19 +126,52 @@ export default function AdminSeriesManager() {
       is_featured: Boolean(form.is_featured),
       sort_order: Number(form.sort_order || 100),
     }
+
     try {
       if (editing?.id) {
         await updateAdminSeries(editing.id, payload)
+        setNotice('系列已更新。')
       } else {
         await createAdminSeries(payload)
+        setNotice('系列已创建。')
       }
       await loadSeries()
-      setEditing(null)
-      setForm(emptyForm)
+      resetEditor()
     } catch (err) {
       setError(err.message || '保存系列失败')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleGenerateCover(item, overwrite = false) {
+    if (!item?.id) return
+    if (overwrite && !window.confirm(`确定重生成「${item.title || item.slug}」的封面吗？`)) return
+
+    setGeneratingId(item.id)
+    setError('')
+    setNotice('')
+
+    try {
+      const result = await generateAdminSeriesCover(item.id, { overwrite })
+      await loadSeries()
+
+      if (editing?.id === item.id) {
+        setForm((current) => ({
+          ...current,
+          cover_image: result?.cover_image || current.cover_image,
+        }))
+      }
+
+      if (result?.generated && result?.cover_image) {
+        setNotice(overwrite ? '系列封面已重生成。' : '系列封面已生成。')
+      } else {
+        setNotice(result?.error || '这次没有生成新封面，可能当前系列已经有封面。')
+      }
+    } catch (err) {
+      setError(err.message || '生成系列封面失败')
+    } finally {
+      setGeneratingId(null)
     }
   }
 
@@ -110,9 +180,7 @@ export default function AdminSeriesManager() {
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">系列管理</h2>
-          <p className="mt-1 text-sm text-[var(--text-faint)]">
-            管理内容系列，并把文章归入可持续扩展的主题主线。
-          </p>
+          <p className="mt-1 text-sm text-[var(--text-faint)]">管理内容系列、中文展示资料与系列封面图。</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -137,44 +205,81 @@ export default function AdminSeriesManager() {
       {error ? (
         <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
       ) : null}
+      {notice ? (
+        <div className="mb-4 rounded-lg bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)]">{notice}</div>
+      ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.3fr,1fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.35fr,1fr]">
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">现有系列</h3>
           {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
           {!loading && !sortedSeries.length ? (
-            <div className="text-sm text-[var(--text-faint)]">还没有系列，当前可以先创建第一条。</div>
+            <div className="text-sm text-[var(--text-faint)]">还没有系列，可以先创建第一条。</div>
           ) : null}
           {sortedSeries.length ? (
             <div className="space-y-3">
-              {sortedSeries.map((item) => (
-                <div
-                  key={item.id || item.slug}
-                  className="rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-4"
-                >
-                  <div className="mb-2 flex items-start justify-between gap-3">
+              {sortedSeries.map((item) => {
+                const isGenerating = generatingId === item.id
+                const hasCover = Boolean(item.cover_image)
+                return (
+                  <div
+                    key={item.id || item.slug}
+                    className="grid gap-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-4 md:grid-cols-[160px,1fr]"
+                  >
+                    <CoverPreview src={item.cover_image} alt={item.title || item.slug} />
                     <div>
-                      <div className="text-sm font-medium text-[var(--text-primary)]">{item.title || item.slug}</div>
-                      <div className="mt-1 text-xs text-[var(--text-faint)]">slug：{item.slug || '-'}</div>
+                      <div className="mb-2 flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium text-[var(--text-primary)]">{item.title || item.slug}</div>
+                          <div className="mt-1 text-xs text-[var(--text-faint)]">slug：{item.slug || '-'}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => startEdit(item)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-muted)] px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                        >
+                          <Pencil size={12} />
+                          编辑
+                        </button>
+                      </div>
+                      {item.description ? (
+                        <p className="mb-3 text-sm leading-6 text-[var(--text-secondary)]">{item.description}</p>
+                      ) : (
+                        <p className="mb-3 text-sm text-[var(--text-faint)]">暂未填写系列简介。</p>
+                      )}
+                      <div className="mb-3 flex flex-wrap gap-2 text-xs text-[var(--text-faint)]">
+                        <span>排序：{item.sort_order ?? '-'}</span>
+                        <span>{item.is_featured ? '推荐系列' : '普通系列'}</span>
+                        {Array.isArray(item.content_types) && item.content_types.length ? (
+                          <span>类型：{item.content_types.join(' / ')}</span>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateCover(item, false)}
+                          disabled={isGenerating}
+                          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-60"
+                        >
+                          <Sparkles size={13} />
+                          {isGenerating && !hasCover ? '生成中...' : hasCover ? '补生成封面' : '生成封面'}
+                        </button>
+                        {hasCover ? (
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateCover(item, true)}
+                            disabled={isGenerating}
+                            className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
+                          >
+                            <Sparkles size={13} />
+                            {isGenerating ? '重生成中...' : '重生成封面'}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => startEdit(item)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-muted)] px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
-                    >
-                      <Pencil size={12} />
-                      编辑
-                    </button>
                   </div>
-                  <div className="flex flex-wrap gap-2 text-xs text-[var(--text-faint)]">
-                    <span>排序：{item.sort_order ?? '-'}</span>
-                    <span>{item.is_featured ? '推荐系列' : '普通系列'}</span>
-                    {Array.isArray(item.content_types) && item.content_types.length ? (
-                      <span>类型：{item.content_types.join(', ')}</span>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : null}
         </section>
@@ -190,22 +295,22 @@ export default function AdminSeriesManager() {
                 value={form.slug}
                 onChange={(event) => setForm((prev) => ({ ...prev, slug: event.target.value }))}
                 className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                placeholder="ai-daily-brief"
+                placeholder="tooling-workflow"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              标题
+              中文标题
               <input
                 value={form.title}
                 onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
                 className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                placeholder="AI Daily Brief"
+                placeholder="工具与工作流"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              描述
+              简介
               <textarea
-                rows={3}
+                rows={4}
                 value={form.description}
                 onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
                 className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
@@ -220,6 +325,7 @@ export default function AdminSeriesManager() {
                 placeholder="https://..."
               />
             </label>
+            <CoverPreview src={form.cover_image} alt={form.title || form.slug || '系列封面预览'} />
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               内容类型（逗号分隔）
               <input
@@ -247,7 +353,8 @@ export default function AdminSeriesManager() {
               设为推荐系列
             </label>
           </div>
-          <div className="mt-4 flex items-center gap-2">
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={handleSave}
@@ -258,14 +365,34 @@ export default function AdminSeriesManager() {
               {saving ? '保存中...' : editing ? '保存修改' : '创建系列'}
             </button>
             {editing ? (
-              <button
-                type="button"
-                onClick={startCreate}
-                className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
-              >
-                <X size={14} />
-                取消编辑
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleGenerateCover(editing, false)}
+                  disabled={generatingId === editing.id}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-60"
+                >
+                  <Sparkles size={14} />
+                  {generatingId === editing.id ? '生成中...' : '生成封面'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGenerateCover(editing, true)}
+                  disabled={generatingId === editing.id}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-60"
+                >
+                  <Sparkles size={14} />
+                  {generatingId === editing.id ? '重生成中...' : '重生成封面'}
+                </button>
+                <button
+                  type="button"
+                  onClick={startCreate}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
+                >
+                  <X size={14} />
+                  取消编辑
+                </button>
+              </>
             ) : null}
           </div>
         </section>

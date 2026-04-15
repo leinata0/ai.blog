@@ -2,6 +2,7 @@ import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth import create_access_token, get_current_admin, verify_admin
 from app.db import get_db
+from app.env import clean_env
 from app.models import (
     Comment,
     Post,
@@ -23,6 +25,8 @@ from app.models import (
     TopicProfile,
 )
 from app.schemas import (
+    CoverGenerateRequest,
+    CoverGenerateResponse,
     ContentHealthOut,
     LoginRequest,
     LoginResponse,
@@ -58,6 +62,94 @@ from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+XAI_IMAGE_MODEL = "grok-imagine-image"
+
+
+def _build_series_cover_prompt(series: Series, recent_post: Post | None = None) -> str:
+    try:
+        content_types = json.loads(series.content_types or "[]")
+    except (TypeError, json.JSONDecodeError):
+        content_types = []
+
+    parts = [
+        "Editorial hero image for a Chinese AI blog series.",
+        f"Series title: {series.title or series.slug}.",
+    ]
+    if (series.description or "").strip():
+        parts.append(f"Description: {series.description.strip()}.")
+    if content_types:
+        parts.append(f"Content types: {', '.join(content_types)}.")
+    if recent_post and (recent_post.title or "").strip():
+        parts.append(f"Representative article: {recent_post.title.strip()}.")
+    parts.append("Wide landscape banner, cinematic composition, layered editorial mood, no text overlay, no watermark.")
+    return " ".join(parts)
+
+
+def _build_topic_cover_prompt(profile: TopicProfile, recent_post: Post | None = None) -> str:
+    aliases = []
+    try:
+        aliases = json.loads(profile.aliases_json or "[]")
+    except (TypeError, json.JSONDecodeError):
+        aliases = []
+
+    parts = [
+        "Editorial hero image for a Chinese AI topic page.",
+        f"Topic: {profile.title or profile.topic_key}.",
+    ]
+    if (profile.description or "").strip():
+        parts.append(f"Description: {profile.description.strip()}.")
+    if aliases:
+        parts.append(f"Aliases: {', '.join(str(item).strip() for item in aliases if str(item).strip())}.")
+    if recent_post and (recent_post.title or "").strip():
+        parts.append(f"Recent article: {recent_post.title.strip()}.")
+    if recent_post and (recent_post.summary or "").strip():
+        parts.append(f"Recent summary: {recent_post.summary.strip()}.")
+    parts.append("Wide landscape banner, cinematic composition, subtle futuristic atmosphere, no text overlay, no watermark.")
+    return " ".join(parts)
+
+
+def _generate_grok_image_url(prompt: str) -> str:
+    api_key = clean_env("XAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing XAI_API_KEY")
+
+    response = httpx.post(
+        "https://api.x.ai/v1/images/generations",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": XAI_IMAGE_MODEL,
+            "prompt": f"Wide landscape banner image, cinematic, high quality: {prompt}",
+            "n": 1,
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    image_url = (response.json().get("data") or [{}])[0].get("url")
+    if not image_url:
+        raise RuntimeError("Grok returned no image URL")
+    return image_url
+
+
+def _download_image_bytes(image_url: str) -> tuple[bytes, str]:
+    response = httpx.get(
+        image_url,
+        headers={"User-Agent": "AIBlogCoverBot/1.0"},
+        timeout=30,
+        follow_redirects=True,
+    )
+    response.raise_for_status()
+    content_type = (response.headers.get("content-type") or "image/png").split(";")[0].strip() or "image/png"
+    return response.content, content_type
+
+
+def _generate_cover_asset(prompt: str, filename_hint: str) -> str:
+    image_url = _generate_grok_image_url(prompt)
+    contents, content_type = _download_image_bytes(image_url)
+    stored = save_upload(filename_hint, contents, content_type)
+    return stored.url
 
 
 def _post_to_dict(post: Post) -> dict:
@@ -244,10 +336,15 @@ def _topic_profile_to_dict(profile: TopicProfile, db: Session) -> dict:
         "id": profile.id,
         "topic_key": profile.topic_key,
         "title": profile.title or "",
+        "display_title": (profile.title or profile.topic_key or "").strip(),
         "description": profile.description or "",
+        "cover_image": profile.cover_image or "",
+        "aliases": _safe_json_list(profile.aliases_json),
         "focus_points": _safe_json_list(profile.focus_points_json),
         "content_types": _safe_json_list(profile.content_types_json),
         "series_slug": profile.series_slug,
+        "is_featured": bool(profile.is_featured),
+        "sort_order": profile.sort_order or 0,
         "is_active": bool(profile.is_active),
         "priority": profile.priority or 0,
         "post_count": post_count,
@@ -310,9 +407,13 @@ def _upsert_topic_metadata_payload(
             topic_key=resolved_topic_key,
             title=topic_title,
             description=topic_description,
+            cover_image="",
+            aliases_json=json.dumps([], ensure_ascii=False),
             focus_points_json=json.dumps([], ensure_ascii=False),
             content_types_json=_merge_topic_content_types("[]", post.content_type),
             series_slug=post.series_slug,
+            is_featured=False,
+            sort_order=0,
             is_active=True,
             priority=1,
         )
@@ -963,11 +1064,15 @@ def admin_create_topic_profile(
 
     profile = TopicProfile(
         topic_key=body.topic_key,
-        title=body.title or body.topic_key,
+        title=(body.display_title or body.title or body.topic_key),
         description=body.description or "",
+        cover_image=body.cover_image or "",
+        aliases_json=json.dumps(body.aliases, ensure_ascii=False),
         focus_points_json=json.dumps(body.focus_points, ensure_ascii=False),
         content_types_json=json.dumps(body.content_types, ensure_ascii=False),
         series_slug=body.series_slug,
+        is_featured=body.is_featured,
+        sort_order=body.sort_order,
         is_active=body.is_active,
         priority=body.priority,
     )
@@ -997,14 +1102,24 @@ def admin_update_topic_profile(
         profile.topic_key = body.topic_key
     if body.title is not None:
         profile.title = body.title
+    if body.display_title is not None:
+        profile.title = body.display_title
     if body.description is not None:
         profile.description = body.description
+    if body.cover_image is not None:
+        profile.cover_image = body.cover_image
+    if body.aliases is not None:
+        profile.aliases_json = json.dumps(body.aliases, ensure_ascii=False)
     if body.focus_points is not None:
         profile.focus_points_json = json.dumps(body.focus_points, ensure_ascii=False)
     if body.content_types is not None:
         profile.content_types_json = json.dumps(body.content_types, ensure_ascii=False)
     if body.series_slug is not None:
         profile.series_slug = body.series_slug
+    if body.is_featured is not None:
+        profile.is_featured = body.is_featured
+    if body.sort_order is not None:
+        profile.sort_order = body.sort_order
     if body.is_active is not None:
         profile.is_active = body.is_active
     if body.priority is not None:
@@ -1075,6 +1190,136 @@ def get_topic_health(
     items.sort(key=lambda item: (item["post_count"], item["avg_quality_score"] or -1), reverse=True)
     items = items[:limit]
     return {"items": items, "total": len(items)}
+
+
+@router.post("/series/{series_id}/generate-cover", response_model=CoverGenerateResponse)
+def admin_generate_series_cover(
+    series_id: int,
+    body: CoverGenerateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    series = db.execute(select(Series).where(Series.id == series_id)).scalar_one_or_none()
+    if series is None:
+        raise HTTPException(status_code=404, detail="Series not found")
+
+    try:
+        image_url = (body.image_url or "").strip()
+        if image_url:
+            series.cover_image = image_url
+        else:
+            if (series.cover_image or "").strip() and not body.overwrite:
+                return {
+                    "id": series.id,
+                    "cover_image": series.cover_image or "",
+                    "generated": False,
+                    "error": "Cover already exists",
+                }
+            recent_post = db.execute(
+                select(Post)
+                .where(Post.series_slug == series.slug)
+                .order_by(Post.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            prompt = (body.prompt or "").strip() or _build_series_cover_prompt(series, recent_post)
+            if not prompt:
+                return {
+                    "id": series.id,
+                    "cover_image": series.cover_image or "",
+                    "generated": False,
+                    "error": "No prompt available",
+                }
+            series.cover_image = _generate_cover_asset(prompt, f"series-{series.slug}.png")
+
+        if not (series.cover_image or "").strip():
+            return {
+                "id": series.id,
+                "cover_image": series.cover_image or "",
+                "generated": False,
+                "error": "Cover generation failed",
+            }
+        series.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(series)
+        return {
+            "id": series.id,
+            "cover_image": series.cover_image or "",
+            "generated": True,
+            "error": "",
+        }
+    except Exception as exc:
+        db.rollback()
+        return {
+            "id": series.id,
+            "cover_image": series.cover_image or "",
+            "generated": False,
+            "error": str(exc),
+        }
+
+
+@router.post("/topic-profiles/{profile_id}/generate-cover", response_model=CoverGenerateResponse)
+def admin_generate_topic_profile_cover(
+    profile_id: int,
+    body: CoverGenerateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    profile = db.execute(select(TopicProfile).where(TopicProfile.id == profile_id)).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Topic profile not found")
+
+    try:
+        image_url = (body.image_url or "").strip()
+        if image_url:
+            profile.cover_image = image_url
+        else:
+            if (profile.cover_image or "").strip() and not body.overwrite:
+                return {
+                    "id": profile.id,
+                    "cover_image": profile.cover_image or "",
+                    "generated": False,
+                    "error": "Cover already exists",
+                }
+            recent_post = db.execute(
+                select(Post)
+                .where(Post.topic_key == profile.topic_key)
+                .order_by(Post.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            prompt = (body.prompt or "").strip() or _build_topic_cover_prompt(profile, recent_post)
+            if not prompt:
+                return {
+                    "id": profile.id,
+                    "cover_image": profile.cover_image or "",
+                    "generated": False,
+                    "error": "No prompt available",
+                }
+            profile.cover_image = _generate_cover_asset(prompt, f"topic-{profile.topic_key}.png")
+
+        if not (profile.cover_image or "").strip():
+            return {
+                "id": profile.id,
+                "cover_image": profile.cover_image or "",
+                "generated": False,
+                "error": "Cover generation failed",
+            }
+        profile.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(profile)
+        return {
+            "id": profile.id,
+            "cover_image": profile.cover_image or "",
+            "generated": True,
+            "error": "",
+        }
+    except Exception as exc:
+        db.rollback()
+        return {
+            "id": profile.id,
+            "cover_image": profile.cover_image or "",
+            "generated": False,
+            "error": str(exc),
+        }
 
 
 @router.get("/search-insights", response_model=SearchInsightsOut)

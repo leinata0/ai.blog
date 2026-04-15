@@ -59,6 +59,16 @@
     "rules_path": "./series-assignment.rules.json",
     "default_series_slug": ""
   },
+  "topic_presentation": {
+    "enabled": true,
+    "rules_path": "./topic-presentation.rules.json",
+    "default_presentation": {
+      "zh_title_template": "{topic}",
+      "zh_subtitle_template": "{thesis}",
+      "zh_description_template": "围绕 {topic} 的连续追踪，关注影响、取舍与落地进展。",
+      "zh_tags": ["AI追踪", "主题线"]
+    }
+  },
   "blogwatcher_enabled": true,
   "blogwatcher_sources": [
     {

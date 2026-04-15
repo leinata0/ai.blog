@@ -24,9 +24,9 @@ export default function FollowTopicButton({ topic, onChange }) {
     <button
       type="button"
       onClick={handleClick}
-      className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold"
+      className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5"
       style={{
-        backgroundColor: followed ? 'rgba(37,99,235,0.12)' : 'var(--accent-soft)',
+        backgroundColor: followed ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)',
         color: followed ? '#2563eb' : 'var(--accent)',
       }}
     >

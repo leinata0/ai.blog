@@ -180,10 +180,13 @@ export default function AdminDashboardPage() {
         style={{ backdropFilter: 'blur(10px)', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
       >
         <div className="flex items-center justify-between py-4">
-          <h1 className="text-xl font-semibold text-[var(--accent)]">博客编辑运营台</h1>
+          <div>
+            <h1 className="text-xl font-semibold text-[var(--accent)]">博客编辑运营台</h1>
+            <p className="mt-1 text-sm text-[var(--text-faint)]">统一管理文章、系列、主题、质量与发布状态。</p>
+          </div>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200"
+            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
           >
             <LogOut size={16} />
             退出登录

@@ -59,7 +59,7 @@ function deriveQualityInsights(payload = {}) {
         : overallScore !== null
           ? Math.max(52, overallScore - 3)
           : null
-    )
+    ),
   )
   const sameTopicCount = Array.isArray(payload.same_topic_posts) ? payload.same_topic_posts.length : 0
   const hasSourceSummary = Boolean(String(payload.source_summary || '').trim())
@@ -78,16 +78,16 @@ function deriveQualityInsights(payload = {}) {
     structureScore === null
       ? '暂时缺少结构评分。'
       : structureScore >= 85
-        ? '结构区块较完整，阅读路径清晰。'
+        ? '结构层次完整，阅读路径清晰。'
         : structureScore >= 70
-          ? '结构基本稳定，但仍有细节可继续优化。'
-          : '结构完整度一般，后续可继续补强章节层次。'
+          ? '结构基本稳定，但仍有细节可以继续优化。'
+          : '结构完整度一般，后续适合补强章节层次。'
 
   const sourceSummary =
     sourceScore === null
       ? '当前缺少来源计数信息。'
       : sourceScore >= 85
-        ? '来源覆盖较充分，适合继续沿这条主线扩展。'
+        ? '来源覆盖比较充分，适合沿这条主线继续扩展。'
         : sourceScore >= 70
           ? '来源基础可用，但仍可补充更多高质量视角。'
           : '来源支撑偏薄，后续更适合增加官方或一手信号。'
@@ -96,9 +96,9 @@ function deriveQualityInsights(payload = {}) {
     analysisScore === null
       ? '当前缺少分析深度信号。'
       : analysisScore >= 85
-        ? '正文具备较好的分析展开空间，不止停留在信息罗列。'
+        ? '正文具备较好的分析展开空间，不只是停留在信息罗列。'
         : analysisScore >= 70
-          ? '正文已有一定分析，但仍可继续增强背景和取舍判断。'
+          ? '正文已经有一定分析，但仍可继续增强背景和取舍判断。'
           : '正文分析密度偏弱，更适合后续继续补深。'
 
   const followupRecommended =
@@ -107,7 +107,7 @@ function deriveQualityInsights(payload = {}) {
 
   const followupSummary = followupRecommended
     ? '这条主线值得继续追踪，后续可以串联同主题和同系列文章。'
-    : '这篇内容更适合作为一次性观察点，后续是否追踪取决于新信号。'
+    : '这篇内容更适合作为一次性观察点，是否继续追踪取决于后续新信号。'
 
   return {
     has_snapshot: Boolean(snapshot),
@@ -159,9 +159,9 @@ export function normalizePost(payload = {}) {
 export function normalizePostList(payload) {
   return {
     items: Array.isArray(payload?.items) ? payload.items.map((item) => normalizePost(item)) : [],
-    total: payload.total ?? 0,
-    page: payload.page ?? 1,
-    page_size: payload.page_size ?? 10,
+    total: payload?.total ?? 0,
+    page: payload?.page ?? 1,
+    page_size: payload?.page_size ?? 10,
   }
 }
 
@@ -224,6 +224,7 @@ function normalizeSeries(payload = {}) {
 }
 
 function normalizeTopic(payload = {}) {
+  const profile = payload.profile && typeof payload.profile === 'object' ? payload.profile : {}
   const topicPosts = Array.isArray(payload.posts)
     ? payload.posts
     : Array.isArray(payload.timeline)
@@ -231,23 +232,36 @@ function normalizeTopic(payload = {}) {
       : Array.isArray(payload.recent_posts)
         ? payload.recent_posts
         : []
+
   return {
-    topic_key: payload.topic_key ?? '',
-    display_title: payload.display_title ?? payload.title ?? payload.topic_key ?? '',
-    description: payload.description ?? '',
-    cover_image: payload.cover_image ?? '',
-    aliases: Array.isArray(payload.aliases) ? payload.aliases : Array.isArray(payload.aliases_json) ? payload.aliases_json : [],
-    is_featured: Boolean(payload.is_featured),
-    sort_order: payload.sort_order ?? 0,
-    latest_post_at: payload.latest_post_at ?? null,
+    topic_key: payload.topic_key ?? profile.topic_key ?? '',
+    display_title: payload.display_title ?? profile.display_title ?? payload.title ?? profile.title ?? payload.topic_key ?? profile.topic_key ?? '',
+    title: payload.title ?? profile.title ?? '',
+    description: payload.description ?? profile.description ?? '',
+    cover_image: payload.cover_image ?? profile.cover_image ?? '',
+    aliases:
+      Array.isArray(payload.aliases)
+        ? payload.aliases
+        : Array.isArray(profile.aliases)
+          ? profile.aliases
+          : Array.isArray(payload.aliases_json)
+            ? payload.aliases_json
+            : Array.isArray(profile.aliases_json)
+              ? profile.aliases_json
+              : [],
+    is_featured: Boolean(payload.is_featured ?? profile.is_featured),
+    sort_order: payload.sort_order ?? profile.sort_order ?? 0,
+    latest_post_at: payload.latest_post_at ?? profile.latest_post_at ?? null,
     post_count: payload.post_count ?? 0,
     source_count: payload.source_count ?? 0,
     avg_quality_score: payload.avg_quality_score ?? null,
     followup_recommended: payload.followup_recommended ?? null,
+    series_slug: payload.series_slug ?? profile.series_slug ?? '',
     posts: topicPosts.map((post) => normalizePost(post)),
     related_series: Array.isArray(payload.related_series) ? payload.related_series.map((series) => normalizeSeries(series)) : [],
     timeline: topicPosts.map((post) => normalizePost(post)),
     quality_summary: payload.quality_summary ?? null,
+    profile,
   }
 }
 

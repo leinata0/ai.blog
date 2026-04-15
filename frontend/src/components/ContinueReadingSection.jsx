@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
 
+import { getContentTypeLabel } from '../utils/contentPresentation'
+
 export default function ContinueReadingSection({
   items = [],
   title = '继续阅读',
@@ -7,7 +9,7 @@ export default function ContinueReadingSection({
 }) {
   return (
     <section
-      className="rounded-3xl px-5 py-5"
+      className="editorial-panel rounded-3xl px-5 py-5"
       style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
     >
       <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
@@ -17,12 +19,12 @@ export default function ContinueReadingSection({
             <Link
               key={item.slug}
               to={`/posts/${item.slug}`}
-              className="block rounded-2xl px-4 py-3 transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
+              className="block rounded-2xl border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
             >
               <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
               <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
-                {item.content_type === 'weekly_review' ? '周报' : '日报'}
-                {item.topic_key ? ` · ${item.topic_key}` : ''}
+                {getContentTypeLabel(item.content_type)}
+                {item.topic_key ? ` · ${item.topic_display_title || item.topic_key}` : ''}
               </div>
             </Link>
           ))}
