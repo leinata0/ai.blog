@@ -1,12 +1,36 @@
 #!/usr/bin/env node
 
-import { buildQualitySnapshotPayload } from './auto-blog.mjs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
+
+import { buildQualitySnapshotPayload } from './auto-blog.mjs'
 
 const BLOG_API_BASE = (process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com').replace(/\/$/, '')
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+const REFERENCES_HEADING_RE = /^##\s*(references?|(?:\u53c2\u8003\u6765\u6e90))\s*$/im
+const IMAGE_SOURCES_HEADING_RE = /^##\s*(image sources?|(?:\u56fe\u7247\u6765\u6e90))\s*$/im
+const NEXT_HEADING_RE = /^##\s+/
+const MARKDOWN_LINK_RE = /\[[^\]]*]\((https?:\/\/[^)\s]+)\)/gi
+const RAW_URL_RE = /https?:\/\/[^\s)>]+/gi
+const BULLET_PREFIX_RE = /^\s*(?:[-*+]|\d+\.)\s*/
+const HIGH_QUALITY_SOURCE_HINTS = [
+  'official',
+  'official_blog',
+  'company_blog',
+  'research',
+  'paper',
+  'arxiv',
+  'openai',
+  'anthropic',
+  'google',
+  'meta',
+  'microsoft',
+  'deepmind',
+  'huggingface',
+  'semianalysis',
+  'stratechery',
+]
 
 export function parseBackfillArgs(argv = process.argv.slice(2)) {
   const options = {
@@ -37,8 +61,8 @@ export function parseBackfillArgs(argv = process.argv.slice(2)) {
 function collectMissingSections(post) {
   const content = String(post?.content_md || '')
   const checks = [
-    { key: 'references', match: /^##\s*(references|参考来源)/im },
-    { key: 'image_sources', match: /^##\s*(image sources|图片来源)/im },
+    { key: 'references', match: REFERENCES_HEADING_RE },
+    { key: 'image_sources', match: IMAGE_SOURCES_HEADING_RE },
   ]
   return checks
     .filter((item) => !item.match.test(content))
@@ -48,9 +72,9 @@ function collectMissingSections(post) {
 function estimateAnalysisSignals(contentMd) {
   const text = String(contentMd || '').toLowerCase()
   const hints = [
-    '影响',
-    '取舍',
-    '对比',
+    '\u5f71\u54cd',
+    '\u53d6\u820d',
+    '\u5bf9\u6bd4',
     'trade-off',
     'impact',
     'however',
@@ -60,10 +84,88 @@ function estimateAnalysisSignals(contentMd) {
   return hints.reduce((count, hint) => count + (text.includes(hint) ? 1 : 0), 0)
 }
 
+function extractSectionBody(contentMd, headingPattern) {
+  const lines = String(contentMd || '').split(/\r?\n/)
+  const startIndex = lines.findIndex((line) => headingPattern.test(line.trim()))
+  if (startIndex < 0) return ''
+
+  const body = []
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (NEXT_HEADING_RE.test(line.trim())) break
+    body.push(line)
+  }
+  return body.join('\n').trim()
+}
+
+function normalizeSourceEntry(value) {
+  return String(value || '')
+    .replace(BULLET_PREFIX_RE, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function containsMarkdownLink(value) {
+  return /\[[^\]]*]\((https?:\/\/[^)\s]+)\)/i.test(String(value || ''))
+}
+
+function containsRawUrl(value) {
+  return /https?:\/\/[^\s)>]+/i.test(String(value || ''))
+}
+
+function looksHighQualitySource(value) {
+  const text = String(value || '').toLowerCase()
+  return HIGH_QUALITY_SOURCE_HINTS.some((hint) => text.includes(hint))
+}
+
+export function inferReferenceMetrics(post) {
+  const section = extractSectionBody(post?.content_md || '', REFERENCES_HEADING_RE)
+  if (!section) {
+    return { sourceCount: 0, highQualitySourceCount: 0, entries: [] }
+  }
+
+  const linkEntries = new Set()
+  for (const match of section.matchAll(MARKDOWN_LINK_RE)) {
+    const url = normalizeSourceEntry(match[1])
+    if (url) linkEntries.add(url)
+  }
+  for (const match of section.matchAll(RAW_URL_RE)) {
+    const url = normalizeSourceEntry(match[0])
+    if (url) linkEntries.add(url)
+  }
+
+  const lineEntries = section
+    .split(/\r?\n/)
+    .map((line) => normalizeSourceEntry(line))
+    .filter(Boolean)
+    .filter((line) => !/^>\s*/.test(line))
+    .filter((line) => !containsMarkdownLink(line))
+    .filter((line) => !containsRawUrl(line))
+
+  const entries = linkEntries.size > 0
+    ? [...linkEntries]
+    : [...new Set(lineEntries)]
+  const sourceCount = entries.length
+  const highQualitySourceCount = entries.filter((entry) => looksHighQualitySource(entry)).length
+
+  return {
+    sourceCount,
+    highQualitySourceCount: Math.min(sourceCount, highQualitySourceCount),
+    entries,
+  }
+}
+
 export function buildBackfillGate(post) {
   const contentMd = String(post?.content_md || '')
-  const sourceCount = Number(post?.source_count || 0)
-  const highQualitySourceCount = Math.max(0, Math.min(sourceCount, Math.round(sourceCount * 0.5)))
+  const inferred = inferReferenceMetrics(post)
+  const sourceCount = Math.max(Number(post?.source_count || 0), inferred.sourceCount)
+  const highQualitySourceCount = Math.max(
+    0,
+    Math.min(
+      sourceCount,
+      inferred.highQualitySourceCount || (sourceCount > 0 ? Math.max(1, Math.round(sourceCount * 0.5)) : 0)
+    )
+  )
   return {
     passed: true,
     reasons: [],
