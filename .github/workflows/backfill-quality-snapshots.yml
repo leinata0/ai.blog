@@ -1,0 +1,67 @@
+name: Backfill Quality Snapshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run without writing quality snapshots
+        required: false
+        default: false
+        type: boolean
+      force:
+        description: Recompute even when a quality snapshot already exists
+        required: false
+        default: false
+        type: boolean
+      limit:
+        description: Number of posts fetched per page
+        required: false
+        default: '50'
+        type: string
+      offset:
+        description: Starting offset for pagination
+        required: false
+        default: '0'
+        type: string
+      max_pages:
+        description: Maximum number of pages to process
+        required: false
+        default: '20'
+        type: string
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install script dependencies
+        run: cd scripts && npm install
+
+      - name: Check required secrets
+        env:
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
+          echo "Secrets look good."
+
+      - name: Backfill quality snapshots
+        env:
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+        run: |
+          ARGS="--limit=${{ inputs.limit }} --offset=${{ inputs.offset }} --max-pages=${{ inputs.max_pages }}"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          echo "Running: node scripts/backfill-quality-snapshots.mjs $ARGS"
+          node scripts/backfill-quality-snapshots.mjs $ARGS
