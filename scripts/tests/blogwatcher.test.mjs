@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   applySourceDiversity,
+  computeTopicMatchScore,
   dedupeResearchItems,
   filterResearchItemsByPublishedWindow,
   parseFeedXml,
@@ -54,6 +55,20 @@ test('scoreResearchItem favors official sources and topic matches', () => {
   }, 'model')
 
   assert.ok(scored > 1.2)
+})
+
+test('computeTopicMatchScore rejects unrelated filler and rewards real topic overlap', () => {
+  const matched = computeTopicMatchScore({
+    title: 'OpenAI updates its Agents SDK to help enterprises build safer agents',
+    summary: 'The update adds enterprise controls and safer agent execution.',
+  }, 'OpenAI Agents SDK')
+  const unrelated = computeTopicMatchScore({
+    title: 'Backpack review for commuters',
+    summary: 'A hardware carry review for everyday commute.',
+  }, 'OpenAI Agents SDK')
+
+  assert.ok(matched > 0.5)
+  assert.equal(unrelated, 0)
 })
 
 test('resolveSourceDiversityConfig returns the default soft-diversity policy', () => {

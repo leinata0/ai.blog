@@ -1405,6 +1405,33 @@ function resolveGateProfile(config = {}, contentType = '') {
   return root
 }
 
+export function assessResearchPackSourceSupport({ researchPack, gateProfile }) {
+  const sources = dedupeResearchItems(Array.isArray(researchPack?.sources) ? researchPack.sources : [])
+  const minSources = Math.max(0, Number(gateProfile?.min_sources || 0))
+  const minHighQualitySources = Math.max(0, Number(gateProfile?.min_high_quality_sources || 0))
+  const highQualityTypes = new Set(
+    Array.isArray(gateProfile?.high_quality_source_types) ? gateProfile.high_quality_source_types : []
+  )
+  const highQualitySources = sources.filter((item) => highQualityTypes.has(item?.source_type))
+  const reasons = []
+
+  if (sources.length < minSources) {
+    reasons.push(`sources:${sources.length}<${minSources}`)
+  }
+  if (highQualitySources.length < minHighQualitySources) {
+    reasons.push(`high_quality_sources:${highQualitySources.length}<${minHighQualitySources}`)
+  }
+
+  return {
+    passed: reasons.length === 0,
+    reasons,
+    metrics: {
+      source_count: sources.length,
+      high_quality_source_count: highQualitySources.length,
+    },
+  }
+}
+
 function normalizeSectionBriefs(outline, formatProfile) {
   const byHeading = new Map()
   for (const brief of Array.isArray(outline?.section_briefs) ? outline.section_briefs : []) {
@@ -2485,15 +2512,15 @@ async function runDailyMode(config, cliOptions) {
     publishedTopicKeys,
   })
 
-  const selectedTopics = selection.queue.slice(0, selection.target_count)
   const token = runtime.dryRun ? null : await getAdminToken()
   const candidateTopics = clusteredTopics.map((topic) => createTopicSnapshot(topic, {
     content_type: workflow.content_type,
   }))
   const skippedTopics = []
   const results = []
+  const gateProfile = resolveGateProfile(config, workflow.content_type)
 
-  if (selectedTopics.length === 0) {
+  if (selection.queue.length === 0) {
     console.log('No eligible topics to publish for this coverage date.')
     if (!runtime.dryRun) {
       await reportPublishingRun(token, {
@@ -2519,7 +2546,9 @@ async function runDailyMode(config, cliOptions) {
     return []
   }
 
-  for (const topic of selectedTopics) {
+  for (const topic of selection.queue) {
+    if (results.length >= selection.target_count) break
+
     const topicBlogItems = runtime.enableBlogwatcherFallback && config.blogwatcher_enabled
       ? await runBlogwatcher({
         config,
@@ -2531,6 +2560,18 @@ async function runDailyMode(config, cliOptions) {
       })
       : []
     const researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems: [] })
+    const support = assessResearchPackSourceSupport({ researchPack, gateProfile })
+    if (!support.passed) {
+      console.log(`Skipping topic ${topic.topic_key}: insufficient source support (${support.reasons.join(', ')})`)
+      skippedTopics.push(createTopicSnapshot(topic, {
+        content_type: workflow.content_type,
+        published_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
+        reason: `insufficient_source_support:${support.reasons.join(',')}`,
+        status: 'skipped',
+      }))
+      continue
+    }
+
     const outline = await chooseTopicDetailed({
       researchPack,
       formatProfile,
@@ -2556,19 +2597,35 @@ async function runDailyMode(config, cliOptions) {
       continue
     }
 
-    const artifact = await buildPublishablePost({
-      outline,
-      researchPack,
-      formatProfile,
-      config,
-      today: coverageDate,
-      metadata,
-      fixedSlug: slug,
-      workflow: {
-        ...workflow,
-        slug,
-      },
-    })
+    let artifact = null
+    try {
+      artifact = await buildPublishablePost({
+        outline,
+        researchPack,
+        formatProfile,
+        config,
+        today: coverageDate,
+        metadata,
+        fixedSlug: slug,
+        workflow: {
+          ...workflow,
+          slug,
+        },
+      })
+    } catch (error) {
+      if (!String(error?.message || '').startsWith('Quality gate failed after repair attempts:')) {
+        throw error
+      }
+
+      console.log(`Skipping topic ${topic.topic_key}: ${error.message}`)
+      skippedTopics.push(createTopicSnapshot(topic, {
+        content_type: workflow.content_type,
+        published_mode: metadata.published_mode,
+        reason: `quality_gate_failed:${error.message.replace(/^Quality gate failed after repair attempts:\s*/i, '')}`,
+        status: 'skipped',
+      }))
+      continue
+    }
 
     let coverImage = ''
     if (XAI_API_KEY && token && artifact.outline.cover_prompt) {

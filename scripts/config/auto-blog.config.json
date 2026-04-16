@@ -76,7 +76,7 @@
       "name": "MIT News AI",
       "tag": "ResearchNews",
       "lang": "en",
-      "source_type": "industry_media",
+      "source_type": "official_blog",
       "quality_weight": 0.78,
       "channel_bucket": "research_media",
       "source_group": "mit-news"
@@ -86,7 +86,7 @@
       "name": "MIT Technology Review AI",
       "tag": "ResearchNews",
       "lang": "en",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "quality_weight": 0.76,
       "channel_bucket": "research_media",
       "source_group": "mit-technology-review"
@@ -96,7 +96,7 @@
       "name": "TechCrunch AI",
       "tag": "TechCrunch",
       "lang": "en",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "quality_weight": 0.68,
       "channel_bucket": "global_media",
       "source_group": "techcrunch"
@@ -106,7 +106,7 @@
       "name": "AI News",
       "tag": "GlobalMedia",
       "lang": "en",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "quality_weight": 0.65,
       "channel_bucket": "global_media",
       "source_group": "ai-news"
@@ -136,7 +136,7 @@
       "name": "雷锋网",
       "tag": "ChineseAI",
       "lang": "zh",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "quality_weight": 0.7,
       "channel_bucket": "cn_ai_media",
       "source_group": "leiphone"
@@ -146,7 +146,7 @@
       "name": "量子位",
       "tag": "ChineseAI",
       "lang": "zh",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "quality_weight": 0.69,
       "channel_bucket": "cn_ai_media",
       "source_group": "qbitai"
@@ -310,7 +310,7 @@
     {
       "name": "MIT Technology Review AI",
       "feed_url": "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "lang": "en",
       "quality_weight": 0.76,
       "channel_bucket": "research_media",
@@ -319,7 +319,7 @@
     {
       "name": "Leiphone",
       "feed_url": "https://www.leiphone.com/feed",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "lang": "zh",
       "quality_weight": 0.7,
       "channel_bucket": "cn_ai_media",
@@ -328,7 +328,7 @@
     {
       "name": "QbitAI",
       "feed_url": "https://www.qbitai.com/feed",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "lang": "zh",
       "quality_weight": 0.69,
       "channel_bucket": "cn_ai_media",
@@ -337,7 +337,7 @@
     {
       "name": "TechCrunch AI",
       "feed_url": "https://techcrunch.com/category/artificial-intelligence/feed/",
-      "source_type": "industry_media",
+      "source_type": "independent_blog",
       "lang": "en",
       "quality_weight": 0.68,
       "channel_bucket": "global_media",

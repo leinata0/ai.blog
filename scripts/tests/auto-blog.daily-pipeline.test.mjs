@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  assessResearchPackSourceSupport,
   buildTopicKey,
   clusterResearchItemsByTopic,
   createDailyBriefFormatProfile,
@@ -171,4 +172,42 @@ test('selectTopicsForPublishing favors diverse topics when source counts are clo
   assert.equal(result.queue[0].topic_key, 'mixed-viewpoints')
   assert.equal(result.queue[2].topic_key, 'below-threshold')
   assert.equal(result.target_count, 2)
+})
+
+test('assessResearchPackSourceSupport blocks thin daily topics before drafting', () => {
+  const support = assessResearchPackSourceSupport({
+    researchPack: {
+      sources: [
+        { source_type: 'industry_media', source_name: 'TechCrunch AI', url: 'https://example.com/a', title: 'A' },
+        { source_type: 'industry_media', source_name: 'QbitAI', url: 'https://example.com/b', title: 'B' },
+      ],
+    },
+    gateProfile: {
+      min_sources: 2,
+      min_high_quality_sources: 1,
+      high_quality_source_types: ['official_blog', 'independent_blog', 'paper'],
+    },
+  })
+
+  assert.equal(support.passed, false)
+  assert.deepEqual(support.reasons, ['high_quality_sources:0<1'])
+})
+
+test('assessResearchPackSourceSupport accepts packs with enough curated support', () => {
+  const support = assessResearchPackSourceSupport({
+    researchPack: {
+      sources: [
+        { source_type: 'industry_media', source_name: '雷锋网', url: 'https://example.com/a', title: 'A' },
+        { source_type: 'independent_blog', source_name: 'QbitAI', url: 'https://example.com/b', title: 'B' },
+      ],
+    },
+    gateProfile: {
+      min_sources: 2,
+      min_high_quality_sources: 1,
+      high_quality_source_types: ['official_blog', 'independent_blog', 'paper'],
+    },
+  })
+
+  assert.equal(support.passed, true)
+  assert.deepEqual(support.reasons, [])
 })

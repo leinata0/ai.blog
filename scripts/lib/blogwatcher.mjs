@@ -13,6 +13,15 @@ const DEFAULT_BUCKET_ORDER = [
   'cn_ai_media',
   'community',
 ]
+const DAILY_TOPIC_MATCH_THRESHOLD = 0.8
+
+const TOPIC_MATCH_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'in', 'into', 'is',
+  'it', 'its', 'of', 'on', 'or', 'that', 'the', 'their', 'this', 'to', 'was', 'were', 'will',
+  'with', 'about', 'after', 'before', 'over', 'under', 'launch', 'launches', 'released',
+  'release', 'announces', 'announced', 'introduces', 'introduce', 'new', 'latest', 'today',
+  'daily', 'report', 'update', 'updates', 'breaking', 'says', 'say',
+])
 
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
@@ -45,6 +54,20 @@ function normalizeBucket(bucket) {
 
 function normalizeSourceGroup(value, fallback = '') {
   return normalizeText(value || fallback).toLowerCase()
+}
+
+function tokenizeTopicText(value) {
+  const raw = normalizeText(value).toLowerCase()
+  const matches = raw.match(/[a-z0-9]{2,}|[\u4e00-\u9fff]{2,}/g) || []
+  return matches
+    .map((token) => token.trim())
+    .filter((token) => token && !TOPIC_MATCH_STOP_WORDS.has(token))
+}
+
+function countTokenOverlap(left, right) {
+  if (left.length === 0 || right.length === 0) return 0
+  const rightSet = new Set(right)
+  return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0)
 }
 
 function compareResearchItems(left, right, rankItem = (item) => Number(item?.score || 0)) {
@@ -125,10 +148,34 @@ export function scoreResearchItem(item, topicHint = '') {
   if (item.source_type === 'official_blog') score += 0.35
   if (item.source_type === 'independent_blog') score += 0.2
   if (item.summary && item.summary.length > 120) score += 0.1
-  if (topicHint && `${item.title} ${item.summary}`.toLowerCase().includes(topicHint.toLowerCase())) {
-    score += 0.15
+  const topicMatchScore = computeTopicMatchScore(item, topicHint)
+  if (topicMatchScore > 0) {
+    score += Math.min(1.2, topicMatchScore)
+  } else if (topicHint) {
+    score -= 0.2
   }
   return Number(score.toFixed(3))
+}
+
+export function computeTopicMatchScore(item, topicHint = '') {
+  const normalizedHint = normalizeText(topicHint).toLowerCase()
+  if (!normalizedHint) return 0
+
+  const hintTokens = tokenizeTopicText(normalizedHint)
+  if (hintTokens.length === 0) return 0
+
+  const titleText = normalizeText(item?.title || '').toLowerCase()
+  const summaryText = normalizeText(item?.summary || '').toLowerCase()
+  if (!titleText && !summaryText) return 0
+
+  const titleTokens = tokenizeTopicText(titleText)
+  const summaryTokens = tokenizeTopicText(summaryText)
+  const titleOverlap = countTokenOverlap(hintTokens, titleTokens)
+  const summaryOverlap = countTokenOverlap(hintTokens, summaryTokens)
+  const titleRatio = titleOverlap > 0 ? titleOverlap / Math.max(1, Math.min(hintTokens.length, 6)) : 0
+  const summaryRatio = summaryOverlap > 0 ? summaryOverlap / Math.max(1, Math.min(hintTokens.length, 8)) : 0
+  const exactPhraseBoost = titleText.includes(normalizedHint) ? 1.8 : 0
+  return Number((exactPhraseBoost + titleOverlap * 0.45 + titleRatio * 0.9 + summaryOverlap * 0.1 + summaryRatio * 0.2).toFixed(3))
 }
 
 export function filterResearchItemsByPublishedWindow(
@@ -312,10 +359,29 @@ export async function runBlogwatcher({
   }
 
   const settled = await Promise.allSettled(plan.sources.map((source) => fetchFeed(source)))
-  const items = settled
+  const scoredItems = settled
     .filter((result) => result.status === 'fulfilled')
     .flatMap((result) => result.value)
-    .map((item) => ({ ...item, score: scoreResearchItem(item, plan.topicHint) }))
+    .map((item) => {
+      const topicMatchScore = computeTopicMatchScore(item, plan.topicHint)
+      return {
+        ...item,
+        topic_match_score: topicMatchScore,
+        score: scoreResearchItem(item, plan.topicHint),
+      }
+    })
+
+  let items = scoredItems
+  if (plan.topicHint) {
+    const matchedItems = scoredItems.filter((item) => Number(item.topic_match_score || 0) >= DAILY_TOPIC_MATCH_THRESHOLD)
+    if (mode !== 'weekly-review') {
+      items = matchedItems
+    } else if (matchedItems.length > 0) {
+      items = matchedItems
+    }
+  }
+
+  if (items.length === 0) return []
 
   const filtered = filterResearchItemsByPublishedWindow(items, {
     coverageDate,
