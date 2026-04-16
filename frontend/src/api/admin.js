@@ -84,6 +84,7 @@ export const fetchAdminSearchInsights = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
   return apiGet(`/api/admin/search-insights${qs ? `?${qs}` : ''}`, { auth: true })
 }
+export const fetchAdminSubscriptionHealth = () => apiGet('/api/admin/subscription-health', { auth: true })
 
 export const upsertAdminPublishingMetadata = (data) =>
   apiPost('/api/admin/publishing-metadata', data, { auth: true })

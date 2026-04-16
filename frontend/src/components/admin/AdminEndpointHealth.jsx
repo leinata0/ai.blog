@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCcw, Rss, ServerCrash } from 'lucide-react'
 
-import { probeAdminEndpointHealth } from '../../api/admin'
+import { fetchAdminSubscriptionHealth, probeAdminEndpointHealth } from '../../api/admin'
 
 function StatCard({ label, value, hint }) {
   return (
@@ -44,6 +44,7 @@ function getStatusTone(item) {
 
 export default function AdminEndpointHealth() {
   const [data, setData] = useState(null)
+  const [subscriptionHealth, setSubscriptionHealth] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -51,10 +52,18 @@ export default function AdminEndpointHealth() {
     setLoading(true)
     setError('')
     try {
-      const result = await probeAdminEndpointHealth()
-      setData(result)
+      const [probeResult, subscriptionResult] = await Promise.allSettled([
+        probeAdminEndpointHealth(),
+        fetchAdminSubscriptionHealth(),
+      ])
+      setData(probeResult.status === 'fulfilled' ? probeResult.value : null)
+      setSubscriptionHealth(subscriptionResult.status === 'fulfilled' ? subscriptionResult.value : null)
+      if (probeResult.status === 'rejected' && subscriptionResult.status === 'rejected') {
+        throw new Error('探测接口与订阅健康状态时失败')
+      }
     } catch (err) {
       setData(null)
+      setSubscriptionHealth(null)
       setError(err?.message || '探测接口与订阅健康状态时失败')
     } finally {
       setLoading(false)
@@ -77,7 +86,7 @@ export default function AdminEndpointHealth() {
         <div>
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">接口与订阅健康</h2>
           <p className="mt-1 text-sm text-[var(--text-faint)]">
-            直接从浏览器探测公开接口和 RSS 路径，第一时间发现 404、超时和转发失效。
+            这里同时展示浏览器侧的公开接口探测结果，以及后端运行时的订阅配置状态。
           </p>
         </div>
         <button
@@ -110,6 +119,58 @@ export default function AdminEndpointHealth() {
           最近检查时间：{new Date(data.checked_at).toLocaleString('zh-CN')}
         </div>
       ) : null}
+
+      <section data-ui="admin-subscription-health" className="mt-6 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-5">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">订阅配置</h3>
+        <div className="mt-4 grid gap-4 xl:grid-cols-3">
+          {[
+            { key: 'email', label: '邮件订阅' },
+            { key: 'web_push', label: '浏览器提醒' },
+            { key: 'wecom', label: '企业微信机器人' },
+          ].map(({ key, label }) => {
+            const item = subscriptionHealth?.[key]
+            const ready = Boolean(item?.configured)
+            return (
+              <article
+                key={key}
+                data-ui={`subscription-health-${key}`}
+                className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-4"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">{label}</div>
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
+                      ready ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                    }`}
+                  >
+                    {ready ? '已接入' : '待配置'}
+                  </span>
+                </div>
+                <div className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+                  {item?.message || '暂时还没有订阅配置诊断信息。'}
+                </div>
+                {item?.missing_env?.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {item.missing_env.map((envName) => (
+                      <span
+                        key={`${key}-${envName}`}
+                        className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-medium text-[var(--text-faint)]"
+                      >
+                        {envName}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {key === 'web_push' ? (
+                  <div className="mt-3 text-xs text-[var(--text-faint)]">
+                    公钥状态：{item?.has_public_key ? '已检测到 VAPID 公钥' : '未检测到 VAPID 公钥'}
+                  </div>
+                ) : null}
+              </article>
+            )
+          })}
+        </div>
+      </section>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
         {(data?.items || []).map((item) => {

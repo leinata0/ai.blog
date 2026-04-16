@@ -708,6 +708,20 @@ class SubscriptionStatusOut(BaseModel):
     web_push_public_key: str = ""
 
 
+class SubscriptionChannelHealthOut(BaseModel):
+    configured: bool = False
+    missing_env: list[str] = Field(default_factory=list)
+    has_public_key: bool | None = None
+    message: str = ""
+
+
+class SubscriptionHealthOut(BaseModel):
+    checked_at: datetime | None = None
+    email: SubscriptionChannelHealthOut
+    web_push: SubscriptionChannelHealthOut
+    wecom: SubscriptionChannelHealthOut
+
+
 class EmailSubscriptionRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=255)
     content_types: list[str] = Field(default_factory=lambda: ["all"])

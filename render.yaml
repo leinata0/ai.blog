@@ -31,6 +31,8 @@ services:
         sync: false
       - key: R2_REGION
         value: auto
+      # 订阅通知相关变量不会从 GitHub Secret 自动同步到运行时；
+      # 需要在 Render 后端服务环境变量中手动填写并重新部署。
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM

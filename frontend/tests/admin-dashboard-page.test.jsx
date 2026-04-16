@@ -117,6 +117,27 @@ const mocks = vi.hoisted(() => ({
       ],
     })
   ),
+  fetchSubscriptionHealth: vi.fn(() =>
+    Promise.resolve({
+      checked_at: '2026-04-16T01:00:00.000Z',
+      email: {
+        configured: false,
+        missing_env: ['RESEND_API_KEY', 'EMAIL_FROM'],
+        message: '邮件订阅未完成配置。',
+      },
+      web_push: {
+        configured: true,
+        missing_env: [],
+        has_public_key: true,
+        message: '浏览器提醒已接入。',
+      },
+      wecom: {
+        configured: false,
+        missing_env: ['WECOM_WEBHOOK_URLS'],
+        message: '企业微信机器人当前未配置。',
+      },
+    })
+  ),
 }))
 
 vi.mock('../src/api/admin', () => ({
@@ -149,6 +170,7 @@ vi.mock('../src/api/admin', () => ({
   fetchAdminTopicHealth: mocks.fetchTopicHealth,
   fetchAdminSearchInsights: mocks.fetchSearchInsights,
   probeAdminEndpointHealth: mocks.probeEndpointHealth,
+  fetchAdminSubscriptionHealth: mocks.fetchSubscriptionHealth,
 }))
 
 vi.mock('../src/api/auth', async () => {
@@ -177,7 +199,7 @@ it('renders the posts tab by default', async () => {
   )
 
   expect(await screen.findByText('OpenAI released a new model')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '文章管理' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /文章管理/ })).toBeInTheDocument()
 })
 
 it('opens topic management, topic health, and search insights tabs', async () => {
@@ -189,21 +211,21 @@ it('opens topic management, topic health, and search insights tabs', async () =>
 
   await screen.findByText('OpenAI released a new model')
 
-  await userEvent.click(screen.getByRole('button', { name: '主题管理' }))
+  await userEvent.click(screen.getByRole('button', { name: /主题管理/ }))
   expect(await screen.findByText('OpenAI 新模型')).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-topic-profiles"]')).toBeTruthy()
 
-  await userEvent.click(screen.getByRole('button', { name: '主题健康' }))
-  expect(await screen.findByText('平均质量分')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /主题健康/ }))
+  expect(await screen.findByText(/平均质量分/)).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-topic-health"]')).toBeTruthy()
 
-  await userEvent.click(screen.getByRole('button', { name: '搜索洞察' }))
+  await userEvent.click(screen.getByRole('button', { name: /搜索洞察/ }))
   expect(await screen.findByText('OpenAI')).toBeInTheDocument()
   expect(await screen.findByText('Mamba 2')).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-search-insights"]')).toBeTruthy()
 })
 
-it('opens endpoint health tab and renders probe results', async () => {
+it('opens endpoint health tab and renders probe and subscription results', async () => {
   render(
     <MemoryRouter>
       <AdminDashboardPage />
@@ -212,10 +234,14 @@ it('opens endpoint health tab and renders probe results', async () => {
 
   await screen.findByText('OpenAI released a new model')
 
-  await userEvent.click(screen.getByRole('button', { name: '接口与订阅健康' }))
+  await userEvent.click(screen.getByRole('button', { name: /接口与订阅健康/ }))
 
-  expect(await screen.findByRole('heading', { name: '接口与订阅健康' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: /接口与订阅健康/ })).toBeInTheDocument()
   expect(await screen.findByText('/feed.xml')).toBeInTheDocument()
   expect(await screen.findByText('HTTP 404')).toBeInTheDocument()
+  expect(await screen.findByText('订阅配置')).toBeInTheDocument()
+  expect(await screen.findByText('RESEND_API_KEY')).toBeInTheDocument()
+  expect(await screen.findByText(/VAPID 公钥/)).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-endpoint-health"]')).toBeTruthy()
+  expect(document.querySelector('[data-ui="admin-subscription-health"]')).toBeTruthy()
 })

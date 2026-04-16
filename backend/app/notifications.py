@@ -85,12 +85,78 @@ def wecom_delivery_ready() -> bool:
     return len(_get_wecom_webhook_urls()) > 0
 
 
-def subscription_status_payload() -> dict:
+def _missing_env(keys: list[str]) -> list[str]:
+    return [key for key in keys if not clean_env(key)]
+
+
+def _email_health_payload() -> dict:
+    missing = _missing_env(["RESEND_API_KEY", "EMAIL_FROM"])
+    configured = len(missing) == 0
+    if configured:
+        message = "邮件订阅已接入，后端可以通过 Resend 发送新文章通知。"
+    else:
+        message = (
+            "邮件订阅未完成配置。请在 Render 后端环境变量中补齐 RESEND_API_KEY 和 EMAIL_FROM，"
+            "并确保 EMAIL_FROM 使用 Resend 已验证的发件地址或域名。"
+        )
     return {
-        "email_configured": email_delivery_ready(),
-        "web_push_configured": web_push_delivery_ready(),
-        "wecom_configured": wecom_delivery_ready(),
+        "configured": configured,
+        "missing_env": missing,
+        "message": message,
+    }
+
+
+def _web_push_health_payload() -> dict:
+    missing = _missing_env(
+        ["WEB_PUSH_VAPID_PUBLIC_KEY", "WEB_PUSH_VAPID_PRIVATE_KEY", "WEB_PUSH_SUBJECT"]
+    )
+    configured = len(missing) == 0
+    if configured:
+        message = "浏览器提醒已接入，后端可以签发 Web Push 通知。"
+    else:
+        message = (
+            "浏览器提醒未完成配置。请在 Render 后端环境变量中补齐 "
+            "WEB_PUSH_VAPID_PUBLIC_KEY、WEB_PUSH_VAPID_PRIVATE_KEY 和 WEB_PUSH_SUBJECT。"
+        )
+    return {
+        "configured": configured,
+        "missing_env": missing,
+        "has_public_key": bool(clean_env("WEB_PUSH_VAPID_PUBLIC_KEY")),
+        "message": message,
+    }
+
+
+def _wecom_health_payload() -> dict:
+    configured = wecom_delivery_ready()
+    if configured:
+        message = "企业微信机器人已接入，可将新文章同步到团队群。"
+    else:
+        message = "企业微信机器人当前未配置；如需启用，请在 Render 后端环境变量中设置 WECOM_WEBHOOK_URLS。"
+    return {
+        "configured": configured,
+        "missing_env": [] if configured else ["WECOM_WEBHOOK_URLS"],
+        "message": message,
+    }
+
+
+def subscription_status_payload() -> dict:
+    email = _email_health_payload()
+    web_push = _web_push_health_payload()
+    wecom = _wecom_health_payload()
+    return {
+        "email_configured": email["configured"],
+        "web_push_configured": web_push["configured"],
+        "wecom_configured": wecom["configured"],
         "web_push_public_key": clean_env("WEB_PUSH_VAPID_PUBLIC_KEY"),
+    }
+
+
+def subscription_health_payload() -> dict:
+    return {
+        "checked_at": datetime.now(timezone.utc),
+        "email": _email_health_payload(),
+        "web_push": _web_push_health_payload(),
+        "wecom": _wecom_health_payload(),
     }
 
 

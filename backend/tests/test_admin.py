@@ -911,3 +911,45 @@ def test_upload_rejects_non_image(client):
         headers=_auth(token),
     )
     assert resp.status_code == 400
+
+
+def test_subscription_health_reports_missing_envs(client, monkeypatch):
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+    monkeypatch.delenv("WEB_PUSH_VAPID_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("WEB_PUSH_VAPID_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("WEB_PUSH_SUBJECT", raising=False)
+    monkeypatch.delenv("WECOM_WEBHOOK_URLS", raising=False)
+
+    token = _login(client)
+    resp = client.get("/api/admin/subscription-health", headers=_auth(token))
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["email"]["configured"] is False
+    assert "RESEND_API_KEY" in data["email"]["missing_env"]
+    assert data["web_push"]["configured"] is False
+    assert "WEB_PUSH_VAPID_PUBLIC_KEY" in data["web_push"]["missing_env"]
+    assert data["web_push"]["has_public_key"] is False
+    assert data["wecom"]["configured"] is False
+    assert "WECOM_WEBHOOK_URLS" in data["wecom"]["missing_env"]
+
+
+def test_subscription_health_reports_ready_channels(client, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "resend_test")
+    monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
+    monkeypatch.setenv("WEB_PUSH_VAPID_PUBLIC_KEY", "public-key")
+    monkeypatch.setenv("WEB_PUSH_VAPID_PRIVATE_KEY", "private-key")
+    monkeypatch.setenv("WEB_PUSH_SUBJECT", "mailto:owner@example.com")
+    monkeypatch.setenv("WECOM_WEBHOOK_URLS", "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test")
+
+    token = _login(client)
+    resp = client.get("/api/admin/subscription-health", headers=_auth(token))
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["email"]["configured"] is True
+    assert data["email"]["missing_env"] == []
+    assert data["web_push"]["configured"] is True
+    assert data["web_push"]["has_public_key"] is True
+    assert data["wecom"]["configured"] is True

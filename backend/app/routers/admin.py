@@ -25,7 +25,7 @@ from app.models import (
     Tag,
     TopicProfile,
 )
-from app.notifications import dispatch_post_notifications_for_post
+from app.notifications import dispatch_post_notifications_for_post, subscription_health_payload
 from app.schemas import (
     CoverGenerationStatusOut,
     CoverGenerateRequest,
@@ -52,6 +52,7 @@ from app.schemas import (
     SeriesOut,
     SeriesUpdateRequest,
     SearchInsightsOut,
+    SubscriptionHealthOut,
     TopicHealthOut,
     TopicMetadataUpsertRequest,
     TopicMetadataUpsertResponse,
@@ -787,6 +788,11 @@ def admin_stats(
         "total_comments": total_comments,
         "total_likes": total_likes,
     }
+
+
+@router.get("/subscription-health", response_model=SubscriptionHealthOut)
+def get_subscription_health(_admin: str = Depends(get_current_admin)):
+    return subscription_health_payload()
 
 
 @router.get("/publishing-status", response_model=PublishingStatusResponse)
