@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { startTransition, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Compass, Search, Sparkles } from 'lucide-react'
 
-import { fetchDiscover, fetchSearch, fetchSeriesList, fetchTopics } from '../api/posts'
+import {
+  fetchDiscover,
+  fetchSearch,
+  fetchSeriesList,
+  fetchTopics,
+  prefetchPostDetail,
+  prefetchTopicDetail,
+} from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
@@ -20,9 +27,14 @@ import {
   motionItemVariants,
 } from '../utils/contentPresentation'
 
-function DiscoverCard({ post, seriesTitle, topicTitle }) {
+function DiscoverCard({ post, seriesTitle, topicTitle, onPrefetch }) {
   return (
-    <motion.div variants={motionItemVariants} whileHover={hoverLift}>
+    <motion.div
+      variants={motionItemVariants}
+      whileHover={hoverLift}
+      onMouseEnter={() => onPrefetch(post.slug)}
+      onFocus={() => onPrefetch(post.slug)}
+    >
       <CoverCard
         to={`/posts/${post.slug}`}
         image={post.cover_image}
@@ -50,32 +62,80 @@ export default function DiscoverPage() {
 
   useEffect(() => {
     document.title = '发现 - AI 资讯观察'
-    fetchSeriesList().then(setSeriesList).catch(() => setSeriesList([]))
-    fetchTopics({ featured: true, page_size: 6 })
-      .then((payload) => {
-        setTopics(Array.isArray(payload?.items) ? payload.items : [])
-      })
-      .catch(() => setTopics([]))
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
+
+    fetchSeriesList(
+      { limit: 12 },
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
+    )
+      .then((items) => {
+        if (controller.signal.aborted) return
+        startTransition(() => setSeriesList(items))
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setSeriesList([])
+      })
+
+    fetchTopics(
+      { featured: true, limit: 6 },
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
+    )
+      .then((payload) => {
+        if (controller.signal.aborted) return
+        const nextTopics = Array.isArray(payload?.items) ? payload.items : []
+        startTransition(() => setTopics(nextTopics))
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setTopics([])
+      })
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
     setLoading(true)
+
     const loader = query || filters.content_type || filters.series
-      ? fetchSearch({
-          q: query || undefined,
-          content_type: filters.content_type || undefined,
-          series_slug: filters.series || undefined,
-          sort: 'relevance',
-        })
-      : fetchDiscover({
-          content_type: filters.content_type || undefined,
-          series: filters.series || undefined,
-        })
+      ? fetchSearch(
+          {
+            q: query || undefined,
+            content_type: filters.content_type || undefined,
+            series_slug: filters.series || undefined,
+            sort: 'relevance',
+          },
+          { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 10000, staleTtl: 45000 },
+        )
+      : fetchDiscover(
+          {
+            content_type: filters.content_type || undefined,
+            series: filters.series || undefined,
+            sections: 'items,total',
+          },
+          { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 10000, staleTtl: 45000 },
+        )
 
     loader
-      .then((payload) => setPosts(payload.items || []))
-      .catch(() => setPosts([]))
-      .finally(() => setLoading(false))
+      .then((payload) => {
+        if (controller.signal.aborted) return
+        startTransition(() => setPosts(payload.items || []))
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setPosts([])
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+
+    return () => controller.abort()
   }, [filters.content_type, filters.series, query])
 
   const emptyMessage = useMemo(() => {
@@ -83,7 +143,7 @@ export default function DiscoverPage() {
       return '当前筛选下还没有匹配内容。可以换个关键词，或先进入主题页继续追踪。'
     }
     return '这里会持续聚合值得继续追踪的主题、系列和内容入口。'
-  }, [filters, query])
+  }, [filters.content_type, filters.series, query])
 
   const seriesBySlug = useMemo(
     () => Object.fromEntries(seriesList.map((series) => [series.slug, getSeriesTitle(series)])),
@@ -93,6 +153,14 @@ export default function DiscoverPage() {
     () => Object.fromEntries(topics.map((topic) => [topic.topic_key, getTopicTitle(topic)])),
     [topics],
   )
+
+  function prefetchPost(slug) {
+    prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }
+
+  function prefetchTopic(topicKey) {
+    prefetchTopicDetail(topicKey, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
@@ -164,7 +232,12 @@ export default function DiscoverPage() {
 
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             {topics.length > 0 ? topics.slice(0, 6).map((topic) => (
-              <motion.div key={topic.topic_key} variants={motionItemVariants}>
+              <motion.div
+                key={topic.topic_key}
+                variants={motionItemVariants}
+                onMouseEnter={() => prefetchTopic(topic.topic_key)}
+                onFocus={() => prefetchTopic(topic.topic_key)}
+              >
                 <CoverCard
                   to={`/topics/${topic.topic_key}`}
                   title={getTopicTitle(topic)}
@@ -209,6 +282,7 @@ export default function DiscoverPage() {
             <DiscoverCard
               key={post.slug}
               post={post}
+              onPrefetch={prefetchPost}
               seriesTitle={post.series_slug ? seriesBySlug[post.series_slug] || post.series_slug : ''}
               topicTitle={post.topic_key ? topicByKey[post.topic_key] || post.topic_key : ''}
             />

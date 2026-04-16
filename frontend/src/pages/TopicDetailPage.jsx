@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Compass, Rss } from 'lucide-react'
 
-import { fetchTopicDetail } from '../api/posts'
+import { fetchTopicDetail, prefetchPostDetail } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
@@ -21,10 +21,15 @@ import {
   motionItemVariants,
 } from '../utils/contentPresentation'
 
-function TopicPostCard({ post }) {
+function TopicPostCard({ post, onPrefetch }) {
   return (
     <motion.article variants={motionItemVariants} className="editorial-card rounded-[1.8rem] border px-5 py-5">
-      <Link to={`/posts/${post.slug}`} className="block">
+      <Link
+        to={`/posts/${post.slug}`}
+        className="block"
+        onMouseEnter={() => onPrefetch(post.slug)}
+        onFocus={() => onPrefetch(post.slug)}
+      >
         <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
           {post.content_type ? <span>{getContentTypeLabel(post.content_type)}</span> : null}
           {post.coverage_date ? <span>{post.coverage_date}</span> : null}
@@ -50,10 +55,28 @@ export default function TopicDetailPage() {
 
   useEffect(() => {
     if (!topicKey) return
-    fetchTopicDetail(topicKey)
-      .then(setTopic)
-      .catch(() => setTopic(null))
-      .finally(() => setLoading(false))
+
+    const controller = new AbortController()
+    setLoading(true)
+    fetchTopicDetail(
+      topicKey,
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 20000, staleTtl: 90000 },
+    )
+      .then((payload) => {
+        if (controller.signal.aborted) return
+        setTopic(payload)
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setTopic(null)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+
+    return () => controller.abort()
   }, [topicKey])
 
   const displayTitle = getTopicTitle(topic || { topic_key: topicKey })
@@ -62,6 +85,10 @@ export default function TopicDetailPage() {
   useEffect(() => {
     document.title = `${displayTitle} - AI 资讯观察`
   }, [displayTitle])
+
+  function prefetchPost(slug) {
+    prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
@@ -87,7 +114,7 @@ export default function TopicDetailPage() {
             description={getTopicDescription(topic)}
             meta={[
               topic?.post_count ? `${topic.post_count} 篇文章` : '持续更新',
-              topic?.source_count ? `${topic.source_count} 个来源` : '',
+              topic?.source_count ? `${topic.source_count} 条来源` : '',
               topic?.latest_post_at ? `最近更新 ${formatDate(topic.latest_post_at)}` : '',
             ].filter(Boolean)}
             footer={(
@@ -122,7 +149,7 @@ export default function TopicDetailPage() {
               <LoadingSkeletonSet count={3} minHeight="14rem" />
             ) : (topic?.posts || topic?.timeline || []).length > 0 ? (
               (topic?.posts?.length ? topic.posts : topic.timeline).map((post) => (
-                <TopicPostCard key={post.slug} post={post} />
+                <TopicPostCard key={post.slug} post={post} onPrefetch={prefetchPost} />
               ))
             ) : (
               <EmptyStatePanel

@@ -7,7 +7,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Calendar, Clock, Eye, ArrowLeft, Heart, Pin } from 'lucide-react'
 import { motion, useScroll, useSpring } from 'framer-motion'
 
-import { fetchPostDetail, likePost, fetchRelatedPosts } from '../api/posts'
+import { fetchPostDetail, likePost, fetchRelatedPosts, prefetchPostDetail } from '../api/posts'
 import { formatDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
 import Navbar from '../components/Navbar'
@@ -57,7 +57,7 @@ function MarkdownImage({ src, alt, title }) {
   )
 }
 
-function DetailRailSection({ title, items, toPostLabel = false }) {
+function DetailRailSection({ title, items, toPostLabel = false, onPrefetch }) {
   if (!items || items.length === 0) return null
 
   return (
@@ -68,6 +68,8 @@ function DetailRailSection({ title, items, toPostLabel = false }) {
           <Link
             key={item.slug}
             to={`/posts/${item.slug}`}
+            onMouseEnter={() => onPrefetch?.(item.slug)}
+            onFocus={() => onPrefetch?.(item.slug)}
             className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
           >
             {toPostLabel && item.content_type ? (
@@ -251,13 +253,20 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   })
 
   useEffect(() => {
-    let active = true
+    const controller = new AbortController()
     setLoading(true)
     setError('')
+    setRelatedPosts([])
+    setSameSeriesPosts([])
+    setSameTopicPosts([])
+    setSameWeekPosts([])
 
-    fetchPostDetail(slug)
+    fetchPostDetail(
+      slug,
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 15000, staleTtl: 90000 },
+    )
       .then((data) => {
-        if (!active) return
+        if (controller.signal.aborted) return
         setPost(data)
         setLikeCount(data.like_count || 0)
         setLiked(localStorage.getItem(`liked_${slug}`) === '1')
@@ -274,18 +283,34 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         })
         setLoading(false)
       })
-      .catch(() => {
-        if (!active) return
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
         setError('文章不存在或加载失败。')
         setLoading(false)
       })
 
-    fetchRelatedPosts(slug)
-      .then((data) => { if (active) setRelatedPosts(Array.isArray(data) ? data : []) })
-      .catch(() => {})
-
-    return () => { active = false }
+    return () => controller.abort()
   }, [slug])
+
+  useEffect(() => {
+    if (!post?.slug) return
+
+    const controller = new AbortController()
+    fetchRelatedPosts(
+      post.slug,
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 15000, staleTtl: 90000 },
+    )
+      .then((data) => {
+        if (controller.signal.aborted) return
+        setRelatedPosts(Array.isArray(data) ? data : [])
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setRelatedPosts([])
+      })
+
+    return () => controller.abort()
+  }, [post?.slug])
 
   useEffect(() => {
     if (post) document.title = `${post.title} - AI 资讯观察`
@@ -315,6 +340,10 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       setLiked(true)
       localStorage.setItem(`liked_${slug}`, '1')
     }
+  }
+
+  function prefetchPost(slugToPrefetch) {
+    prefetchPostDetail(slugToPrefetch, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
   }
 
   if (loading) {
@@ -527,15 +556,16 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                 />
                 <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   {relatedPosts.map((rp) => (
-                    <CoverCard
-                      key={rp.slug}
-                      to={`/posts/${rp.slug}`}
-                      image={rp.cover_image}
-                      imageAlt={rp.title}
-                      title={rp.title}
-                      description={rp.summary}
-                      meta={[formatDate(rp.created_at)]}
-                    />
+                    <div key={rp.slug} onMouseEnter={() => prefetchPost(rp.slug)} onFocus={() => prefetchPost(rp.slug)}>
+                      <CoverCard
+                        to={`/posts/${rp.slug}`}
+                        image={rp.cover_image}
+                        imageAlt={rp.title}
+                        title={rp.title}
+                        description={rp.summary}
+                        meta={[formatDate(rp.created_at)]}
+                      />
+                    </div>
                   ))}
                 </div>
               </div>
@@ -549,9 +579,9 @@ export default function PostDetailPage({ slug: overrideSlug }) {
           <div className="hidden flex-shrink-0 lg:block lg:w-[300px]">
             <div className="sticky top-24 space-y-6">
               <TableOfContents markdown={post.content_md} />
-              <DetailRailSection title="同系列继续阅读" items={sameSeriesPosts} />
-              <DetailRailSection title="同主题相关文章" items={sameTopicPosts} />
-              <DetailRailSection title="同周上下文" items={sameWeekPosts} toPostLabel />
+              <DetailRailSection title="同系列继续阅读" items={sameSeriesPosts} onPrefetch={prefetchPost} />
+              <DetailRailSection title="同主题相关文章" items={sameTopicPosts} onPrefetch={prefetchPost} />
+              <DetailRailSection title="同周上下文" items={sameWeekPosts} toPostLabel onPrefetch={prefetchPost} />
             </div>
           </div>
         </div>

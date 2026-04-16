@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Compass, Flame, Sparkles } from 'lucide-react'
 
-import { fetchTopics } from '../api/posts'
+import { fetchTopics, prefetchTopicDetail } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
@@ -26,11 +26,32 @@ export default function TopicsPage() {
 
   useEffect(() => {
     document.title = '主题追踪 - AI 资讯观察'
-    fetchTopics({ limit: 24 })
-      .then((payload) => setTopics(Array.isArray(payload?.items) ? payload.items : []))
-      .catch(() => setTopics([]))
-      .finally(() => setLoading(false))
+
+    const controller = new AbortController()
+    fetchTopics(
+      { limit: 24 },
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
+    )
+      .then((payload) => {
+        if (controller.signal.aborted) return
+        setTopics(Array.isArray(payload?.items) ? payload.items : [])
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setTopics([])
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+
+    return () => controller.abort()
   }, [])
+
+  function prefetchTopic(topicKey) {
+    prefetchTopicDetail(topicKey, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
@@ -59,7 +80,13 @@ export default function TopicsPage() {
             <LoadingSkeletonSet count={6} className="contents" itemClassName="rounded-[1.8rem]" minHeight="20rem" />
           ) : topics.length > 0 ? (
             topics.map((topic) => (
-              <motion.div key={topic.topic_key} variants={motionItemVariants} whileHover={hoverLift}>
+              <motion.div
+                key={topic.topic_key}
+                variants={motionItemVariants}
+                whileHover={hoverLift}
+                onMouseEnter={() => prefetchTopic(topic.topic_key)}
+                onFocus={() => prefetchTopic(topic.topic_key)}
+              >
                 <CoverCard
                   to={`/topics/${topic.topic_key}`}
                   image={topic.cover_image}
@@ -81,7 +108,7 @@ export default function TopicsPage() {
                   description={getTopicDescription(topic)}
                   meta={[
                     topic.post_count ? `${topic.post_count} 篇文章` : '主题页',
-                    topic.source_count ? `${topic.source_count} 个来源` : '持续更新',
+                    topic.source_count ? `${topic.source_count} 条来源` : '持续更新',
                     topic.latest_post_at ? `最近更新于 ${formatDate(topic.latest_post_at)}` : '持续追踪中',
                   ]}
                 />
@@ -91,7 +118,7 @@ export default function TopicsPage() {
             <div className="md:col-span-2 xl:col-span-3">
               <EmptyStatePanel
                 title="当前还没有可展示的主题"
-                description="等带有 topic_key 的文章发布后，这里会自动汇总为主题入口。"
+                description="等待带 topic_key 的文章发布后，这里会自动汇总为主题入口。"
                 icon={Compass}
               />
             </div>

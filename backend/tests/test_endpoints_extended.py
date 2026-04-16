@@ -173,6 +173,12 @@ def test_series_endpoints(client, seeded_db):
     assert len(series_items) >= 5
     slug = series_items[0]["slug"]
 
+    featured_resp = client.get("/api/series?featured=true&limit=2")
+    assert featured_resp.status_code == 200
+    featured_items = featured_resp.json()
+    assert len(featured_items) <= 2
+    assert all(item["is_featured"] is True for item in featured_items)
+
     detail_resp = client.get(f"/api/series/{slug}")
     assert detail_resp.status_code == 200
     detail = detail_resp.json()
@@ -227,6 +233,26 @@ def test_discover_endpoint_filters(client):
     assert payload["total"] >= 1
     assert all(item["content_type"] == "daily_brief" for item in payload["items"])
     assert all(item["series_slug"] == "ai-daily-brief" for item in payload["items"])
+
+
+def test_discover_sections_support_partial_payload(client, seeded_db):
+    partial_resp = client.get("/api/discover?sections=items,total")
+    assert partial_resp.status_code == 200
+    partial_payload = partial_resp.json()
+    assert "items" in partial_payload
+    assert "total" in partial_payload
+    assert "featured_series" not in partial_payload
+    assert "latest_daily" not in partial_payload
+
+    fallback_resp = client.get("/api/discover?sections=unknown_section")
+    assert fallback_resp.status_code == 200
+    fallback_payload = fallback_resp.json()
+    assert "featured_series" in fallback_payload
+    assert "latest_daily" in fallback_payload
+    assert "latest_weekly" in fallback_payload
+    assert "editor_picks" in fallback_payload
+    assert "items" in fallback_payload
+    assert "total" in fallback_payload
 
 
 def test_split_feeds(client):
@@ -329,3 +355,61 @@ def test_search_topics_and_topic_feed_contract(client):
     assert topic_feed_resp.status_code == 200
     assert "<rss" in topic_feed_resp.text
     assert "openai-search-update" in topic_feed_resp.text
+
+
+def test_topics_support_featured_limit_and_page_size_alias(client):
+    token = _login(client)
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "ModelOps Pipeline Update",
+            "slug": "modelops-pipeline-update",
+            "summary": "ModelOps topic summary",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "topic_key": "modelops-pipeline",
+            "quality_score": 88,
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Open Search Runtime",
+            "slug": "open-search-runtime",
+            "summary": "Search runtime topic",
+            "content_md": "content",
+            "content_type": "weekly_review",
+            "topic_key": "open-search-runtime",
+            "quality_score": 90,
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    create_profile = client.post(
+        "/api/admin/topic-profiles",
+        json={
+            "topic_key": "modelops-pipeline",
+            "title": "ModelOps 主线",
+            "display_title": "ModelOps 主线",
+            "description": "ModelOps 主题",
+            "is_featured": True,
+            "sort_order": 1,
+            "priority": 50,
+        },
+        headers=_auth(token),
+    )
+    assert create_profile.status_code == 200
+
+    featured_resp = client.get("/api/topics?featured=true&limit=1")
+    assert featured_resp.status_code == 200
+    featured_payload = featured_resp.json()
+    assert featured_payload["total"] >= 1
+    assert len(featured_payload["items"]) == 1
+    assert featured_payload["items"][0]["topic_key"] == "modelops-pipeline"
+
+    alias_resp = client.get("/api/topics?page_size=1&q=search")
+    assert alias_resp.status_code == 200
+    alias_payload = alias_resp.json()
+    assert len(alias_payload["items"]) == 1

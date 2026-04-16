@@ -7,7 +7,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, Response
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.db import get_db
 from app.models import (
@@ -511,6 +511,49 @@ def _resolve_topic_presentation(
     }
 
 
+def _build_topic_presentation_resolver():
+    cache: dict[tuple, dict] = {}
+
+    def _resolve_cached(
+        *,
+        topic_key: str,
+        profile: TopicProfile | None,
+        latest_post: Post | None = None,
+        content_types: list[str] | None = None,
+    ) -> dict:
+        cache_key = (
+            str(topic_key or "").strip().lower(),
+            profile.id if profile else None,
+            latest_post.id if latest_post else None,
+            tuple(sorted({str(item or "") for item in (content_types or [])})),
+        )
+        if cache_key not in cache:
+            cache[cache_key] = _resolve_topic_presentation(
+                topic_key=topic_key,
+                profile=profile,
+                latest_post=latest_post,
+                content_types=content_types,
+            )
+        return cache[cache_key]
+
+    return _resolve_cached
+
+
+def _parse_discover_sections(sections: str | None) -> set[str] | None:
+    if sections is None:
+        return None
+    allowed = {"featured_series", "latest_daily", "latest_weekly", "editor_picks", "items", "total", "facets"}
+    requested = {
+        str(item or "").strip()
+        for item in sections.split(",")
+        if str(item or "").strip()
+    }
+    selected = {item for item in requested if item in allowed}
+    if not selected:
+        return set(allowed)
+    return selected
+
+
 def _topic_profile_to_dict(profile: TopicProfile, db: Session) -> dict:
     post_count = db.execute(
         select(func.count(Post.id))
@@ -907,10 +950,18 @@ def get_all_tags(db: Session = Depends(get_db)):
 
 
 @router.get("/series")
-def list_series(db: Session = Depends(get_db)):
-    series_list = db.execute(
-        select(Series).order_by(Series.is_featured.desc(), Series.sort_order.asc(), Series.updated_at.desc())
-    ).scalars().all()
+def list_series(
+    featured: bool | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    stmt = select(Series)
+    if featured is not None:
+        stmt = stmt.where(Series.is_featured == featured)
+    stmt = stmt.order_by(Series.is_featured.desc(), Series.sort_order.asc(), Series.updated_at.desc())
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    series_list = db.execute(stmt).scalars().all()
     return [_series_to_dict(series, db, include_posts=False) for series in series_list]
 
 
@@ -928,72 +979,91 @@ def get_discover(
     content_type: str | None = Query(default=None),
     series: str | None = Query(default=None),
     limit: int = Query(default=24, ge=1, le=60),
+    sections: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    featured_series = db.execute(
-        select(Series).where(Series.is_featured == True).order_by(Series.sort_order.asc(), Series.updated_at.desc()).limit(6)
-    ).scalars().all()
+    requested = _parse_discover_sections(sections)
+    if requested is None:
+        requested = {"featured_series", "latest_daily", "latest_weekly", "editor_picks", "items", "total", "facets"}
 
-    latest_daily = db.execute(
-        select(Post)
-        .options(selectinload(Post.tags))
-        .where(Post.is_published == True)
-        .where(Post.content_type == "daily_brief")
-        .order_by(Post.created_at.desc())
-        .limit(8)
-    ).scalars().all()
+    payload: dict[str, object] = {}
 
-    latest_weekly = db.execute(
-        select(Post)
-        .options(selectinload(Post.tags))
-        .where(Post.is_published == True)
-        .where(Post.content_type == "weekly_review")
-        .order_by(Post.created_at.desc())
-        .limit(6)
-    ).scalars().all()
+    if "featured_series" in requested:
+        featured_series = db.execute(
+            select(Series)
+            .where(Series.is_featured == True)
+            .order_by(Series.sort_order.asc(), Series.updated_at.desc())
+            .limit(6)
+        ).scalars().all()
+        payload["featured_series"] = [_series_to_dict(series, db, include_posts=False) for series in featured_series]
 
-    editor_picks = db.execute(
-        select(Post)
-        .options(selectinload(Post.tags))
-        .where(Post.is_published == True)
-        .order_by(Post.is_pinned.desc(), Post.like_count.desc(), Post.view_count.desc(), Post.created_at.desc())
-        .limit(8)
-    ).scalars().all()
+    if "latest_daily" in requested:
+        latest_daily = db.execute(
+            select(Post)
+            .options(selectinload(Post.tags))
+            .where(Post.is_published == True)
+            .where(Post.content_type == "daily_brief")
+            .order_by(Post.created_at.desc())
+            .limit(8)
+        ).scalars().all()
+        payload["latest_daily"] = [_post_list_item(post) for post in latest_daily]
 
-    items_stmt = select(Post).options(selectinload(Post.tags)).where(Post.is_published == True)
-    total_stmt = select(func.count(Post.id)).where(Post.is_published == True)
+    if "latest_weekly" in requested:
+        latest_weekly = db.execute(
+            select(Post)
+            .options(selectinload(Post.tags))
+            .where(Post.is_published == True)
+            .where(Post.content_type == "weekly_review")
+            .order_by(Post.created_at.desc())
+            .limit(6)
+        ).scalars().all()
+        payload["latest_weekly"] = [_post_list_item(post) for post in latest_weekly]
 
-    if q:
-        pattern = f"%{q}%"
-        items_stmt = items_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
-        total_stmt = total_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
-    if content_type:
-        items_stmt = items_stmt.where(Post.content_type == content_type)
-        total_stmt = total_stmt.where(Post.content_type == content_type)
-    if series:
-        items_stmt = items_stmt.where(Post.series_slug == series)
-        total_stmt = total_stmt.where(Post.series_slug == series)
+    if "editor_picks" in requested:
+        editor_picks = db.execute(
+            select(Post)
+            .options(selectinload(Post.tags))
+            .where(Post.is_published == True)
+            .order_by(Post.is_pinned.desc(), Post.like_count.desc(), Post.view_count.desc(), Post.created_at.desc())
+            .limit(8)
+        ).scalars().all()
+        payload["editor_picks"] = [_post_list_item(post) for post in editor_picks]
 
-    total = db.execute(total_stmt).scalar() or 0
-    items = db.execute(
-        items_stmt.order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(limit)
-    ).scalars().all()
+    needs_items_query = bool({"items", "total", "facets"} & requested)
+    if needs_items_query:
+        items_stmt = select(Post).options(selectinload(Post.tags)).where(Post.is_published == True)
+        total_stmt = select(func.count(Post.id)).where(Post.is_published == True)
 
-    return {
-        "featured_series": [_series_to_dict(series, db, include_posts=False) for series in featured_series],
-        "latest_daily": [_post_list_item(post) for post in latest_daily],
-        "latest_weekly": [_post_list_item(post) for post in latest_weekly],
-        "editor_picks": [_post_list_item(post) for post in editor_picks],
-        "items": [_post_list_item(post) for post in items],
-        "total": total,
-        "facets": {
-            "content_types": {
-                "daily_brief": len([post for post in items if (post.content_type or "") == "daily_brief"]),
-                "weekly_review": len([post for post in items if (post.content_type or "") == "weekly_review"]),
-            },
-            "series": series or "",
-        },
-    }
+        if q:
+            pattern = f"%{q}%"
+            items_stmt = items_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
+            total_stmt = total_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
+        if content_type:
+            items_stmt = items_stmt.where(Post.content_type == content_type)
+            total_stmt = total_stmt.where(Post.content_type == content_type)
+        if series:
+            items_stmt = items_stmt.where(Post.series_slug == series)
+            total_stmt = total_stmt.where(Post.series_slug == series)
+
+        total = db.execute(total_stmt).scalar() or 0
+        items = db.execute(
+            items_stmt.order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(limit)
+        ).scalars().all()
+
+        if "items" in requested:
+            payload["items"] = [_post_list_item(post) for post in items]
+        if "total" in requested:
+            payload["total"] = total
+        if "facets" in requested:
+            payload["facets"] = {
+                "content_types": {
+                    "daily_brief": len([post for post in items if (post.content_type or "") == "daily_brief"]),
+                    "weekly_review": len([post for post in items if (post.content_type or "") == "weekly_review"]),
+                },
+                "series": series or "",
+            }
+
+    return payload
 
 
 @router.get("/search")
@@ -1012,6 +1082,7 @@ def search_posts(
     if not query:
         return {"query": "", "items": [], "total": 0, "topics": [], "facets": {}}
 
+    query_terms = [term for term in query.split(" ") if term]
     stmt = (
         select(Post)
         .options(selectinload(Post.tags))
@@ -1024,8 +1095,24 @@ def search_posts(
     if topic_key:
         stmt = stmt.where(Post.topic_key == topic_key)
 
+    if query_terms:
+        prefilter_clauses = []
+        for term in query_terms[:6]:
+            pattern = f"%{term}%"
+            prefilter_clauses.append(
+                or_(
+                    Post.title.ilike(pattern),
+                    Post.summary.ilike(pattern),
+                    Post.topic_key.ilike(pattern),
+                    Post.series_slug.ilike(pattern),
+                    Post.tags.any(or_(Tag.name.ilike(pattern), Tag.slug.ilike(pattern))),
+                )
+            )
+        stmt = stmt.where(or_(*prefilter_clauses))
+
+    candidate_limit = min(max(limit * 12, 120), 320)
     posts = db.execute(
-        stmt.order_by(Post.created_at.desc()).limit(500)
+        stmt.order_by(Post.created_at.desc()).limit(candidate_limit)
     ).scalars().all()
 
     ranked: list[tuple[tuple, str, Post]] = []
@@ -1069,6 +1156,7 @@ def search_posts(
 
     topic_profiles = db.execute(select(TopicProfile)).scalars().all()
     profiles_by_key = {profile.topic_key: profile for profile in topic_profiles}
+    resolve_topic_presentation = _build_topic_presentation_resolver()
     topic_buckets: dict[str, dict] = {}
     for _, _, post in ranked:
         current_topic_key = (post.topic_key or "").strip()
@@ -1089,30 +1177,27 @@ def search_posts(
             bucket["latest_post_at"] = post.created_at
             bucket["latest_post"] = post
 
-    topics = [
-        {
-            "topic_key": value["topic_key"],
-            "title": _resolve_topic_presentation(
-                topic_key=value["topic_key"],
-                profile=profiles_by_key.get(value["topic_key"]),
-                latest_post=value.get("latest_post"),
-                content_types=[value.get("latest_post").content_type] if value.get("latest_post") else [],
-            )["display_title"],
-            "display_title": _resolve_topic_presentation(
-                topic_key=value["topic_key"],
-                profile=profiles_by_key.get(value["topic_key"]),
-                latest_post=value.get("latest_post"),
-                content_types=[value.get("latest_post").content_type] if value.get("latest_post") else [],
-            )["display_title"],
-            "post_count": value["post_count"],
-            "latest_post_at": value["latest_post_at"].isoformat() if value["latest_post_at"] else None,
-        }
-        for value in sorted(
-            topic_buckets.values(),
-            key=lambda item: (item["post_count"], item["latest_post_at"] or datetime.min.replace(tzinfo=timezone.utc)),
-            reverse=True,
-        )[:6]
-    ]
+    topics = []
+    for value in sorted(
+        topic_buckets.values(),
+        key=lambda item: (item["post_count"], item["latest_post_at"] or datetime.min.replace(tzinfo=timezone.utc)),
+        reverse=True,
+    )[:6]:
+        topic_presentation = resolve_topic_presentation(
+            topic_key=value["topic_key"],
+            profile=profiles_by_key.get(value["topic_key"]),
+            latest_post=value.get("latest_post"),
+            content_types=[value.get("latest_post").content_type] if value.get("latest_post") else [],
+        )
+        topics.append(
+            {
+                "topic_key": value["topic_key"],
+                "title": topic_presentation["display_title"],
+                "display_title": topic_presentation["display_title"],
+                "post_count": value["post_count"],
+                "latest_post_at": value["latest_post_at"].isoformat() if value["latest_post_at"] else None,
+            }
+        )
 
     _record_search_insight(db, query, len(ranked))
     return {
@@ -1134,13 +1219,17 @@ def search_posts(
 @router.get("/topics")
 def list_topics(
     q: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
+    featured: bool | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    page_size: int | None = Query(default=None, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
+    effective_limit = limit or page_size or 50
     profiles = db.execute(
         select(TopicProfile).order_by(TopicProfile.priority.desc(), TopicProfile.updated_at.desc())
     ).scalars().all()
     profiles_by_key = {profile.topic_key: profile for profile in profiles}
+    resolve_topic_presentation = _build_topic_presentation_resolver()
 
     posts = db.execute(
         select(Post)
@@ -1175,13 +1264,13 @@ def list_topics(
         if post.quality_score is not None:
             bucket["quality_scores"].append(float(post.quality_score))
 
-    items = []
+    items_by_key: dict[str, dict] = {}
     query = _normalize_query(q)
     all_keys = set(grouped.keys()) | set(profiles_by_key.keys())
     for key in all_keys:
         grouped_value = grouped.get(key)
         profile = profiles_by_key.get(key)
-        presentation = _resolve_topic_presentation(
+        presentation = resolve_topic_presentation(
             topic_key=key,
             profile=profile,
             latest_post=grouped_value.get("latest_post") if grouped_value else None,
@@ -1193,26 +1282,69 @@ def list_topics(
             continue
 
         quality_scores = grouped_value["quality_scores"] if grouped_value else []
-        items.append(
-            {
-                "topic_key": key,
-                "title": title,
-                "display_title": title,
-                "description": description,
-                "content_types": sorted(list(grouped_value["content_types"])) if grouped_value else _safe_json_list(profile.content_types_json if profile else "[]"),
-                "series_slug": (profile.series_slug if profile else (grouped_value["series_slug"] if grouped_value else None)),
-                "taxonomy_type": "topic",
-                "post_count": (grouped_value["post_count"] if grouped_value else 0),
-                "source_count": (grouped_value["source_count"] if grouped_value else 0),
-                "latest_post_at": grouped_value["latest_post_at"].isoformat() if grouped_value and grouped_value["latest_post_at"] else None,
-                "avg_quality_score": round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None,
-                "display_title_source": presentation["display_title_source"],
-                "profile": _topic_profile_to_dict(profile, db) if profile else None,
-            }
-        )
+        items_by_key[key] = {
+            "topic_key": key,
+            "title": title,
+            "display_title": title,
+            "description": description,
+            "content_types": sorted(list(grouped_value["content_types"])) if grouped_value else _safe_json_list(profile.content_types_json if profile else "[]"),
+            "series_slug": (profile.series_slug if profile else (grouped_value["series_slug"] if grouped_value else None)),
+            "taxonomy_type": "topic",
+            "post_count": (grouped_value["post_count"] if grouped_value else 0),
+            "source_count": (grouped_value["source_count"] if grouped_value else 0),
+            "latest_post_at": grouped_value["latest_post_at"].isoformat() if grouped_value and grouped_value["latest_post_at"] else None,
+            "avg_quality_score": round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None,
+            "display_title_source": presentation["display_title_source"],
+            "profile": _topic_profile_to_dict(profile, db) if profile else None,
+        }
 
-    items.sort(key=lambda item: (item["post_count"], item["avg_quality_score"] or -1), reverse=True)
-    return {"items": items[:limit], "total": len(items)}
+    ranked_items = sorted(
+        items_by_key.values(),
+        key=lambda item: (item["post_count"], item["avg_quality_score"] or -1),
+        reverse=True,
+    )
+
+    if featured is True:
+        ordered: list[dict] = []
+        seen_keys: set[str] = set()
+        manual_profiles = [
+            profile
+            for profile in profiles
+            if bool(profile.is_featured) or _topic_profile_is_manual(profile)
+        ]
+        manual_profiles.sort(
+            key=lambda profile: (
+                0 if bool(profile.is_featured) else 1,
+                -(profile.priority or 0),
+                profile.sort_order or 0,
+                -(profile.updated_at.timestamp() if profile.updated_at else 0),
+            )
+        )
+        for profile in manual_profiles:
+            topic_item = items_by_key.get(profile.topic_key)
+            if not topic_item:
+                continue
+            if profile.topic_key in seen_keys:
+                continue
+            ordered.append(topic_item)
+            seen_keys.add(profile.topic_key)
+        for item in ranked_items:
+            topic_key_value = item["topic_key"]
+            if topic_key_value in seen_keys:
+                continue
+            ordered.append(item)
+            seen_keys.add(topic_key_value)
+        filtered_items = ordered
+    elif featured is False:
+        filtered_items = [
+            item
+            for item in ranked_items
+            if not bool((profiles_by_key.get(item["topic_key"]).is_featured) if profiles_by_key.get(item["topic_key"]) else False)
+        ]
+    else:
+        filtered_items = ranked_items
+
+    return {"items": filtered_items[:effective_limit], "total": len(filtered_items)}
 
 
 @router.get("/topics/{topic_key}")

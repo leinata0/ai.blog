@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { startTransition, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { CalendarRange, Compass, Search, Sparkles } from 'lucide-react'
+import { CalendarRange, Compass, Search } from 'lucide-react'
 
-import { fetchSearch, fetchSeriesList, fetchTopics } from '../api/posts'
+import {
+  fetchSearch,
+  fetchSeriesList,
+  fetchTopics,
+  prefetchPostDetail,
+  prefetchTopicDetail,
+} from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
@@ -37,14 +43,19 @@ function getMatchReasonLabel(reason) {
   return '相关结果'
 }
 
-function SearchResultCard({ post, seriesTitle, topicTitle }) {
+function SearchResultCard({ post, seriesTitle, topicTitle, onPrefetch }) {
   return (
     <motion.article
       variants={motionItemVariants}
       whileHover={hoverLift}
       className="editorial-card rounded-[1.8rem] border px-6 py-5"
     >
-      <Link to={`/posts/${post.slug}`} className="block">
+      <Link
+        to={`/posts/${post.slug}`}
+        className="block"
+        onMouseEnter={() => onPrefetch(post.slug)}
+        onFocus={() => onPrefetch(post.slug)}
+      >
         <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
           <span className="rounded-full px-2.5 py-1" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
             {getContentTypeLabel(post.content_type)}
@@ -63,7 +74,7 @@ function SearchResultCard({ post, seriesTitle, topicTitle }) {
       </Link>
 
       <div className="mt-4 flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
-        {post.quality_score ? <span>质量分 {post.quality_score}</span> : null}
+        {post.quality_score ? <span>质量分：{post.quality_score}</span> : null}
         {post.reading_time ? <span>阅读 {post.reading_time} 分钟</span> : null}
         <span>{formatDate(post.created_at)}</span>
         {post.match_reason ? <span>{getMatchReasonLabel(post.match_reason)}</span> : null}
@@ -93,46 +104,92 @@ export default function SearchPage() {
 
   useEffect(() => {
     document.title = '搜索 - AI 资讯观察'
-    fetchTopics({ featured: true, page_size: 8 })
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    fetchTopics(
+      { featured: true, limit: 8 },
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
+    )
       .then((payload) => {
-        setTopics(Array.isArray(payload?.items) ? payload.items : [])
+        if (controller.signal.aborted) return
+        const nextTopics = Array.isArray(payload?.items) ? payload.items : []
+        startTransition(() => {
+          setTopics(nextTopics)
+          setTopicSuggestions((current) => (current.length > 0 ? current : nextTopics.slice(0, 4)))
+        })
       })
-      .catch(() => setTopics([]))
-    fetchSeriesList().then(setSeriesList).catch(() => setSeriesList([]))
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setTopics([])
+      })
+
+    fetchSeriesList(
+      { limit: 12 },
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
+    )
+      .then((items) => {
+        if (controller.signal.aborted) return
+        startTransition(() => setSeriesList(items))
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setSeriesList([])
+      })
+
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {
     if (!query.trim()) {
       setResults([])
       setTopicSuggestions(topics.slice(0, 4))
+      setLoading(false)
       return
     }
 
+    const controller = new AbortController()
     setLoading(true)
-    fetchSearch({
-      q: query.trim(),
-      content_type: filters.content_type || undefined,
-      series_slug: filters.series_slug || undefined,
-      topic_key: filters.topic_key || undefined,
-      date_from: filters.date_from || undefined,
-      date_to: filters.date_to || undefined,
-      sort: filters.sort || undefined,
-    })
+
+    fetchSearch(
+      {
+        q: query.trim(),
+        content_type: filters.content_type || undefined,
+        series_slug: filters.series_slug || undefined,
+        topic_key: filters.topic_key || undefined,
+        date_from: filters.date_from || undefined,
+        date_to: filters.date_to || undefined,
+        sort: filters.sort || undefined,
+      },
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 10000, staleTtl: 45000 },
+    )
       .then((payload) => {
-        setResults(Array.isArray(payload?.items) ? payload.items : [])
-        setTopicSuggestions(Array.isArray(payload?.topics) ? payload.topics : [])
+        if (controller.signal.aborted) return
+        startTransition(() => {
+          setResults(Array.isArray(payload?.items) ? payload.items : [])
+          setTopicSuggestions(Array.isArray(payload?.topics) ? payload.topics : [])
+        })
       })
-      .catch(() => {
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
         setResults([])
         setTopicSuggestions([])
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+
+    return () => controller.abort()
   }, [filters, query, topics])
 
   const hasActiveQuery = Boolean(query.trim())
   const emptyMessage = useMemo(() => {
     if (!hasActiveQuery) return '输入关键词后，可以按主题、系列、日期和内容类型检索整站内容。'
-    return '暂时没有找到匹配结果，可以换个关键词，或先从推荐主题继续追踪。'
+    return '暂时没有找到匹配结果，可以换一个关键词，或先从推荐主题继续追踪。'
   }, [hasActiveQuery])
 
   const seriesBySlug = useMemo(
@@ -143,6 +200,14 @@ export default function SearchPage() {
     () => Object.fromEntries(topics.map((topic) => [topic.topic_key, getTopicTitle(topic)])),
     [topics],
   )
+
+  function prefetchPost(slug) {
+    prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }
+
+  function prefetchTopic(topicKey) {
+    prefetchTopicDetail(topicKey, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }
 
   function handleSubmit(event) {
     event.preventDefault()
@@ -273,6 +338,7 @@ export default function SearchPage() {
                 <SearchResultCard
                   key={post.slug}
                   post={post}
+                  onPrefetch={prefetchPost}
                   seriesTitle={post.series_slug ? seriesBySlug[post.series_slug] || post.series_slug : ''}
                   topicTitle={post.topic_key ? topicByKey[post.topic_key] || post.topic_key : ''}
                 />
@@ -290,6 +356,8 @@ export default function SearchPage() {
                   <Link
                     key={topic.topic_key}
                     to={`/topics/${topic.topic_key}`}
+                    onMouseEnter={() => prefetchTopic(topic.topic_key)}
+                    onFocus={() => prefetchTopic(topic.topic_key)}
                     className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
                   >
                     <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -307,7 +375,7 @@ export default function SearchPage() {
               <EditorialSectionHeader eyebrow="搜索建议" title="更快找到主线" titleClassName="!text-[1.4rem]" />
               <ul className="mt-4 space-y-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
                 <li>先搜公司名或产品名，再进入同主题页继续追踪。</li>
-                <li>想看长期变化时，优先选“按质量优先”或进入周报。</li>
+                <li>想看长期变化时，优先选“按质量优先”或直接进入周报。</li>
                 <li>找某条主线时，可以先筛主题，再限定日期区间。</li>
               </ul>
             </motion.section>

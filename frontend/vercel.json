@@ -3,6 +3,9 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/health", "destination": "https://ai-blog-hbur.onrender.com/health" },
+    { "source": "/feed.xml", "destination": "https://ai-blog-hbur.onrender.com/feed.xml" },
+    { "source": "/sitemap.xml", "destination": "https://ai-blog-hbur.onrender.com/sitemap.xml" },
     { "source": "/api/(.*)", "destination": "https://ai-blog-hbur.onrender.com/api/$1" },
     { "source": "/uploads/(.*)", "destination": "https://ai-blog-hbur.onrender.com/uploads/$1" },
     { "source": "/proxy-image", "destination": "https://ai-blog-hbur.onrender.com/proxy-image" },

@@ -4,6 +4,7 @@ import {
   ActivitySquare,
   BarChart3,
   FileText,
+  Globe2,
   HeartPulse,
   Image,
   Inbox,
@@ -21,6 +22,7 @@ import { clearToken, getToken } from '../api/auth'
 import { adminDeletePost, adminUpdatePost, fetchAdminPosts } from '../api/admin'
 import AdminComments from '../components/admin/AdminComments'
 import AdminContentHealth from '../components/admin/AdminContentHealth'
+import AdminEndpointHealth from '../components/admin/AdminEndpointHealth'
 import AdminImages from '../components/admin/AdminImages'
 import AdminPostEditor from '../components/admin/AdminPostEditor'
 import AdminPostsList from '../components/admin/AdminPostsList'
@@ -161,6 +163,7 @@ export default function AdminDashboardPage() {
     { key: 'posts', label: '文章管理', icon: FileText },
     { key: 'publishing', label: '发布状态', icon: Radio },
     { key: 'health', label: '内容健康', icon: HeartPulse },
+    { key: 'endpoint-health', label: '接口与订阅健康', icon: Globe2 },
     { key: 'quality', label: '质量收件箱', icon: Inbox },
     { key: 'topic-feedback', label: '主题反馈', icon: MessagesSquare },
     { key: 'topics', label: '主题管理', icon: Shapes },
@@ -238,6 +241,7 @@ export default function AdminDashboardPage() {
         ) : null}
         {tab === 'publishing' ? <AdminPublishingStatus /> : null}
         {tab === 'health' ? <AdminContentHealth /> : null}
+        {tab === 'endpoint-health' ? <AdminEndpointHealth /> : null}
         {tab === 'quality' ? <AdminQualityInbox /> : null}
         {tab === 'topic-feedback' ? <AdminTopicFeedback /> : null}
         {tab === 'topics' ? <AdminTopicProfiles /> : null}

@@ -14,6 +14,7 @@ const TopicsPage = lazy(() => import('./pages/TopicsPage'))
 const TopicDetailPage = lazy(() => import('./pages/TopicDetailPage'))
 const FollowingPage = lazy(() => import('./pages/FollowingPage'))
 const ContentTypePage = lazy(() => import('./pages/ContentTypePage'))
+const FeedsPage = lazy(() => import('./pages/FeedsPage'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))
 const FriendsPage = lazy(() => import('./pages/FriendsPage'))
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage'))
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="/following" element={<FollowingPage />} />
           <Route path="/daily" element={<ContentTypePage contentType="daily_brief" />} />
           <Route path="/weekly" element={<ContentTypePage contentType="weekly_review" />} />
+          <Route path="/feeds" element={<FeedsPage />} />
           <Route path="/tags" element={<TagsPage />} />
           <Route path="/friends" element={<FriendsPage />} />
           <Route path="/admin/login" element={<AdminLoginPage />} />

@@ -87,3 +87,158 @@ export const fetchAdminSearchInsights = (params = {}) => {
 
 export const upsertAdminPublishingMetadata = (data) =>
   apiPost('/api/admin/publishing-metadata', data, { auth: true })
+
+const HEALTH_CHECK_TIMEOUT = 10000
+
+const HEALTH_TARGETS = [
+  { key: 'api-health', label: '健康检查', path: '/api/health', kind: 'json', expected: 'ok' },
+  { key: 'discover', label: '发现页数据', path: '/api/discover?limit=1', kind: 'json', expectedKeys: ['items'] },
+  { key: 'topics', label: '主题列表', path: '/api/topics?limit=1', kind: 'json', expectedKeys: ['items'] },
+  { key: 'search', label: '搜索接口', path: '/api/search?q=openai&limit=1', kind: 'json', expectedKeys: ['items'] },
+  { key: 'feed-root', label: '全站 RSS', path: '/feed.xml', kind: 'xml', expected: '<rss' },
+  { key: 'sitemap', label: '站点地图', path: '/sitemap.xml', kind: 'xml', expected: '<urlset' },
+  { key: 'feed-daily', label: '日报 RSS', path: '/api/feeds/daily.xml', kind: 'xml', expected: '<rss' },
+  { key: 'feed-weekly', label: '周报 RSS', path: '/api/feeds/weekly.xml', kind: 'xml', expected: '<rss' },
+]
+
+function buildHealthResult(target, patch = {}) {
+  return {
+    ...target,
+    ok: false,
+    status: 'unknown',
+    status_code: null,
+    duration_ms: null,
+    checked_at: new Date().toISOString(),
+    summary: '',
+    detail: '',
+    ...patch,
+  }
+}
+
+async function probePublicTarget(target, timeout = HEALTH_CHECK_TIMEOUT) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeout)
+  const startedAt = performance.now()
+
+  try {
+    const response = await fetch(target.path, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { Accept: target.kind === 'json' ? 'application/json' : 'application/xml,text/xml,text/plain,*/*' },
+      signal: controller.signal,
+    })
+
+    const durationMs = Math.round(performance.now() - startedAt)
+    const text = await response.text()
+
+    if (!response.ok) {
+      return buildHealthResult(target, {
+        status: 'http_error',
+        status_code: response.status,
+        duration_ms: durationMs,
+        summary: `HTTP ${response.status}`,
+        detail: text.slice(0, 160) || '接口返回非成功状态码。',
+      })
+    }
+
+    if (target.kind === 'json') {
+      let parsed = null
+      try {
+        parsed = text ? JSON.parse(text) : null
+      } catch (error) {
+        return buildHealthResult(target, {
+          status: 'invalid',
+          status_code: response.status,
+          duration_ms: durationMs,
+          summary: '响应不是合法 JSON',
+          detail: error.message || 'JSON 解析失败',
+        })
+      }
+
+      if (target.expected && parsed?.status !== target.expected) {
+        return buildHealthResult(target, {
+          status: 'invalid',
+          status_code: response.status,
+          duration_ms: durationMs,
+          summary: `缺少预期状态 ${target.expected}`,
+          detail: `实际返回 status=${String(parsed?.status ?? '') || '空值'}`,
+        })
+      }
+
+      if (Array.isArray(target.expectedKeys) && !target.expectedKeys.every((key) => key in (parsed || {}))) {
+        return buildHealthResult(target, {
+          status: 'invalid',
+          status_code: response.status,
+          duration_ms: durationMs,
+          summary: '响应缺少关键字段',
+          detail: `缺少字段：${target.expectedKeys.filter((key) => !(key in (parsed || {}))).join('、')}`,
+        })
+      }
+
+      return buildHealthResult(target, {
+        ok: true,
+        status: durationMs > 1500 ? 'slow' : 'ok',
+        status_code: response.status,
+        duration_ms: durationMs,
+        summary: durationMs > 1500 ? '接口可用，但响应偏慢' : '接口可用',
+        detail: 'JSON 结构符合预期。',
+      })
+    }
+
+    if (target.expected && !text.includes(target.expected)) {
+      return buildHealthResult(target, {
+        status: 'invalid',
+        status_code: response.status,
+        duration_ms: durationMs,
+        summary: '响应内容不符合预期',
+        detail: `未检测到 ${target.expected}`,
+      })
+    }
+
+    return buildHealthResult(target, {
+      ok: true,
+      status: durationMs > 1500 ? 'slow' : 'ok',
+      status_code: response.status,
+      duration_ms: durationMs,
+      summary: durationMs > 1500 ? '接口可用，但响应偏慢' : '接口可用',
+      detail: target.kind === 'xml' ? 'XML 内容结构符合预期。' : '检查通过。',
+    })
+  } catch (error) {
+    const durationMs = Math.round(performance.now() - startedAt)
+    if (error?.name === 'AbortError') {
+      return buildHealthResult(target, {
+        status: 'timeout',
+        duration_ms: durationMs,
+        summary: '请求超时',
+        detail: `超过 ${Math.round(timeout / 1000)} 秒仍未完成。`,
+      })
+    }
+
+    return buildHealthResult(target, {
+      status: 'network_error',
+      duration_ms: durationMs,
+      summary: '网络请求失败',
+      detail: error?.message || '浏览器侧探测失败',
+    })
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+export async function probeAdminEndpointHealth() {
+  const items = await Promise.all(HEALTH_TARGETS.map((target) => probePublicTarget(target)))
+  const okCount = items.filter((item) => item.ok).length
+  const slowCount = items.filter((item) => item.status === 'slow').length
+  const failedCount = items.length - okCount
+
+  return {
+    checked_at: new Date().toISOString(),
+    overview: {
+      total: items.length,
+      ok: okCount,
+      slow: slowCount,
+      failed: failedCount,
+    },
+    items,
+  }
+}

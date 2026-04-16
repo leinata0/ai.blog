@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Rss } from 'lucide-react'
 
 import { fetchDiscover, fetchPosts } from '../api/posts'
 import Navbar from '../components/Navbar'
@@ -71,6 +71,7 @@ export default function ContentTypePage({ contentType }) {
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const copy = CONTENT_TYPE_META[contentType] || CONTENT_TYPE_META.daily_brief
+  const feedUrl = contentType === 'weekly_review' ? '/api/feeds/weekly.xml' : '/api/feeds/daily.xml'
 
   useEffect(() => {
     document.title = `${copy.title} - AI 资讯观察`
@@ -100,6 +101,26 @@ export default function ContentTypePage({ contentType }) {
               title={copy.title}
               description={`${copy.description} 这里会优先展示最新一篇，并把其余内容整理成更适合连续浏览的栏目列表。`}
             />
+            <div className="mt-5 flex flex-wrap gap-3">
+              <a
+                href={feedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
+                style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+              >
+                <Rss size={15} />
+                订阅 {copy.title} RSS
+              </a>
+              <Link
+                to="/feeds"
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
+                style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)' }}
+              >
+                查看全部订阅入口
+                <ArrowRight size={14} />
+              </Link>
+            </div>
           </motion.section>
 
           <div className="mt-8 space-y-6">

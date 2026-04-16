@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Calendar, Pin, Search, Sparkles, Tag } from 'lucide-react'
 
-import { fetchPosts, fetchSeriesList } from '../api/posts'
+import { fetchPosts, fetchSeriesList, prefetchPostDetail } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
@@ -69,7 +69,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
   )
 }
 
-function WeeklySpotlight({ post }) {
+function WeeklySpotlight({ post, onPrefetch }) {
   return (
     <motion.section data-ui="home-weekly-spotlight" variants={motionItemVariants} className="space-y-4">
       <EditorialSectionHeader
@@ -82,7 +82,8 @@ function WeeklySpotlight({ post }) {
       />
 
       {post ? (
-        <CoverCard
+        <div onMouseEnter={() => onPrefetch(post.slug)} onFocus={() => onPrefetch(post.slug)}>
+          <CoverCard
           to={`/posts/${post.slug}`}
           image={post.cover_image}
           imageAlt={post.title}
@@ -95,7 +96,8 @@ function WeeklySpotlight({ post }) {
             CONTENT_TYPE_META.weekly_review.label,
           ]}
           footer={<span className="inline-flex items-center gap-2 font-semibold">进入这篇周报 <ArrowRight size={14} /></span>}
-        />
+          />
+        </div>
       ) : (
         <EmptyStatePanel
           title="最新周报会出现在这里"
@@ -106,7 +108,7 @@ function WeeklySpotlight({ post }) {
   )
 }
 
-function DailyCard({ post }) {
+function DailyCard({ post, onPrefetch }) {
   return (
     <motion.article
       variants={motionItemVariants}
@@ -114,7 +116,7 @@ function DailyCard({ post }) {
       className="editorial-card rounded-[1.6rem] border px-5 py-5"
       style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow-soft)' }}
     >
-      <Link to={`/posts/${post.slug}`} className="block">
+      <Link to={`/posts/${post.slug}`} className="block" onMouseEnter={() => onPrefetch(post.slug)} onFocus={() => onPrefetch(post.slug)}>
         <div className="flex items-center justify-between gap-3">
           <span
             className="rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]"
@@ -137,7 +139,7 @@ function DailyCard({ post }) {
   )
 }
 
-function PostCard({ post, onTagSelect }) {
+function PostCard({ post, onTagSelect, onPrefetch }) {
   const contentMeta = getContentTypeMeta(post.content_type)
 
   return (
@@ -148,7 +150,7 @@ function PostCard({ post, onTagSelect }) {
       data-ui="post-card"
       className={`cover-card relative overflow-hidden ${post.is_pinned ? 'ring-2 ring-[var(--accent-border)] ring-offset-2 ring-offset-[var(--bg-canvas)]' : ''}`}
     >
-      <Link to={`/posts/${post.slug}`} className="block">
+      <Link to={`/posts/${post.slug}`} className="block" onMouseEnter={() => onPrefetch(post.slug)} onFocus={() => onPrefetch(post.slug)}>
         {post.cover_image ? (
           <div className="editorial-cover h-60 overflow-hidden">
             <img
@@ -232,6 +234,8 @@ export default function HomePage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [pageSize] = useState(10)
+  const postsRequestRef = useRef(0)
+  const postsAbortRef = useRef(null)
 
   const heroImage = settings?.hero_image || settings?.avatar_url || ''
 
@@ -240,37 +244,72 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    fetchSeriesList()
-      .then(setSeriesList)
-      .catch(() => setSeriesList([]))
+    const controller = new AbortController()
+    fetchSeriesList(
+      { limit: 12 },
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
+    )
+      .then((items) => {
+        if (controller.signal.aborted) return
+        startTransition(() => setSeriesList(items))
+      })
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setSeriesList([])
+      })
+    return () => controller.abort()
+  }, [])
+
+  const prefetchPost = useCallback((slug) => {
+    prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
   }, [])
 
   const loadPosts = useCallback(() => {
+    postsAbortRef.current?.abort()
+    const controller = new AbortController()
+    postsAbortRef.current = controller
+    const requestId = postsRequestRef.current + 1
+    postsRequestRef.current = requestId
+
     setLoading(true)
     setSlowLoading(false)
     setError('')
 
     const timer = setTimeout(() => setSlowLoading(true), 3000)
 
-    fetchPosts({ tag: tag || undefined, q: searchQuery || undefined, page, pageSize })
+    fetchPosts(
+      { tag: tag || undefined, q: searchQuery || undefined, page, pageSize },
+      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 10000, staleTtl: 45000 },
+    )
       .then((result) => {
-        setPosts(result.items)
-        setTotal(result.total)
+        if (controller.signal.aborted || requestId !== postsRequestRef.current) return
+        clearTimeout(timer)
+        startTransition(() => {
+          setPosts(result.items)
+          setTotal(result.total)
+        })
         setLoading(false)
         setSlowLoading(false)
-        clearTimeout(timer)
       })
-      .catch(() => {
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') {
+          clearTimeout(timer)
+          return
+        }
+        clearTimeout(timer)
         setError('暂时无法加载文章列表，请稍后再试。')
         setLoading(false)
         setSlowLoading(false)
-        clearTimeout(timer)
       })
   }, [page, pageSize, searchQuery, tag])
 
   useEffect(() => {
     loadPosts()
   }, [loadPosts])
+
+  useEffect(() => () => {
+    postsAbortRef.current?.abort()
+  }, [])
 
   useEffect(() => {
     setPage(1)
@@ -402,7 +441,7 @@ export default function HomePage() {
 
             {!loading && !error ? (
               <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mb-12 space-y-12">
-                <WeeklySpotlight post={latestWeekly} />
+                <WeeklySpotlight post={latestWeekly} onPrefetch={prefetchPost} />
 
                 <motion.section data-ui="home-daily-rail" variants={motionItemVariants} className="space-y-4">
                   <EditorialSectionHeader
@@ -417,7 +456,7 @@ export default function HomePage() {
                   {latestDaily.length > 0 ? (
                     <motion.div variants={motionContainerVariants} className="grid gap-4 md:grid-cols-2">
                       {latestDaily.map((post) => (
-                        <DailyCard key={post.slug} post={post} />
+                        <DailyCard key={post.slug} post={post} onPrefetch={prefetchPost} />
                       ))}
                     </motion.div>
                   ) : (
@@ -482,6 +521,7 @@ export default function HomePage() {
                     <PostCard
                       key={post.slug}
                       post={post}
+                      onPrefetch={prefetchPost}
                       onTagSelect={(nextTag) => {
                         setTag(nextTag)
                         setSearchQuery('')

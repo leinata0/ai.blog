@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client'
+import { apiGet, apiPost, apiPrefetchGet } from './client'
 
 function normalizeContentType(contentType) {
   if (contentType === 'daily_brief' || contentType === 'weekly_review') {
@@ -165,48 +165,6 @@ export function normalizePostList(payload) {
   }
 }
 
-export async function fetchPosts({ tag, q, page = 1, pageSize = 10 } = {}) {
-  const params = new URLSearchParams()
-  if (tag) params.set('tag', tag)
-  if (q) params.set('q', q)
-  params.set('page', String(page))
-  params.set('page_size', String(pageSize))
-  const qs = params.toString()
-  return normalizePostList(await apiGet(`/api/posts?${qs}`))
-}
-
-export async function fetchPostDetail(slug) {
-  return normalizePost(await apiGet(`/api/posts/${slug}`))
-}
-
-export async function fetchComments(slug) {
-  return apiGet(`/api/posts/${slug}/comments`)
-}
-
-export async function postComment(slug, nickname, content) {
-  return apiPost(`/api/posts/${slug}/comments`, { nickname, content })
-}
-
-export async function fetchArchive() {
-  const groups = await apiGet('/api/archive')
-  if (!Array.isArray(groups)) return []
-  return groups.map((group) => ({
-    ...group,
-    posts: Array.isArray(group.posts) ? group.posts.map((post) => normalizePost(post)) : [],
-  }))
-}
-
-export async function fetchAllTags() {
-  return apiGet('/api/tags')
-}
-
-export const likePost = (slug) => apiPost(`/api/posts/${slug}/like`)
-export const fetchRelatedPosts = async (slug) => {
-  const posts = await apiGet(`/api/posts/${slug}/related`)
-  return Array.isArray(posts) ? posts.map((post) => normalizePost(post)) : []
-}
-export const fetchFriendLinks = () => apiGet('/api/friends')
-
 function normalizeSeries(payload = {}) {
   return {
     ...payload,
@@ -280,8 +238,17 @@ function buildQuery(params = {}) {
   return query ? `?${query}` : ''
 }
 
-export async function fetchSeriesList(params = {}) {
-  const payload = await apiGet(`/api/series${buildQuery(params)}`)
+function withLimitParam(params = {}) {
+  const normalized = { ...params }
+  if (normalized.limit === undefined && normalized.page_size !== undefined) {
+    normalized.limit = normalized.page_size
+  }
+  delete normalized.page_size
+  return normalized
+}
+
+export async function fetchSeriesList(params = {}, requestOptions = {}) {
+  const payload = await apiGet(`/api/series${buildQuery(withLimitParam(params))}`, requestOptions)
   const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : []
   const normalized = items.map((series) => normalizeSeries(series))
   if (params.featured) {
@@ -290,12 +257,12 @@ export async function fetchSeriesList(params = {}) {
   return normalized
 }
 
-export async function fetchSeriesDetail(slug) {
-  return normalizeSeries(await apiGet(`/api/series/${slug}`))
+export async function fetchSeriesDetail(slug, requestOptions = {}) {
+  return normalizeSeries(await apiGet(`/api/series/${slug}`, requestOptions))
 }
 
-export async function fetchDiscover(params = {}) {
-  const payload = await apiGet(`/api/discover${buildQuery(params)}`)
+export async function fetchDiscover(params = {}, requestOptions = {}) {
+  const payload = await apiGet(`/api/discover${buildQuery(withLimitParam(params))}`, requestOptions)
   if (Array.isArray(payload)) {
     return { items: payload.map((post) => normalizePost(post)), total: payload.length }
   }
@@ -317,8 +284,8 @@ export async function fetchDiscover(params = {}) {
   }
 }
 
-export async function fetchSearch(params = {}) {
-  const payload = await apiGet(`/api/search${buildQuery(params)}`)
+export async function fetchSearch(params = {}, requestOptions = {}) {
+  const payload = await apiGet(`/api/search${buildQuery(withLimitParam(params))}`, requestOptions)
   const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : []
   return {
     ...payload,
@@ -331,8 +298,8 @@ export async function fetchSearch(params = {}) {
   }
 }
 
-export async function fetchTopics(params = {}) {
-  const payload = await apiGet(`/api/topics${buildQuery(params)}`)
+export async function fetchTopics(params = {}, requestOptions = {}) {
+  const payload = await apiGet(`/api/topics${buildQuery(withLimitParam(params))}`, requestOptions)
   const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : []
   return {
     ...payload,
@@ -341,6 +308,63 @@ export async function fetchTopics(params = {}) {
   }
 }
 
-export async function fetchTopicDetail(topicKey) {
-  return normalizeTopic(await apiGet(`/api/topics/${encodeURIComponent(topicKey)}`))
+export async function fetchTopicDetail(topicKey, requestOptions = {}) {
+  return normalizeTopic(await apiGet(`/api/topics/${encodeURIComponent(topicKey)}`, requestOptions))
+}
+
+export async function fetchPosts({ tag, q, page = 1, pageSize = 10 } = {}, requestOptions = {}) {
+  const params = new URLSearchParams()
+  if (tag) params.set('tag', tag)
+  if (q) params.set('q', q)
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  const qs = params.toString()
+  return normalizePostList(await apiGet(`/api/posts?${qs}`, requestOptions))
+}
+
+export async function fetchPostDetail(slug, requestOptions = {}) {
+  return normalizePost(await apiGet(`/api/posts/${slug}`, requestOptions))
+}
+
+export async function fetchComments(slug, requestOptions = {}) {
+  return apiGet(`/api/posts/${slug}/comments`, requestOptions)
+}
+
+export async function postComment(slug, nickname, content, requestOptions = {}) {
+  return apiPost(`/api/posts/${slug}/comments`, { nickname, content }, requestOptions)
+}
+
+export async function fetchArchive(requestOptions = {}) {
+  const groups = await apiGet('/api/archive', requestOptions)
+  if (!Array.isArray(groups)) return []
+  return groups.map((group) => ({
+    ...group,
+    posts: Array.isArray(group.posts) ? group.posts.map((post) => normalizePost(post)) : [],
+  }))
+}
+
+export async function fetchAllTags(requestOptions = {}) {
+  return apiGet('/api/tags', requestOptions)
+}
+
+export const likePost = (slug, requestOptions = {}) => apiPost(`/api/posts/${slug}/like`, undefined, requestOptions)
+export const fetchRelatedPosts = async (slug, requestOptions = {}) => {
+  const posts = await apiGet(`/api/posts/${slug}/related`, requestOptions)
+  return Array.isArray(posts) ? posts.map((post) => normalizePost(post)) : []
+}
+export const fetchFriendLinks = (requestOptions = {}) => apiGet('/api/friends', requestOptions)
+
+export function prefetchPostDetail(slug, requestOptions = {}) {
+  if (!slug) return Promise.resolve(undefined)
+  return apiPrefetchGet(`/api/posts/${slug}`, requestOptions)
+}
+
+export function prefetchTopicDetail(topicKey, requestOptions = {}) {
+  if (!topicKey) return Promise.resolve(undefined)
+  return apiPrefetchGet(`/api/topics/${encodeURIComponent(topicKey)}`, requestOptions)
+}
+
+export function prefetchSeriesDetail(slug, requestOptions = {}) {
+  if (!slug) return Promise.resolve(undefined)
+  return apiPrefetchGet(`/api/series/${slug}`, requestOptions)
 }

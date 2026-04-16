@@ -97,6 +97,26 @@ const mocks = vi.hoisted(() => ({
       zero_result_queries: [{ query: 'Mamba 2', result_count: 0 }],
     })
   ),
+  probeEndpointHealth: vi.fn(() =>
+    Promise.resolve({
+      checked_at: '2026-04-16T01:00:00.000Z',
+      overview: { total: 8, ok: 7, slow: 0, failed: 1 },
+      items: [
+        {
+          key: 'feed-root',
+          label: '全站 RSS',
+          path: '/feed.xml',
+          status: 'http_error',
+          ok: false,
+          status_code: 404,
+          duration_ms: 120,
+          checked_at: '2026-04-16T01:00:00.000Z',
+          summary: 'HTTP 404',
+          detail: 'not found',
+        },
+      ],
+    })
+  ),
 }))
 
 vi.mock('../src/api/admin', () => ({
@@ -128,6 +148,7 @@ vi.mock('../src/api/admin', () => ({
   generateAdminTopicProfileCover: vi.fn(() => Promise.resolve({ generated: false, cover_image: '', error: '' })),
   fetchAdminTopicHealth: mocks.fetchTopicHealth,
   fetchAdminSearchInsights: mocks.fetchSearchInsights,
+  probeAdminEndpointHealth: mocks.probeEndpointHealth,
 }))
 
 vi.mock('../src/api/auth', async () => {
@@ -180,4 +201,21 @@ it('opens topic management, topic health, and search insights tabs', async () =>
   expect(await screen.findByText('OpenAI')).toBeInTheDocument()
   expect(await screen.findByText('Mamba 2')).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-search-insights"]')).toBeTruthy()
+})
+
+it('opens endpoint health tab and renders probe results', async () => {
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  await screen.findByText('OpenAI released a new model')
+
+  await userEvent.click(screen.getByRole('button', { name: '接口与订阅健康' }))
+
+  expect(await screen.findByRole('heading', { name: '接口与订阅健康' })).toBeInTheDocument()
+  expect(await screen.findByText('/feed.xml')).toBeInTheDocument()
+  expect(await screen.findByText('HTTP 404')).toBeInTheDocument()
+  expect(document.querySelector('[data-ui="admin-endpoint-health"]')).toBeTruthy()
 })

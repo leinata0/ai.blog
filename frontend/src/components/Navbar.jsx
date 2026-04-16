@@ -24,6 +24,7 @@ import { SITE_COPY } from '../utils/contentPresentation'
 const NAV_ITEMS = [
   { label: '首页', to: '/' },
   { label: '主题', to: '/topics' },
+  { label: '订阅', to: '/feeds' },
   { label: '归档', to: '/archive' },
   { label: '标签', to: '/tags' },
   { label: '友链', to: '/friends' },
