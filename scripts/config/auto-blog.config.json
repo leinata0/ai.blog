@@ -1,16 +1,176 @@
 {
   "default_mode": "daily-auto",
   "rss_feeds": [
-    { "url": "https://blog.openai.com/rss/", "tag": "AI", "lang": "en" },
-    { "url": "https://www.anthropic.com/feed", "tag": "AI", "lang": "en" },
-    { "url": "https://blog.google/technology/ai/rss/", "tag": "AI", "lang": "en" },
-    { "url": "https://huggingface.co/blog/feed.xml", "tag": "OpenSourceAI", "lang": "en" },
-    { "url": "https://simonwillison.net/atom/everything/", "tag": "IndependentAI", "lang": "en" },
-    { "url": "https://hnrss.org/newest?points=100", "tag": "HackerNews", "lang": "en" },
-    { "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml", "tag": "GitHub", "lang": "en" },
-    { "url": "https://sspai.com/feed", "tag": "ChineseTech", "lang": "zh" },
-    { "url": "https://www.ruanyifeng.com/blog/atom.xml", "tag": "ChineseTech", "lang": "zh" },
-    { "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "tag": "TechCrunch", "lang": "en" }
+    {
+      "url": "https://blog.openai.com/rss/",
+      "name": "OpenAI Blog",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.95,
+      "channel_bucket": "official_vendor",
+      "source_group": "openai"
+    },
+    {
+      "url": "https://www.anthropic.com/feed",
+      "name": "Anthropic News",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.93,
+      "channel_bucket": "official_vendor",
+      "source_group": "anthropic"
+    },
+    {
+      "url": "https://blog.google/technology/ai/rss/",
+      "name": "Google AI",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.92,
+      "channel_bucket": "official_vendor",
+      "source_group": "google-ai"
+    },
+    {
+      "url": "https://huggingface.co/blog/feed.xml",
+      "name": "Hugging Face Blog",
+      "tag": "OpenSourceAI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.88,
+      "channel_bucket": "official_vendor",
+      "source_group": "huggingface"
+    },
+    {
+      "url": "https://aws.amazon.com/blogs/machine-learning/feed/",
+      "name": "AWS Machine Learning Blog",
+      "tag": "AIInfra",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.87,
+      "channel_bucket": "official_vendor",
+      "source_group": "aws"
+    },
+    {
+      "url": "https://developer.nvidia.com/blog/feed/",
+      "name": "NVIDIA Developer Blog",
+      "tag": "AIInfra",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.86,
+      "channel_bucket": "official_vendor",
+      "source_group": "nvidia"
+    },
+    {
+      "url": "https://simonwillison.net/atom/everything/",
+      "name": "Simon Willison",
+      "tag": "IndependentAI",
+      "lang": "en",
+      "source_type": "independent_blog",
+      "quality_weight": 0.82,
+      "channel_bucket": "independent",
+      "source_group": "simon-willison"
+    },
+    {
+      "url": "https://news.mit.edu/rss/topic/artificial-intelligence2",
+      "name": "MIT News AI",
+      "tag": "ResearchNews",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.78,
+      "channel_bucket": "research_media",
+      "source_group": "mit-news"
+    },
+    {
+      "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+      "name": "MIT Technology Review AI",
+      "tag": "ResearchNews",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.76,
+      "channel_bucket": "research_media",
+      "source_group": "mit-technology-review"
+    },
+    {
+      "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+      "name": "TechCrunch AI",
+      "tag": "TechCrunch",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.68,
+      "channel_bucket": "global_media",
+      "source_group": "techcrunch"
+    },
+    {
+      "url": "https://www.artificialintelligence-news.com/feed/",
+      "name": "AI News",
+      "tag": "GlobalMedia",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.65,
+      "channel_bucket": "global_media",
+      "source_group": "ai-news"
+    },
+    {
+      "url": "https://sspai.com/feed",
+      "name": "少数派",
+      "tag": "ChineseTech",
+      "lang": "zh",
+      "source_type": "industry_media",
+      "quality_weight": 0.66,
+      "channel_bucket": "cn_ai_media",
+      "source_group": "sspai"
+    },
+    {
+      "url": "https://www.ruanyifeng.com/blog/atom.xml",
+      "name": "阮一峰网络日志",
+      "tag": "ChineseTech",
+      "lang": "zh",
+      "source_type": "independent_blog",
+      "quality_weight": 0.72,
+      "channel_bucket": "cn_ai_media",
+      "source_group": "ruanyifeng"
+    },
+    {
+      "url": "https://www.leiphone.com/feed",
+      "name": "雷锋网",
+      "tag": "ChineseAI",
+      "lang": "zh",
+      "source_type": "industry_media",
+      "quality_weight": 0.7,
+      "channel_bucket": "cn_ai_media",
+      "source_group": "leiphone"
+    },
+    {
+      "url": "https://www.qbitai.com/feed",
+      "name": "量子位",
+      "tag": "ChineseAI",
+      "lang": "zh",
+      "source_type": "industry_media",
+      "quality_weight": 0.69,
+      "channel_bucket": "cn_ai_media",
+      "source_group": "qbitai"
+    },
+    {
+      "url": "https://hnrss.org/newest?points=100",
+      "name": "Hacker News",
+      "tag": "HackerNews",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.58,
+      "channel_bucket": "community",
+      "source_group": "hacker-news"
+    },
+    {
+      "url": "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml",
+      "name": "GitHub Trending",
+      "tag": "GitHub",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.56,
+      "channel_bucket": "community",
+      "source_group": "github-trending"
+    }
   ],
   "fallback_urls": [
     "https://techcrunch.com/category/artificial-intelligence/",
@@ -69,6 +229,19 @@
       "zh_tags": ["AI追踪", "主题线"]
     }
   },
+  "source_diversity": {
+    "enabled": true,
+    "candidate_cap_per_source": 2,
+    "enrichment_cap_per_source": 1,
+    "preferred_bucket_order": [
+      "official_vendor",
+      "global_media",
+      "research_media",
+      "independent",
+      "cn_ai_media",
+      "community"
+    ]
+  },
   "blogwatcher_enabled": true,
   "blogwatcher_sources": [
     {
@@ -76,42 +249,99 @@
       "feed_url": "https://blog.openai.com/rss/",
       "source_type": "official_blog",
       "lang": "en",
-      "quality_weight": 0.95
+      "quality_weight": 0.95,
+      "channel_bucket": "official_vendor",
+      "source_group": "openai"
     },
     {
       "name": "Anthropic News",
       "feed_url": "https://www.anthropic.com/feed",
       "source_type": "official_blog",
       "lang": "en",
-      "quality_weight": 0.93
+      "quality_weight": 0.93,
+      "channel_bucket": "official_vendor",
+      "source_group": "anthropic"
     },
     {
       "name": "Google AI",
       "feed_url": "https://blog.google/technology/ai/rss/",
       "source_type": "official_blog",
       "lang": "en",
-      "quality_weight": 0.92
+      "quality_weight": 0.92,
+      "channel_bucket": "official_vendor",
+      "source_group": "google-ai"
     },
     {
       "name": "Hugging Face Blog",
       "feed_url": "https://huggingface.co/blog/feed.xml",
       "source_type": "official_blog",
       "lang": "en",
-      "quality_weight": 0.88
+      "quality_weight": 0.88,
+      "channel_bucket": "official_vendor",
+      "source_group": "huggingface"
+    },
+    {
+      "name": "AWS Machine Learning Blog",
+      "feed_url": "https://aws.amazon.com/blogs/machine-learning/feed/",
+      "source_type": "official_blog",
+      "lang": "en",
+      "quality_weight": 0.87,
+      "channel_bucket": "official_vendor",
+      "source_group": "aws"
+    },
+    {
+      "name": "NVIDIA Developer Blog",
+      "feed_url": "https://developer.nvidia.com/blog/feed/",
+      "source_type": "official_blog",
+      "lang": "en",
+      "quality_weight": 0.86,
+      "channel_bucket": "official_vendor",
+      "source_group": "nvidia"
     },
     {
       "name": "Simon Willison",
       "feed_url": "https://simonwillison.net/atom/everything/",
       "source_type": "independent_blog",
       "lang": "en",
-      "quality_weight": 0.82
+      "quality_weight": 0.82,
+      "channel_bucket": "independent",
+      "source_group": "simon-willison"
+    },
+    {
+      "name": "MIT Technology Review AI",
+      "feed_url": "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+      "source_type": "industry_media",
+      "lang": "en",
+      "quality_weight": 0.76,
+      "channel_bucket": "research_media",
+      "source_group": "mit-technology-review"
+    },
+    {
+      "name": "Leiphone",
+      "feed_url": "https://www.leiphone.com/feed",
+      "source_type": "industry_media",
+      "lang": "zh",
+      "quality_weight": 0.7,
+      "channel_bucket": "cn_ai_media",
+      "source_group": "leiphone"
+    },
+    {
+      "name": "QbitAI",
+      "feed_url": "https://www.qbitai.com/feed",
+      "source_type": "industry_media",
+      "lang": "zh",
+      "quality_weight": 0.69,
+      "channel_bucket": "cn_ai_media",
+      "source_group": "qbitai"
     },
     {
       "name": "TechCrunch AI",
       "feed_url": "https://techcrunch.com/category/artificial-intelligence/feed/",
       "source_type": "industry_media",
       "lang": "en",
-      "quality_weight": 0.68
+      "quality_weight": 0.68,
+      "channel_bucket": "global_media",
+      "source_group": "techcrunch"
     }
   ],
   "arxiv_enabled": true,

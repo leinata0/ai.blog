@@ -4,7 +4,14 @@ import { readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parseFeedXml, dedupeResearchItems, runBlogwatcher } from './lib/blogwatcher.mjs'
+import {
+  applySourceDiversity,
+  dedupeResearchItems,
+  filterResearchItemsByPublishedWindow,
+  parseFeedXml,
+  resolveSourceDiversityConfig,
+  runBlogwatcher,
+} from './lib/blogwatcher.mjs'
 import { runArxiv } from './lib/arxiv.mjs'
 import {
   getBlogFormatProfile,
@@ -812,10 +819,13 @@ async function fetchBaseFeed(feed) {
   if (!resp.ok) return []
   const xml = await resp.text()
   return parseFeedXml(xml, {
-    name: feed.tag,
-    source_type: 'rss',
+    name: feed.name || feed.tag,
+    source_type: feed.source_type || 'rss',
     lang: feed.lang,
-    quality_weight: 0.45,
+    quality_weight: Number(feed.quality_weight || 0.45),
+    channel_bucket: feed.channel_bucket,
+    source_group: feed.source_group || feed.name || feed.tag,
+    tag: feed.tag,
   })
 }
 
@@ -825,9 +835,14 @@ async function fetchAllFeeds(config, maxItems = 30) {
   const items = settled
     .filter((result) => result.status === 'fulfilled')
     .flatMap((result) => result.value)
-  return dedupeResearchItems(items)
-    .sort((left, right) => Date.parse(right.published_at || 0) - Date.parse(left.published_at || 0))
-    .slice(0, maxItems)
+  const sourceDiversity = resolveSourceDiversityConfig(config)
+  return applySourceDiversity(dedupeResearchItems(items), {
+    enabled: sourceDiversity.enabled,
+    preferredBucketOrder: sourceDiversity.preferredBucketOrder,
+    perSourceCap: sourceDiversity.candidateCapPerSource,
+    maxItems,
+    rankItem: (item) => Number(item?.score || 0),
+  })
 }
 
 async function jinaRead(url, maxLen = 5000) {
@@ -883,32 +898,17 @@ function buildCoverageWindowEnd(coverageDate) {
   return Number.isFinite(end) ? end : Date.now()
 }
 
-function filterItemsForCoverageWindow(items, { coverageDate = '', lookbackDays = 0, minItems = 0 } = {}) {
-  if (!lookbackDays || lookbackDays <= 0) {
-    return dedupeResearchItems(items || [])
-  }
-
-  const endTs = buildCoverageWindowEnd(coverageDate)
-  const startTs = endTs - lookbackDays * 24 * 60 * 60 * 1000
-  const withTimestamp = []
-  const withoutTimestamp = []
-
-  for (const item of items || []) {
-    const ts = scoreTimestamp(item?.published_at)
-    if (ts > 0) {
-      if (ts >= startTs && ts <= endTs) withTimestamp.push(item)
-    } else {
-      withoutTimestamp.push(item)
-    }
-  }
-
-  const filtered = dedupeResearchItems([
-    ...withTimestamp.sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left)),
-    ...withoutTimestamp.sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left)),
-  ])
-
-  if (filtered.length >= minItems) return filtered
-  return dedupeResearchItems(items || [])
+export function filterItemsForCoverageWindow(
+  items,
+  { coverageDate = '', lookbackHours = 0, lookbackDays = 0, minItems = 0 } = {},
+) {
+  return filterResearchItemsByPublishedWindow(items, {
+    coverageDate,
+    lookbackHours,
+    lookbackDays,
+    minItems,
+    rankItem: itemRelevanceScore,
+  })
 }
 
 async function collectBaseMaterials(config, options = {}) {
@@ -917,9 +917,11 @@ async function collectBaseMaterials(config, options = {}) {
     enrichLimit = 15,
     maxReturnItems = 30,
     coverageDate = '',
+    lookbackHours = 0,
     lookbackDays = 0,
     fallbackMinText = 300,
   } = options
+  const sourceDiversity = resolveSourceDiversityConfig(config)
 
   const feedItems = await fetchAllFeeds(config, feedLimit)
   const itemsWithLinks = feedItems.filter((item) => item.url).slice(0, enrichLimit)
@@ -935,6 +937,8 @@ async function collectBaseMaterials(config, options = {}) {
       materials.push({
         source_type: 'rss',
         source_name: 'Fallback',
+        source_group: 'fallback',
+        channel_bucket: 'global_media',
         title: url,
         url,
         published_at: '',
@@ -949,19 +953,26 @@ async function collectBaseMaterials(config, options = {}) {
 
   const filtered = filterItemsForCoverageWindow(materials, {
     coverageDate,
+    lookbackHours,
     lookbackDays,
     minItems: Math.min(10, Math.max(4, Math.floor(maxReturnItems / 2))),
   })
 
-  return dedupeResearchItems(filtered)
-    .sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left))
-    .slice(0, maxReturnItems)
+  return applySourceDiversity(dedupeResearchItems(filtered), {
+    enabled: sourceDiversity.enabled,
+    preferredBucketOrder: sourceDiversity.preferredBucketOrder,
+    perSourceCap: sourceDiversity.candidateCapPerSource,
+    maxItems: maxReturnItems,
+    rankItem: itemRelevanceScore,
+  })
 }
 
 function compactResearchItem(item) {
   return {
     source_type: item.source_type,
     source_name: item.source_name,
+    source_group: item.source_group,
+    channel_bucket: item.channel_bucket,
     title: item.title,
     url: item.url,
     published_at: item.published_at,
@@ -1025,6 +1036,16 @@ export function clusterResearchItemsByTopic(items, options = {}) {
     const orderedItems = [...cluster.items].sort((left, right) => itemRelevanceScore(right) - itemRelevanceScore(left))
     const lead = orderedItems[0]
     const sources = new Set(orderedItems.map((item) => `${item.source_name}:${item.url}`))
+    const sourceGroups = [...new Set(
+      orderedItems.map((item) => String(item.source_group || item.source_name || '').trim()).filter(Boolean),
+    )]
+    const channelBuckets = [...new Set(
+      orderedItems.map((item) => String(item.channel_bucket || '').trim()).filter(Boolean),
+    )]
+    const nonOfficialSourceCount = sourceGroups.filter((group) => {
+      const sample = orderedItems.find((item) => String(item.source_group || item.source_name || '').trim() === group)
+      return String(sample?.channel_bucket || '') !== 'official_vendor'
+    }).length
     return {
       topic_key: buildTopicKey(lead),
       title_key: cluster.title_key,
@@ -1033,6 +1054,9 @@ export function clusterResearchItemsByTopic(items, options = {}) {
       latest_published_at: orderedItems.map((item) => item.published_at).sort((left, right) => scoreTimestamp(right) - scoreTimestamp(left))[0] || '',
       score: Number(orderedItems.reduce((total, item) => total + itemRelevanceScore(item), 0).toFixed(4)),
       source_count: sources.size,
+      bucket_count: channelBuckets.length,
+      non_official_source_count: nonOfficialSourceCount,
+      source_groups: sourceGroups,
       keywords: cluster.signature.slice(0, 8),
       items: orderedItems,
     }
@@ -1089,6 +1113,10 @@ export function selectTopicsForPublishing(topics, runtime) {
       const leftBoost = left.source_count >= minSourcesSoft ? 1 : 0
       const rightBoost = right.source_count >= minSourcesSoft ? 1 : 0
       if (rightBoost !== leftBoost) return rightBoost - leftBoost
+      if ((right.bucket_count || 0) !== (left.bucket_count || 0)) return (right.bucket_count || 0) - (left.bucket_count || 0)
+      if ((right.non_official_source_count || 0) !== (left.non_official_source_count || 0)) {
+        return (right.non_official_source_count || 0) - (left.non_official_source_count || 0)
+      }
       if (right.source_count !== left.source_count) return right.source_count - left.source_count
       if (right.score !== left.score) return right.score - left.score
       return scoreTimestamp(right.latest_published_at) - scoreTimestamp(left.latest_published_at)
@@ -2434,7 +2462,10 @@ async function buildPublishablePost({
 
 async function runDailyMode(config, cliOptions) {
   const runtime = resolveDailyRuntime(config, cliOptions)
-  const baseItems = await collectBaseMaterials(config)
+  const baseItems = await collectBaseMaterials(config, {
+    coverageDate: runtime.coverageDate,
+    lookbackHours: runtime.lookbackHours,
+  })
   if (baseItems.length === 0) {
     throw new Error('No usable base research items were collected')
   }
@@ -2490,7 +2521,14 @@ async function runDailyMode(config, cliOptions) {
 
   for (const topic of selectedTopics) {
     const topicBlogItems = runtime.enableBlogwatcherFallback && config.blogwatcher_enabled
-      ? await runBlogwatcher({ config, topicHint: topic.candidate_title, maxItems: 6, mode: runtime.mode })
+      ? await runBlogwatcher({
+        config,
+        topicHint: topic.candidate_title,
+        maxItems: 6,
+        mode: runtime.mode,
+        coverageDate,
+        lookbackHours: runtime.lookbackHours,
+      })
       : []
     const researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems: [] })
     const outline = await chooseTopicDetailed({
@@ -2711,6 +2749,8 @@ async function runWeeklyReviewMode(config, cliOptions) {
       config,
       maxItems: Number(weeklyConfig.blogwatcher_max_items || 18),
       mode: 'weekly-review',
+      coverageDate: today,
+      lookbackDays: Number(weeklyConfig.lookback_days || 7),
     })
   }
 
