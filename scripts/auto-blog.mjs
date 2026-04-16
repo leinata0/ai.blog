@@ -87,6 +87,46 @@ function scoreTimestamp(value) {
   return Number.isFinite(timestamp) ? timestamp : 0
 }
 
+export function normalizePublishedAt(value) {
+  if (value === null || value === undefined) return null
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString()
+  }
+  const text = String(value || '').trim()
+  if (!text) return null
+  const timestamp = Date.parse(text)
+  if (!Number.isFinite(timestamp)) return null
+  return new Date(timestamp).toISOString()
+}
+
+function buildPrimarySourceMatcher(keySources = []) {
+  const keyHints = (Array.isArray(keySources) ? keySources : [])
+    .map((item) => String(item || '').toLowerCase())
+    .filter(Boolean)
+
+  return {
+    keyHints,
+    matches(source = {}) {
+      const sourceUrl = String(source?.url || source?.source_url || '').trim().toLowerCase()
+      const title = String(source?.title || '').trim().toLowerCase()
+      const sourceName = String(source?.source_name || '').trim().toLowerCase()
+      return keyHints.some((hint) => (
+        sourceUrl.includes(hint)
+        || title.includes(hint)
+        || sourceName.includes(hint)
+      ))
+    },
+  }
+}
+
+function applyPrimarySourceHintsToSources(sourceItems = [], outline = {}) {
+  const matcher = buildPrimarySourceMatcher(outline?.key_sources)
+  return (Array.isArray(sourceItems) ? sourceItems : []).map((source, index) => ({
+    ...source,
+    is_primary: matcher.keyHints.length > 0 ? matcher.matches(source) : index === 0,
+  }))
+}
+
 function slugify(value, fallback = 'topic') {
   const normalized = String(value || '')
     .normalize('NFKD')
@@ -381,9 +421,7 @@ export function assignSeriesForPost({ post, outline, metadata, seriesAssignment 
 }
 
 export function buildPostSourcesPayload({ researchPack, outline }) {
-  const keyHints = (Array.isArray(outline?.key_sources) ? outline.key_sources : [])
-    .map((item) => String(item || '').toLowerCase())
-    .filter(Boolean)
+  const matcher = buildPrimarySourceMatcher(outline?.key_sources)
   const seen = new Set()
   const results = []
 
@@ -392,20 +430,12 @@ export function buildPostSourcesPayload({ researchPack, outline }) {
     if (!sourceUrl || seen.has(sourceUrl)) continue
     seen.add(sourceUrl)
 
-    const title = String(source?.title || '').toLowerCase()
-    const sourceName = String(source?.source_name || '').toLowerCase()
-    const isPrimary = keyHints.some((hint) => (
-      sourceUrl.toLowerCase().includes(hint)
-      || title.includes(hint)
-      || sourceName.includes(hint)
-    ))
-
     results.push({
       source_type: String(source?.source_type || '').trim() || 'rss',
       source_name: String(source?.source_name || '').trim() || 'unknown',
       source_url: sourceUrl,
-      published_at: String(source?.published_at || '').trim(),
-      is_primary: Boolean(isPrimary),
+      published_at: normalizePublishedAt(source?.published_at),
+      is_primary: Boolean(matcher.matches(source)),
     })
   }
 
@@ -434,6 +464,7 @@ export function buildPublishingArtifactPayload({
       paper_count: Number(researchPack?.paper_items?.length || 0),
       topic: String(outline?.topic || ''),
       thesis: String(outline?.thesis || ''),
+      cover_prompt: String(outline?.cover_prompt || '').trim(),
     }),
     quality_gate_json: JSON.stringify(gate || {}),
     image_plan_json: JSON.stringify(Array.isArray(imagePlans) ? imagePlans : []),
@@ -1835,16 +1866,66 @@ async function repairArticle({
 }
 
 async function downloadAndUploadImage(imageUrl, token) {
+  const result = await downloadAndUploadImageResult(imageUrl, token)
+  return result.ok ? result.imageUrl : null
+}
+
+function buildCoverGenerationResult({
+  ok = false,
+  imageUrl = '',
+  errorCode = '',
+  error = '',
+  sourceUrl = '',
+} = {}) {
+  return {
+    ok,
+    imageUrl: imageUrl || '',
+    errorCode: errorCode || '',
+    error: error || '',
+    sourceUrl: sourceUrl || '',
+  }
+}
+
+function logCoverGenerationResult(context, result) {
+  if (!result) return
+  if (result.ok && result.imageUrl) {
+    console.log(`${context} generated successfully: ${result.imageUrl}`)
+    return
+  }
+  const code = result.errorCode || 'unknown_error'
+  const message = result.error || 'Unknown cover generation failure.'
+  console.warn(`${context} skipped: [${code}] ${message}`)
+}
+
+async function downloadAndUploadImageResult(imageUrl, token) {
   try {
     const resp = await fetch(imageUrl, {
       signal: AbortSignal.timeout(15000),
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AutoBlogBot/3.0)' },
     })
-    if (!resp.ok) return null
+    if (!resp.ok) {
+      return buildCoverGenerationResult({
+        ok: false,
+        errorCode: 'download_failed',
+        error: `Failed to download generated image: HTTP ${resp.status}`,
+      })
+    }
     const contentType = resp.headers.get('content-type') || ''
-    if (!contentType.startsWith('image/')) return null
+    if (!contentType.startsWith('image/')) {
+      return buildCoverGenerationResult({
+        ok: false,
+        errorCode: 'download_failed',
+        error: 'Generated asset is not an image.',
+      })
+    }
     const buffer = Buffer.from(await resp.arrayBuffer())
-    if (buffer.length < 1000 || buffer.length > 5 * 1024 * 1024) return null
+    if (buffer.length < 1000 || buffer.length > 5 * 1024 * 1024) {
+      return buildCoverGenerationResult({
+        ok: false,
+        errorCode: 'download_failed',
+        error: 'Generated image size is outside the accepted upload range.',
+      })
+    }
 
     const ext = contentType.includes('png')
       ? '.png'
@@ -1869,16 +1950,36 @@ async function downloadAndUploadImage(imageUrl, token) {
       body,
       signal: AbortSignal.timeout(15000),
     })
-    if (!uploadResp.ok) return null
+    if (!uploadResp.ok) {
+      return buildCoverGenerationResult({
+        ok: false,
+        errorCode: 'upload_failed',
+        error: `Failed to upload generated image: HTTP ${uploadResp.status}`,
+      })
+    }
     const data = await uploadResp.json()
-    return data.url?.startsWith('http') ? data.url : `${BLOG_API_BASE}${data.url}`
-  } catch {
-    return null
+    return buildCoverGenerationResult({
+      ok: true,
+      imageUrl: data.url?.startsWith('http') ? data.url : `${BLOG_API_BASE}${data.url}`,
+      sourceUrl: imageUrl,
+    })
+  } catch (error) {
+    return buildCoverGenerationResult({
+      ok: false,
+      errorCode: 'upload_failed',
+      error: error?.message || 'Failed to download or upload generated image.',
+    })
   }
 }
 
 async function generateCoverWithGrok(prompt, token) {
-  if (!XAI_API_KEY) return null
+  if (!XAI_API_KEY) {
+    return buildCoverGenerationResult({
+      ok: false,
+      errorCode: 'missing_env',
+      error: 'Missing XAI_API_KEY.',
+    })
+  }
   try {
     const resp = await fetch('https://api.x.ai/v1/images/generations', {
       method: 'POST',
@@ -1893,13 +1994,29 @@ async function generateCoverWithGrok(prompt, token) {
       }),
       signal: AbortSignal.timeout(60000),
     })
-    if (!resp.ok) return null
+    if (!resp.ok) {
+      return buildCoverGenerationResult({
+        ok: false,
+        errorCode: 'generation_failed',
+        error: `Grok generation failed: HTTP ${resp.status}`,
+      })
+    }
     const data = await resp.json()
     const grokUrl = data.data?.[0]?.url
-    if (!grokUrl) return null
-    return downloadAndUploadImage(grokUrl, token)
-  } catch {
-    return null
+    if (!grokUrl) {
+      return buildCoverGenerationResult({
+        ok: false,
+        errorCode: 'generation_failed',
+        error: 'Grok returned no image URL.',
+      })
+    }
+    return downloadAndUploadImageResult(grokUrl, token)
+  } catch (error) {
+    return buildCoverGenerationResult({
+      ok: false,
+      errorCode: 'generation_failed',
+      error: error?.message || 'Grok generation failed unexpectedly.',
+    })
   }
 }
 
@@ -1947,7 +2064,7 @@ function buildReferencesSection(researchPack) {
   return `${lines.join('\n')}\n\n${sourceLines.join('\n') || '- 无'}`
 }
 
-function buildImageSourcesSection(imagePlans) {
+export function buildImageSourcesSection(imagePlans) {
   const lines = ['## 图片来源']
   const body = imagePlans.length > 0
     ? imagePlans.map((plan) => `- ${plan.section_heading}: [${plan.source_name}](${plan.source_page_url})`)
@@ -1973,7 +2090,7 @@ function buildMetadataComment(metadata) {
   return `<!-- auto-blog-meta: ${JSON.stringify(metadata)} -->`
 }
 
-function insertImagesIntoContent(contentMd, imagePlans) {
+export function insertImagesIntoContent(contentMd, imagePlans) {
   const lines = String(contentMd || '').split('\n')
   for (const plan of imagePlans) {
     const target = normalizeHeadingLabel(plan.section_heading)
@@ -2181,7 +2298,8 @@ async function bridgePublishingMetadata(token, payload) {
   try {
     return await upsertPublishingMetadata(token, payload)
   } catch (error) {
-    console.warn(`Failed to bridge publishing metadata: ${error.message}`)
+    const postLabel = payload?.post_slug || payload?.post_id || 'unknown-post'
+    console.warn(`Failed to bridge publishing metadata for ${postLabel}: ${error.message}`)
     return null
   }
 }
@@ -2349,13 +2467,16 @@ async function enrichTopicMetadataCoverIfNeeded(token, payload, context = {}) {
 
   try {
     const prompt = buildTopicCoverPrompt(payload, post)
-    const topicCoverImage = await generateCoverWithGrok(prompt, token)
-    if (!topicCoverImage) return payload
+    const topicCoverResult = await generateCoverWithGrok(prompt, token)
+    if (!topicCoverResult.ok || !topicCoverResult.imageUrl) {
+      logCoverGenerationResult(`Topic cover for post ${postId}`, topicCoverResult)
+      return payload
+    }
     return {
       ...payload,
       topic_metadata: {
         ...(payload.topic_metadata || {}),
-        topic_cover_image: topicCoverImage,
+        topic_cover_image: topicCoverResult.imageUrl,
       },
     }
   } catch (error) {
@@ -2413,9 +2534,12 @@ async function buildPublishablePost({
     imagePlans = await pickSourceImages({
       sections: desiredImageSections,
       topic: outline.topic,
-      sourceItems: researchPack.sources.filter((item) => (
-        (config.image_selection_rules?.allowed_source_types || []).includes(item.source_type)
-      )),
+      sourceItems: applyPrimarySourceHintsToSources(
+        researchPack.sources.filter((item) => (
+          (config.image_selection_rules?.allowed_source_types || []).includes(item.source_type)
+        )),
+        outline,
+      ),
       config,
     })
   }
@@ -2630,7 +2754,9 @@ async function runDailyMode(config, cliOptions) {
     let coverImage = ''
     if (XAI_API_KEY && token && artifact.outline.cover_prompt) {
       console.log(`Generating Grok cover image for ${slug}...`)
-      coverImage = await generateCoverWithGrok(artifact.outline.cover_prompt, token) || ''
+      const coverResult = await generateCoverWithGrok(artifact.outline.cover_prompt, token)
+      logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
+      coverImage = coverResult.ok ? coverResult.imageUrl : ''
     }
 
     const bridgeWorkflowKey = runtime.mode.replace('-', '_')
@@ -2906,7 +3032,9 @@ async function runWeeklyReviewMode(config, cliOptions) {
   let coverImage = ''
   if (XAI_API_KEY && token && outline.cover_prompt) {
     console.log('Generating Grok cover image...')
-    coverImage = await generateCoverWithGrok(outline.cover_prompt, token) || ''
+    const coverResult = await generateCoverWithGrok(outline.cover_prompt, token)
+    logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
+    coverImage = coverResult.ok ? coverResult.imageUrl : ''
   }
   const result = await publishPost(token, artifact.post, coverImage)
   metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null

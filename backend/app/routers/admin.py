@@ -119,6 +119,71 @@ def _build_topic_cover_prompt(profile: TopicProfile, recent_post: Post | None = 
     return " ".join(parts)
 
 
+def _strip_markdown_for_cover_prompt(value: str, max_chars: int = 320) -> str:
+    text = str(value or "")
+    text = re.sub(r"```[\s\S]*?```", " ", text)
+    text = re.sub(r"`[^`]*`", " ", text)
+    text = re.sub(r"!\[[^\]]*]\([^)]*\)", " ", text)
+    text = re.sub(r"\[[^\]]*]\([^)]*\)", " ", text)
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"[>*_|-]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars].rstrip()}..."
+
+
+def _extract_post_cover_prompt_from_artifact(post_id: int, db: Session) -> str:
+    artifact = db.execute(
+        select(PublishingArtifact)
+        .where(PublishingArtifact.post_id == post_id)
+        .order_by(PublishingArtifact.updated_at.desc(), PublishingArtifact.created_at.desc(), PublishingArtifact.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if artifact is None:
+        return ""
+    try:
+        payload = json.loads(artifact.research_pack_summary or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("cover_prompt") or "").strip()
+
+
+def _extract_post_headings(content_md: str, limit: int = 4) -> list[str]:
+    headings: list[str] = []
+    for line in str(content_md or "").splitlines():
+        match = re.match(r"^##+\s+(.*)$", line.strip())
+        if not match:
+            continue
+        heading = match.group(1).strip()
+        if not heading:
+            continue
+        headings.append(heading)
+        if len(headings) >= limit:
+            break
+    return headings
+
+
+def _build_post_cover_prompt(post: Post) -> str:
+    headings = _extract_post_headings(post.content_md or "")
+    summary = _strip_markdown_for_cover_prompt(post.summary or "", 220)
+    heading_part = f"Key angles: {'; '.join(headings[:3])}." if headings else ""
+    topic_part = f"Topic line: {post.topic_key}." if (post.topic_key or "").strip() else ""
+    return " ".join(
+        part
+        for part in [
+            f"Editorial hero illustration for a Chinese AI blog article about {post.title}.",
+            f"Summary: {summary}." if summary else "",
+            heading_part,
+            topic_part,
+            "Professional, modern, cinematic, no text overlay, no watermark, suitable for a wide website banner.",
+        ]
+        if part
+    )
+
+
 def _get_cover_generation_status_payload() -> dict:
     has_xai_api_key = bool(clean_env("XAI_API_KEY"))
     if has_xai_api_key:
@@ -1591,6 +1656,50 @@ def admin_generate_topic_profile_cover(
     except Exception as exc:
         db.rollback()
         return _cover_response(profile.id, profile.cover_image or "", False, f"封面生成出现未预期错误：{exc}", "unexpected_error")
+
+
+@router.post("/posts/{post_id}/generate-cover", response_model=CoverGenerateResponse)
+def admin_generate_post_cover(
+    post_id: int,
+    body: CoverGenerateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    post = db.execute(select(Post).where(Post.id == post_id)).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    try:
+        image_url = (body.image_url or "").strip()
+        if image_url:
+            post.cover_image = image_url
+        else:
+            if (post.cover_image or "").strip() and not body.overwrite:
+                return _cover_response(post.id, post.cover_image or "", False, "当前文章已经有封面，如需覆盖请使用重生成。", "cover_exists")
+
+            prompt = (body.prompt or "").strip()
+            if not prompt:
+                prompt = _extract_post_cover_prompt_from_artifact(post.id, db)
+            if not prompt:
+                prompt = _build_post_cover_prompt(post)
+            if not prompt:
+                return _cover_response(post.id, post.cover_image or "", False, "当前文章缺少可用提示词，暂时无法生成封面。", "prompt_unavailable")
+
+            post.cover_image = _generate_cover_asset(prompt, f"post-{post.slug or post.id}.png")
+
+        if not (post.cover_image or "").strip():
+            return _cover_response(post.id, post.cover_image or "", False, "封面生成失败，未得到可用图片。", "generation_failed")
+
+        post.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(post)
+        return _cover_response(post.id, post.cover_image or "", True)
+    except CoverGenerationError as exc:
+        db.rollback()
+        return _cover_response(post.id, post.cover_image or "", False, exc.message, exc.code)
+    except Exception as exc:
+        db.rollback()
+        return _cover_response(post.id, post.cover_image or "", False, f"封面生成出现未预期错误：{exc}", "unexpected_error")
 
 
 @router.get("/search-insights", response_model=SearchInsightsOut)

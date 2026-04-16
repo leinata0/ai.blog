@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   assignSeriesForPost,
+  buildPostSourcesPayload,
   buildTopicPresentation,
   buildPublishingMetadataBridgePayload,
   buildQualitySnapshotPayload,
@@ -98,7 +99,7 @@ test('assignSeriesForPost respects manual series override before rules', () => {
   assert.equal(decision.matched_rule, 'manual_override')
 })
 
-test('metadata bridge payload keeps core post fields unchanged and excludes cover prompt mutation', () => {
+test('metadata bridge payload keeps core post fields unchanged and persists cover prompt for later reuse', () => {
   const post = {
     title: 'A title',
     slug: 'a-title',
@@ -155,7 +156,7 @@ test('metadata bridge payload keeps core post fields unchanged and excludes cove
     summary: 'digest',
     sources: [
       { source_type: 'official_blog', source_name: 'OpenAI', url: 'https://example.com/a', title: 'Source A', published_at: '2026-04-15T01:00:00Z' },
-      { source_type: 'industry_media', source_name: 'Media', url: 'https://example.com/b', title: 'Source B', published_at: '2026-04-15T02:00:00Z' },
+      { source_type: 'industry_media', source_name: 'Media', url: 'https://example.com/b', title: 'Source B', published_at: 'Wed, 15 Apr 2026 02:00:00 +0000' },
     ],
     blog_items: [],
     paper_items: [],
@@ -187,7 +188,38 @@ test('metadata bridge payload keeps core post fields unchanged and excludes cove
   assert.equal(payload.metadata.source_count, 2)
   assert.equal(payload.metadata.series_slug, 'ai-daily-brief')
   assert.equal(payload.metadata.series_order, 100)
-  assert.ok(!payload.publishing_artifact.research_pack_summary.includes('cover_prompt'))
+  assert.ok(payload.publishing_artifact.research_pack_summary.includes('cover_prompt'))
+})
+
+test('buildPostSourcesPayload normalizes published_at values to ISO strings or null', () => {
+  const payload = buildPostSourcesPayload({
+    researchPack: {
+      sources: [
+        {
+          source_type: 'rss',
+          source_name: 'OpenAI',
+          url: 'https://example.com/a',
+          title: 'Source A',
+          published_at: 'Wed, 15 Apr 2026 06:00:00 +0000',
+        },
+        {
+          source_type: 'rss',
+          source_name: 'Media',
+          url: 'https://example.com/b',
+          title: 'Source B',
+          published_at: 'not-a-date',
+        },
+      ],
+    },
+    outline: {
+      key_sources: ['openai'],
+    },
+  })
+
+  assert.equal(payload.length, 2)
+  assert.equal(payload[0].published_at, '2026-04-15T06:00:00.000Z')
+  assert.equal(payload[0].is_primary, true)
+  assert.equal(payload[1].published_at, null)
 })
 
 test('quality snapshot payload keeps core fields unchanged and exposes required readonly keys', () => {

@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TagOut(BaseModel):
@@ -568,6 +569,36 @@ class PostSourceInput(BaseModel):
     source_url: str
     published_at: datetime | None = None
     is_primary: bool = False
+
+    @field_validator("published_at", mode="before")
+    @classmethod
+    def normalize_published_at(cls, value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, (int, float)):
+            try:
+                return datetime.fromtimestamp(value, tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+
+        try:
+            parsed = parsedate_to_datetime(text)
+            if parsed is not None:
+                return parsed
+        except (TypeError, ValueError, IndexError):
+            return None
+        return None
 
 
 class PublishingArtifactInput(BaseModel):

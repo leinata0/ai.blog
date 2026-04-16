@@ -9,6 +9,8 @@ export async function adminLogin(username, password) {
 export const adminCreatePost = (data) => apiPost('/api/admin/posts', data, { auth: true })
 export const adminUpdatePost = (id, data) => apiPut(`/api/admin/posts/${id}`, data, { auth: true })
 export const adminDeletePost = (id) => apiDelete(`/api/admin/posts/${id}`, { auth: true })
+export const generateAdminPostCover = (id, data = {}) =>
+  apiPost(`/api/admin/posts/${id}/generate-cover`, data, { auth: true })
 
 export async function adminUploadImage(file) {
   if (file.size > MAX_IMAGE_UPLOAD_BYTES) {

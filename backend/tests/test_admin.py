@@ -346,6 +346,58 @@ def test_content_health_and_publishing_metadata_bridge_alias_contract(client):
     assert bridge_data["source_count"] == 1
 
 
+def test_publishing_metadata_bridge_accepts_rfc2822_published_at(client):
+    token = _login(client)
+    create = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "RFC2822 Source Post",
+            "slug": "rfc2822-source-post",
+            "summary": "summary",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "published_mode": "auto",
+            "coverage_date": "2026-04-16",
+        },
+        headers=_auth(token),
+    )
+    assert create.status_code == 200
+    post_id = create.json()["id"]
+
+    bridge_resp = client.post(
+        "/api/admin/posts/publishing-metadata",
+        json={
+            "post_id": post_id,
+            "post_sources": [
+                {
+                    "source_type": "rss",
+                    "source_name": "OpenAI Blog",
+                    "source_url": "https://openai.com/blog/example",
+                    "published_at": "Wed, 15 Apr 2026 06:00:00 +0000",
+                    "is_primary": True,
+                }
+            ],
+            "publishing_artifact": {
+                "workflow_key": "daily_auto",
+                "coverage_date": "2026-04-16",
+                "research_pack_summary": "{\"cover_prompt\":\"cinematic trust-by-design interface\"}",
+                "quality_gate_json": "{}",
+                "image_plan_json": "[]",
+                "candidate_topics_json": "[]",
+                "failure_reason": "",
+            },
+        },
+        headers=_auth(token),
+    )
+    assert bridge_resp.status_code == 200
+    assert bridge_resp.json()["source_count"] == 1
+
+    health_resp = client.get("/api/admin/content-health", headers=_auth(token))
+    assert health_resp.status_code == 200
+    health_item = next(item for item in health_resp.json()["items"] if item["slug"] == "rfc2822-source-post")
+    assert health_item["source_count"] == 1
+
+
 def test_quality_endpoints_contract_and_null_compat(client):
     token = _login(client)
     create = client.post(
@@ -662,6 +714,94 @@ def test_admin_series_generate_cover(client):
     assert no_image.status_code == 200
     assert no_image.json()["generated"] is False
     assert no_image.json()["error_code"] == "cover_exists"
+
+
+def test_admin_post_generate_cover_uses_artifact_prompt(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Trust-led Privacy UX",
+            "slug": "trust-led-privacy-ux",
+            "summary": "summary",
+            "content_md": "## What happened\n\nBody\n\n## Why it matters\n\nMore",
+            "content_type": "daily_brief",
+            "topic_key": "privacy-led-ux",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+    post_id = create_post.json()["id"]
+
+    bridge_resp = client.post(
+        "/api/admin/posts/publishing-metadata",
+        json={
+            "post_id": post_id,
+            "publishing_artifact": {
+                "workflow_key": "daily_auto",
+                "coverage_date": "2026-04-16",
+                "research_pack_summary": "{\"cover_prompt\":\"cinematic privacy-first product trust scene\"}",
+                "quality_gate_json": "{}",
+                "image_plan_json": "[]",
+                "candidate_topics_json": "[]",
+                "failure_reason": "",
+            },
+        },
+        headers=_auth(token),
+    )
+    assert bridge_resp.status_code == 200
+
+    captured = {}
+
+    def fake_generate_cover_asset(prompt, filename_hint):
+        captured["prompt"] = prompt
+        captured["filename_hint"] = filename_hint
+        return "https://img.example.com/post-auto.png"
+
+    monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
+
+    response = client.post(
+        f"/api/admin/posts/{post_id}/generate-cover",
+        json={},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["generated"] is True
+    assert payload["cover_image"] == "https://img.example.com/post-auto.png"
+    assert captured["prompt"] == "cinematic privacy-first product trust scene"
+    assert captured["filename_hint"] == "post-trust-led-privacy-ux.png"
+
+
+def test_admin_post_generate_cover_reports_cover_exists(client):
+    token = _login(client)
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Existing Cover Post",
+            "slug": "existing-cover-post",
+            "summary": "summary",
+            "content_md": "content",
+            "cover_image": "https://img.example.com/existing-cover.png",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+    post_id = create_post.json()["id"]
+
+    response = client.post(
+        f"/api/admin/posts/{post_id}/generate-cover",
+        json={},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["generated"] is False
+    assert payload["error_code"] == "cover_exists"
 
 
 def test_cover_generation_status_reports_backend_env(client, monkeypatch):
