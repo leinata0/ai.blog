@@ -141,6 +141,8 @@ def test_rss_feed(client, seeded_db):
     assert resp.status_code == 200
     assert "application/xml" in resp.headers["content-type"]
     assert "<rss" in resp.text
+    assert "<title>AI 资讯观察</title>" in resp.text
+    assert "聚焦值得持续追踪的消息、产品更新与产业线索" in resp.text
     assert "python-automation-selenium-pandas" in resp.text
 
 
@@ -287,8 +289,11 @@ def test_split_feeds(client):
     assert daily_feed.status_code == 200
     assert weekly_feed.status_code == 200
     assert "<rss" in all_feed.text
+    assert "<title>AI 资讯观察 - 全站更新</title>" in all_feed.text
     assert "daily-one" in daily_feed.text
+    assert "<title>AI 资讯观察 - AI 日报</title>" in daily_feed.text
     assert "weekly-one" in weekly_feed.text
+    assert "<title>AI 资讯观察 - AI 周报</title>" in weekly_feed.text
 
 
 def test_search_topics_and_topic_feed_contract(client):
@@ -354,6 +359,7 @@ def test_search_topics_and_topic_feed_contract(client):
     topic_feed_resp = client.get("/api/feeds/topics/openai-search.xml")
     assert topic_feed_resp.status_code == 200
     assert "<rss" in topic_feed_resp.text
+    assert "<title>AI 资讯观察 - 主题：openai-search</title>" in topic_feed_resp.text
     assert "openai-search-update" in topic_feed_resp.text
 
 

@@ -132,6 +132,44 @@ SEARCH_INSIGHT_COLUMNS = {
     "updated_at": "DATETIME",
 }
 
+EMAIL_SUBSCRIPTION_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "email": "VARCHAR(255) NOT NULL UNIQUE",
+    "content_types_json": "TEXT NOT NULL DEFAULT '[\"all\"]'",
+    "is_active": "BOOLEAN NOT NULL DEFAULT TRUE",
+    "source": "VARCHAR(50) NOT NULL DEFAULT 'feeds_page'",
+    "last_notified_at": "DATETIME",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
+WEB_PUSH_SUBSCRIPTION_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "endpoint": "VARCHAR(1000) NOT NULL UNIQUE",
+    "p256dh": "VARCHAR(255) NOT NULL DEFAULT ''",
+    "auth": "VARCHAR(255) NOT NULL DEFAULT ''",
+    "content_types_json": "TEXT NOT NULL DEFAULT '[\"all\"]'",
+    "is_active": "BOOLEAN NOT NULL DEFAULT TRUE",
+    "user_agent": "VARCHAR(255) NOT NULL DEFAULT ''",
+    "last_notified_at": "DATETIME",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
+POST_NOTIFICATION_DISPATCH_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "post_id": "INTEGER NOT NULL UNIQUE",
+    "email_sent_at": "DATETIME",
+    "email_recipient_count": "INTEGER NOT NULL DEFAULT 0",
+    "web_push_sent_at": "DATETIME",
+    "web_push_recipient_count": "INTEGER NOT NULL DEFAULT 0",
+    "wecom_sent_at": "DATETIME",
+    "wecom_target_count": "INTEGER NOT NULL DEFAULT 0",
+    "last_error": "TEXT NOT NULL DEFAULT ''",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
 DEFAULT_SERIES_SEED = [
     {
         "slug": "ai-daily-brief",
@@ -311,6 +349,35 @@ def ensure_schema_compat(engine) -> None:
         indexes=[
             "CREATE INDEX IF NOT EXISTS ix_search_insights_query ON search_insights (query)",
             "CREATE INDEX IF NOT EXISTS ix_search_insights_last_searched_at ON search_insights (last_searched_at)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "email_subscriptions",
+        EMAIL_SUBSCRIPTION_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_email_subscriptions_email ON email_subscriptions (email)",
+            "CREATE INDEX IF NOT EXISTS ix_email_subscriptions_is_active ON email_subscriptions (is_active)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "web_push_subscriptions",
+        WEB_PUSH_SUBSCRIPTION_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_web_push_subscriptions_endpoint ON web_push_subscriptions (endpoint)",
+            "CREATE INDEX IF NOT EXISTS ix_web_push_subscriptions_is_active ON web_push_subscriptions (is_active)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "post_notification_dispatches",
+        POST_NOTIFICATION_DISPATCH_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_post_notification_dispatches_post_id ON post_notification_dispatches (post_id)",
         ],
     )
 

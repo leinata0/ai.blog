@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -25,6 +25,7 @@ from app.models import (
     Tag,
     TopicProfile,
 )
+from app.notifications import dispatch_post_notifications_for_post
 from app.schemas import (
     CoverGenerationStatusOut,
     CoverGenerateRequest,
@@ -1692,6 +1693,7 @@ def admin_update_series(
 @router.post("/posts/publishing-metadata", response_model=PublishingMetadataUpsertResponse)
 def upsert_post_publishing_metadata(
     body: PublishingMetadataUpsertRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
@@ -1777,6 +1779,9 @@ def upsert_post_publishing_metadata(
     db.refresh(post)
     db.refresh(artifact)
 
+    if post.is_published and (post.published_mode or "").strip() == "auto":
+        background_tasks.add_task(dispatch_post_notifications_for_post, post.id)
+
     return {
         "post_id": post.id,
         "post_slug": post.slug,
@@ -1860,6 +1865,7 @@ def get_admin_post(
 @router.post("/posts", response_model=PostAdminOut)
 def create_post(
     body: PostCreateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
@@ -1890,6 +1896,8 @@ def create_post(
         db.rollback()
         _raise_integrity_http_error(error)
     db.refresh(post)
+    if post.is_published and (post.published_mode or "").strip() != "auto":
+        background_tasks.add_task(dispatch_post_notifications_for_post, post.id)
     return _post_to_dict(post)
 
 
@@ -1897,6 +1905,7 @@ def create_post(
 def update_post(
     post_id: int,
     body: PostUpdateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
@@ -1949,6 +1958,8 @@ def update_post(
         db.rollback()
         _raise_integrity_http_error(error)
     db.refresh(post)
+    if post.is_published and (post.published_mode or "").strip() != "auto":
+        background_tasks.add_task(dispatch_post_notifications_for_post, post.id)
     return _post_to_dict(post)
 
 

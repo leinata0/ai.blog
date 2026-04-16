@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_admin
 from app.db import Base, SessionLocal, engine, get_db
 from app.env import clean_env
+from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
 from app.models import Post, SiteSettings, Tag
 from app.routers.admin import router as admin_router
 from app.routers.posts import router as posts_router
+from app.routers.subscriptions import router as subscriptions_router
 from app.schema_compat import ensure_schema_compat
 from app.schemas import SiteSettingsOut, SiteSettingsUpdate, StatsOut
 from app.seed import seed_data
@@ -58,6 +60,7 @@ app.add_middleware(
 
 app.include_router(posts_router)
 app.include_router(admin_router)
+app.include_router(subscriptions_router)
 
 
 @app.get("/health")
@@ -184,9 +187,9 @@ def rss_feed(db: Session = Depends(get_db)):
 
     rss = Element("rss", version="2.0")
     channel = SubElement(rss, "channel")
-    SubElement(channel, "title").text = "AI Dev Blog"
+    SubElement(channel, "title").text = RSS_SITE_TITLE
     SubElement(channel, "link").text = site_url
-    SubElement(channel, "description").text = "AI developer blog"
+    SubElement(channel, "description").text = RSS_SITE_DESCRIPTION
     SubElement(channel, "language").text = "zh-CN"
 
     for post in posts:

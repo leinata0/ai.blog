@@ -701,6 +701,57 @@ class SiteSettingsUpdate(BaseModel):
     friend_links: str | None = None
 
 
+class SubscriptionStatusOut(BaseModel):
+    email_configured: bool = False
+    web_push_configured: bool = False
+    wecom_configured: bool = False
+    web_push_public_key: str = ""
+
+
+class EmailSubscriptionRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=255)
+    content_types: list[str] = Field(default_factory=lambda: ["all"])
+
+
+class EmailSubscriptionResponse(BaseModel):
+    email: str
+    content_types: list[str] = Field(default_factory=list)
+    is_active: bool = True
+    delivery_ready: bool = False
+    message: str = ""
+
+
+class EmailUnsubscribeRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=255)
+
+
+class WebPushSubscriptionKeysInput(BaseModel):
+    p256dh: str = ""
+    auth: str = ""
+
+
+class WebPushSubscriptionInput(BaseModel):
+    endpoint: str = Field(..., min_length=8, max_length=1000)
+    keys: WebPushSubscriptionKeysInput
+    content_types: list[str] = Field(default_factory=lambda: ["all"])
+
+
+class WebPushSubscriptionResponse(BaseModel):
+    endpoint: str
+    content_types: list[str] = Field(default_factory=list)
+    is_active: bool = True
+    push_ready: bool = False
+    message: str = ""
+
+
+class WebPushPublicKeyOut(BaseModel):
+    public_key: str = ""
+
+
+class WebPushEndpointRequest(BaseModel):
+    endpoint: str = Field(..., min_length=8, max_length=1000)
+
+
 # ── Stats schemas ─────────────────────────────────
 
 class StatsOut(BaseModel):

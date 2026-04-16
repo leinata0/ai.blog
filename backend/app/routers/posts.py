@@ -10,6 +10,16 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_, select
 
 from app.db import get_db
+from app.feed_meta import (
+    RSS_ALL_DESCRIPTION,
+    RSS_ALL_TITLE,
+    RSS_DAILY_DESCRIPTION,
+    RSS_DAILY_TITLE,
+    RSS_WEEKLY_DESCRIPTION,
+    RSS_WEEKLY_TITLE,
+    build_topic_feed_description,
+    build_topic_feed_title,
+)
 from app.models import (
     Comment,
     Post,
@@ -1407,7 +1417,7 @@ def feed_all(db: Session = Depends(get_db)):
         .order_by(Post.created_at.desc())
         .limit(30)
     ).scalars().all()
-    xml_str = _build_feed_xml(posts, site_url, "AI Dev Blog - All Posts", "All published posts.")
+    xml_str = _build_feed_xml(posts, site_url, RSS_ALL_TITLE, RSS_ALL_DESCRIPTION)
     return Response(content=xml_str, media_type="application/xml")
 
 
@@ -1422,7 +1432,7 @@ def feed_daily(db: Session = Depends(get_db)):
         .order_by(Post.created_at.desc())
         .limit(30)
     ).scalars().all()
-    xml_str = _build_feed_xml(posts, site_url, "AI Dev Blog - Daily Brief", "Daily brief feed.")
+    xml_str = _build_feed_xml(posts, site_url, RSS_DAILY_TITLE, RSS_DAILY_DESCRIPTION)
     return Response(content=xml_str, media_type="application/xml")
 
 
@@ -1437,7 +1447,7 @@ def feed_weekly(db: Session = Depends(get_db)):
         .order_by(Post.created_at.desc())
         .limit(30)
     ).scalars().all()
-    xml_str = _build_feed_xml(posts, site_url, "AI Dev Blog - Weekly Review", "Weekly review feed.")
+    xml_str = _build_feed_xml(posts, site_url, RSS_WEEKLY_TITLE, RSS_WEEKLY_DESCRIPTION)
     return Response(content=xml_str, media_type="application/xml")
 
 
@@ -1458,7 +1468,7 @@ def feed_topic(topic_key: str, db: Session = Depends(get_db)):
     xml_str = _build_feed_xml(
         posts,
         site_url,
-        f"AI Dev Blog - Topic: {normalized_topic_key}",
-        f"Topic feed for {normalized_topic_key}.",
+        build_topic_feed_title(normalized_topic_key),
+        build_topic_feed_description(normalized_topic_key),
     )
     return Response(content=xml_str, media_type="application/xml")

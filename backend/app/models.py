@@ -44,6 +44,7 @@ class Post(Base):
     publishing_artifacts = relationship("PublishingArtifact", back_populates="post", cascade="all, delete-orphan")
     quality_snapshot = relationship("PostQualitySnapshot", back_populates="post", uselist=False, cascade="all, delete-orphan")
     quality_review = relationship("PostQualityReview", back_populates="post", uselist=False, cascade="all, delete-orphan")
+    notification_dispatch = relationship("PostNotificationDispatch", back_populates="post", uselist=False, cascade="all, delete-orphan")
 
 
 class Series(Base):
@@ -223,3 +224,45 @@ class SearchInsight(Base):
     last_searched_at = Column(DateTime, nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class EmailSubscription(Base):
+    __tablename__ = "email_subscriptions"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    content_types_json = Column(Text, nullable=False, default='["all"]')
+    is_active = Column(Boolean, nullable=False, default=True)
+    source = Column(String(50), nullable=False, default="feeds_page")
+    last_notified_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class WebPushSubscription(Base):
+    __tablename__ = "web_push_subscriptions"
+    id = Column(Integer, primary_key=True, index=True)
+    endpoint = Column(String(1000), nullable=False, unique=True, index=True)
+    p256dh = Column(String(255), nullable=False, default="")
+    auth = Column(String(255), nullable=False, default="")
+    content_types_json = Column(Text, nullable=False, default='["all"]')
+    is_active = Column(Boolean, nullable=False, default=True)
+    user_agent = Column(String(255), nullable=False, default="")
+    last_notified_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class PostNotificationDispatch(Base):
+    __tablename__ = "post_notification_dispatches"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    email_sent_at = Column(DateTime, nullable=True)
+    email_recipient_count = Column(Integer, nullable=False, default=0)
+    web_push_sent_at = Column(DateTime, nullable=True)
+    web_push_recipient_count = Column(Integer, nullable=False, default=0)
+    wecom_sent_at = Column(DateTime, nullable=True)
+    wecom_target_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    post = relationship("Post", back_populates="notification_dispatch")
