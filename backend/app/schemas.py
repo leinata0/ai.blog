@@ -560,6 +560,7 @@ class CoverGenerationStatusOut(BaseModel):
     provider: str = "grok"
     has_xai_api_key: bool = False
     can_generate: bool = False
+    supports_site_hero: bool = False
     message: str = ""
 
 
@@ -730,6 +731,20 @@ class SiteSettingsUpdate(BaseModel):
     announcement: str | None = None
     site_url: str | None = None
     friend_links: str | None = None
+
+
+class SiteHeroGenerateRequest(BaseModel):
+    prompt: str | None = None
+    image_url: str | None = None
+    overwrite: bool = True
+
+
+class SiteHeroGenerateResponse(BaseModel):
+    generated: bool = False
+    hero_image: str | None = None
+    prompt: str | None = None
+    error_code: str = ""
+    error: str = ""
 
 
 class SubscriptionStatusOut(BaseModel):

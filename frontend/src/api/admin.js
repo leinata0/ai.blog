@@ -23,6 +23,8 @@ export async function adminUploadImage(file) {
 
 export const fetchSettings = () => apiGet('/api/settings')
 export const updateSettings = (data) => apiPut('/api/settings', data, { auth: true })
+export const generateAdminHeroImage = (data = {}) =>
+  apiPost('/api/admin/settings/generate-hero', data, { auth: true })
 
 export const fetchAdminPosts = (params = {}) => {
   const qs = new URLSearchParams(params).toString()

@@ -22,6 +22,7 @@ from app.models import (
     PublishingRun,
     SearchInsight,
     Series,
+    SiteSettings,
     Tag,
     TopicProfile,
 )
@@ -47,6 +48,8 @@ from app.schemas import (
     PublishingRunOut,
     PublishingRunUpsertRequest,
     PublishingStatusResponse,
+    SiteHeroGenerateRequest,
+    SiteHeroGenerateResponse,
     TopicFeedbackOut,
     SeriesCreateRequest,
     SeriesOut,
@@ -116,6 +119,21 @@ def _build_topic_cover_prompt(profile: TopicProfile, recent_post: Post | None = 
     if recent_post and (recent_post.summary or "").strip():
         parts.append(f"Recent summary: {recent_post.summary.strip()}.")
     parts.append("Wide landscape banner, cinematic composition, subtle futuristic atmosphere, no text overlay, no watermark.")
+    return " ".join(parts)
+
+
+def _build_site_hero_prompt(settings: SiteSettings | None = None) -> str:
+    parts = [
+        "Homepage hero poster for a Chinese AI editorial blog.",
+        "Art direction: blue and white editorial signal wall, luminous screens, layered information ribbons, premium newsroom mood, magazine-cover composition.",
+        "Single focal composition with clean structure, atmospheric depth, and refined light.",
+        "No text overlay, no logo, no watermark, no fake UI screenshot, no device mockup.",
+        "4:5 vertical poster suitable for a homepage brand visual.",
+    ]
+    if settings and (settings.author_name or "").strip():
+        parts.append(f"Brand voice: curated by {settings.author_name.strip()}.")
+    if settings and (settings.bio or "").strip():
+        parts.append(f"Editorial character: {settings.bio.strip()}.")
     return " ".join(parts)
 
 
@@ -270,6 +288,92 @@ def _generate_cover_asset(prompt: str, filename_hint: str) -> str:
         stored = save_upload(filename_hint, contents, content_type)
     except Exception as exc:
         raise CoverGenerationError("upload_failed", "封面图片已生成，但上传到博客存储失败。") from exc
+    return stored.url
+
+
+def _get_cover_generation_status_payload() -> dict:
+    has_xai_api_key = bool(clean_env("XAI_API_KEY"))
+    if has_xai_api_key:
+        message = "后端已检测到 XAI_API_KEY，可直接在后台生成主题、系列和首页 Hero 海报。"
+    else:
+        message = (
+            "后端未检测到 XAI_API_KEY。主题、系列与首页 Hero 海报生成都依赖 Render 后端运行环境中的该变量，"
+            "仅配置 GitHub Secret 不会让后台实时生图生效。"
+        )
+    return {
+        "provider": "grok",
+        "has_xai_api_key": has_xai_api_key,
+        "can_generate": has_xai_api_key,
+        "supports_site_hero": has_xai_api_key,
+        "message": message,
+    }
+
+
+def _hero_response(
+    hero_image: str | None,
+    generated: bool,
+    prompt: str | None = None,
+    error: str = "",
+    error_code: str = "",
+) -> dict:
+    return {
+        "generated": generated,
+        "hero_image": (hero_image or "").strip() or None,
+        "prompt": (prompt or "").strip() or None,
+        "error": error,
+        "error_code": error_code,
+    }
+
+
+def _generate_grok_image_url(
+    prompt: str,
+    framing_hint: str = "Wide landscape banner image, cinematic, high quality",
+) -> str:
+    api_key = clean_env("XAI_API_KEY")
+    if not api_key:
+        raise CoverGenerationError(
+            "missing_backend_env",
+            "缺少后端运行环境变量 XAI_API_KEY。请把它配置到 Render 后端环境变量中，GitHub Secret 不会自动提供给后台实时生图。",
+        )
+
+    try:
+        response = httpx.post(
+            "https://api.x.ai/v1/images/generations",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": XAI_IMAGE_MODEL,
+                "prompt": f"{framing_hint}: {prompt}",
+                "n": 1,
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise CoverGenerationError("generation_failed", f"Grok 生图请求失败，HTTP {exc.response.status_code}。") from exc
+    except httpx.HTTPError as exc:
+        raise CoverGenerationError("generation_failed", "Grok 生图请求失败，请稍后重试。") from exc
+
+    image_url = (data.get("data") or [{}])[0].get("url")
+    if not image_url:
+        raise CoverGenerationError("generation_failed", "Grok 未返回可用图片地址。")
+    return image_url
+
+
+def _generate_cover_asset(
+    prompt: str,
+    filename_hint: str,
+    framing_hint: str = "Wide landscape banner image, cinematic, high quality",
+) -> str:
+    image_url = _generate_grok_image_url(prompt, framing_hint=framing_hint)
+    contents, content_type = _download_image_bytes(image_url)
+    try:
+        stored = save_upload(filename_hint, contents, content_type)
+    except Exception as exc:
+        raise CoverGenerationError("upload_failed", "图片已生成，但上传到博客存储失败。") from exc
     return stored.url
 
 
@@ -1570,6 +1674,78 @@ def get_cover_generation_status(
     _admin: str = Depends(get_current_admin),
 ):
     return _get_cover_generation_status_payload()
+
+
+@router.post("/settings/generate-hero", response_model=SiteHeroGenerateResponse)
+def admin_generate_site_hero(
+    body: SiteHeroGenerateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    settings = db.execute(select(SiteSettings).limit(1)).scalar_one_or_none()
+    if settings is None:
+        settings = SiteSettings(id=1)
+        db.add(settings)
+        db.flush()
+
+    prompt = (body.prompt or "").strip()
+
+    try:
+        image_url = (body.image_url or "").strip()
+        if image_url:
+            settings.hero_image = image_url
+        else:
+            if (settings.hero_image or "").strip() and not body.overwrite:
+                return _hero_response(
+                    settings.hero_image,
+                    False,
+                    prompt,
+                    "当前 Hero 海报已经存在，如需覆盖请使用重生成。",
+                    "cover_exists",
+                )
+
+            if not prompt:
+                prompt = _build_site_hero_prompt(settings)
+            if not prompt:
+                return _hero_response(
+                    settings.hero_image,
+                    False,
+                    None,
+                    "当前站点缺少可用提示词，暂时无法生成 Hero 海报。",
+                    "prompt_unavailable",
+                )
+
+            settings.hero_image = _generate_cover_asset(
+                prompt,
+                "site-hero-poster.png",
+                framing_hint="4:5 vertical editorial poster, premium magazine cover, high quality",
+            )
+
+        if not (settings.hero_image or "").strip():
+            return _hero_response(
+                settings.hero_image,
+                False,
+                prompt,
+                "Hero 海报生成失败，未得到可用图片。",
+                "generation_failed",
+            )
+
+        db.commit()
+        db.refresh(settings)
+        return _hero_response(settings.hero_image, True, prompt or None)
+    except CoverGenerationError as exc:
+        db.rollback()
+        error_code = "missing_env" if exc.code == "missing_backend_env" else exc.code
+        return _hero_response(settings.hero_image, False, prompt or None, exc.message, error_code)
+    except Exception as exc:
+        db.rollback()
+        return _hero_response(
+            settings.hero_image,
+            False,
+            prompt or None,
+            f"Hero 海报生成出现未预期错误：{exc}",
+            "unexpected_error",
+        )
 
 
 @router.post("/series/{series_id}/generate-cover", response_model=CoverGenerateResponse)

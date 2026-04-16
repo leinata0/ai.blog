@@ -816,7 +816,58 @@ def test_cover_generation_status_reports_backend_env(client, monkeypatch):
     assert payload["provider"] == "grok"
     assert payload["has_xai_api_key"] is False
     assert payload["can_generate"] is False
+    assert payload["supports_site_hero"] is False
     assert "Render" in payload["message"]
+
+
+def test_admin_generate_site_hero_with_grok(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    captured = {}
+
+    def fake_generate_cover_asset(prompt, filename_hint, framing_hint="Wide landscape banner image, cinematic, high quality"):
+        captured["prompt"] = prompt
+        captured["filename_hint"] = filename_hint
+        captured["framing_hint"] = framing_hint
+        return "https://img.example.com/site-hero.png"
+
+    monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
+
+    response = client.post(
+        "/api/admin/settings/generate-hero",
+        json={},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["generated"] is True
+    assert payload["hero_image"] == "https://img.example.com/site-hero.png"
+    assert payload["prompt"]
+    assert captured["filename_hint"] == "site-hero-poster.png"
+    assert "4:5 vertical editorial poster" in captured["framing_hint"]
+
+    settings_resp = client.get("/api/settings")
+    assert settings_resp.status_code == 200
+    assert settings_resp.json()["hero_image"] == "https://img.example.com/site-hero.png"
+
+
+def test_admin_generate_site_hero_reports_missing_env(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    monkeypatch.setattr(admin_mod, "clean_env", lambda key: "")
+
+    response = client.post(
+        "/api/admin/settings/generate-hero",
+        json={},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["generated"] is False
+    assert payload["error_code"] == "missing_env"
+    assert "Render" in payload["error"]
 
 
 def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeypatch):

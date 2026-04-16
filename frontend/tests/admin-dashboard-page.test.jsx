@@ -144,6 +144,29 @@ vi.mock('../src/api/admin', () => ({
   fetchAdminPosts: mocks.fetchAdminPosts,
   adminDeletePost: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
   adminUpdatePost: vi.fn(() => Promise.resolve({ detail: 'updated' })),
+  fetchSettings: vi.fn(() =>
+    Promise.resolve({
+      author_name: '站点作者',
+      bio: '简介',
+      avatar_url: '',
+      hero_image: '',
+      github_link: '',
+      announcement: '',
+      site_url: 'https://example.com',
+      friend_links: '[]',
+    })
+  ),
+  updateSettings: vi.fn(() => Promise.resolve({})),
+  adminUploadImage: vi.fn(() => Promise.resolve({ url: '/uploads/demo.png' })),
+  generateAdminHeroImage: vi.fn(() =>
+    Promise.resolve({
+      generated: true,
+      hero_image: '/uploads/site-hero.png',
+      prompt: 'editorial hero',
+      error: '',
+      error_code: '',
+    })
+  ),
   fetchAdminPublishingStatus: mocks.fetchPublishingStatus,
   fetchAdminPublishingRunDetail: vi.fn(() => Promise.resolve({ id: 99, summary: {} })),
   fetchAdminContentHealth: vi.fn(() => Promise.resolve({ summary: { total_posts: 10 }, items: [] })),
@@ -160,6 +183,7 @@ vi.mock('../src/api/admin', () => ({
       provider: 'grok',
       has_xai_api_key: true,
       can_generate: true,
+      supports_site_hero: true,
       message: '后端已检测到 XAI_API_KEY。',
     })
   ),

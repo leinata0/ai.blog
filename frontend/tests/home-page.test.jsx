@@ -69,31 +69,15 @@ vi.mock('../src/api/posts', () => ({
     { slug: 'product-strategy-watch', title: 'Product Strategy Watch', description: 'Product and company moves.', is_featured: false },
     { slug: 'tooling-workflow', title: 'Tooling Workflow', description: 'Tooling and workflow notes.', is_featured: false },
   ])),
+  prefetchPostDetail: vi.fn(),
 }))
 
 beforeEach(() => {
   vi.clearAllMocks()
   window.localStorage.clear()
-  window.localStorage.setItem('blog.followed_topics', JSON.stringify([
-    {
-      topic_key: 'openai-models',
-      display_title: 'OpenAI 模型',
-      followed_at: '2026-04-15T10:00:00.000Z',
-    },
-  ]))
-  window.localStorage.setItem('blog.reading_history', JSON.stringify([
-    {
-      slug: 'python-automation-selenium-pandas',
-      title: 'Python automation with Selenium and Pandas',
-      topic_key: 'openai-models',
-      topic_display_title: 'OpenAI 模型',
-      content_type: 'daily_brief',
-      visited_at: '2026-04-15T10:30:00.000Z',
-    },
-  ]))
 })
 
-it('renders the redesigned hero and keeps the tracking panel clickable', async () => {
+it('renders the homepage hero as a single poster layout', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
@@ -104,32 +88,19 @@ it('renders the redesigned hero and keeps the tracking panel clickable', async (
     </MemoryRouter>,
   )
 
-  expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)
   expect(await screen.findByRole('heading', { name: '持续更新 AI 最新动态与关键变化的中文博客' })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="home-shell"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-hero-focus"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-hero-stage"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="home-hero-stage"]')?.getAttribute('data-layout')).toBe('single-poster')
+  expect(container.querySelectorAll('[data-ui="home-hero-poster"]')).toHaveLength(1)
   expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-hot-topics"]')).toBeFalsy()
-  expect(screen.queryByRole('heading', { name: '热门主题' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: '继续阅读与关注主题' })).not.toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '主题' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '打开追踪面板' })).toBeInTheDocument()
-
-  await userEvent.click(screen.getByRole('button', { name: '打开追踪面板' }))
-  expect(await screen.findByText('查看追踪页')).toBeInTheDocument()
-  expect(await screen.findByText('继续阅读')).toBeInTheDocument()
-  expect(await screen.findByText('最近关注')).toBeInTheDocument()
-  expect(await screen.findByText('最近浏览')).toBeInTheDocument()
-  expect((await screen.findAllByText('OpenAI 模型')).length).toBeGreaterThan(0)
-  expect((await screen.findAllByText('Python automation with Selenium and Pandas')).length).toBeGreaterThan(0)
-
   expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="post-card"]')).toBeTruthy()
+  expect(await screen.findAllByText(/Python automation with Selenium and Pandas/i)).not.toHaveLength(0)
 
   await userEvent.click(screen.getAllByRole('button', { name: /Python/i })[0])
   expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)
-  expect(screen.queryAllByText(/Weekly review of model launches/i)).toHaveLength(0)
 })

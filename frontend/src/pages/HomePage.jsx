@@ -369,7 +369,7 @@ export default function HomePage() {
 
       <section className="relative overflow-hidden px-6 py-16 sm:px-10 sm:py-24 lg:px-20 lg:py-28">
         <AmbientHeroBackdrop />
-        <div className="relative mx-auto flex max-w-7xl flex-col gap-12 lg:flex-row lg:items-center lg:gap-16">
+        <div className="relative mx-auto grid max-w-7xl gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(21rem,24rem)] lg:items-center lg:gap-20">
           <motion.div
             className="max-w-3xl flex-1"
             variants={motionContainerVariants}
@@ -418,16 +418,12 @@ export default function HomePage() {
           </motion.div>
 
           <motion.div
-            className="lg:flex-[0_0_34rem]"
+            className="lg:flex lg:min-h-[32rem] lg:items-center lg:justify-end"
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
           >
-            <SiteHeroPosterStage
-              image={heroImage}
-              imageAlt={SITE_COPY.homePosterAlt}
-              signalLabels={SITE_COPY.homeSignalLabels}
-            />
+            <SiteHeroPosterStage image={heroImage} imageAlt={SITE_COPY.homePosterAlt} />
           </motion.div>
         </div>
       </section>
