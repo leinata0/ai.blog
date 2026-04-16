@@ -18,12 +18,13 @@ import AmbientHeroBackdrop from '../components/AmbientHeroBackdrop'
 import CoverCard from '../components/CoverCard'
 import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
+import HeroFocusLine from '../components/HeroFocusLine'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
+import SiteHeroPosterStage from '../components/SiteHeroPosterStage'
 import {
   CONTENT_TYPE_META,
   SITE_COPY,
   getContentTypeMeta,
-  heroFloatAnimation,
   hoverLift,
   motionContainerVariants,
   motionItemVariants,
@@ -37,7 +38,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
         <input
           value={searchInput}
           onChange={onInputChange}
-          placeholder="搜索文章、主题或系列"
+          placeholder={SITE_COPY.homeSearchPlaceholder}
           className="w-full rounded-[1.3rem] border px-11 py-3.5 text-sm outline-none transition-colors"
           style={{
             backgroundColor: 'var(--bg-surface-strong)',
@@ -54,7 +55,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
           className="rounded-[1.3rem] px-5 py-3.5 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5"
           style={{ backgroundColor: 'var(--accent)' }}
         >
-          开始搜索
+          {SITE_COPY.homeSearchAction}
         </button>
         <button
           type="button"
@@ -62,7 +63,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
           className="rounded-[1.3rem] px-4 py-3.5 text-sm font-semibold transition-colors duration-200"
           style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)' }}
         >
-          清空
+          {SITE_COPY.homeClearAction}
         </button>
       </div>
     </form>
@@ -74,7 +75,7 @@ function WeeklySpotlight({ post, onPrefetch }) {
     <motion.section data-ui="home-weekly-spotlight" variants={motionItemVariants} className="space-y-4">
       <EditorialSectionHeader
         eyebrow="周报主卡"
-        title="先读一篇，迅速看清这一周的关键变化"
+        title="先读一篇，快速看清这一周的关键变化"
         description="把一周里最值得回看的消息、产品动作和产业线索串成完整脉络，更适合从全局理解变化。"
         actionLabel="查看全部周报"
         actionTo="/weekly"
@@ -84,18 +85,18 @@ function WeeklySpotlight({ post, onPrefetch }) {
       {post ? (
         <div onMouseEnter={() => onPrefetch(post.slug)} onFocus={() => onPrefetch(post.slug)}>
           <CoverCard
-          to={`/posts/${post.slug}`}
-          image={post.cover_image}
-          imageAlt={post.title}
-          overlay
-          eyebrow="本周精选"
-          title={post.title}
-          description={post.summary}
-          meta={[
-            post.coverage_date || formatDate(post.created_at),
-            CONTENT_TYPE_META.weekly_review.label,
-          ]}
-          footer={<span className="inline-flex items-center gap-2 font-semibold">进入这篇周报 <ArrowRight size={14} /></span>}
+            to={`/posts/${post.slug}`}
+            image={post.cover_image}
+            imageAlt={post.title}
+            overlay
+            eyebrow="本周精选"
+            title={post.title}
+            description={post.summary}
+            meta={[
+              post.coverage_date || formatDate(post.created_at),
+              CONTENT_TYPE_META.weekly_review.label,
+            ]}
+            footer={<span className="inline-flex items-center gap-2 font-semibold">进入这篇周报 <ArrowRight size={14} /></span>}
           />
         </div>
       ) : (
@@ -368,46 +369,64 @@ export default function HomePage() {
 
       <section className="relative overflow-hidden px-6 py-16 sm:px-10 sm:py-24 lg:px-20 lg:py-28">
         <AmbientHeroBackdrop />
-        <div className="relative mx-auto flex max-w-7xl flex-col gap-12 lg:flex-row lg:items-center lg:justify-between">
-          <div className="max-w-3xl flex-1">
-            <div className="section-kicker">
+        <div className="relative mx-auto flex max-w-7xl flex-col gap-12 lg:flex-row lg:items-center lg:gap-16">
+          <motion.div
+            className="max-w-3xl flex-1"
+            variants={motionContainerVariants}
+            initial="hidden"
+            animate="visible"
+          >
+            <motion.div variants={motionItemVariants} className="section-kicker">
               <Sparkles size={12} />
               {SITE_COPY.homeBadge}
-            </div>
-            <h1 className="section-title max-w-4xl">{SITE_COPY.homeTitle}</h1>
-            <p className="section-description max-w-3xl">{SITE_COPY.homeSubtitle}</p>
+            </motion.div>
 
-            <HeroSearch
-              searchInput={searchInput}
-              onInputChange={(event) => setSearchInput(event.target.value)}
-              onSubmit={handleSearch}
-              onClear={clearSearch}
-            />
+            <motion.h1 variants={motionItemVariants} className="section-title max-w-4xl">
+              {SITE_COPY.homeTitle}
+            </motion.h1>
+
+            <motion.div variants={motionItemVariants}>
+              <HeroFocusLine phrases={SITE_COPY.homeFocusLines} />
+            </motion.div>
+
+            <motion.p variants={motionItemVariants} className="section-description max-w-3xl">
+              {SITE_COPY.homeSubtitle}
+            </motion.p>
+
+            <motion.div variants={motionItemVariants}>
+              <HeroSearch
+                searchInput={searchInput}
+                onInputChange={(event) => setSearchInput(event.target.value)}
+                onSubmit={handleSearch}
+                onClear={clearSearch}
+              />
+            </motion.div>
 
             {!searchQuery ? (
-              <div className="mt-6 flex flex-wrap gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                <span className="term-tag">日报</span>
-                <span className="term-tag">周报</span>
-                <span className="term-tag">系列</span>
-                <span className="term-tag">主题主线</span>
-              </div>
+              <motion.div
+                variants={motionItemVariants}
+                className="mt-6 flex flex-wrap gap-3 text-sm"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {SITE_COPY.homeSignalLabels.map((label) => (
+                  <span key={label} className="term-tag">
+                    {label}
+                  </span>
+                ))}
+              </motion.div>
             ) : null}
-          </div>
+          </motion.div>
 
           <motion.div
-            className="hidden lg:block lg:w-[360px]"
-            animate={heroFloatAnimation}
+            className="lg:flex-[0_0_34rem]"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
           >
-            <CoverCard
+            <SiteHeroPosterStage
               image={heroImage}
-              imageAlt="站点主视觉"
-              overlay
-              eyebrow="持续更新"
-              title="从当日消息到长期主线"
-              description="把快速变化的 AI 动态整理成更清晰、更适合持续回看的阅读路径。"
-              meta={['日报 / 周报 / 系列 / 主题']}
-              className="min-h-[460px]"
-              bodyClassName="min-h-[460px] flex flex-col justify-end"
+              imageAlt={SITE_COPY.homePosterAlt}
+              signalLabels={SITE_COPY.homeSignalLabels}
             />
           </motion.div>
         </div>

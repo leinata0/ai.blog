@@ -4,6 +4,17 @@ export const SITE_COPY = {
   homeTitle: '持续更新 AI 最新动态与关键变化的中文博客',
   homeSubtitle:
     '聚焦值得持续追踪的消息、产品更新与产业线索，用更清晰的结构整理每一天和每一周的重要变化。',
+  homeFocusLines: [
+    '追踪今天最重要的 AI 变化',
+    '连接产品更新与产业信号',
+    '从噪音里筛出真正值得看的内容',
+    '用日报与周报保留连续上下文',
+  ],
+  homeSignalLabels: ['日报', '周报', '主题追踪', '系列阅读'],
+  homePosterAlt: '站点主海报',
+  homeSearchPlaceholder: '搜索文章、主题或系列',
+  homeSearchAction: '开始搜索',
+  homeClearAction: '清空',
 }
 
 const SERIES_TITLES = {
@@ -73,16 +84,6 @@ export const hoverLift = {
   transition: {
     duration: 0.24,
     ease: [0.16, 1, 0.3, 1],
-  },
-}
-
-export const heroFloatAnimation = {
-  y: [0, -8, 0],
-  scale: [1, 1.01, 1],
-  transition: {
-    repeat: Infinity,
-    duration: 6,
-    ease: 'easeInOut',
   },
 }
 

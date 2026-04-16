@@ -93,7 +93,7 @@ beforeEach(() => {
   ]))
 })
 
-it('keeps the homepage lighter and makes the tracking panel clickable', async () => {
+it('renders the redesigned hero and keeps the tracking panel clickable', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
@@ -101,12 +101,14 @@ it('keeps the homepage lighter and makes the tracking panel clickable', async ()
           <HomePage />
         </SiteProvider>
       </ThemeProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
   expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)
   expect(await screen.findByRole('heading', { name: '持续更新 AI 最新动态与关键变化的中文博客' })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="home-shell"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="home-hero-focus"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="home-hero-stage"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeTruthy()
@@ -129,5 +131,5 @@ it('keeps the homepage lighter and makes the tracking panel clickable', async ()
 
   await userEvent.click(screen.getAllByRole('button', { name: /Python/i })[0])
   expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)
-  expect(screen.queryByText(/Weekly review of model launches/i)).not.toBeInTheDocument()
+  expect(screen.queryAllByText(/Weekly review of model launches/i)).toHaveLength(0)
 })
