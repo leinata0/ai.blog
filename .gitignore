@@ -13,3 +13,6 @@ frontend/node_modules/
 scripts/node_modules/
 frontend/dist/
 frontend/.vite/
+.codex-skill-build/
+.npm-cache/
+.playwright-cli/

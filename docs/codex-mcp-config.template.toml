@@ -1,0 +1,72 @@
+# Codex MCP skeleton template for this blog workflow
+# This file is a reference template. Do not assume every block is active.
+# Copy the blocks you need into C:\Users\56311\.codex\config.toml after filling real credentials.
+
+# Priority 1: GitHub MCP
+# Reference:
+# - GitHub Docs: https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp-in-your-ide/set-up-the-github-mcp-server
+#
+# Remote PAT skeleton:
+#
+# [mcp_servers.github]
+# type = "streamable_http"
+# url = "https://api.githubcopilot.com/mcp/"
+# headers = { Authorization = "Bearer YOUR_GITHUB_PAT" }
+#
+# Notes:
+# - Best for GitHub Actions, PR, issue, and workflow log debugging.
+# - Prefer a fine-grained PAT scoped only to the repositories you want this agent to inspect.
+# - Start with read-only repository access unless you later need write operations.
+
+# Priority 2: Firecrawl MCP
+# Reference:
+# - Firecrawl MCP Server docs: https://docs.firecrawl.dev/mcp-server
+#
+# Local npx skeleton:
+#
+# [mcp_servers.firecrawl]
+# type = "stdio"
+# command = "npx"
+# args = ["-y", "firecrawl-mcp"]
+# env = { FIRECRAWL_API_KEY = "fc-YOUR_API_KEY" }
+#
+# Notes:
+# - Best for webpage extraction, article body scraping, image extraction, and source cleanup.
+
+# Priority 3: Exa MCP
+# Reference:
+# - Exa MCP docs: https://exa.ai/docs/reference/exa-mcp
+#
+# Local npm package skeleton:
+#
+# [mcp_servers.exa]
+# type = "stdio"
+# command = "npx"
+# args = ["-y", "exa-mcp-server"]
+# env = { EXA_API_KEY = "YOUR_EXA_API_KEY" }
+#
+# Alternative remote skeleton if your Codex config supports remote MCP:
+#
+# [mcp_servers.exa]
+# type = "streamable_http"
+# url = "https://mcp.exa.ai/mcp"
+# headers = { "x-api-key" = "YOUR_EXA_API_KEY" }
+#
+# Notes:
+# - Best for broader web research and finding high-signal blog/commentary sources.
+
+# Priority 4: Academic MCP
+# There is no single official MCP that cleanly covers both arXiv and Semantic Scholar for this setup.
+# Keep this layer disabled until you pick one community server and confirm runtime dependencies.
+#
+# Community option A:
+# - academia_mcp
+# - Source: https://github.com/IlyaGusev/academia_mcp
+# - Requires Python 3.12+
+#
+# Community option B:
+# - paper-search-mcp
+# - Source: https://github.com/openags/paper-search-mcp
+#
+# Recommendation:
+# - Do not add the academic MCP block to live config until Python or the chosen runtime is confirmed on this machine.
