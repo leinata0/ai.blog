@@ -6,19 +6,47 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
-from app.env import clean_env
+from app.env import clean_env, is_production_env
 
 logger = logging.getLogger(__name__)
 
-SECRET_KEY = clean_env("SECRET_KEY", "dev-secret-key-change-in-production")
+DEFAULT_DEV_SECRET_KEY = "dev-secret-key-change-in-production"
+DEFAULT_DEV_ADMIN_USERNAME = "admin"
+DEFAULT_DEV_ADMIN_PASSWORD = "admin123"
+
+
+def _resolve_auth_env_value(name: str, *, dev_name: str, dev_default: str) -> str:
+    explicit = clean_env(name)
+    if explicit:
+        return explicit
+
+    if is_production_env():
+        raise RuntimeError(f"Missing required environment variable in production: {name}")
+
+    return clean_env(dev_name, dev_default)
+
+
+SECRET_KEY = _resolve_auth_env_value(
+    "SECRET_KEY",
+    dev_name="DEV_SECRET_KEY",
+    dev_default=DEFAULT_DEV_SECRET_KEY,
+)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
-ADMIN_USERNAME = clean_env("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = clean_env("ADMIN_PASSWORD", "admin123")
+ADMIN_USERNAME = _resolve_auth_env_value(
+    "ADMIN_USERNAME",
+    dev_name="DEV_ADMIN_USERNAME",
+    dev_default=DEFAULT_DEV_ADMIN_USERNAME,
+)
+ADMIN_PASSWORD = _resolve_auth_env_value(
+    "ADMIN_PASSWORD",
+    dev_name="DEV_ADMIN_PASSWORD",
+    dev_default=DEFAULT_DEV_ADMIN_PASSWORD,
+)
 
-if ADMIN_PASSWORD == "admin123":
-    logger.warning("[安全警告] 管理员密码为默认值 admin123，请尽快修改 ADMIN_PASSWORD 环境变量！")
+if not is_production_env() and ADMIN_PASSWORD == DEFAULT_DEV_ADMIN_PASSWORD:
+    logger.warning("Development admin password is using the default DEV_ADMIN_PASSWORD value.")
 
 security = HTTPBearer()
 
@@ -41,5 +69,5 @@ def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(securi
         if username is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         return username
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except JWTError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc

@@ -3,9 +3,11 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const BLOG_API_BASE = (process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com').replace(/\/$/, '')
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+
+const BLOG_API_BASE = resolveBlogApiBase()
+const ADMIN_USERNAME = resolveAdminUsername()
+const ADMIN_PASSWORD = resolveAdminPassword()
 const XAI_API_KEY = process.env.XAI_API_KEY?.trim() || ''
 
 export function parseSeriesCoverArgs(argv = process.argv.slice(2)) {

@@ -10,13 +10,14 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_admin
 from app.bootstrap import initialize_runtime
 from app.db import get_db
-from app.env import clean_env
+from app.env import clean_env, get_allowed_origins
 from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
 from app.models import Post, SiteSettings, Tag
 from app.routers.admin import router as admin_router
 from app.routers.posts import router as posts_router
 from app.routers.subscriptions import router as subscriptions_router
 from app.schemas import SiteSettingsOut, SiteSettingsUpdate, StatsOut
+from app.site_config import resolve_public_site_url
 from app.storage import get_uploaded_image_bytes
 from app.uploads import UPLOADS_URL_PREFIX
 
@@ -33,12 +34,7 @@ app = FastAPI(title="AI Dev Blog API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://563118077.xyz",
-        "https://www.563118077.xyz",
-        "https://api.563118077.xyz",
-        "http://localhost:5173",
-    ],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
@@ -50,6 +46,7 @@ app.include_router(subscriptions_router)
 
 
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "ok"}
 
@@ -163,7 +160,7 @@ async def proxy_image(url: str = Query(..., min_length=8)):
 @app.get("/feed.xml")
 def rss_feed(db: Session = Depends(get_db)):
     settings = db.query(SiteSettings).first()
-    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
         .where(Post.is_published == True)
@@ -194,7 +191,7 @@ def rss_feed(db: Session = Depends(get_db)):
 @app.get("/sitemap.xml")
 def sitemap(db: Session = Depends(get_db)):
     settings = db.query(SiteSettings).first()
-    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post).where(Post.is_published == True).order_by(Post.created_at.desc())
     ).scalars().all()

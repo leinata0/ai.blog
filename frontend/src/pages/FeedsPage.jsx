@@ -29,6 +29,7 @@ import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
+import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import {
   buildBreadcrumbJsonLd,
   buildCollectionPageJsonLd,
@@ -41,21 +42,21 @@ const CORE_FEEDS = [
     key: 'site',
     title: '全站更新',
     description: '适合想把整站内容都放进 RSS 阅读器的人，一次接住日报、周报、主题延伸与专题文章。',
-    href: '/feed.xml',
+    href: buildPublicApiUrl('/feed.xml'),
     eyebrow: '全站 RSS',
   },
   {
     key: 'daily',
     title: 'AI 日报',
     description: '只收每天最值得跟进的变化，适合高频关注新的模型、产品与行业信号。',
-    href: '/api/feeds/daily.xml',
+    href: buildPublicApiUrl('/api/feeds/daily.xml'),
     eyebrow: '日报 RSS',
   },
   {
     key: 'weekly',
     title: 'AI 周报',
     description: '只收每周整理后的回看主线，适合低频但希望信息结构完整的读者。',
-    href: '/api/feeds/weekly.xml',
+    href: buildPublicApiUrl('/api/feeds/weekly.xml'),
     eyebrow: '周报 RSS',
   },
 ]
@@ -120,8 +121,8 @@ function TaxonomyFeedCard({ item, type }) {
       ? '适合只追踪这条内容主线后续发生了什么。'
       : '适合沿着同一个栏目路径持续接收更新。')
   const href = type === 'topic'
-    ? `/api/feeds/topics/${encodeURIComponent(item.topic_key)}.xml`
-    : `/api/feeds/series/${encodeURIComponent(item.slug)}.xml`
+    ? buildPublicApiUrl(`/api/feeds/topics/${encodeURIComponent(item.topic_key)}.xml`)
+    : buildPublicApiUrl(`/api/feeds/series/${encodeURIComponent(item.slug)}.xml`)
   const detailTo = type === 'topic' ? `/topics/${item.topic_key}` : `/series/${item.slug}`
 
   return (
@@ -646,7 +647,7 @@ export default function FeedsPage() {
         description="集中管理全站、日报、周报、主题和系列的 RSS、邮件与浏览器提醒入口。"
         path={canonicalPath}
         jsonLd={jsonLd}
-        rssUrl="/feed.xml"
+        rssUrl={buildPublicApiUrl('/feed.xml')}
       />
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">

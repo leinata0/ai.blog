@@ -14,6 +14,7 @@ import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
+import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import {
   buildBreadcrumbJsonLd,
@@ -40,7 +41,7 @@ export default function SeriesDetailPage() {
   }, [settings?.site_url])
   const seriesTitle = getSeriesTitle(series || { slug })
   const seriesPath = `/series/${slug || ''}`
-  const rssUrl = `/api/feeds/series/${encodeURIComponent(slug || '')}.xml`
+  const rssUrl = buildPublicApiUrl(`/api/feeds/series/${encodeURIComponent(slug || '')}.xml`)
   const starterPost = series?.posts?.[0] || null
   const quickReads = (series?.posts || []).slice(0, 3)
   const jsonLd = useMemo(() => ([

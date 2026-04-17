@@ -1,5 +1,7 @@
-const BLOG_API_BASE = "https://ai-blog-hbur.onrender.com"
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+import { resolveAdminPassword, resolveBlogApiBase } from './lib/blog-api.mjs'
+
+const BLOG_API_BASE = resolveBlogApiBase()
+const ADMIN_PASSWORD = resolveAdminPassword()
 const SLUG = "auto-blog-architecture-and-cloudflare"
 
 const CONTENT_MD = `## 一、为什么要做自动化 AI 日报？

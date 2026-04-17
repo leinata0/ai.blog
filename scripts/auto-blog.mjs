@@ -19,6 +19,7 @@ import {
   getContentWorkflowProfile,
   resolveFormatProfileName,
 } from './lib/blog-format.mjs'
+import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
 
@@ -30,9 +31,9 @@ const SILICONFLOW_BASE_URL = (
   process.env.SILICONFLOW_BASE_URL?.trim() || 'https://api.siliconflow.cn/v1'
 ).replace(/\/$/, '')
 const SILICONFLOW_MODEL = process.env.SILICONFLOW_MODEL?.trim() || 'deepseek-ai/DeepSeek-V3'
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
-const BLOG_API_BASE = process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com'
+const ADMIN_USERNAME = resolveAdminUsername()
+const ADMIN_PASSWORD = resolveAdminPassword()
+const BLOG_API_BASE = resolveBlogApiBase()
 const XAI_API_KEY = process.env.XAI_API_KEY?.trim() || ''
 const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)

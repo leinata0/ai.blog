@@ -4,10 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
 import { buildQualitySnapshotPayload } from './auto-blog.mjs'
+import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 
-const BLOG_API_BASE = (process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com').replace(/\/$/, '')
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
+const BLOG_API_BASE = resolveBlogApiBase()
+const ADMIN_USERNAME = resolveAdminUsername()
+const ADMIN_PASSWORD = resolveAdminPassword()
 const REFERENCES_HEADING_RE = /^##\s*(references?|(?:\u53c2\u8003\u6765\u6e90))\s*$/im
 const IMAGE_SOURCES_HEADING_RE = /^##\s*(image sources?|(?:\u56fe\u7247\u6765\u6e90))\s*$/im
 const NEXT_HEADING_RE = /^##\s+/

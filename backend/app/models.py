@@ -5,6 +5,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.db import Base
+from app.env import get_default_public_site_url
 
 post_tags = Table(
     "post_tags",
@@ -90,7 +91,7 @@ class SiteSettings(Base):
     hero_image = Column(String(500), nullable=False, default="")
     github_link = Column(String(500), nullable=False, default="https://github.com")
     announcement = Column(Text, nullable=False, default="欢迎来到我的技术博客！这里分享前端开发、全栈技术和编程心得。")
-    site_url = Column(String(500), nullable=False, default="https://563118077.xyz")
+    site_url = Column(String(500), nullable=False, default=get_default_public_site_url)
     friend_links = Column(Text, nullable=False, default="[]")
 
 

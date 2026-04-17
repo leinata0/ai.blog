@@ -14,6 +14,7 @@ import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
+import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import {
   buildBreadcrumbJsonLd,
@@ -79,7 +80,9 @@ export default function ContentTypePage({ contentType }) {
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const copy = CONTENT_TYPE_META[contentType] || CONTENT_TYPE_META.daily_brief
-  const feedUrl = contentType === 'weekly_review' ? '/api/feeds/weekly.xml' : '/api/feeds/daily.xml'
+  const feedUrl = buildPublicApiUrl(
+    contentType === 'weekly_review' ? '/api/feeds/weekly.xml' : '/api/feeds/daily.xml'
+  )
   const path = contentType === 'weekly_review' ? '/weekly' : '/daily'
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')

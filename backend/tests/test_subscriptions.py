@@ -101,7 +101,7 @@ def test_manual_post_dispatches_email_notification(client, db_session, monkeypat
         },
     )
     assert create_resp.status_code == 200
-    assert sent_emails == [("reader@example.com", "subscription-email-alert", "https://563118077.xyz")]
+    assert sent_emails == [("reader@example.com", "subscription-email-alert", "https://example.test")]
 
     dispatch = db_session.query(PostNotificationDispatch).filter_by(post_id=create_resp.json()["id"]).one()
     assert dispatch.email_recipient_count == 1

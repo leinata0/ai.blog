@@ -1,5 +1,5 @@
 import { getToken } from './auth'
-import { apiDelete, apiGet, apiPost, apiPut } from './client'
+import { apiDelete, apiGet, apiPost, apiPut, buildApiUrl } from './client'
 
 const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 const ADMIN_LIST_CACHE_OPTIONS = Object.freeze({
@@ -155,7 +155,7 @@ async function probePublicTarget(target, timeout = HEALTH_CHECK_TIMEOUT) {
   }
 
   try {
-    const response = await fetch(target.path, {
+    const response = await fetch(buildApiUrl(target.path), {
       method: 'GET',
       cache: 'no-store',
       headers,

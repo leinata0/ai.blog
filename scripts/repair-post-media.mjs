@@ -9,15 +9,16 @@ import {
   insertImagesIntoContent,
   normalizePublishedAt,
 } from './auto-blog.mjs'
+import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
 import { buildHeuristicCoverPrompt } from './generate-cover-for-post.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const BLOG_API_BASE = (process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com').replace(/\/$/, '')
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''
+const BLOG_API_BASE = resolveBlogApiBase()
+const ADMIN_USERNAME = resolveAdminUsername()
+const ADMIN_PASSWORD = resolveAdminPassword()
 const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)
   : resolve(__dirname, 'config', 'auto-blog.config.json')

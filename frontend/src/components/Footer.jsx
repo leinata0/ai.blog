@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
 
+import { buildPublicApiUrl } from '../utils/publicApiUrl'
+
 export default function Footer() {
   return (
     <footer
@@ -12,7 +14,7 @@ export default function Footer() {
           <Link to="/feeds" className="transition-colors duration-200 hover:text-[var(--accent)]">订阅</Link>
           <Link to="/archive" className="transition-colors duration-200 hover:text-[var(--accent)]">归档</Link>
           <Link to="/tags" className="transition-colors duration-200 hover:text-[var(--accent)]">标签</Link>
-          <a href="/feed.xml" className="transition-colors duration-200 hover:text-[var(--accent)]">RSS</a>
+          <a href={buildPublicApiUrl('/feed.xml')} className="transition-colors duration-200 hover:text-[var(--accent)]">RSS</a>
         </div>
         <div className="flex items-center gap-4 text-sm" style={{ color: 'var(--text-faint)' }}>
           <span>&copy; {new Date().getFullYear()} AI 资讯观察</span>

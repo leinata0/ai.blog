@@ -229,7 +229,7 @@ export default function AdminSettings() {
           onChange={(event) => setSiteSettings((prev) => ({ ...prev, site_url: event.target.value }))}
           className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
           style={inputStyle}
-          placeholder="https://563118077.xyz"
+          placeholder="https://your-site.example"
         />
       </div>
 

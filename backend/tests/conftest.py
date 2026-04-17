@@ -22,6 +22,22 @@ _TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_tes
 
 
 @pytest.fixture(autouse=True)
+def _patch_runtime_env(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("DEV_SECRET_KEY", "test-dev-secret-key")
+    monkeypatch.setenv("DEV_ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("DEV_ADMIN_PASSWORD", "admin123")
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://example.test")
+    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.delenv("ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_tables():
     """Create fresh tables before each test, drop after."""
     Base.metadata.create_all(bind=_test_engine)
@@ -50,6 +66,7 @@ def upload_dir(tmp_path, monkeypatch):
     from app import uploads as uploads_mod
 
     test_upload_dir = tmp_path / "uploads"
+    test_upload_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(uploads_mod, "UPLOADS_DIR", test_upload_dir)
     return test_upload_dir
 

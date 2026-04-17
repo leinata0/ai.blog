@@ -128,6 +128,87 @@ def test_get_admin_post_by_id(client):
     assert len(data["tags"]) == 1
 
 
+def test_admin_posts_filters_support_dashboard_contract(client):
+    token = _login(client)
+    fixtures = [
+        {
+            "title": "Daily Published Auto",
+            "slug": "daily-published-auto",
+            "summary": "daily summary",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "published_mode": "auto",
+            "coverage_date": "2026-04-14",
+            "series_slug": "ai-daily-brief",
+            "is_published": True,
+        },
+        {
+            "title": "Weekly Draft Manual",
+            "slug": "weekly-draft-manual",
+            "summary": "weekly summary",
+            "content_md": "content",
+            "content_type": "weekly_review",
+            "published_mode": "manual",
+            "coverage_date": "2026-04-15",
+            "series_slug": "ai-weekly-review",
+            "is_published": False,
+        },
+        {
+            "title": "General Published Manual",
+            "slug": "general-published-manual",
+            "summary": "general summary",
+            "content_md": "content",
+            "content_type": "post",
+            "published_mode": "manual",
+            "coverage_date": "2026-04-15",
+            "series_slug": "tooling-workflow",
+            "is_published": True,
+        },
+    ]
+
+    for payload in fixtures:
+        response = client.post("/api/admin/posts", json=payload, headers=_auth(token))
+        assert response.status_code == 200
+
+    by_type = client.get("/api/admin/posts?content_type=daily_brief", headers=_auth(token))
+    assert by_type.status_code == 200
+    assert by_type.json()["total"] == 1
+    assert by_type.json()["items"][0]["slug"] == "daily-published-auto"
+
+    by_publish_state = client.get("/api/admin/posts?is_published=false", headers=_auth(token))
+    assert by_publish_state.status_code == 200
+    assert by_publish_state.json()["total"] == 1
+    assert by_publish_state.json()["items"][0]["slug"] == "weekly-draft-manual"
+
+    by_mode = client.get("/api/admin/posts?published_mode=manual", headers=_auth(token))
+    assert by_mode.status_code == 200
+    assert {
+        "weekly-draft-manual",
+        "general-published-manual",
+    }.issubset({item["slug"] for item in by_mode.json()["items"]})
+
+    by_coverage = client.get("/api/admin/posts?coverage_date=2026-04-15", headers=_auth(token))
+    assert by_coverage.status_code == 200
+    assert {
+        "weekly-draft-manual",
+        "general-published-manual",
+    }.issubset({item["slug"] for item in by_coverage.json()["items"]})
+
+    by_series = client.get("/api/admin/posts?series_slug=ai-weekly-review", headers=_auth(token))
+    assert by_series.status_code == 200
+    assert by_series.json()["total"] == 1
+    assert by_series.json()["items"][0]["slug"] == "weekly-draft-manual"
+
+    combined = client.get(
+        "/api/admin/posts?q=Published&content_type=post&is_published=true&published_mode=manual&coverage_date=2026-04-15&series_slug=tooling-workflow",
+        headers=_auth(token),
+    )
+    assert combined.status_code == 200
+    combined_payload = combined.json()
+    assert combined_payload["total"] == 1
+    assert combined_payload["items"][0]["slug"] == "general-published-manual"
+
+
 def test_upsert_and_fetch_publishing_status(client):
     token = _login(client)
     payload = {

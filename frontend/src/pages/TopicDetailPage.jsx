@@ -15,6 +15,7 @@ import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
+import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import {
   buildBreadcrumbJsonLd,
@@ -89,7 +90,10 @@ export default function TopicDetailPage() {
   }, [topicKey])
 
   const displayTitle = getTopicTitle(topic || { topic_key: topicKey })
-  const rssUrl = useMemo(() => `/api/feeds/topics/${encodeURIComponent(topicKey || '')}.xml`, [topicKey])
+  const rssUrl = useMemo(
+    () => buildPublicApiUrl(`/api/feeds/topics/${encodeURIComponent(topicKey || '')}.xml`),
+    [topicKey]
+  )
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured

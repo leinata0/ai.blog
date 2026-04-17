@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
-const BLOG_API_BASE = (process.env.BLOG_API_BASE || 'https://ai-blog-hbur.onrender.com').replace(/\/$/, '')
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''
+import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+
+const BLOG_API_BASE = resolveBlogApiBase()
+const ADMIN_USERNAME = resolveAdminUsername()
+const ADMIN_PASSWORD = resolveAdminPassword()
 const XAI_API_KEY = process.env.XAI_API_KEY || ''
 const HERO_PROMPT = String(process.env.HERO_PROMPT || '').trim()
 const OVERWRITE_EXISTING_HERO = String(process.env.OVERWRITE_EXISTING_HERO || 'false').toLowerCase() === 'true'

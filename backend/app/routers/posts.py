@@ -37,6 +37,7 @@ from app.models import (
     post_tags,
 )
 from app.schemas import CommentCreate
+from app.site_config import resolve_public_site_url
 
 router = APIRouter(prefix="/api", tags=["posts"])
 
@@ -1419,7 +1420,7 @@ def get_topic_detail(topic_key: str, db: Session = Depends(get_db)):
 @router.get("/feeds/all.xml")
 def feed_all(db: Session = Depends(get_db)):
     settings = db.query(SiteSettings).first()
-    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
         .where(Post.is_published == True)
@@ -1433,7 +1434,7 @@ def feed_all(db: Session = Depends(get_db)):
 @router.get("/feeds/daily.xml")
 def feed_daily(db: Session = Depends(get_db)):
     settings = db.query(SiteSettings).first()
-    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
         .where(Post.is_published == True)
@@ -1448,7 +1449,7 @@ def feed_daily(db: Session = Depends(get_db)):
 @router.get("/feeds/weekly.xml")
 def feed_weekly(db: Session = Depends(get_db)):
     settings = db.query(SiteSettings).first()
-    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
         .where(Post.is_published == True)
@@ -1466,7 +1467,7 @@ def feed_topic(topic_key: str, db: Session = Depends(get_db)):
     if not normalized_topic_key:
         raise HTTPException(status_code=400, detail="topic_key is required")
     settings = db.query(SiteSettings).first()
-    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    site_url = resolve_public_site_url(db, settings=settings)
     profile = db.execute(
         select(TopicProfile).where(TopicProfile.topic_key == normalized_topic_key)
     ).scalar_one_or_none()
@@ -1501,7 +1502,7 @@ def feed_series(slug: str, db: Session = Depends(get_db)):
     if series is None:
         raise HTTPException(status_code=404, detail="Series not found")
     settings = db.query(SiteSettings).first()
-    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
         .where(Post.is_published == True)

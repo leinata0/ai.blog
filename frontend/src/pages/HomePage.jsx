@@ -22,6 +22,7 @@ import HeroFocusLine from '../components/HeroFocusLine'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import SiteHeroPosterStage from '../components/SiteHeroPosterStage'
+import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import {
   buildCollectionPageJsonLd,
   buildWebSiteJsonLd,
@@ -423,7 +424,7 @@ export default function HomePage() {
         path="/"
         image={heroImage}
         jsonLd={homeJsonLd}
-        rssUrl="/feed.xml"
+        rssUrl={buildPublicApiUrl('/feed.xml')}
       />
       <Navbar />
 

@@ -65,6 +65,7 @@ from app.schemas import (
     UploadOut,
 )
 from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
+from app.services.admin_posts import AdminPostFilters, list_admin_posts
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -2149,21 +2150,29 @@ def upsert_topic_metadata_from_body(
 @router.get("/posts")
 def admin_list_posts(
     q: str | None = Query(default=None),
+    content_type: str | None = Query(default=None),
+    is_published: bool | None = Query(default=None),
+    published_mode: str | None = Query(default=None),
+    coverage_date: str | None = Query(default=None),
+    series_slug: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=50),
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
-    stmt = select(Post).options(selectinload(Post.tags)).order_by(Post.created_at.desc())
-    count_stmt = select(func.count(Post.id))
-
-    if q:
-        pattern = f"%{q}%"
-        stmt = stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
-        count_stmt = count_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
-
-    total = db.execute(count_stmt).scalar()
-    posts = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).scalars().all()
+    posts, total = list_admin_posts(
+        db,
+        filters=AdminPostFilters(
+            q=q,
+            content_type=content_type,
+            is_published=is_published,
+            published_mode=published_mode,
+            coverage_date=coverage_date,
+            series_slug=series_slug,
+        ),
+        page=page,
+        page_size=page_size,
+    )
 
     return {
         "items": [_post_to_dict(post) for post in posts],

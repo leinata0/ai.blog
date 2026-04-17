@@ -1,6 +1,6 @@
 import { getToken, clearToken } from './auth'
 
-const BASE = ''
+const BASE = String(import.meta.env.VITE_API_BASE || '').trim().replace(/\/$/, '')
 const TIMEOUT = 30000
 const GET_CACHE_TTL = 15000
 const GET_STALE_TTL = 60000
@@ -70,6 +70,11 @@ function requestGetKey(path, auth) {
   if (!auth) return `public:${path}`
   const token = getToken() || 'anonymous'
   return `auth:${token}:${path}`
+}
+
+export function buildApiUrl(path = '') {
+  if (!BASE) return path
+  return `${BASE}${path}`
 }
 
 async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal } = {}) {

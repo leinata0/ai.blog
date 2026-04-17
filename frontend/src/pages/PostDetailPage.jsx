@@ -23,6 +23,7 @@ import EmptyStatePanel from '../components/EmptyStatePanel'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
 import { recordReadingHistory } from '../utils/topicRetention'
+import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import {
   buildArticleJsonLd,
@@ -447,7 +448,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
           path={`/posts/${post.slug}`}
           image={post.cover_image || ''}
           jsonLd={detailJsonLd}
-          rssUrl={post.topic_key ? `/api/feeds/topics/${encodeURIComponent(post.topic_key)}.xml` : ''}
+          rssUrl={post.topic_key ? buildPublicApiUrl(`/api/feeds/topics/${encodeURIComponent(post.topic_key)}.xml`) : ''}
         />
       ) : null}
       <motion.div

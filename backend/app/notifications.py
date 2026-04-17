@@ -15,6 +15,7 @@ from app.models import (
     SiteSettings,
     WebPushSubscription,
 )
+from app.site_config import resolve_public_site_url
 
 ALLOWED_SUBSCRIPTION_CONTENT_TYPES = {"all", "daily_brief", "weekly_review"}
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -110,8 +111,7 @@ def _content_type_label(content_type: str | None) -> str:
 
 def _site_url(db: Session) -> str:
     settings = db.execute(select(SiteSettings)).scalar_one_or_none()
-    value = settings.site_url if settings and settings.site_url else "https://563118077.xyz"
-    return value.rstrip("/")
+    return resolve_public_site_url(db, settings=settings)
 
 
 def email_delivery_ready() -> bool:
