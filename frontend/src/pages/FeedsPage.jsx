@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   ArrowUpRight,
   BellRing,
+  Filter,
   Mail,
   Newspaper,
   RadioTower,
@@ -12,7 +13,7 @@ import {
   Tags,
 } from 'lucide-react'
 
-import { fetchTopics } from '../api/posts'
+import { fetchSeriesList, fetchTopics } from '../api/posts'
 import {
   fetchSubscriptionStatus,
   subscribeEmail,
@@ -26,43 +27,60 @@ import BackToTop from '../components/BackToTop'
 import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
-import { urlBase64ToUint8Array } from '../utils/webPush'
+import SeoMeta from '../components/SeoMeta'
+import { useSite } from '../contexts/SiteContext'
 import {
-  motionContainerVariants,
-  motionItemVariants,
-} from '../utils/contentPresentation'
+  buildBreadcrumbJsonLd,
+  buildCollectionPageJsonLd,
+} from '../utils/structuredData'
+import { getSeriesTitle, getTopicTitle, motionContainerVariants, motionItemVariants } from '../utils/contentPresentation'
+import { urlBase64ToUint8Array } from '../utils/webPush'
 
 const CORE_FEEDS = [
   {
     key: 'site',
     title: '全站更新',
-    description: '追踪整个站点的最新发布，适合放进你的 RSS 阅读器做统一订阅。',
+    description: '适合想把整站内容都放进 RSS 阅读器的人，一次接住日报、周报、主题延伸与专题文章。',
     href: '/feed.xml',
     eyebrow: '全站 RSS',
   },
   {
     key: 'daily',
     title: 'AI 日报',
-    description: '只订阅每日更新的日报流，更适合高频关注当日重要变化。',
+    description: '只收每天最值得跟进的变化，适合高频关注新的模型、产品与行业信号。',
     href: '/api/feeds/daily.xml',
     eyebrow: '日报 RSS',
   },
   {
     key: 'weekly',
     title: 'AI 周报',
-    description: '只订阅每周整理后的周报主线，适合做低频但更完整的回看。',
+    description: '只收每周整理后的回看主线，适合低频但希望信息结构完整的读者。',
     href: '/api/feeds/weekly.xml',
     eyebrow: '周报 RSS',
   },
 ]
 
-const SUBSCRIPTION_OPTIONS = [
-  { value: 'all', label: '全站更新' },
-  { value: 'daily_brief', label: 'AI 日报' },
-  { value: 'weekly_review', label: 'AI 周报' },
+const CONTENT_TYPE_OPTIONS = [
+  { value: '', label: '全站更新', description: '同时接收全站内容' },
+  { value: 'daily_brief', label: '只收 AI 日报', description: '更关注每天的新变化' },
+  { value: 'weekly_review', label: '只收 AI 周报', description: '更关注每周回看' },
 ]
 
-function FeedCard({ eyebrow, title, description, href }) {
+function buildScopeSummary({ contentType, topic, series }) {
+  const parts = []
+  if (!contentType) {
+    parts.push('全站更新')
+  } else if (contentType === 'daily_brief') {
+    parts.push('AI 日报')
+  } else if (contentType === 'weekly_review') {
+    parts.push('AI 周报')
+  }
+  if (topic) parts.push(`主题：${getTopicTitle(topic)}`)
+  if (series) parts.push(`系列：${getSeriesTitle(series)}`)
+  return parts.join(' / ')
+}
+
+function FeedCard({ eyebrow, title, description, href, linkText = '打开订阅地址', extraLink }) {
   return (
     <motion.article
       variants={motionItemVariants}
@@ -86,93 +104,129 @@ function FeedCard({ eyebrow, title, description, href }) {
           style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
         >
           <Rss size={15} />
-          打开订阅地址
+          {linkText}
         </a>
+        {extraLink}
       </div>
     </motion.article>
   )
 }
 
-function TopicFeedCard({ topic }) {
-  const href = `/api/feeds/topics/${encodeURIComponent(topic.topic_key)}.xml`
+function TaxonomyFeedCard({ item, type }) {
+  const title = type === 'topic' ? getTopicTitle(item) : getSeriesTitle(item)
+  const description =
+    item.description
+    || (type === 'topic'
+      ? '适合只追踪这条内容主线后续发生了什么。'
+      : '适合沿着同一个栏目路径持续接收更新。')
+  const href = type === 'topic'
+    ? `/api/feeds/topics/${encodeURIComponent(item.topic_key)}.xml`
+    : `/api/feeds/series/${encodeURIComponent(item.slug)}.xml`
+  const detailTo = type === 'topic' ? `/topics/${item.topic_key}` : `/series/${item.slug}`
 
   return (
-    <motion.article
-      variants={motionItemVariants}
-      className="editorial-card rounded-[1.8rem] border px-5 py-5"
-      style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-surface)' }}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="section-kicker">主题 RSS</div>
-          <h3 className="mt-3 font-display text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
-            {topic.display_title || topic.topic_key}
-          </h3>
-          <p className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            {topic.description || '按主题订阅这条持续更新的内容主线。'}
-          </p>
-        </div>
+    <FeedCard
+      eyebrow={type === 'topic' ? '主题 RSS' : '系列 RSS'}
+      title={title}
+      description={description}
+      href={href}
+      linkText={type === 'topic' ? '订阅这个主题' : '订阅这个系列'}
+      extraLink={(
         <Link
-          to={`/topics/${topic.topic_key}`}
-          className="inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
-        >
-          主题页
-          <ArrowUpRight size={12} />
-        </Link>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-faint)' }}>
-        {topic.post_count ? <span>{topic.post_count} 篇文章</span> : null}
-        {topic.source_count ? <span>{topic.source_count} 条来源</span> : null}
-      </div>
-
-      <div className="mt-5">
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer"
+          to={detailTo}
           className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
           style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)' }}
         >
-          <Rss size={15} />
-          订阅这个主题
-        </a>
-      </div>
-    </motion.article>
+          查看详情
+          <ArrowUpRight size={14} />
+        </Link>
+      )}
+    />
   )
 }
 
-function OptionPicker({ value, onChange, disabled = false }) {
-  function toggleOption(optionValue) {
-    const current = Array.isArray(value) ? value : []
-    const next = current.includes(optionValue)
-      ? current.filter((item) => item !== optionValue)
-      : [...current, optionValue]
-    onChange(next.length > 0 ? next : ['all'])
-  }
-
+function ScopePicker({ contentType, onContentTypeChange, topicKey, onTopicKeyChange, seriesSlug, onSeriesSlugChange, topics, seriesList }) {
   return (
-    <div className="mt-4 flex flex-wrap gap-2">
-      {SUBSCRIPTION_OPTIONS.map((option) => {
-        const active = value.includes(option.value)
-        return (
-          <button
-            key={option.value}
-            type="button"
-            disabled={disabled}
-            onClick={() => toggleOption(option.value)}
-            className="rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              backgroundColor: active ? 'var(--accent-soft)' : 'var(--bg-canvas)',
-              color: active ? 'var(--accent)' : 'var(--text-secondary)',
-            }}
+    <motion.section variants={motionItemVariants} className="editorial-panel rounded-[2rem] px-8 py-8">
+      <EditorialSectionHeader
+        eyebrow="订阅范围"
+        title="把订阅粒度收紧到你真正关心的更新"
+        description="你可以只收全站、只收日报或周报，也可以进一步叠加单个主题或单个系列，把订阅变成更明确的阅读收益。"
+      />
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        <label className="block">
+          <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>内容粒度</span>
+          <select
+            value={contentType}
+            onChange={(event) => onContentTypeChange(event.target.value)}
+            className="mt-2 w-full rounded-[1.25rem] border px-4 py-3 text-sm outline-none"
+            style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
           >
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
+            {CONTENT_TYPE_OPTIONS.map((option) => (
+              <option key={option.value || 'all'} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>主题追踪</span>
+          <select
+            value={topicKey}
+            onChange={(event) => onTopicKeyChange(event.target.value)}
+            className="mt-2 w-full rounded-[1.25rem] border px-4 py-3 text-sm outline-none"
+            style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
+          >
+            <option value="">不限定主题</option>
+            {topics.map((topic) => (
+              <option key={topic.topic_key} value={topic.topic_key}>
+                {getTopicTitle(topic)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>系列阅读</span>
+          <select
+            value={seriesSlug}
+            onChange={(event) => onSeriesSlugChange(event.target.value)}
+            className="mt-2 w-full rounded-[1.25rem] border px-4 py-3 text-sm outline-none"
+            style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
+          >
+            <option value="">不限定系列</option>
+            {seriesList.map((series) => (
+              <option key={series.slug} value={series.slug}>
+                {getSeriesTitle(series)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </motion.section>
+  )
+}
+
+function ScopeSummaryCard({ contentType, topic, series }) {
+  return (
+    <motion.article
+      variants={motionItemVariants}
+      className="rounded-[1.6rem] border px-5 py-5"
+      style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-surface)' }}
+    >
+      <div className="section-kicker">当前范围</div>
+      <div className="mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
+        <Filter size={13} />
+        {buildScopeSummary({ contentType, topic, series })}
+      </div>
+      <p className="mt-4 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
+        {topic || series
+          ? '你已经把范围收窄到了更具体的主线，后面的邮件与浏览器提醒会沿这组偏好保存。'
+          : '当前是较宽的阅读入口，适合先建立整体回访机制，后续再收紧到主题或系列。'}
+      </p>
+    </motion.article>
   )
 }
 
@@ -190,9 +244,8 @@ function ChannelStatusBadge({ enabled, readyText, pendingText }) {
   )
 }
 
-function EmailSubscriptionCard({ status }) {
+function EmailSubscriptionCard({ status, contentType, topicKey, seriesSlug }) {
   const [email, setEmail] = useState('')
-  const [contentTypes, setContentTypes] = useState(['all'])
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -203,7 +256,12 @@ function EmailSubscriptionCard({ status }) {
     setMessage('')
     setError('')
     try {
-      const result = await subscribeEmail({ email, content_types: contentTypes })
+      const result = await subscribeEmail({
+        email,
+        content_types: contentType ? [contentType] : ['all'],
+        topic_keys: topicKey ? [topicKey] : [],
+        series_slugs: seriesSlug ? [seriesSlug] : [],
+      })
       setMessage(result.message || '邮件订阅已保存。')
       setEmail('')
     } catch (err) {
@@ -223,18 +281,14 @@ function EmailSubscriptionCard({ status }) {
         <div>
           <div className="section-kicker">邮件订阅</div>
           <h3 className="mt-3 font-display text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
-            让新文章直接送到你的邮箱
+            让你关心的更新直接进邮箱
           </h3>
         </div>
-        <ChannelStatusBadge
-          enabled={Boolean(status?.email_configured)}
-          readyText="已接入"
-          pendingText="待配置"
-        />
+        <ChannelStatusBadge enabled={Boolean(status?.email_configured)} readyText="已接入" pendingText="待配置" />
       </div>
 
       <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-        适合不常开 RSS 阅读器的读者。可以按全站、日报、周报来接收更新。
+        适合想在收件箱里稳定回看内容的人。你保存的范围会决定后续收到的是全站、日报、周报，还是更具体的主题与系列更新。
       </p>
 
       <form onSubmit={handleSubmit} className="mt-5">
@@ -250,8 +304,6 @@ function EmailSubscriptionCard({ status }) {
           style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}
         />
 
-        <OptionPicker value={contentTypes} onChange={setContentTypes} disabled={saving} />
-
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="submit"
@@ -264,7 +316,7 @@ function EmailSubscriptionCard({ status }) {
           </button>
           {!status?.email_configured ? (
             <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
-              当前已允许登记邮箱，站点还需要完成邮件服务配置后才会开始投递。
+              站点还没有完成邮件投递配置，先保存偏好也没问题，后续接通后会开始发送。
             </span>
           ) : null}
         </div>
@@ -284,8 +336,7 @@ function EmailSubscriptionCard({ status }) {
   )
 }
 
-function BrowserPushCard({ status }) {
-  const [contentTypes, setContentTypes] = useState(['all'])
+function BrowserPushCard({ status, contentType, topicKey, seriesSlug }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -294,17 +345,17 @@ function BrowserPushCard({ status }) {
     typeof window !== 'undefined' && 'Notification' in window ? window.Notification.permission : 'default',
   )
 
-  const pushSupported =
-    typeof window !== 'undefined'
+  const pushSupported = typeof window !== 'undefined'
     && window.isSecureContext
     && 'Notification' in window
     && 'serviceWorker' in navigator
     && 'PushManager' in window
 
   useEffect(() => {
-    if (!pushSupported) return
+    if (!pushSupported) return undefined
 
     let cancelled = false
+
     async function syncState() {
       try {
         const registration = await navigator.serviceWorker.register('/push-sw.js')
@@ -314,11 +365,10 @@ function BrowserPushCard({ status }) {
           setPermission(window.Notification.permission)
         }
       } catch {
-        if (!cancelled) {
-          setSubscribed(false)
-        }
+        if (!cancelled) setSubscribed(false)
       }
     }
+
     syncState()
     return () => {
       cancelled = true
@@ -336,6 +386,7 @@ function BrowserPushCard({ status }) {
       if (!status?.web_push_configured) {
         throw new Error('站点还没有完成浏览器通知配置，请稍后再试。')
       }
+
       const permissionResult = await window.Notification.requestPermission()
       setPermission(permissionResult)
       if (permissionResult !== 'granted') {
@@ -356,7 +407,9 @@ function BrowserPushCard({ status }) {
       const result = await subscribeWebPush({
         endpoint: json.endpoint,
         keys: json.keys,
-        content_types: contentTypes,
+        content_types: contentType ? [contentType] : ['all'],
+        topic_keys: topicKey ? [topicKey] : [],
+        series_slugs: seriesSlug ? [seriesSlug] : [],
       })
       setSubscribed(true)
       setMessage(result.message || '浏览器提醒已启用。')
@@ -400,18 +453,14 @@ function BrowserPushCard({ status }) {
         <div>
           <div className="section-kicker">浏览器提醒</div>
           <h3 className="mt-3 font-display text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
-            在当前浏览器直接接收新内容通知
+            在当前设备直接收到新通知
           </h3>
         </div>
-        <ChannelStatusBadge
-          enabled={Boolean(status?.web_push_configured)}
-          readyText="已接入"
-          pendingText="待配置"
-        />
+        <ChannelStatusBadge enabled={Boolean(status?.web_push_configured)} readyText="已接入" pendingText="待配置" />
       </div>
 
       <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-        适合想第一时间知道新内容更新的读者。需要在 HTTPS 环境下授予浏览器通知权限。
+        适合想第一时间看到新变化的人。它更像轻提醒，打开后你就能继续回到刚才正在追踪的主题或系列。
       </p>
 
       <div className="mt-4 flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
@@ -419,8 +468,6 @@ function BrowserPushCard({ status }) {
         <span>通知权限：{permission === 'granted' ? '已允许' : permission === 'denied' ? '已拒绝' : '待选择'}</span>
         <span>当前设备：{subscribed ? '已订阅' : '未订阅'}</span>
       </div>
-
-      <OptionPicker value={contentTypes} onChange={setContentTypes} disabled={busy || subscribed} />
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         {!subscribed ? (
@@ -473,18 +520,14 @@ function WecomSubscriptionCard({ status }) {
         <div>
           <div className="section-kicker">企业微信机器人</div>
           <h3 className="mt-3 font-display text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
-            适合把新文章同步到团队群
+            适合把更新同步给团队
           </h3>
         </div>
-        <ChannelStatusBadge
-          enabled={Boolean(status?.wecom_configured)}
-          readyText="已接入"
-          pendingText="待配置"
-        />
+        <ChannelStatusBadge enabled={Boolean(status?.wecom_configured)} readyText="已接入" pendingText="待配置" />
       </div>
 
       <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-        这个通道适合站长或团队内部使用。配置企业微信机器人的 webhook 后，站点发布新内容时会自动向群内推送摘要和直达链接。
+        这个通道更适合站长或团队内部使用。配置企业微信机器人后，新的文章摘要会自动同步到群里。
       </p>
 
       <div className="mt-5 rounded-[1.3rem] px-4 py-4 text-sm" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)' }}>
@@ -497,7 +540,10 @@ function WecomSubscriptionCard({ status }) {
 }
 
 export default function FeedsPage() {
+  const { settings } = useSite()
+  const [searchParams] = useSearchParams()
   const [topics, setTopics] = useState([])
+  const [seriesList, setSeriesList] = useState([])
   const [loading, setLoading] = useState(true)
   const [subscriptionStatus, setSubscriptionStatus] = useState({
     email_configured: false,
@@ -505,30 +551,84 @@ export default function FeedsPage() {
     wecom_configured: false,
     web_push_public_key: '',
   })
+  const [contentType, setContentType] = useState(searchParams.get('content_type') || '')
+  const [topicKey, setTopicKey] = useState(searchParams.get('topic_key') || '')
+  const [seriesSlug, setSeriesSlug] = useState(searchParams.get('series_slug') || '')
+
+  const siteUrl = useMemo(() => {
+    const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
+    if (configured) return configured
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  }, [settings?.site_url])
+  const selectedTopic = useMemo(
+    () => topics.find((item) => item.topic_key === topicKey) || null,
+    [topicKey, topics],
+  )
+  const selectedSeries = useMemo(
+    () => seriesList.find((item) => item.slug === seriesSlug) || null,
+    [seriesList, seriesSlug],
+  )
+  const orderedTopics = useMemo(() => (
+    [...topics]
+      .sort((a, b) => {
+        if (Boolean(a.is_featured) !== Boolean(b.is_featured)) return a.is_featured ? -1 : 1
+        return (b.post_count || 0) - (a.post_count || 0)
+      })
+      .slice(0, 6)
+  ), [topics])
+  const orderedSeries = useMemo(() => (
+    [...seriesList]
+      .sort((a, b) => {
+        if (Boolean(a.is_featured) !== Boolean(b.is_featured)) return a.is_featured ? -1 : 1
+        return (b.post_count || 0) - (a.post_count || 0)
+      })
+      .slice(0, 6)
+  ), [seriesList])
+  const canonicalPath = useMemo(() => {
+    const query = searchParams.toString()
+    return query ? `/feeds?${query}` : '/feeds'
+  }, [searchParams])
+  const jsonLd = useMemo(() => ([
+    buildCollectionPageJsonLd({
+      siteUrl,
+      name: '订阅中心',
+      description: '集中管理全站、日报、周报、主题和系列的 RSS、邮件与浏览器提醒入口。',
+      path: canonicalPath,
+    }),
+    buildBreadcrumbJsonLd({
+      siteUrl,
+      items: [
+        { name: '首页', path: '/' },
+        { name: '订阅中心', path: canonicalPath },
+      ],
+    }),
+  ]), [canonicalPath, siteUrl])
 
   useEffect(() => {
     document.title = '订阅中心 - AI 资讯观察'
 
-    fetchTopics({ featured: true, limit: 12 })
-      .then((payload) => {
-        const items = Array.isArray(payload?.items)
-          ? payload.items.filter((item) => typeof item?.topic_key === 'string' && item.topic_key.trim().length > 0)
+    Promise.all([
+      fetchTopics({ featured: true, limit: 12 }),
+      fetchSeriesList({ limit: 12 }),
+      fetchSubscriptionStatus(),
+    ])
+      .then(([topicsPayload, seriesPayload, statusPayload]) => {
+        const topicItems = Array.isArray(topicsPayload?.items)
+          ? topicsPayload.items.filter((item) => typeof item?.topic_key === 'string' && item.topic_key.trim().length > 0)
           : []
-        setTopics(items)
-      })
-      .catch(() => setTopics([]))
-      .finally(() => setLoading(false))
-
-    fetchSubscriptionStatus()
-      .then((payload) => {
+        setTopics(topicItems)
+        setSeriesList(Array.isArray(seriesPayload) ? seriesPayload : [])
         setSubscriptionStatus({
-          email_configured: Boolean(payload?.email_configured),
-          web_push_configured: Boolean(payload?.web_push_configured),
-          wecom_configured: Boolean(payload?.wecom_configured),
-          web_push_public_key: payload?.web_push_public_key || '',
+          email_configured: Boolean(statusPayload?.email_configured),
+          web_push_configured: Boolean(statusPayload?.web_push_configured),
+          wecom_configured: Boolean(statusPayload?.wecom_configured),
+          web_push_public_key: statusPayload?.web_push_public_key || '',
         })
       })
       .catch(() => {
+        setTopics([])
+        setSeriesList([])
         setSubscriptionStatus({
           email_configured: false,
           web_push_configured: false,
@@ -536,29 +636,26 @@ export default function FeedsPage() {
           web_push_public_key: '',
         })
       })
+      .finally(() => setLoading(false))
   }, [])
-
-  const curatedTopics = useMemo(() => {
-    return [...topics]
-      .sort((a, b) => {
-        if (Boolean(a.is_featured) !== Boolean(b.is_featured)) {
-          return a.is_featured ? -1 : 1
-        }
-        return (b.post_count || 0) - (a.post_count || 0)
-      })
-      .slice(0, 8)
-  }, [topics])
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title="订阅中心 - AI 资讯观察"
+        description="集中管理全站、日报、周报、主题和系列的 RSS、邮件与浏览器提醒入口。"
+        path={canonicalPath}
+        jsonLd={jsonLd}
+        rssUrl="/feed.xml"
+      />
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
         <motion.div initial="hidden" animate="visible" variants={motionContainerVariants}>
           <motion.section variants={motionItemVariants} className="editorial-panel rounded-[2rem] px-8 py-8">
             <EditorialSectionHeader
               eyebrow="订阅中心"
-              title="把 RSS、邮件、浏览器提醒和团队推送都接进来"
-              description="这里集中整理所有稳定可用的订阅入口。你可以继续使用 RSS，也可以换成邮件、浏览器提醒或团队机器人推送。"
+              title="把全站、主题和系列更新都收成稳定回访入口"
+              description="这里不只是技术通道列表，更是你的阅读偏好面板。你可以决定只收全站、只收日报或周报，或者进一步锁定某个主题和某个系列。"
             />
             <div className="mt-6 flex flex-wrap gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
               <span className="inline-flex items-center gap-2 rounded-full px-4 py-2" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
@@ -568,18 +665,27 @@ export default function FeedsPage() {
             </div>
           </motion.section>
 
-          <section className="mt-8">
-            <EditorialSectionHeader
-              eyebrow="核心订阅"
-              title="先从最常用的 3 条 RSS 订阅开始"
-              description="如果你已经在用 Feedly、Inoreader、Readwise Reader 这类工具，优先使用这些固定 feed。"
+          <div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr),300px]">
+            <ScopePicker
+              contentType={contentType}
+              onContentTypeChange={setContentType}
+              topicKey={topicKey}
+              onTopicKeyChange={setTopicKey}
+              seriesSlug={seriesSlug}
+              onSeriesSlugChange={setSeriesSlug}
+              topics={topics}
+              seriesList={seriesList}
             />
-            <motion.div
-              initial="hidden"
-              animate="visible"
-              variants={motionContainerVariants}
-              className="mt-6 grid gap-5 lg:grid-cols-3"
-            >
+            <ScopeSummaryCard contentType={contentType} topic={selectedTopic} series={selectedSeries} />
+          </div>
+
+          <section className="mt-10">
+            <EditorialSectionHeader
+              eyebrow="核心 RSS"
+              title="先接住最常用的 3 条总入口"
+              description="如果你已经在用 Feedly、Inoreader 或 Readwise Reader，优先把这些固定 feed 加进去就够用了。"
+            />
+            <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mt-6 grid gap-5 lg:grid-cols-3">
               {CORE_FEEDS.map(({ key, ...feed }) => (
                 <FeedCard key={key} {...feed} />
               ))}
@@ -589,40 +695,56 @@ export default function FeedsPage() {
           <section className="mt-10">
             <EditorialSectionHeader
               eyebrow="主动提醒"
-              title="不用只盯着 RSS，你也可以让更新主动来找你"
-              description="邮件和浏览器提醒更适合不常打开 RSS 阅读器、但又不想错过新内容的读者。"
+              title="不只看 RSS，也可以把更新主动送过来"
+              description="邮件更适合稳态回看，浏览器提醒更适合第一时间知道新变化。它们都会沿用上面这组订阅范围。"
             />
-            <motion.div
-              initial="hidden"
-              animate="visible"
-              variants={motionContainerVariants}
-              className="mt-6 grid gap-5 lg:grid-cols-2"
-            >
-              <EmailSubscriptionCard status={subscriptionStatus} />
-              <BrowserPushCard status={subscriptionStatus} />
+            <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mt-6 grid gap-5 lg:grid-cols-2">
+              <EmailSubscriptionCard
+                status={subscriptionStatus}
+                contentType={contentType}
+                topicKey={topicKey}
+                seriesSlug={seriesSlug}
+              />
+              <BrowserPushCard
+                status={subscriptionStatus}
+                contentType={contentType}
+                topicKey={topicKey}
+                seriesSlug={seriesSlug}
+              />
             </motion.div>
           </section>
 
           <section className="mt-10">
             <EditorialSectionHeader
-              eyebrow="团队通道"
-              title="如果你要把更新同步给团队，也可以走企业微信机器人"
-              description="这个通道适合把新文章自动同步到企业微信团队群，不需要读者单独操作。"
+              eyebrow="系列订阅"
+              title="按阅读路径订阅，而不只是按时间线订阅"
+              description="系列强调的是“怎么沿一个栏目持续阅读”。如果你更想跟住某条固定栏目路径，优先订系列更合适。"
             />
-            <motion.div
-              initial="hidden"
-              animate="visible"
-              variants={motionContainerVariants}
-              className="mt-6"
-            >
-              <WecomSubscriptionCard status={subscriptionStatus} />
-            </motion.div>
+            {loading ? (
+              <div className="mt-6">
+                <LoadingSkeletonSet count={3} className="grid gap-5 lg:grid-cols-2" minHeight="13rem" />
+              </div>
+            ) : orderedSeries.length > 0 ? (
+              <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mt-6 grid gap-5 lg:grid-cols-2">
+                {orderedSeries.map((series) => (
+                  <TaxonomyFeedCard key={series.slug} item={series} type="series" />
+                ))}
+              </motion.div>
+            ) : (
+              <div className="mt-6">
+                <EmptyStatePanel
+                  title="暂时还没有可展示的系列订阅"
+                  description="随着系列资料继续补齐，这里会优先展示更适合长期回看的栏目 feed。"
+                  icon={Newspaper}
+                />
+              </div>
+            )}
           </section>
 
           <section className="mt-10">
             <EditorialSectionHeader
               eyebrow="主题订阅"
-              title="订阅你真正想持续追踪的主线"
+              title="只追踪你真正想持续跟进的主线"
               description="主题 feed 更适合只追踪特定公司、模型、产品方向或事件链。"
             />
 
@@ -630,15 +752,10 @@ export default function FeedsPage() {
               <div className="mt-6">
                 <LoadingSkeletonSet count={4} className="grid gap-5 lg:grid-cols-2" minHeight="13rem" />
               </div>
-            ) : curatedTopics.length > 0 ? (
-              <motion.div
-                initial="hidden"
-                animate="visible"
-                variants={motionContainerVariants}
-                className="mt-6 grid gap-5 lg:grid-cols-2"
-              >
-                {curatedTopics.map((topic) => (
-                  <TopicFeedCard key={topic.topic_key} topic={topic} />
+            ) : orderedTopics.length > 0 ? (
+              <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mt-6 grid gap-5 lg:grid-cols-2">
+                {orderedTopics.map((topic) => (
+                  <TaxonomyFeedCard key={topic.topic_key} item={topic} type="topic" />
                 ))}
               </motion.div>
             ) : (
@@ -652,11 +769,22 @@ export default function FeedsPage() {
             )}
           </section>
 
+          <section className="mt-10">
+            <EditorialSectionHeader
+              eyebrow="团队通道"
+              title="如果你要把更新同步给团队，也可以走企业微信机器人"
+              description="这个通道适合把新文章自动同步到企业微信团队群，不需要读者单独操作。"
+            />
+            <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mt-6">
+              <WecomSubscriptionCard status={subscriptionStatus} />
+            </motion.div>
+          </section>
+
           <motion.section variants={motionItemVariants} className="mt-10 editorial-panel rounded-[2rem] px-8 py-8">
             <EditorialSectionHeader
               eyebrow="阅读路径"
               title="不知道先订什么时，可以从这里开始"
-              description="如果你偏向高频获取新消息，先订 AI 日报；如果你更偏向结构化回看，先订 AI 周报；如果你只追一个方向，直接订对应主题。"
+              description="如果你偏向高频获取新消息，先订 AI 日报；如果你更偏向结构化回看，先订 AI 周报；如果你只追一个方向，直接订对应主题或系列。"
             />
             <div className="mt-5 flex flex-wrap gap-3">
               <Link

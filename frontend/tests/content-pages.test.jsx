@@ -20,6 +20,8 @@ vi.mock('../src/api/posts', () => ({
     description: 'Daily coverage.',
     posts: [
       { slug: 'brief-1', title: 'Daily brief one', summary: 'Summary', created_at: '2026-04-15T08:00:00Z' },
+      { slug: 'brief-2', title: 'Daily brief two', summary: 'Summary two', created_at: '2026-04-14T08:00:00Z' },
+      { slug: 'brief-3', title: 'Daily brief three', summary: 'Summary three', created_at: '2026-04-13T08:00:00Z' },
     ],
   })),
   fetchDiscover: vi.fn(() => Promise.resolve({
@@ -45,7 +47,7 @@ it('renders series list page', async () => {
       <ThemeProvider>
         <SeriesPage />
       </ThemeProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
   expect((await screen.findAllByText('AI 日报')).length).toBeGreaterThan(0)
@@ -57,7 +59,7 @@ it('renders series list page', async () => {
   expect(container.querySelector('[data-ui="series-stack-tabs"]')).toBeTruthy()
 })
 
-it('renders series detail and discover pages', async () => {
+it('renders series detail onboarding blocks and discover page', async () => {
   render(
     <MemoryRouter initialEntries={['/series/ai-daily-brief']}>
       <ThemeProvider>
@@ -66,19 +68,22 @@ it('renders series detail and discover pages', async () => {
           <Route path="/discover" element={<DiscoverPage />} />
         </Routes>
       </ThemeProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
   expect(await screen.findByRole('heading', { name: 'AI 日报' })).toBeInTheDocument()
+  expect(await screen.findByText('从哪一篇开始最合适')).toBeInTheDocument()
+  expect(await screen.findByText('先读这 3 篇就够快')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /订阅这个系列/i })).toHaveAttribute('href', '/feeds?series_slug=ai-daily-brief')
 
   render(
     <MemoryRouter initialEntries={['/discover']}>
       <ThemeProvider>
         <DiscoverPage />
       </ThemeProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
-  expect(await screen.findByText('Daily brief one')).toBeInTheDocument()
+  expect((await screen.findAllByText('Daily brief one')).length).toBeGreaterThan(0)
   expect(await screen.findByText('OpenAI Models')).toBeInTheDocument()
 })

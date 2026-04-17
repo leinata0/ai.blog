@@ -11,6 +11,8 @@ from app.notifications import (
     email_delivery_ready,
     is_valid_email,
     normalize_subscription_content_types,
+    normalize_subscription_series_slugs,
+    normalize_subscription_topic_keys,
     subscription_status_payload,
     web_push_delivery_ready,
 )
@@ -43,6 +45,9 @@ def subscribe_email(
         raise HTTPException(status_code=400, detail="Invalid email address")
 
     content_types = normalize_subscription_content_types(body.content_types)
+    topic_keys = normalize_subscription_topic_keys(body.topic_keys)
+    series_slugs = normalize_subscription_series_slugs(body.series_slugs)
+
     existing = db.execute(
         select(EmailSubscription).where(EmailSubscription.email == email)
     ).scalar_one_or_none()
@@ -51,11 +56,16 @@ def subscribe_email(
         existing = EmailSubscription(
             email=email,
             content_types_json='["all"]',
+            topic_keys_json="[]",
+            series_slugs_json="[]",
             is_active=True,
             source="feeds_page",
         )
         db.add(existing)
+
     existing.content_types_json = json.dumps(content_types, ensure_ascii=False)
+    existing.topic_keys_json = json.dumps(topic_keys, ensure_ascii=False)
+    existing.series_slugs_json = json.dumps(series_slugs, ensure_ascii=False)
     existing.is_active = True
     existing.updated_at = now
     db.commit()
@@ -63,9 +73,11 @@ def subscribe_email(
     return {
         "email": email,
         "content_types": content_types,
+        "topic_keys": topic_keys,
+        "series_slugs": series_slugs,
         "is_active": True,
         "delivery_ready": email_delivery_ready(),
-        "message": "邮件订阅已保存，后续有新内容会按你的偏好发送提醒。",
+        "message": "邮件订阅已保存，后续会按你的栏目、主题和系列偏好发送更新提醒。",
     }
 
 
@@ -87,9 +99,11 @@ def unsubscribe_email(
     return {
         "email": email,
         "content_types": normalize_subscription_content_types([]),
+        "topic_keys": [],
+        "series_slugs": [],
         "is_active": False,
         "delivery_ready": email_delivery_ready(),
-        "message": "这个邮箱的邮件订阅已关闭。",
+        "message": "这个邮箱的订阅已关闭。",
     }
 
 
@@ -116,6 +130,9 @@ def subscribe_web_push(
         raise HTTPException(status_code=400, detail="Invalid web push subscription payload")
 
     content_types = normalize_subscription_content_types(body.content_types)
+    topic_keys = normalize_subscription_topic_keys(body.topic_keys)
+    series_slugs = normalize_subscription_series_slugs(body.series_slugs)
+
     existing = db.execute(
         select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
     ).scalar_one_or_none()
@@ -126,13 +143,18 @@ def subscribe_web_push(
             p256dh=p256dh,
             auth=auth,
             content_types_json='["all"]',
+            topic_keys_json="[]",
+            series_slugs_json="[]",
             is_active=True,
             user_agent="browser",
         )
         db.add(existing)
+
     existing.p256dh = p256dh
     existing.auth = auth
     existing.content_types_json = json.dumps(content_types, ensure_ascii=False)
+    existing.topic_keys_json = json.dumps(topic_keys, ensure_ascii=False)
+    existing.series_slugs_json = json.dumps(series_slugs, ensure_ascii=False)
     existing.is_active = True
     existing.updated_at = now
     db.commit()
@@ -140,9 +162,11 @@ def subscribe_web_push(
     return {
         "endpoint": endpoint,
         "content_types": content_types,
+        "topic_keys": topic_keys,
+        "series_slugs": series_slugs,
         "is_active": True,
         "push_ready": True,
-        "message": "浏览器提醒已启用，有新内容时会向这个浏览器发送通知。",
+        "message": "浏览器提醒已启用，后续会按你的栏目、主题和系列偏好发送通知。",
     }
 
 
@@ -164,6 +188,8 @@ def unsubscribe_web_push(
     return {
         "endpoint": endpoint,
         "content_types": [],
+        "topic_keys": [],
+        "series_slugs": [],
         "is_active": False,
         "push_ready": web_push_delivery_ready(),
         "message": "这个浏览器的提醒已关闭。",

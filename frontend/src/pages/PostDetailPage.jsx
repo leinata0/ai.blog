@@ -20,8 +20,18 @@ import FollowTopicButton from '../components/FollowTopicButton'
 import CoverCard from '../components/CoverCard'
 import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
+import SeoMeta from '../components/SeoMeta'
+import { useSite } from '../contexts/SiteContext'
 import { recordReadingHistory } from '../utils/topicRetention'
-import { getContentTypeMeta } from '../utils/contentPresentation'
+import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
+import {
+  buildArticleJsonLd,
+  buildBreadcrumbJsonLd,
+} from '../utils/structuredData'
+import {
+  getContentTypeMeta,
+  getSeriesTitle,
+} from '../utils/contentPresentation'
 
 function calcReadingTime(text) {
   if (!text) return 1
@@ -90,15 +100,23 @@ function SourceSummarySection({ post }) {
   const sources = Array.isArray(post?.sources) ? post.sources : []
   const summary = post?.source_summary || ''
   if (!summary && sources.length === 0) return null
+  const primarySource = sources.find((item) => item.is_primary) || sources[0] || null
 
   return (
     <section className="mt-8 editorial-panel rounded-[1.8rem] p-6 sm:p-8">
       <EditorialSectionHeader
-        eyebrow="来源摘要"
-        title="这篇内容参考了哪些信息"
+        eyebrow="来源证据"
+        title="这篇内容的主要来源与上下文"
         titleClassName="!text-[1.55rem]"
-        description={summary || '这里会展示来源摘要和主要引用入口。'}
+        description={summary || '这里会展示来源摘要、主要引用入口，以及这篇文章归属到哪条主题或系列。'}
       />
+
+      <div className="mt-5 flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
+        {primarySource?.source_name ? <span>主要来源：{primarySource.source_name}</span> : null}
+        {post?.coverage_date ? <span>覆盖日期：{post.coverage_date}</span> : null}
+        {post?.topic_key ? <span>相关主题：{post.topic_key}</span> : null}
+        {post?.series_slug ? <span>所属系列：{getSeriesTitle({ slug: post.series_slug })}</span> : null}
+      </div>
 
       {sources.length > 0 ? (
         <div className="mt-5 flex flex-wrap gap-2">
@@ -192,47 +210,63 @@ function QualityInsightsSection({ post }) {
 
 function TopicTrackingSection({ post }) {
   const topicKey = String(post?.topic_key || '').trim()
-  if (!topicKey) return null
+  const seriesSlug = String(post?.series_slug || '').trim()
+  const seriesTitle = seriesSlug ? getSeriesTitle({ slug: seriesSlug }) : ''
+  if (!topicKey && !seriesSlug) return null
 
   return (
     <section className="mt-8 editorial-panel rounded-[1.8rem] p-6 sm:p-8">
       <EditorialSectionHeader
-        eyebrow="继续追踪这条主线"
-        title="回到主题页，继续看同一条主线"
+        eyebrow="读完之后"
+        title="把这篇文章变成持续追踪的入口"
         titleClassName="!text-[1.55rem]"
-        description={`这篇文章归属于主题 ${topicKey}。如果你想持续看这条主线后续怎么发展，可以直接进入主题页或订阅主题 RSS。`}
+        description="如果这篇文章正好命中了你关心的方向，可以继续追踪对应主题、保存订阅偏好，或者回到所属系列沿阅读路径继续往下看。"
       />
 
       <div className="mt-5 flex flex-wrap gap-3">
-        <FollowTopicButton
-          topic={{
-            topic_key: topicKey,
-            display_title: topicKey,
-            description: post?.summary || '',
-          }}
-        />
-        <Link
-          to={`/topics/${topicKey}`}
-          className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
-          style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
-        >
-          进入主题页
-        </Link>
-        <a
-          href={`/api/feeds/topics/${encodeURIComponent(topicKey)}.xml`}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
-          style={{ backgroundColor: 'rgba(37,99,235,0.12)', color: '#2563eb' }}
-        >
-          订阅主题 RSS
-        </a>
+        {topicKey ? (
+          <FollowTopicButton
+            topic={{
+              topic_key: topicKey,
+              display_title: topicKey,
+              description: post?.summary || '',
+            }}
+          />
+        ) : null}
+        {topicKey ? (
+          <Link
+            to={`/topics/${topicKey}`}
+            className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
+            style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+          >
+            进入主题页
+          </Link>
+        ) : null}
+        {topicKey ? (
+          <Link
+            to={buildSubscriptionCenterHref({ topicKey, contentType: post?.content_type })}
+            className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
+            style={{ backgroundColor: 'rgba(37,99,235,0.12)', color: '#2563eb' }}
+          >
+            订阅相关更新
+          </Link>
+        ) : null}
+        {seriesSlug ? (
+          <Link
+            to={`/series/${seriesSlug}`}
+            className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
+            style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)' }}
+          >
+            回到系列：{seriesTitle}
+          </Link>
+        ) : null}
       </div>
     </section>
   )
 }
 
 export default function PostDetailPage({ slug: overrideSlug }) {
+  const { settings } = useSite()
   const params = useParams()
   const slug = overrideSlug ?? params.slug
   const [post, setPost] = useState(null)
@@ -316,9 +350,38 @@ export default function PostDetailPage({ slug: overrideSlug }) {
     if (post) document.title = `${post.title} - AI 资讯观察`
   }, [post])
 
+  const siteUrl = useMemo(() => {
+    const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
+    if (configured) return configured
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  }, [settings?.site_url])
+
   const readingTime = useMemo(() => {
     return post ? calcReadingTime(post.content_md) : 0
   }, [post])
+  const detailJsonLd = useMemo(() => {
+    if (!post) return []
+    return [
+      buildArticleJsonLd({
+        siteUrl,
+        title: post.title,
+        description: post.summary,
+        path: `/posts/${post.slug}`,
+        image: post.cover_image || '',
+        datePublished: post.created_at,
+        dateModified: post.updated_at || post.created_at,
+        publisherName: 'AI 资讯观察',
+      }),
+      buildBreadcrumbJsonLd({
+        siteUrl,
+        items: [
+          { name: '首页', path: '/' },
+          { name: post.title, path: `/posts/${post.slug}` },
+        ],
+      }),
+    ]
+  }, [post, siteUrl])
 
   async function handleCopy(code) {
     await navigator.clipboard.writeText(code)
@@ -377,6 +440,16 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
   return (
     <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      {post ? (
+        <SeoMeta
+          title={`${post.title} - AI 资讯观察`}
+          description={post.summary}
+          path={`/posts/${post.slug}`}
+          image={post.cover_image || ''}
+          jsonLd={detailJsonLd}
+          rssUrl={post.topic_key ? `/api/feeds/topics/${encodeURIComponent(post.topic_key)}.xml` : ''}
+        />
+      ) : null}
       <motion.div
         className="fixed left-0 right-0 top-0 z-[70] h-1 origin-left"
         style={{ scaleX: progressScaleX, backgroundColor: 'var(--accent)' }}

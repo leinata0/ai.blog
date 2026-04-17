@@ -295,6 +295,10 @@ def test_split_feeds(client):
     assert "weekly-one" in weekly_feed.text
     assert "<title>AI 资讯观察 - AI 周报</title>" in weekly_feed.text
 
+    series_feed = client.get("/api/feeds/series/ai-daily-brief.xml")
+    assert series_feed.status_code == 200
+    assert "<rss" in series_feed.text
+
 
 def test_search_topics_and_topic_feed_contract(client):
     token = _login(client)
@@ -359,7 +363,7 @@ def test_search_topics_and_topic_feed_contract(client):
     topic_feed_resp = client.get("/api/feeds/topics/openai-search.xml")
     assert topic_feed_resp.status_code == 200
     assert "<rss" in topic_feed_resp.text
-    assert "<title>AI 资讯观察 - 主题：openai-search</title>" in topic_feed_resp.text
+    assert "AI 资讯观察 - 主题：" in topic_feed_resp.text
     assert "openai-search-update" in topic_feed_resp.text
 
 

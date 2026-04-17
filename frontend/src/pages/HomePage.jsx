@@ -20,7 +20,12 @@ import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import HeroFocusLine from '../components/HeroFocusLine'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
+import SeoMeta from '../components/SeoMeta'
 import SiteHeroPosterStage from '../components/SiteHeroPosterStage'
+import {
+  buildCollectionPageJsonLd,
+  buildWebSiteJsonLd,
+} from '../utils/structuredData'
 import {
   CONTENT_TYPE_META,
   SITE_COPY,
@@ -249,6 +254,26 @@ export default function HomePage() {
   const modulesRequestedRef = useRef(false)
 
   const heroImage = settings?.hero_image || settings?.avatar_url || ''
+  const siteUrl = useMemo(() => {
+    const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
+    if (configured) return configured
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  }, [settings?.site_url])
+  const homeJsonLd = useMemo(() => ([
+    buildWebSiteJsonLd({
+      siteUrl,
+      name: SITE_COPY.brand,
+      description: SITE_COPY.homeSubtitle,
+    }),
+    buildCollectionPageJsonLd({
+      siteUrl,
+      name: SITE_COPY.brand,
+      description: SITE_COPY.homeSubtitle,
+      path: '/',
+      image: heroImage,
+    }),
+  ]), [heroImage, siteUrl])
 
   useEffect(() => {
     document.title = SITE_COPY.brand
@@ -392,6 +417,14 @@ export default function HomePage() {
 
   return (
     <main data-ui="home-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title={SITE_COPY.brand}
+        description={SITE_COPY.homeSubtitle}
+        path="/"
+        image={heroImage}
+        jsonLd={homeJsonLd}
+        rssUrl="/feed.xml"
+      />
       <Navbar />
 
       <section className="relative overflow-hidden px-6 py-16 sm:px-10 sm:py-24 lg:px-20 lg:py-28">
@@ -442,6 +475,17 @@ export default function HomePage() {
                 ))}
               </motion.div>
             ) : null}
+
+            <motion.div variants={motionItemVariants} className="mt-6">
+              <Link
+                to="/start-here"
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
+                style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)' }}
+              >
+                第一次来？从开始阅读进入
+                <ArrowRight size={14} />
+              </Link>
+            </motion.div>
           </motion.div>
 
           <motion.div

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Layers3 } from 'lucide-react'
@@ -9,12 +9,40 @@ import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
+import SeoMeta from '../components/SeoMeta'
 import SeriesEditorialStack from '../components/SeriesEditorialStack'
+import { useSite } from '../contexts/SiteContext'
+import {
+  buildBreadcrumbJsonLd,
+  buildCollectionPageJsonLd,
+} from '../utils/structuredData'
 import { motionItemVariants } from '../utils/contentPresentation'
 
 export default function SeriesPage() {
+  const { settings } = useSite()
   const [seriesList, setSeriesList] = useState([])
   const [loading, setLoading] = useState(true)
+  const siteUrl = useMemo(() => {
+    const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
+    if (configured) return configured
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  }, [settings?.site_url])
+  const jsonLd = useMemo(() => ([
+    buildCollectionPageJsonLd({
+      siteUrl,
+      name: '内容系列',
+      description: '把日报、周报与专题文章整理成更容易持续阅读的栏目路径。',
+      path: '/series',
+    }),
+    buildBreadcrumbJsonLd({
+      siteUrl,
+      items: [
+        { name: '首页', path: '/' },
+        { name: '系列', path: '/series' },
+      ],
+    }),
+  ]), [siteUrl])
 
   useEffect(() => {
     document.title = '内容系列 - AI 资讯观察'
@@ -26,6 +54,12 @@ export default function SeriesPage() {
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title="内容系列 - AI 资讯观察"
+        description="把日报、周报与专题文章整理成更容易持续阅读的栏目路径，帮助你沿着同一条阅读节奏继续往下看。"
+        path="/series"
+        jsonLd={jsonLd}
+      />
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
         <motion.section

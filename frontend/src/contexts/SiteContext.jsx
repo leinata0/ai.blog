@@ -1,7 +1,15 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { apiGet } from '../api/client'
 
-const SiteContext = createContext()
+const defaultSiteContextValue = {
+  settings: null,
+  stats: null,
+  loading: false,
+  refreshSettings: async () => {},
+  refreshStats: async () => {},
+}
+
+const SiteContext = createContext(defaultSiteContextValue)
 const SITE_PREWARM_KEY = 'blog.runtime_prewarm'
 
 function scheduleBackgroundTask(task) {
@@ -72,7 +80,5 @@ export function SiteProvider({ children }) {
 }
 
 export function useSite() {
-  const ctx = useContext(SiteContext)
-  if (!ctx) throw new Error('useSite must be used within SiteProvider')
-  return ctx
+  return useContext(SiteContext) || defaultSiteContextValue
 }

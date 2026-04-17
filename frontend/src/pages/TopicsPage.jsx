@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Compass, Flame, Sparkles } from 'lucide-react'
 
@@ -10,7 +10,13 @@ import CoverCard from '../components/CoverCard'
 import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
+import SeoMeta from '../components/SeoMeta'
+import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
+import {
+  buildBreadcrumbJsonLd,
+  buildCollectionPageJsonLd,
+} from '../utils/structuredData'
 import {
   getTopicBadgeLabel,
   getTopicDescription,
@@ -21,8 +27,30 @@ import {
 } from '../utils/contentPresentation'
 
 export default function TopicsPage() {
+  const { settings } = useSite()
   const [topics, setTopics] = useState([])
   const [loading, setLoading] = useState(true)
+  const siteUrl = useMemo(() => {
+    const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
+    if (configured) return configured
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  }, [settings?.site_url])
+  const jsonLd = useMemo(() => ([
+    buildCollectionPageJsonLd({
+      siteUrl,
+      name: '主题追踪',
+      description: '围绕公司、模型、产品方向和事件链持续聚合内容主线的主题总览页。',
+      path: '/topics',
+    }),
+    buildBreadcrumbJsonLd({
+      siteUrl,
+      items: [
+        { name: '首页', path: '/' },
+        { name: '主题', path: '/topics' },
+      ],
+    }),
+  ]), [siteUrl])
 
   useEffect(() => {
     document.title = '主题追踪 - AI 资讯观察'
@@ -55,6 +83,12 @@ export default function TopicsPage() {
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title="主题追踪 - AI 资讯观察"
+        description="围绕公司、模型、产品方向和事件链持续聚合内容主线，帮助你从单点消息回到长期变化。"
+        path="/topics"
+        jsonLd={jsonLd}
+      />
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
         <motion.section

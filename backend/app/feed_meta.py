@@ -11,9 +11,17 @@ RSS_WEEKLY_TITLE = f"{RSS_SITE_TITLE} - AI 周报"
 RSS_WEEKLY_DESCRIPTION = "订阅每周整理后的 AI 周报，集中回看关键变化与长期主线。"
 
 
-def build_topic_feed_title(topic_key: str) -> str:
-    return f"{RSS_SITE_TITLE} - 主题：{topic_key}"
+def build_topic_feed_title(topic_label: str) -> str:
+    return f"{RSS_SITE_TITLE} - 主题：{topic_label}"
 
 
-def build_topic_feed_description(topic_key: str) -> str:
-    return f"订阅主题 {topic_key} 的持续更新，追踪相关文章与后续进展。"
+def build_topic_feed_description(topic_label: str) -> str:
+    return f"订阅主题 {topic_label} 的持续更新，追踪相关文章与后续进展。"
+
+
+def build_series_feed_title(series_title: str) -> str:
+    return f"{RSS_SITE_TITLE} - 系列：{series_title}"
+
+
+def build_series_feed_description(series_title: str) -> str:
+    return f"订阅系列 {series_title} 的持续更新，沿着同一条阅读路径继续跟进。"

@@ -23,6 +23,7 @@ import { SITE_COPY } from '../utils/contentPresentation'
 
 const NAV_ITEMS = [
   { label: '首页', to: '/' },
+  { label: '开始阅读', to: '/start-here' },
   { label: '主题', to: '/topics' },
   { label: '订阅', to: '/feeds' },
   { label: '归档', to: '/archive' },
@@ -54,7 +55,7 @@ function NavLink({ to, active, children, onClick }) {
 function TrackingSection({ icon: Icon, title, items, emptyText, renderItem }) {
   return (
     <div>
-      <div className="flex items-center gap-2 text-xs font-semibold tracking-[0.08em] uppercase" style={{ color: 'var(--text-faint)' }}>
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--text-faint)' }}>
         <Icon size={14} />
         {title}
       </div>
@@ -296,7 +297,7 @@ export default function Navbar() {
           </div>
         </Link>
 
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden items-center gap-8 md:flex">
           {NAV_ITEMS.map((item) => (
             <NavLink key={item.to} to={item.to} active={location.pathname === item.to}>
               {item.label}
@@ -308,9 +309,7 @@ export default function Navbar() {
             className="relative"
             onMouseEnter={openTrackingPreview}
             onMouseLeave={() => {
-              if (!trackingPinned) {
-                scheduleClose()
-              }
+              if (!trackingPinned) scheduleClose()
             }}
           >
             <button
@@ -335,9 +334,7 @@ export default function Navbar() {
                 className="absolute right-0 top-full z-[70] pt-3"
                 onMouseEnter={openTrackingPreview}
                 onMouseLeave={() => {
-                  if (!trackingPinned) {
-                    scheduleClose()
-                  }
+                  if (!trackingPinned) scheduleClose()
                 }}
               >
                 <TrackingPreview
@@ -360,7 +357,7 @@ export default function Navbar() {
           </button>
         </div>
 
-        <div className="flex md:hidden items-center gap-2">
+        <div className="flex items-center gap-2 md:hidden">
           <button
             onClick={toggleTheme}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full"

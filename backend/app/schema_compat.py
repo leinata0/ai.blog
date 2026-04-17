@@ -136,6 +136,8 @@ EMAIL_SUBSCRIPTION_COLUMNS = {
     "id": "INTEGER PRIMARY KEY",
     "email": "VARCHAR(255) NOT NULL UNIQUE",
     "content_types_json": "TEXT NOT NULL DEFAULT '[\"all\"]'",
+    "topic_keys_json": "TEXT NOT NULL DEFAULT '[]'",
+    "series_slugs_json": "TEXT NOT NULL DEFAULT '[]'",
     "is_active": "BOOLEAN NOT NULL DEFAULT TRUE",
     "source": "VARCHAR(50) NOT NULL DEFAULT 'feeds_page'",
     "last_notified_at": "DATETIME",
@@ -149,6 +151,8 @@ WEB_PUSH_SUBSCRIPTION_COLUMNS = {
     "p256dh": "VARCHAR(255) NOT NULL DEFAULT ''",
     "auth": "VARCHAR(255) NOT NULL DEFAULT ''",
     "content_types_json": "TEXT NOT NULL DEFAULT '[\"all\"]'",
+    "topic_keys_json": "TEXT NOT NULL DEFAULT '[]'",
+    "series_slugs_json": "TEXT NOT NULL DEFAULT '[]'",
     "is_active": "BOOLEAN NOT NULL DEFAULT TRUE",
     "user_agent": "VARCHAR(255) NOT NULL DEFAULT ''",
     "last_notified_at": "DATETIME",
@@ -380,6 +384,21 @@ def ensure_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_post_notification_dispatches_post_id ON post_notification_dispatches (post_id)",
         ],
     )
+
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    for table_name, columns in (
+        ("email_subscriptions", EMAIL_SUBSCRIPTION_COLUMNS),
+        ("web_push_subscriptions", WEB_PUSH_SUBSCRIPTION_COLUMNS),
+    ):
+        if table_name not in table_names:
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        missing_columns = {name: ddl for name, ddl in columns.items() if name not in existing_columns}
+        if missing_columns:
+            with engine.begin() as connection:
+                for column_name, ddl in missing_columns.items():
+                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}"))
 
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())

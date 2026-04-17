@@ -771,11 +771,15 @@ class SubscriptionHealthOut(BaseModel):
 class EmailSubscriptionRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=255)
     content_types: list[str] = Field(default_factory=lambda: ["all"])
+    topic_keys: list[str] = Field(default_factory=list)
+    series_slugs: list[str] = Field(default_factory=list)
 
 
 class EmailSubscriptionResponse(BaseModel):
     email: str
     content_types: list[str] = Field(default_factory=list)
+    topic_keys: list[str] = Field(default_factory=list)
+    series_slugs: list[str] = Field(default_factory=list)
     is_active: bool = True
     delivery_ready: bool = False
     message: str = ""
@@ -794,11 +798,15 @@ class WebPushSubscriptionInput(BaseModel):
     endpoint: str = Field(..., min_length=8, max_length=1000)
     keys: WebPushSubscriptionKeysInput
     content_types: list[str] = Field(default_factory=lambda: ["all"])
+    topic_keys: list[str] = Field(default_factory=list)
+    series_slugs: list[str] = Field(default_factory=list)
 
 
 class WebPushSubscriptionResponse(BaseModel):
     endpoint: str
     content_types: list[str] = Field(default_factory=list)
+    topic_keys: list[str] = Field(default_factory=list)
+    series_slugs: list[str] = Field(default_factory=list)
     is_active: bool = True
     push_ready: bool = False
     message: str = ""

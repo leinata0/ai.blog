@@ -37,17 +37,62 @@ def normalize_subscription_content_types(values: list[str] | None) -> list[str]:
     return normalized or ["all"]
 
 
-def subscription_matches_content_types(content_types_json: str | None, content_type: str | None) -> bool:
+def normalize_subscription_topic_keys(values: list[str] | None) -> list[str]:
+    normalized = []
+    for item in values or []:
+        value = str(item or "").strip()
+        if not value:
+            continue
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def normalize_subscription_series_slugs(values: list[str] | None) -> list[str]:
+    normalized = []
+    for item in values or []:
+        value = str(item or "").strip()
+        if not value:
+            continue
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _parse_json_array(value: str | None, *, fallback: list[str] | None = None) -> list[str]:
     try:
-        values = json.loads(content_types_json or '["all"]')
+        values = json.loads(value or json.dumps(fallback or []))
     except (TypeError, json.JSONDecodeError):
-        values = ["all"]
+        values = fallback or []
     if not isinstance(values, list):
-        values = ["all"]
-    normalized = normalize_subscription_content_types([str(item) for item in values])
+        values = fallback or []
+    return [str(item) for item in values]
+
+
+def subscription_matches_preferences(
+    *,
+    content_types_json: str | None,
+    topic_keys_json: str | None,
+    series_slugs_json: str | None,
+    post: Post,
+) -> bool:
+    normalized = normalize_subscription_content_types(_parse_json_array(content_types_json, fallback=["all"]))
     if "all" in normalized:
+        content_type_match = True
+    else:
+        content_type_match = str(post.content_type or "").strip() in normalized
+    if not content_type_match:
+        return False
+
+    topic_keys = normalize_subscription_topic_keys(_parse_json_array(topic_keys_json))
+    series_slugs = normalize_subscription_series_slugs(_parse_json_array(series_slugs_json))
+    if not topic_keys and not series_slugs:
         return True
-    return str(content_type or "").strip() in normalized
+
+    return (
+        (str(post.topic_key or "").strip() in topic_keys)
+        or (str(post.series_slug or "").strip() in series_slugs)
+    )
 
 
 def _trim_text(value: str, limit: int) -> str:
@@ -312,7 +357,12 @@ def _dispatch_post_notifications(db: Session, post_id: int) -> None:
         ).scalars().all()
         sent_count = 0
         for recipient in recipients:
-            if not subscription_matches_content_types(recipient.content_types_json, post.content_type):
+            if not subscription_matches_preferences(
+                content_types_json=recipient.content_types_json,
+                topic_keys_json=recipient.topic_keys_json,
+                series_slugs_json=recipient.series_slugs_json,
+                post=post,
+            ):
                 continue
             try:
                 _send_email_notification(recipient.email, post, site_url)
@@ -342,7 +392,12 @@ def _dispatch_post_notifications(db: Session, post_id: int) -> None:
         ).scalars().all()
         sent_count = 0
         for subscription in subscriptions:
-            if not subscription_matches_content_types(subscription.content_types_json, post.content_type):
+            if not subscription_matches_preferences(
+                content_types_json=subscription.content_types_json,
+                topic_keys_json=subscription.topic_keys_json,
+                series_slugs_json=subscription.series_slugs_json,
+                post=post,
+            ):
                 continue
             try:
                 _send_web_push_notification(subscription, post, site_url)

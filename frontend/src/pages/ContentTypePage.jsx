@@ -11,7 +11,14 @@ import CoverCard from '../components/CoverCard'
 import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
+import SeoMeta from '../components/SeoMeta'
+import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
+import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
+import {
+  buildBreadcrumbJsonLd,
+  buildCollectionPageJsonLd,
+} from '../utils/structuredData'
 import {
   CONTENT_TYPE_META,
   motionContainerVariants,
@@ -68,10 +75,34 @@ function ListCard({ post, meta }) {
 }
 
 export default function ContentTypePage({ contentType }) {
+  const { settings } = useSite()
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const copy = CONTENT_TYPE_META[contentType] || CONTENT_TYPE_META.daily_brief
   const feedUrl = contentType === 'weekly_review' ? '/api/feeds/weekly.xml' : '/api/feeds/daily.xml'
+  const path = contentType === 'weekly_review' ? '/weekly' : '/daily'
+  const siteUrl = useMemo(() => {
+    const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
+    if (configured) return configured
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  }, [settings?.site_url])
+  const jsonLd = useMemo(() => ([
+    buildCollectionPageJsonLd({
+      siteUrl,
+      name: copy.title,
+      description: copy.description,
+      path,
+      image: posts[0]?.cover_image || '',
+    }),
+    buildBreadcrumbJsonLd({
+      siteUrl,
+      items: [
+        { name: '首页', path: '/' },
+        { name: copy.title, path },
+      ],
+    }),
+  ]), [copy.description, copy.title, path, posts, siteUrl])
 
   useEffect(() => {
     document.title = `${copy.title} - AI 资讯观察`
@@ -92,6 +123,14 @@ export default function ContentTypePage({ contentType }) {
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title={`${copy.title} - AI 资讯观察`}
+        description={copy.description}
+        path={path}
+        image={heroPost?.cover_image || ''}
+        jsonLd={jsonLd}
+        rssUrl={feedUrl}
+      />
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
         <motion.div initial="hidden" animate="visible" variants={motionContainerVariants}>
@@ -113,11 +152,11 @@ export default function ContentTypePage({ contentType }) {
                 订阅 {copy.title} RSS
               </a>
               <Link
-                to="/feeds"
+                to={buildSubscriptionCenterHref({ contentType })}
                 className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
                 style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)' }}
               >
-                查看全部订阅入口
+                订阅这个栏目
                 <ArrowRight size={14} />
               </Link>
             </div>

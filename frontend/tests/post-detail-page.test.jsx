@@ -34,10 +34,11 @@ Combining Selenium flows with Pandas cleansed data enables quick automation scri
 ![Example image](https://example.com/markdown.jpg)
 `,
       topic_key: 'topic-follow-up',
+      series_slug: 'ai-daily-brief',
       tags: [{ name: 'Python', slug: 'python' }],
       source_summary: 'This article combines an official source with two independent commentaries.',
       sources: [
-        { source_name: 'OpenAI Blog', source_url: 'https://example.com/openai' },
+        { source_name: 'OpenAI Blog', source_url: 'https://example.com/openai', is_primary: true },
       ],
       source_count: 4,
       quality_score: 86,
@@ -93,24 +94,26 @@ afterEach(() => {
   cleanup()
 })
 
-it('renders post detail and topic tracking rails', async () => {
+it('renders post detail, evidence layer, and conversion actions', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
         <PostDetailPage slug="python-automation-selenium-pandas" />
       </ThemeProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
   const headings = await screen.findAllByRole('heading', { name: /python automation/i })
   expect(headings.length).toBeGreaterThan(0)
   expect(container.querySelector('[data-ui="detail-shell"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="detail-article"]')).toBeTruthy()
-  expect(await screen.findByText(/来源摘要/i)).toBeInTheDocument()
+  expect(await screen.findByText(/来源证据/i)).toBeInTheDocument()
   expect((await screen.findAllByText(/质量洞察/i)).length).toBeGreaterThan(0)
   expect(screen.getAllByText(/值得继续追踪/i).length).toBeGreaterThan(0)
-  expect(await screen.findByText(/继续追踪这条主线/i)).toBeInTheDocument()
+  expect(await screen.findByText(/把这篇文章变成持续追踪的入口/i)).toBeInTheDocument()
   expect(await screen.findByRole('link', { name: /进入主题页/i })).toHaveAttribute('href', '/topics/topic-follow-up')
+  expect(await screen.findByRole('link', { name: /订阅相关更新/i })).toHaveAttribute('href', '/feeds?topic_key=topic-follow-up')
+  expect(await screen.findByRole('link', { name: /回到系列：AI 日报/i })).toHaveAttribute('href', '/series/ai-daily-brief')
   expect(await screen.findByText(/同系列继续阅读/i)).toBeInTheDocument()
   expect(await screen.findByText(/同主题相关文章/i)).toBeInTheDocument()
   expect(await screen.findByText(/同周上下文/i)).toBeInTheDocument()
@@ -122,7 +125,7 @@ it('renders markdown images with proxy and lazy loading', async () => {
       <ThemeProvider>
         <PostDetailPage slug="python-automation-selenium-pandas" />
       </ThemeProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
   const articleImage = await screen.findByRole('img', { name: 'Example image' })
@@ -137,7 +140,7 @@ it('shows not found message on 404', async () => {
       <ThemeProvider>
         <PostDetailPage slug="missing" />
       </ThemeProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
   await waitFor(() => {
@@ -152,7 +155,7 @@ it('degrades gracefully when legacy posts have no quality insight data', async (
       <ThemeProvider>
         <PostDetailPage slug="legacy" />
       </ThemeProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 
   expect(await screen.findByText('Legacy article')).toBeInTheDocument()

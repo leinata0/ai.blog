@@ -13,6 +13,7 @@ const SearchPage = lazy(() => import('./pages/SearchPage'))
 const TopicsPage = lazy(() => import('./pages/TopicsPage'))
 const TopicDetailPage = lazy(() => import('./pages/TopicDetailPage'))
 const FollowingPage = lazy(() => import('./pages/FollowingPage'))
+const StartHerePage = lazy(() => import('./pages/StartHerePage'))
 const ContentTypePage = lazy(() => import('./pages/ContentTypePage'))
 const FeedsPage = lazy(() => import('./pages/FeedsPage'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/topics" element={<TopicsPage />} />
           <Route path="/topics/:topicKey" element={<TopicDetailPage />} />
           <Route path="/following" element={<FollowingPage />} />
+          <Route path="/start-here" element={<StartHerePage />} />
           <Route path="/daily" element={<ContentTypePage contentType="daily_brief" />} />
           <Route path="/weekly" element={<ContentTypePage contentType="weekly_review" />} />
           <Route path="/feeds" element={<FeedsPage />} />

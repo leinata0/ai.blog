@@ -29,14 +29,23 @@ def test_subscription_status_and_public_subscription_endpoints(client, db_sessio
 
     email_resp = client.post(
         "/api/subscriptions/email",
-        json={"email": "reader@example.com", "content_types": ["weekly_review"]},
+        json={
+            "email": "reader@example.com",
+            "content_types": ["weekly_review"],
+            "topic_keys": ["openai-models"],
+            "series_slugs": ["ai-weekly-review"],
+        },
     )
     assert email_resp.status_code == 200
     assert email_resp.json()["delivery_ready"] is True
+    assert email_resp.json()["topic_keys"] == ["openai-models"]
+    assert email_resp.json()["series_slugs"] == ["ai-weekly-review"]
 
     email_sub = db_session.query(EmailSubscription).filter_by(email="reader@example.com").one()
     assert email_sub.is_active is True
     assert "weekly_review" in email_sub.content_types_json
+    assert "openai-models" in email_sub.topic_keys_json
+    assert "ai-weekly-review" in email_sub.series_slugs_json
 
     push_resp = client.post(
         "/api/subscriptions/web-push",
@@ -44,14 +53,20 @@ def test_subscription_status_and_public_subscription_endpoints(client, db_sessio
             "endpoint": "https://push.example.com/sub/123",
             "keys": {"p256dh": "abc", "auth": "def"},
             "content_types": ["daily_brief"],
+            "topic_keys": ["agent-tools"],
+            "series_slugs": ["ai-daily-brief"],
         },
     )
     assert push_resp.status_code == 200
     assert push_resp.json()["push_ready"] is True
+    assert push_resp.json()["topic_keys"] == ["agent-tools"]
+    assert push_resp.json()["series_slugs"] == ["ai-daily-brief"]
 
     push_sub = db_session.query(WebPushSubscription).filter_by(endpoint="https://push.example.com/sub/123").one()
     assert push_sub.is_active is True
     assert "daily_brief" in push_sub.content_types_json
+    assert "agent-tools" in push_sub.topic_keys_json
+    assert "ai-daily-brief" in push_sub.series_slugs_json
 
 
 def test_manual_post_dispatches_email_notification(client, db_session, monkeypatch):
@@ -158,3 +173,62 @@ def test_auto_post_dispatches_after_publishing_metadata(client, db_session, monk
 
     dispatch = db_session.query(PostNotificationDispatch).filter_by(post_id=create_resp.json()["id"]).one()
     assert dispatch.email_recipient_count == 1
+
+
+def test_subscription_preferences_match_topic_or_series(client, db_session, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "resend_test")
+    monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
+    sent_emails = []
+
+    monkeypatch.setattr(
+        "app.notifications._send_email_notification",
+        lambda email, post, site_url: sent_emails.append((email, post.slug)),
+    )
+
+    client.post(
+        "/api/subscriptions/email",
+        json={
+            "email": "topic@example.com",
+            "content_types": ["daily_brief"],
+            "topic_keys": ["topic-follow-up"],
+        },
+    )
+    client.post(
+        "/api/subscriptions/email",
+        json={
+            "email": "series@example.com",
+            "content_types": ["daily_brief"],
+            "series_slugs": ["ai-daily-brief"],
+        },
+    )
+    client.post(
+        "/api/subscriptions/email",
+        json={
+            "email": "other@example.com",
+            "content_types": ["weekly_review"],
+            "topic_keys": ["other-topic"],
+        },
+    )
+
+    token = _login(client)
+    create_resp = client.post(
+        "/api/admin/posts",
+        headers=_auth(token),
+        json={
+            "title": "Daily topic follow up",
+            "slug": "daily-topic-follow-up",
+            "summary": "Subscription preference filter verification.",
+            "content_md": "## 内容\n\n用于订阅偏好验证。",
+            "content_type": "daily_brief",
+            "topic_key": "topic-follow-up",
+            "series_slug": "ai-daily-brief",
+            "published_mode": "manual",
+            "is_published": True,
+            "tags": [],
+        },
+    )
+    assert create_resp.status_code == 200
+    assert sent_emails == [
+        ("topic@example.com", "daily-topic-follow-up"),
+        ("series@example.com", "daily-topic-follow-up"),
+    ]

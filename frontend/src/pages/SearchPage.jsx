@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { CalendarRange, Compass, Search } from 'lucide-react'
+import { ArrowRight, CalendarRange, Compass, Search } from 'lucide-react'
 
 import {
   fetchSearch,
@@ -16,7 +16,14 @@ import BackToTop from '../components/BackToTop'
 import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
+import SeoMeta from '../components/SeoMeta'
+import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
+import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
+import {
+  buildBreadcrumbJsonLd,
+  buildCollectionPageJsonLd,
+} from '../utils/structuredData'
 import {
   getContentTypeLabel,
   getSeriesTitle,
@@ -84,6 +91,7 @@ function SearchResultCard({ post, seriesTitle, topicTitle, onPrefetch }) {
 }
 
 export default function SearchPage() {
+  const { settings } = useSite()
   const [searchParams, setSearchParams] = useSearchParams()
   const [queryInput, setQueryInput] = useState(searchParams.get('q') || '')
   const [query, setQuery] = useState(searchParams.get('q') || '')
@@ -101,6 +109,34 @@ export default function SearchPage() {
   const [topics, setTopics] = useState([])
   const [seriesList, setSeriesList] = useState([])
   const [loading, setLoading] = useState(false)
+  const hasActiveQuery = Boolean(query.trim())
+  const siteUrl = useMemo(() => {
+    const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
+    if (configured) return configured
+    if (typeof window !== 'undefined') return window.location.origin
+    return ''
+  }, [settings?.site_url])
+  const canonicalPath = useMemo(() => {
+    const queryString = searchParams.toString()
+    return queryString ? `/search?${queryString}` : '/search'
+  }, [searchParams])
+  const jsonLd = useMemo(() => ([
+    buildCollectionPageJsonLd({
+      siteUrl,
+      name: query ? `搜索：${query}` : '站内搜索',
+      description: hasActiveQuery
+        ? `搜索 ${query} 相关的文章、主题与系列，并继续沿主题主线深入阅读。`
+        : '在站内按主题、系列、日期和内容类型搜索 AI 资讯与观察内容。',
+      path: canonicalPath,
+    }),
+    buildBreadcrumbJsonLd({
+      siteUrl,
+      items: [
+        { name: '首页', path: '/' },
+        { name: '搜索', path: canonicalPath },
+      ],
+    }),
+  ]), [canonicalPath, hasActiveQuery, query, siteUrl])
 
   useEffect(() => {
     document.title = '搜索 - AI 资讯观察'
@@ -186,7 +222,6 @@ export default function SearchPage() {
     return () => controller.abort()
   }, [filters, query, topics])
 
-  const hasActiveQuery = Boolean(query.trim())
   const emptyMessage = useMemo(() => {
     if (!hasActiveQuery) return '输入关键词后，可以按主题、系列、日期和内容类型检索整站内容。'
     return '暂时没有找到匹配结果，可以换一个关键词，或先从推荐主题继续追踪。'
@@ -223,6 +258,14 @@ export default function SearchPage() {
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title={hasActiveQuery ? `搜索：${query} - AI 资讯观察` : '搜索 - AI 资讯观察'}
+        description={hasActiveQuery
+          ? `搜索 ${query} 相关的文章、主题与系列，并继续沿主题主线深入阅读。`
+          : '在站内按主题、系列、日期和内容类型搜索 AI 资讯与观察内容。'}
+        path={canonicalPath}
+        jsonLd={jsonLd}
+      />
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
         <motion.section
@@ -353,21 +396,61 @@ export default function SearchPage() {
               <EditorialSectionHeader eyebrow="推荐主题" title="先沿主题继续找" titleClassName="!text-[1.4rem]" />
               <div className="mt-4 space-y-3">
                 {(topicSuggestions.length > 0 ? topicSuggestions : topics.slice(0, 5)).map((topic) => (
-                  <Link
+                  <div
                     key={topic.topic_key}
-                    to={`/topics/${topic.topic_key}`}
-                    onMouseEnter={() => prefetchTopic(topic.topic_key)}
-                    onFocus={() => prefetchTopic(topic.topic_key)}
-                    className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+                    className="rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
                   >
-                    <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                      {getTopicTitle(topic)}
-                    </div>
-                    <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
-                      {topic.post_count ? `${topic.post_count} 篇文章` : '主题页'}
-                    </div>
-                  </Link>
+                    <Link
+                      to={`/topics/${topic.topic_key}`}
+                      onMouseEnter={() => prefetchTopic(topic.topic_key)}
+                      onFocus={() => prefetchTopic(topic.topic_key)}
+                      className="block"
+                    >
+                      <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        {getTopicTitle(topic)}
+                      </div>
+                      <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
+                        {topic.post_count ? `${topic.post_count} 篇文章` : '主题页'}
+                      </div>
+                    </Link>
+                    <Link
+                      to={buildSubscriptionCenterHref({ topicKey: topic.topic_key })}
+                      className="mt-3 inline-flex items-center gap-2 text-xs font-semibold"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      追踪这个主题
+                      <Compass size={12} />
+                    </Link>
+                  </div>
                 ))}
+              </div>
+            </motion.section>
+
+            <motion.section variants={motionItemVariants} className="editorial-panel rounded-[1.8rem] px-5 py-5">
+              <EditorialSectionHeader
+                eyebrow="搜索即订阅"
+                title="把当前关注点直接变成回访入口"
+                titleClassName="!text-[1.4rem]"
+                description="如果你已经搜到了想持续跟进的主线，可以直接跳到订阅中心，按主题或栏目保存提醒偏好。"
+              />
+              <div className="mt-4 flex flex-col gap-3">
+                <Link
+                  to={buildSubscriptionCenterHref({
+                    contentType: filters.content_type,
+                    topicKey: filters.topic_key || topicSuggestions[0]?.topic_key || '',
+                    seriesSlug: filters.series_slug,
+                  })}
+                  className="inline-flex items-center justify-between rounded-[1.2rem] border px-4 py-3 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5"
+                  style={{ borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
+                >
+                  <span>保存当前搜索方向的订阅偏好</span>
+                  <ArrowRight size={14} style={{ color: 'var(--accent)' }} />
+                </Link>
+                <p className="text-xs leading-6" style={{ color: 'var(--text-faint)' }}>
+                  {hasActiveQuery
+                    ? `当前搜索词是“${query}”，更适合把结果收束到主题或系列后再订阅。`
+                    : '先搜索一个公司、模型或产品方向，再把它变成订阅入口。'}
+                </p>
               </div>
             </motion.section>
 

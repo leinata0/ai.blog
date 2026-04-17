@@ -64,8 +64,10 @@ it('renders search results after submit', async () => {
   await userEvent.type(screen.getByPlaceholderText(/OpenAI/i), 'openai')
   await userEvent.click(screen.getByRole('button', { name: /开始搜索/i }))
 
-  expect(await screen.findByText('OpenAI New Model Brief')).toBeInTheDocument()
+  expect((await screen.findAllByText('OpenAI New Model Brief')).length).toBeGreaterThan(0)
   expect(screen.getAllByText('OpenAI New Model').length).toBeGreaterThan(0)
+  expect(screen.getByText(/保存当前搜索方向的订阅偏好/i)).toBeInTheDocument()
+  expect(screen.getByText(/追踪这个主题/i)).toBeInTheDocument()
 })
 
 it('renders topic detail page with rss subscription link', async () => {
@@ -80,7 +82,8 @@ it('renders topic detail page with rss subscription link', async () => {
   )
 
   expect(await screen.findByRole('heading', { name: 'OpenAI New Model' })).toBeInTheDocument()
-  expect(await screen.findByText('OpenAI New Model Brief')).toBeInTheDocument()
+  expect((await screen.findAllByText('OpenAI New Model Brief')).length).toBeGreaterThan(0)
+  expect(await screen.findByText(/这条主线最近更新了什么/i)).toBeInTheDocument()
   expect(
     screen.getByRole('link', { name: /订阅这个主题的 RSS/i })
   ).toHaveAttribute('href', '/api/feeds/topics/openai-new-model.xml')

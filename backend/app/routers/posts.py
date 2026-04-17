@@ -15,6 +15,8 @@ from app.feed_meta import (
     RSS_ALL_TITLE,
     RSS_DAILY_DESCRIPTION,
     RSS_DAILY_TITLE,
+    build_series_feed_description,
+    build_series_feed_title,
     RSS_WEEKLY_DESCRIPTION,
     RSS_WEEKLY_TITLE,
     build_topic_feed_description,
@@ -1381,6 +1383,12 @@ def get_topic_detail(topic_key: str, db: Session = Depends(get_db)):
     content_types = sorted(list({(post.content_type or "post") for post in posts}))
     source_count = sum(int(post.source_count or 0) for post in posts)
     latest = posts[0] if posts else None
+    related_series = []
+    series_slug = profile.series_slug if profile else (latest.series_slug if latest else None)
+    if (series_slug or "").strip():
+        related = db.execute(select(Series).where(Series.slug == series_slug)).scalar_one_or_none()
+        if related is not None:
+            related_series = [_series_to_dict(related, db, include_posts=False)]
     presentation = _resolve_topic_presentation(
         topic_key=normalized_topic_key,
         profile=profile,
@@ -1404,6 +1412,7 @@ def get_topic_detail(topic_key: str, db: Session = Depends(get_db)):
         "profile": _topic_profile_to_dict(profile, db) if profile else None,
         "posts": [_post_list_item(post) for post in posts[:20]],
         "recent_posts": [_post_list_item(post) for post in posts[:20]],
+        "related_series": related_series,
     }
 
 
@@ -1458,6 +1467,9 @@ def feed_topic(topic_key: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="topic_key is required")
     settings = db.query(SiteSettings).first()
     site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    profile = db.execute(
+        select(TopicProfile).where(TopicProfile.topic_key == normalized_topic_key)
+    ).scalar_one_or_none()
     posts = db.execute(
         select(Post)
         .where(Post.is_published == True)
@@ -1465,10 +1477,42 @@ def feed_topic(topic_key: str, db: Session = Depends(get_db)):
         .order_by(Post.created_at.desc())
         .limit(30)
     ).scalars().all()
+    presentation = _resolve_topic_presentation(
+        topic_key=normalized_topic_key,
+        profile=profile,
+        latest_post=posts[0] if posts else None,
+        content_types=sorted(list({(post.content_type or "post") for post in posts})),
+    )
     xml_str = _build_feed_xml(
         posts,
         site_url,
-        build_topic_feed_title(normalized_topic_key),
-        build_topic_feed_description(normalized_topic_key),
+        build_topic_feed_title(presentation["display_title"]),
+        build_topic_feed_description(presentation["display_title"]),
+    )
+    return Response(content=xml_str, media_type="application/xml")
+
+
+@router.get("/feeds/series/{slug}.xml")
+def feed_series(slug: str, db: Session = Depends(get_db)):
+    normalized_slug = slug.strip()
+    if not normalized_slug:
+        raise HTTPException(status_code=400, detail="series slug is required")
+    series = db.execute(select(Series).where(Series.slug == normalized_slug)).scalar_one_or_none()
+    if series is None:
+        raise HTTPException(status_code=404, detail="Series not found")
+    settings = db.query(SiteSettings).first()
+    site_url = (settings.site_url if settings and settings.site_url else "https://563118077.xyz").rstrip("/")
+    posts = db.execute(
+        select(Post)
+        .where(Post.is_published == True)
+        .where(Post.series_slug == normalized_slug)
+        .order_by(func.coalesce(Post.series_order, 10**9).asc(), Post.created_at.desc())
+        .limit(30)
+    ).scalars().all()
+    xml_str = _build_feed_xml(
+        posts,
+        site_url,
+        build_series_feed_title(series.title or normalized_slug),
+        build_series_feed_description(series.title or normalized_slug),
     )
     return Response(content=xml_str, media_type="application/xml")
