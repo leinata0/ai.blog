@@ -8,17 +8,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_admin
-from app.db import Base, SessionLocal, engine, get_db
+from app.bootstrap import initialize_runtime
+from app.db import get_db
 from app.env import clean_env
 from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
 from app.models import Post, SiteSettings, Tag
 from app.routers.admin import router as admin_router
 from app.routers.posts import router as posts_router
 from app.routers.subscriptions import router as subscriptions_router
-from app.schema_compat import ensure_schema_compat
 from app.schemas import SiteSettingsOut, SiteSettingsUpdate, StatsOut
-from app.seed import seed_data
-from app.storage import ensure_local_upload_dir, get_uploaded_image_bytes, is_r2_enabled
+from app.storage import get_uploaded_image_bytes
 from app.uploads import UPLOADS_URL_PREFIX
 
 AUTO_SEED_ON_EMPTY = clean_env("AUTO_SEED_ON_EMPTY", "1") != "0"
@@ -26,24 +25,11 @@ AUTO_SEED_ON_EMPTY = clean_env("AUTO_SEED_ON_EMPTY", "1") != "0"
 
 @asynccontextmanager
 async def lifespan(app):
-    if not is_r2_enabled():
-        ensure_local_upload_dir()
-    Base.metadata.create_all(bind=engine)
-    ensure_schema_compat(engine)
-
-    with SessionLocal() as db:
-        if AUTO_SEED_ON_EMPTY and db.query(Post).count() == 0:
-            seed_data(db)
-        if db.query(SiteSettings).count() == 0:
-            db.add(SiteSettings(id=1))
-            db.commit()
+    initialize_runtime(seed_on_empty=AUTO_SEED_ON_EMPTY)
     yield
 
 
 app = FastAPI(title="AI Dev Blog API", lifespan=lifespan)
-
-if not is_r2_enabled():
-    ensure_local_upload_dir()
 
 app.add_middleware(
     CORSMiddleware,

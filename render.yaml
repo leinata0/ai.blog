@@ -17,6 +17,8 @@ services:
         sync: false
       - key: AUTO_SEED_ON_EMPTY
         value: "0"
+      - key: ENABLE_STARTUP_SCHEMA_SYNC
+        value: "0"
       - key: R2_ACCOUNT_ID
         sync: false
       - key: R2_ACCESS_KEY_ID

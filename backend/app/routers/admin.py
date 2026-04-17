@@ -409,22 +409,47 @@ def _serialize_datetime(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
-def _series_to_dict(series: Series, db: Session) -> dict:
+def _build_series_aggregation_index(
+    db: Session,
+    *,
+    series_slugs: list[str] | None = None,
+) -> dict[str, dict]:
+    if series_slugs is not None and len(series_slugs) == 0:
+        return {}
+
+    stmt = (
+        select(
+            Post.series_slug.label("series_slug"),
+            func.count(Post.id).label("post_count"),
+            func.max(Post.created_at).label("latest_post_at"),
+        )
+        .where(Post.is_published == True)
+        .where(Post.series_slug.is_not(None))
+        .where(Post.series_slug != "")
+        .group_by(Post.series_slug)
+    )
+    if series_slugs is not None:
+        stmt = stmt.where(Post.series_slug.in_(series_slugs))
+
+    return {
+        str(row.series_slug): {
+            "post_count": int(row.post_count or 0),
+            "latest_post_at": row.latest_post_at,
+        }
+        for row in db.execute(stmt).all()
+        if str(row.series_slug or "").strip()
+    }
+
+
+def _series_to_dict(series: Series, db: Session, *, aggregated: dict | None = None) -> dict:
     try:
         content_types = json.loads(series.content_types or "[]")
     except (json.JSONDecodeError, TypeError):
         content_types = []
 
-    post_count = db.execute(
-        select(func.count(Post.id))
-        .where(Post.series_slug == series.slug)
-        .where(Post.is_published == True)
-    ).scalar() or 0
-    latest_post_at = db.execute(
-        select(func.max(Post.created_at))
-        .where(Post.series_slug == series.slug)
-        .where(Post.is_published == True)
-    ).scalar()
+    aggregated = aggregated or _build_series_aggregation_index(db, series_slugs=[series.slug]).get(series.slug, {})
+    post_count = int(aggregated.get("post_count") or 0)
+    latest_post_at = aggregated.get("latest_post_at")
 
     return {
         "id": series.id,
@@ -652,37 +677,125 @@ def _resolve_topic_presentation(
     return raw, f"围绕 {raw} 持续追踪 AI 主题动态。", "raw"
 
 
+def _build_topic_aggregation_index(
+    db: Session,
+    *,
+    topic_keys: list[str] | None = None,
+) -> dict[str, dict]:
+    if topic_keys is not None and len(topic_keys) == 0:
+        return {}
+
+    base_filters = [Post.is_published == True, Post.topic_key != ""]
+    if topic_keys is not None:
+        base_filters.append(Post.topic_key.in_(topic_keys))
+
+    aggregate_subquery = (
+        select(
+            Post.topic_key.label("topic_key"),
+            func.count(Post.id).label("post_count"),
+            func.coalesce(func.sum(Post.source_count), 0).label("source_count"),
+            func.max(Post.created_at).label("latest_post_at"),
+            func.avg(Post.quality_score).label("avg_quality_score"),
+        )
+        .where(*base_filters)
+        .group_by(Post.topic_key)
+        .subquery()
+    )
+
+    latest_post_ranked = (
+        select(
+            Post.topic_key.label("topic_key"),
+            Post.title.label("latest_post_title"),
+            Post.slug.label("latest_post_slug"),
+            Post.summary.label("latest_post_summary"),
+            Post.series_slug.label("series_slug"),
+            func.row_number().over(
+                partition_by=Post.topic_key,
+                order_by=(Post.created_at.desc(), Post.id.desc()),
+            ).label("row_number"),
+        )
+        .where(*base_filters)
+        .subquery()
+    )
+
+    latest_post_subquery = (
+        select(
+            latest_post_ranked.c.topic_key,
+            latest_post_ranked.c.latest_post_title,
+            latest_post_ranked.c.latest_post_slug,
+            latest_post_ranked.c.latest_post_summary,
+            latest_post_ranked.c.series_slug,
+        )
+        .where(latest_post_ranked.c.row_number == 1)
+        .subquery()
+    )
+
+    content_type_stmt = (
+        select(Post.topic_key, Post.content_type)
+        .where(*base_filters)
+        .where(Post.content_type.is_not(None))
+    )
+
+    content_types_by_topic: dict[str, set[str]] = {}
+    for row in db.execute(content_type_stmt).all():
+        topic_key = str(row.topic_key or "").strip()
+        content_type = str(row.content_type or "").strip()
+        if not topic_key or not content_type:
+            continue
+        content_types_by_topic.setdefault(topic_key, set()).add(content_type)
+
+    rows = db.execute(
+        select(
+            aggregate_subquery.c.topic_key,
+            aggregate_subquery.c.post_count,
+            aggregate_subquery.c.source_count,
+            aggregate_subquery.c.latest_post_at,
+            aggregate_subquery.c.avg_quality_score,
+            latest_post_subquery.c.latest_post_title,
+            latest_post_subquery.c.latest_post_slug,
+            latest_post_subquery.c.latest_post_summary,
+            latest_post_subquery.c.series_slug,
+        ).join(
+            latest_post_subquery,
+            latest_post_subquery.c.topic_key == aggregate_subquery.c.topic_key,
+            isouter=True,
+        )
+    ).all()
+
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        topic_key = str(row.topic_key or "").strip()
+        if not topic_key:
+            continue
+        grouped[topic_key] = {
+            "topic_key": topic_key,
+            "post_count": int(row.post_count or 0),
+            "source_count": int(row.source_count or 0),
+            "latest_post_at": row.latest_post_at,
+            "latest_post_title": row.latest_post_title or "",
+            "latest_post_slug": row.latest_post_slug or "",
+            "latest_post_summary": row.latest_post_summary or "",
+            "content_types": sorted(content_types_by_topic.get(topic_key, set())),
+            "series_slug": row.series_slug or None,
+            "avg_quality_score": round(float(row.avg_quality_score), 2) if row.avg_quality_score is not None else None,
+        }
+    return grouped
+
+
 def _topic_profile_to_dict(
     profile: TopicProfile,
     db: Session,
     *,
     aggregated: dict | None = None,
 ) -> dict:
-    post_count = db.execute(
-        select(func.count(Post.id))
-        .where(Post.is_published == True)
-        .where(Post.topic_key == profile.topic_key)
-    ).scalar() or 0
-    latest_post_at = db.execute(
-        select(func.max(Post.created_at))
-        .where(Post.is_published == True)
-        .where(Post.topic_key == profile.topic_key)
-    ).scalar()
-    avg_quality_score = db.execute(
-        select(func.avg(Post.quality_score))
-        .where(Post.is_published == True)
-        .where(Post.topic_key == profile.topic_key)
-    ).scalar()
-    latest_post = db.execute(
-        select(Post.title, Post.slug, Post.summary, Post.source_count)
-        .where(Post.is_published == True)
-        .where(Post.topic_key == profile.topic_key)
-        .order_by(Post.created_at.desc(), Post.id.desc())
-    ).first()
-    latest_post_title = latest_post.title if latest_post else ""
-    latest_post_slug = latest_post.slug if latest_post else ""
-    latest_post_summary = latest_post.summary if latest_post else ""
-    source_count = int(aggregated["source_count"]) if aggregated else int(latest_post.source_count or 0) if latest_post else 0
+    aggregated = aggregated or _build_topic_aggregation_index(db, topic_keys=[profile.topic_key]).get(profile.topic_key, {})
+    post_count = int(aggregated.get("post_count") or 0)
+    latest_post_at = aggregated.get("latest_post_at")
+    avg_quality_score = aggregated.get("avg_quality_score")
+    latest_post_title = str(aggregated.get("latest_post_title") or "")
+    latest_post_slug = str(aggregated.get("latest_post_slug") or "")
+    latest_post_summary = str(aggregated.get("latest_post_summary") or "")
+    source_count = int(aggregated.get("source_count") or 0)
     display_title, description, display_title_source = _resolve_topic_presentation(
         topic_key=profile.topic_key,
         profile=profile,
@@ -698,8 +811,8 @@ def _topic_profile_to_dict(
         "cover_image": profile.cover_image or "",
         "aliases": _safe_json_list(profile.aliases_json),
         "focus_points": _safe_json_list(profile.focus_points_json),
-        "content_types": _safe_json_list(profile.content_types_json) or list(aggregated["content_types"]) if aggregated else [],
-        "series_slug": profile.series_slug or (aggregated["series_slug"] if aggregated else None),
+        "content_types": _safe_json_list(profile.content_types_json) or list(aggregated.get("content_types") or []),
+        "series_slug": profile.series_slug or aggregated.get("series_slug"),
         "is_featured": bool(profile.is_featured),
         "sort_order": profile.sort_order or 0,
         "is_active": bool(profile.is_active),
@@ -712,7 +825,7 @@ def _topic_profile_to_dict(
         "latest_post_title": latest_post_title,
         "latest_post_slug": latest_post_slug,
         "display_title_source": display_title_source,
-        "avg_quality_score": round(float(avg_quality_score), 2) if avg_quality_score is not None else None,
+        "avg_quality_score": avg_quality_score,
         "created_at": _serialize_datetime(profile.created_at),
         "updated_at": _serialize_datetime(profile.updated_at),
     }
@@ -1407,64 +1520,7 @@ def get_topic_feedback(
     }
 
 
-def _build_topic_aggregation_index(db: Session) -> dict[str, dict]:
-    rows = db.execute(
-        select(
-            Post.topic_key,
-            Post.title,
-            Post.slug,
-            Post.summary,
-            Post.created_at,
-            Post.source_count,
-            Post.content_type,
-            Post.series_slug,
-            Post.quality_score,
-        )
-        .where(Post.is_published == True)
-        .where(Post.topic_key != "")
-        .order_by(Post.created_at.desc(), Post.id.desc())
-    ).all()
-
-    grouped: dict[str, dict] = {}
-    for row in rows:
-        topic_key = (row.topic_key or "").strip()
-        if not topic_key:
-            continue
-        if topic_key not in grouped:
-            grouped[topic_key] = {
-                "topic_key": topic_key,
-                "post_count": 0,
-                "source_count": 0,
-                "latest_post_at": row.created_at,
-                "latest_post_title": row.title or "",
-                "latest_post_slug": row.slug or "",
-                "latest_post_summary": row.summary or "",
-                "content_types": set(),
-                "series_slug": row.series_slug or None,
-                "quality_scores": [],
-            }
-        bucket = grouped[topic_key]
-        bucket["post_count"] += 1
-        bucket["source_count"] += int(row.source_count or 0)
-        if row.content_type:
-            bucket["content_types"].add(str(row.content_type))
-        if row.series_slug and not bucket["series_slug"]:
-            bucket["series_slug"] = row.series_slug
-        if row.quality_score is not None:
-            bucket["quality_scores"].append(float(row.quality_score))
-
-    for bucket in grouped.values():
-        bucket["content_types"] = sorted(bucket["content_types"])
-        quality_scores = bucket.pop("quality_scores", [])
-        bucket["avg_quality_score"] = round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None
-    return grouped
-
-
-@router.get("/topic-profiles", response_model=list[TopicProfileOut])
-def admin_list_topic_profiles(
-    db: Session = Depends(get_db),
-    _admin: str = Depends(get_current_admin),
-):
+def _build_admin_topic_items(db: Session) -> list[dict]:
     aggregated_index = _build_topic_aggregation_index(db)
     profiles = db.execute(
         select(TopicProfile).order_by(TopicProfile.priority.desc(), TopicProfile.updated_at.desc())
@@ -1525,6 +1581,14 @@ def admin_list_topic_profiles(
         reverse=True,
     )
     return merged_items
+
+
+@router.get("/topic-profiles", response_model=list[TopicProfileOut])
+def admin_list_topic_profiles(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    return _build_admin_topic_items(db)
 
 
 @router.post("/topic-profiles", response_model=TopicProfileOut)
@@ -1613,40 +1677,9 @@ def get_topic_health(
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
-    profiles = db.execute(select(TopicProfile)).scalars().all()
-    profiles_by_key = {profile.topic_key: profile for profile in profiles}
-    posts = db.execute(
-        select(Post)
-        .where(Post.is_published == True)
-        .where(Post.topic_key != "")
-        .order_by(Post.created_at.desc())
-    ).scalars().all()
-
-    grouped: dict[str, dict] = {}
-    for post in posts:
-        topic_key = (post.topic_key or "").strip()
-        if not topic_key:
-            continue
-        if topic_key not in grouped:
-            grouped[topic_key] = {
-                "series_slug": post.series_slug,
-                "post_count": 0,
-                "quality_scores": [],
-                "latest_post_at": post.created_at,
-            }
-        bucket = grouped[topic_key]
-        bucket["post_count"] += 1
-        if post.quality_score is not None:
-            bucket["quality_scores"].append(float(post.quality_score))
-        if post.created_at and (bucket["latest_post_at"] is None or post.created_at > bucket["latest_post_at"]):
-            bucket["latest_post_at"] = post.created_at
-        if not bucket["series_slug"] and post.series_slug:
-            bucket["series_slug"] = post.series_slug
-
     items = []
-    for topic_key, bucket in grouped.items():
-        avg_quality = _to_avg(bucket["quality_scores"])
-        profile = profiles_by_key.get(topic_key)
+    for item in _build_admin_topic_items(db):
+        avg_quality = item.get("avg_quality_score")
         recommendation = "maintain"
         if avg_quality is not None and avg_quality < 65:
             recommendation = "improve"
@@ -1654,12 +1687,12 @@ def get_topic_health(
             recommendation = "expand"
         items.append(
             {
-                "topic_key": topic_key,
-                "series_slug": profile.series_slug if profile and profile.series_slug else bucket["series_slug"],
-                "post_count": bucket["post_count"],
+                "topic_key": item["topic_key"],
+                "series_slug": item.get("series_slug"),
+                "post_count": item.get("post_count", 0),
                 "avg_quality_score": avg_quality,
-                "latest_post_at": _serialize_datetime(bucket["latest_post_at"]),
-                "profile_exists": profile is not None,
+                "latest_post_at": item.get("latest_post_at"),
+                "profile_exists": bool(item.get("profile_exists")),
                 "recommendation": recommendation,
             }
         )
@@ -1916,7 +1949,8 @@ def admin_list_series(
     series_list = db.execute(
         select(Series).order_by(Series.is_featured.desc(), Series.sort_order.asc(), Series.updated_at.desc())
     ).scalars().all()
-    return [_series_to_dict(series, db) for series in series_list]
+    aggregated_index = _build_series_aggregation_index(db, series_slugs=[series.slug for series in series_list])
+    return [_series_to_dict(series, db, aggregated=aggregated_index.get(series.slug)) for series in series_list]
 
 
 @router.post("/series", response_model=SeriesOut)

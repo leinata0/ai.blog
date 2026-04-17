@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -63,12 +63,16 @@ vi.mock('../src/api/posts', () => ({
     const filtered = tag ? allPosts.filter((post) => post.tags.some((item) => item.slug === tag)) : allPosts
     return Promise.resolve({ items: filtered, total: filtered.length, page: 1, page_size: 10 })
   }),
-  fetchSeriesList: vi.fn(() => Promise.resolve([
-    { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily AI coverage.', is_featured: true },
-    { slug: 'ai-weekly-review', title: 'AI Weekly Review', description: 'Weekly long-form review.', is_featured: false },
-    { slug: 'product-strategy-watch', title: 'Product Strategy Watch', description: 'Product and company moves.', is_featured: false },
-    { slug: 'tooling-workflow', title: 'Tooling Workflow', description: 'Tooling and workflow notes.', is_featured: false },
-  ])),
+  fetchDiscover: vi.fn(() => Promise.resolve({
+    featured_series: [
+      { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily AI coverage.', is_featured: true },
+      { slug: 'ai-weekly-review', title: 'AI Weekly Review', description: 'Weekly long-form review.', is_featured: true },
+      { slug: 'product-strategy-watch', title: 'Product Strategy Watch', description: 'Product and company moves.', is_featured: true },
+      { slug: 'tooling-workflow', title: 'Tooling Workflow', description: 'Tooling and workflow notes.', is_featured: true },
+    ],
+    latest_daily: [],
+    latest_weekly: [],
+  })),
   prefetchPostDetail: vi.fn(),
 }))
 
@@ -96,7 +100,7 @@ it('renders the homepage hero as a single poster layout', async () => {
   expect(container.querySelectorAll('[data-ui="home-hero-poster"]')).toHaveLength(1)
   expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeTruthy()
+  await waitFor(() => expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeTruthy())
   expect(container.querySelector('[data-ui="home-hot-topics"]')).toBeFalsy()
   expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
   expect(await screen.findAllByText(/Python automation with Selenium and Pandas/i)).not.toHaveLength(0)

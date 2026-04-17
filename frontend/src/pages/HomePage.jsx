@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Calendar, Pin, Search, Sparkles, Tag } from 'lucide-react'
 
-import { fetchPosts, fetchSeriesList, prefetchPostDetail } from '../api/posts'
+import { fetchDiscover, fetchPosts, prefetchPostDetail } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
@@ -70,7 +70,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
   )
 }
 
-function WeeklySpotlight({ post, onPrefetch }) {
+function WeeklySpotlight({ post, onPrefetch, loading }) {
   return (
     <motion.section data-ui="home-weekly-spotlight" variants={motionItemVariants} className="space-y-4">
       <EditorialSectionHeader
@@ -99,6 +99,8 @@ function WeeklySpotlight({ post, onPrefetch }) {
             footer={<span className="inline-flex items-center gap-2 font-semibold">进入这篇周报 <ArrowRight size={14} /></span>}
           />
         </div>
+      ) : loading ? (
+        <LoadingSkeletonSet count={1} minHeight="20rem" />
       ) : (
         <EmptyStatePanel
           title="最新周报会出现在这里"
@@ -228,7 +230,13 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [posts, setPosts] = useState([])
-  const [seriesList, setSeriesList] = useState([])
+  const [homeModules, setHomeModules] = useState({
+    featured_series: [],
+    latest_daily: [],
+    latest_weekly: [],
+  })
+  const [homeModulesLoading, setHomeModulesLoading] = useState(false)
+  const [homeModulesLoaded, setHomeModulesLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [slowLoading, setSlowLoading] = useState(false)
   const [error, setError] = useState('')
@@ -237,6 +245,8 @@ export default function HomePage() {
   const [pageSize] = useState(10)
   const postsRequestRef = useRef(0)
   const postsAbortRef = useRef(null)
+  const modulesAbortRef = useRef(null)
+  const modulesRequestedRef = useRef(false)
 
   const heroImage = settings?.hero_image || settings?.avatar_url || ''
 
@@ -244,25 +254,45 @@ export default function HomePage() {
     document.title = SITE_COPY.brand
   }, [])
 
-  useEffect(() => {
+  const prefetchPost = useCallback((slug) => {
+    prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }, [])
+
+  const loadHomeModules = useCallback((requestOptions = {}) => {
+    modulesAbortRef.current?.abort()
     const controller = new AbortController()
-    fetchSeriesList(
-      { limit: 12 },
-      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
+    modulesAbortRef.current = controller
+
+    setHomeModulesLoading(true)
+    fetchDiscover(
+      { limit: 8, sections: 'featured_series,latest_daily,latest_weekly' },
+      {
+        signal: controller.signal,
+        staleWhileRevalidate: true,
+        cacheTtl: 30000,
+        staleTtl: 120000,
+        ...requestOptions,
+      },
     )
-      .then((items) => {
+      .then((payload) => {
         if (controller.signal.aborted) return
-        startTransition(() => setSeriesList(items))
+        startTransition(() => {
+          setHomeModules({
+            featured_series: Array.isArray(payload?.featured_series) ? payload.featured_series : [],
+            latest_daily: Array.isArray(payload?.latest_daily) ? payload.latest_daily : [],
+            latest_weekly: Array.isArray(payload?.latest_weekly) ? payload.latest_weekly : [],
+          })
+        })
+        setHomeModulesLoaded(true)
       })
       .catch((err) => {
         if (controller.signal.aborted || err?.name === 'AbortError') return
-        setSeriesList([])
+        setHomeModulesLoaded(true)
       })
-    return () => controller.abort()
-  }, [])
-
-  const prefetchPost = useCallback((slug) => {
-    prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+      .finally(() => {
+        if (controller.signal.aborted) return
+        setHomeModulesLoading(false)
+      })
   }, [])
 
   const loadPosts = useCallback(() => {
@@ -310,7 +340,14 @@ export default function HomePage() {
 
   useEffect(() => () => {
     postsAbortRef.current?.abort()
+    modulesAbortRef.current?.abort()
   }, [])
+
+  useEffect(() => {
+    if (loading || error || modulesRequestedRef.current) return
+    modulesRequestedRef.current = true
+    loadHomeModules()
+  }, [error, loading, loadHomeModules])
 
   useEffect(() => {
     setPage(1)
@@ -325,28 +362,18 @@ export default function HomePage() {
   }, [posts])
 
   const latestWeekly = useMemo(
-    () => posts.find((post) => post.content_type === 'weekly_review') || null,
-    [posts],
+    () => homeModules.latest_weekly[0] || posts.find((post) => post.content_type === 'weekly_review') || null,
+    [homeModules.latest_weekly, posts],
   )
   const latestDaily = useMemo(
-    () => posts.filter((post) => post.content_type === 'daily_brief').slice(0, 4),
-    [posts],
+    () => (
+      homeModules.latest_daily.length > 0
+        ? homeModules.latest_daily.slice(0, 4)
+        : posts.filter((post) => post.content_type === 'daily_brief').slice(0, 4)
+    ),
+    [homeModules.latest_daily, posts],
   )
-  const homeSeries = useMemo(() => {
-    const deduped = new Map()
-    const featured = seriesList.filter((series) => series.is_featured)
-
-    featured.forEach((series) => {
-      deduped.set(series.slug, series)
-    })
-    seriesList.forEach((series) => {
-      if (!deduped.has(series.slug)) {
-        deduped.set(series.slug, series)
-      }
-    })
-
-    return Array.from(deduped.values()).slice(0, 4)
-  }, [seriesList])
+  const homeSeries = useMemo(() => homeModules.featured_series.slice(0, 4), [homeModules.featured_series])
 
   function handleSearch(event) {
     event.preventDefault()
@@ -456,7 +483,11 @@ export default function HomePage() {
 
             {!loading && !error ? (
               <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mb-12 space-y-12">
-                <WeeklySpotlight post={latestWeekly} onPrefetch={prefetchPost} />
+                <WeeklySpotlight
+                  post={latestWeekly}
+                  onPrefetch={prefetchPost}
+                  loading={homeModulesLoading && !homeModulesLoaded && !latestWeekly}
+                />
 
                 <motion.section data-ui="home-daily-rail" variants={motionItemVariants} className="space-y-4">
                   <EditorialSectionHeader
@@ -474,6 +505,8 @@ export default function HomePage() {
                         <DailyCard key={post.slug} post={post} onPrefetch={prefetchPost} />
                       ))}
                     </motion.div>
+                  ) : homeModulesLoading && !homeModulesLoaded ? (
+                    <LoadingSkeletonSet count={2} className="grid gap-4 md:grid-cols-2" minHeight="12rem" />
                   ) : (
                     <EmptyStatePanel
                       title="最新日报会出现在这里"
@@ -493,12 +526,21 @@ export default function HomePage() {
                   />
 
                   <div className="mt-4">
-                    <SeriesEditorialStack
-                      items={homeSeries}
-                      mode="compact"
+                    {homeSeries.length > 0 ? (
+                      <SeriesEditorialStack
+                        items={homeSeries}
+                        mode="compact"
                       emptyText="系列入口正在整理中。"
-                      dataUi="home-series-showcase"
-                    />
+                        dataUi="home-series-showcase"
+                      />
+                    ) : homeModulesLoading && !homeModulesLoaded ? (
+                      <LoadingSkeletonSet count={1} minHeight="22rem" />
+                    ) : (
+                      <EmptyStatePanel
+                        title="系列入口正在整理中"
+                        description="推荐系列会在主内容稳定显示后补齐到这里，方便你沿着阅读路径继续看下去。"
+                      />
+                    )}
                   </div>
                 </motion.section>
               </motion.div>

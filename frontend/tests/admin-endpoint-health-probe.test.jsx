@@ -3,6 +3,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { probeAdminEndpointHealth } from '../src/api/admin'
 
 const REQUIRED_PATHS = [
+  '/api/admin/posts?page_size=20',
+  '/api/admin/topic-profiles',
+  '/api/admin/series',
   '/api/health',
   '/api/discover?limit=1',
   '/api/topics?limit=1',
@@ -62,7 +65,7 @@ it('probes all required admin health targets', async () => {
 
   const result = await probeAdminEndpointHealth()
 
-  expect(result.overview.total).toBe(8)
+  expect(result.overview.total).toBe(11)
 
   const calledPaths = fetchSpy.mock.calls.map(([input]) => normalizePath(input))
   REQUIRED_PATHS.forEach((path) => {

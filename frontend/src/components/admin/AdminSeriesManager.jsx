@@ -118,11 +118,11 @@ export default function AdminSeriesManager() {
   const [form, setForm] = useState(emptyForm)
   const [coverStatus, setCoverStatus] = useState(null)
 
-  const loadSeries = useCallback(async () => {
+  const loadSeries = useCallback(async (requestOptions = {}) => {
     setLoading(true)
     setError('')
     try {
-      setSeries(normalizeSeriesList(await fetchAdminSeries()))
+      setSeries(normalizeSeriesList(await fetchAdminSeries(requestOptions)))
     } catch (err) {
       setSeries([])
       setError(err.message || '加载系列列表失败，请检查后端接口是否正常。')
@@ -131,17 +131,25 @@ export default function AdminSeriesManager() {
     }
   }, [])
 
-  const loadCoverStatus = useCallback(async () => {
+  const loadCoverStatus = useCallback(async (requestOptions = {}) => {
     try {
-      setCoverStatus(normalizeStatus(await fetchAdminCoverGenerationStatus()))
+      setCoverStatus(normalizeStatus(await fetchAdminCoverGenerationStatus(requestOptions)))
     } catch {
       setCoverStatus(normalizeStatus(null))
     }
   }, [])
 
   useEffect(() => {
-    loadSeries()
-    loadCoverStatus()
+    let active = true
+
+    loadSeries().then(() => {
+      if (!active) return
+      loadCoverStatus()
+    })
+
+    return () => {
+      active = false
+    }
   }, [loadSeries, loadCoverStatus])
 
   const sortedSeries = useMemo(() => {
@@ -216,7 +224,7 @@ export default function AdminSeriesManager() {
         await createAdminSeries(payload)
         setNotice('系列已创建。')
       }
-      await loadSeries()
+      await loadSeries({ forceRefresh: true })
       resetEditor()
     } catch (err) {
       setError(err.message || '保存系列失败。')
@@ -235,7 +243,7 @@ export default function AdminSeriesManager() {
 
     try {
       const result = await generateAdminSeriesCover(item.id, { overwrite })
-      await Promise.all([loadSeries(), loadCoverStatus()])
+      await Promise.all([loadSeries({ forceRefresh: true }), loadCoverStatus({ forceRefresh: true })])
 
       if (editing?.id === item.id) {
         setForm((current) => ({
@@ -270,8 +278,7 @@ export default function AdminSeriesManager() {
           <button
             type="button"
             onClick={() => {
-              loadSeries()
-              loadCoverStatus()
+              Promise.all([loadSeries({ forceRefresh: true }), loadCoverStatus({ forceRefresh: true })])
             }}
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
           >

@@ -138,11 +138,11 @@ export default function AdminTopicProfiles() {
   const [form, setForm] = useState(emptyForm)
   const [coverStatus, setCoverStatus] = useState(null)
 
-  const loadTopics = useCallback(async () => {
+  const loadTopics = useCallback(async (requestOptions = {}) => {
     setLoading(true)
     setError('')
     try {
-      setTopics(normalizeTopicItems(await fetchAdminTopicProfiles()))
+      setTopics(normalizeTopicItems(await fetchAdminTopicProfiles(requestOptions)))
     } catch (err) {
       setTopics([])
       setError(err.message || '加载主题汇总失败，请检查后端接口是否正常。')
@@ -151,17 +151,25 @@ export default function AdminTopicProfiles() {
     }
   }, [])
 
-  const loadCoverStatus = useCallback(async () => {
+  const loadCoverStatus = useCallback(async (requestOptions = {}) => {
     try {
-      setCoverStatus(normalizeStatus(await fetchAdminCoverGenerationStatus()))
+      setCoverStatus(normalizeStatus(await fetchAdminCoverGenerationStatus(requestOptions)))
     } catch {
       setCoverStatus(normalizeStatus(null))
     }
   }, [])
 
   useEffect(() => {
-    loadTopics()
-    loadCoverStatus()
+    let active = true
+
+    loadTopics().then(() => {
+      if (!active) return
+      loadCoverStatus()
+    })
+
+    return () => {
+      active = false
+    }
   }, [loadTopics, loadCoverStatus])
 
   const sortedTopics = useMemo(() => {
@@ -241,7 +249,7 @@ export default function AdminTopicProfiles() {
         await createAdminTopicProfile(payload)
         setNotice(editing?.is_virtual ? '已将自动汇总主题保存为正式主题。' : '主题资料已创建。')
       }
-      await loadTopics()
+      await loadTopics({ forceRefresh: true })
       resetEditor()
     } catch (err) {
       setError(err.message || '保存主题资料失败。')
@@ -263,7 +271,7 @@ export default function AdminTopicProfiles() {
 
     try {
       const result = await generateAdminTopicProfileCover(item.id, { overwrite })
-      await Promise.all([loadTopics(), loadCoverStatus()])
+      await Promise.all([loadTopics({ forceRefresh: true }), loadCoverStatus({ forceRefresh: true })])
 
       if (editing?.id === item.id) {
         setForm((current) => ({
@@ -298,8 +306,7 @@ export default function AdminTopicProfiles() {
           <button
             type="button"
             onClick={() => {
-              loadTopics()
-              loadCoverStatus()
+              Promise.all([loadTopics({ forceRefresh: true }), loadCoverStatus({ forceRefresh: true })])
             }}
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
           >

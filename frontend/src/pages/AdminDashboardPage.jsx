@@ -46,7 +46,7 @@ const defaultPostFilters = {
 }
 
 function normalizePostFilters(filters) {
-  const params = { page_size: 50 }
+  const params = { page_size: 20 }
   if (filters.search?.trim()) params.q = filters.search.trim()
   if (filters.content_type) params.content_type = filters.content_type
   if (filters.published === 'published') params.is_published = 'true'
@@ -88,11 +88,11 @@ export default function AdminDashboardPage() {
     loadPosts(defaultPostFilters)
   }, [])
 
-  async function loadPosts(nextFilters = postFilters) {
+  async function loadPosts(nextFilters = postFilters, requestOptions = {}) {
     setPostLoading(true)
     try {
       const params = normalizePostFilters(nextFilters)
-      const result = await fetchAdminPosts(params)
+      const result = await fetchAdminPosts(params, requestOptions)
       setPosts(result.items || result || [])
       setError('')
     } catch (err) {
@@ -230,7 +230,7 @@ export default function AdminDashboardPage() {
             onNew={handleNew}
             onEdit={handleEdit}
             onDelete={handleDelete}
-            onRefresh={() => loadPosts()}
+            onRefresh={() => loadPosts(postFilters, { forceRefresh: true })}
             onApplyFilters={handleApplyFilters}
             onResetFilters={handleResetFilters}
             onRunBulkAction={handleBulkAction}

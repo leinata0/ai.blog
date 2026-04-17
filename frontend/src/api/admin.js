@@ -1,6 +1,21 @@
+import { getToken } from './auth'
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
 const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
+const ADMIN_LIST_CACHE_OPTIONS = Object.freeze({
+  auth: true,
+  cache: true,
+  cacheTtl: 12000,
+  staleTtl: 45000,
+  staleWhileRevalidate: true,
+})
+const ADMIN_STATUS_CACHE_OPTIONS = Object.freeze({
+  auth: true,
+  cache: true,
+  cacheTtl: 10000,
+  staleTtl: 30000,
+  staleWhileRevalidate: true,
+})
 
 export async function adminLogin(username, password) {
   return apiPost('/api/admin/login', { username, password })
@@ -26,9 +41,9 @@ export const updateSettings = (data) => apiPut('/api/settings', data, { auth: tr
 export const generateAdminHeroImage = (data = {}) =>
   apiPost('/api/admin/settings/generate-hero', data, { auth: true })
 
-export const fetchAdminPosts = (params = {}) => {
+export const fetchAdminPosts = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/posts${qs ? `?${qs}` : ''}`, { auth: true })
+  return apiGet(`/api/admin/posts${qs ? `?${qs}` : ''}`, { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
 }
 
 export const fetchAdminComments = (params = {}) => {
@@ -65,30 +80,33 @@ export const fetchAdminTopicFeedback = (params = {}) => {
   return apiGet(`/api/admin/topic-feedback${qs ? `?${qs}` : ''}`, { auth: true })
 }
 
-export const fetchAdminSeries = () => apiGet('/api/admin/series', { auth: true })
+export const fetchAdminSeries = (requestOptions = {}) =>
+  apiGet('/api/admin/series', { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
 export const createAdminSeries = (data) => apiPost('/api/admin/series', data, { auth: true })
 export const updateAdminSeries = (id, data) => apiPut(`/api/admin/series/${id}`, data, { auth: true })
 export const generateAdminSeriesCover = (id, data = {}) =>
   apiPost(`/api/admin/series/${id}/generate-cover`, data, { auth: true })
-export const fetchAdminCoverGenerationStatus = () =>
-  apiGet('/api/admin/cover-generation-status', { auth: true })
+export const fetchAdminCoverGenerationStatus = (requestOptions = {}) =>
+  apiGet('/api/admin/cover-generation-status', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
 
-export const fetchAdminTopicProfiles = () => apiGet('/api/admin/topic-profiles', { auth: true })
+export const fetchAdminTopicProfiles = (requestOptions = {}) =>
+  apiGet('/api/admin/topic-profiles', { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
 export const createAdminTopicProfile = (data) => apiPost('/api/admin/topic-profiles', data, { auth: true })
 export const updateAdminTopicProfile = (id, data) =>
   apiPut(`/api/admin/topic-profiles/${id}`, data, { auth: true })
 export const generateAdminTopicProfileCover = (id, data = {}) =>
   apiPost(`/api/admin/topic-profiles/${id}/generate-cover`, data, { auth: true })
 
-export const fetchAdminTopicHealth = (params = {}) => {
+export const fetchAdminTopicHealth = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/topic-health${qs ? `?${qs}` : ''}`, { auth: true })
+  return apiGet(`/api/admin/topic-health${qs ? `?${qs}` : ''}`, { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
 }
-export const fetchAdminSearchInsights = (params = {}) => {
+export const fetchAdminSearchInsights = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()
-  return apiGet(`/api/admin/search-insights${qs ? `?${qs}` : ''}`, { auth: true })
+  return apiGet(`/api/admin/search-insights${qs ? `?${qs}` : ''}`, { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
 }
-export const fetchAdminSubscriptionHealth = () => apiGet('/api/admin/subscription-health', { auth: true })
+export const fetchAdminSubscriptionHealth = (requestOptions = {}) =>
+  apiGet('/api/admin/subscription-health', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
 
 export const upsertAdminPublishingMetadata = (data) =>
   apiPost('/api/admin/publishing-metadata', data, { auth: true })
@@ -96,6 +114,9 @@ export const upsertAdminPublishingMetadata = (data) =>
 const HEALTH_CHECK_TIMEOUT = 10000
 
 const HEALTH_TARGETS = [
+  { key: 'admin-posts', label: '后台文章列表', path: '/api/admin/posts?page_size=20', kind: 'json', expectedKeys: ['items'], auth: true },
+  { key: 'admin-topics', label: '后台主题管理', path: '/api/admin/topic-profiles', kind: 'json', auth: true },
+  { key: 'admin-series', label: '后台系列管理', path: '/api/admin/series', kind: 'json', auth: true },
   { key: 'api-health', label: '健康检查', path: '/api/health', kind: 'json', expected: 'ok' },
   { key: 'discover', label: '发现页数据', path: '/api/discover?limit=1', kind: 'json', expectedKeys: ['items'] },
   { key: 'topics', label: '主题列表', path: '/api/topics?limit=1', kind: 'json', expectedKeys: ['items'] },
@@ -124,12 +145,20 @@ async function probePublicTarget(target, timeout = HEALTH_CHECK_TIMEOUT) {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), timeout)
   const startedAt = performance.now()
+  const headers = {
+    Accept: target.kind === 'json' ? 'application/json' : 'application/xml,text/xml,text/plain,*/*',
+  }
+
+  if (target.auth) {
+    const token = getToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+  }
 
   try {
     const response = await fetch(target.path, {
       method: 'GET',
       cache: 'no-store',
-      headers: { Accept: target.kind === 'json' ? 'application/json' : 'application/xml,text/xml,text/plain,*/*' },
+      headers,
       signal: controller.signal,
     })
 
@@ -142,7 +171,7 @@ async function probePublicTarget(target, timeout = HEALTH_CHECK_TIMEOUT) {
         status_code: response.status,
         duration_ms: durationMs,
         summary: `HTTP ${response.status}`,
-        detail: text.slice(0, 160) || '接口返回非成功状态码。',
+        detail: text.slice(0, 160) || '接口返回了非成功状态码。',
       })
     }
 

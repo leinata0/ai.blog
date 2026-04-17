@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useReducedMotion } from 'framer-motion'
 
 const TYPE_SPEED_MS = 58
@@ -8,6 +8,7 @@ const REDUCED_MOTION_ROTATE_MS = 2800
 
 function useTypedPhrase(phrases) {
   const prefersReducedMotion = useReducedMotion()
+  const isMountedRef = useRef(false)
   const safePhrases = useMemo(
     () => phrases.map((phrase) => String(phrase || '').trim()).filter(Boolean),
     [phrases],
@@ -19,6 +20,13 @@ function useTypedPhrase(phrases) {
   const [phase, setPhase] = useState(prefersReducedMotion ? 'steady' : 'typing')
 
   useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
     setPhraseIndex(0)
     setVisibleCount(prefersReducedMotion ? (safePhrases[0]?.length || 0) : 0)
     setPhase(prefersReducedMotion ? 'steady' : 'typing')
@@ -28,11 +36,12 @@ function useTypedPhrase(phrases) {
     if (!safePhrases.length) return undefined
 
     if (prefersReducedMotion) {
-      const intervalId = window.setInterval(() => {
+      const intervalId = globalThis.setInterval(() => {
+        if (!isMountedRef.current) return
         setPhraseIndex((current) => (current + 1) % safePhrases.length)
       }, REDUCED_MOTION_ROTATE_MS)
 
-      return () => window.clearInterval(intervalId)
+      return () => globalThis.clearInterval(intervalId)
     }
 
     const currentPhrase = safePhrases[phraseIndex] || ''
@@ -40,20 +49,24 @@ function useTypedPhrase(phrases) {
 
     if (phase === 'typing') {
       if (visibleCount < currentPhrase.length) {
-        timerId = window.setTimeout(() => {
+        timerId = globalThis.setTimeout(() => {
+          if (!isMountedRef.current) return
           setVisibleCount((current) => current + 1)
         }, TYPE_SPEED_MS)
       } else {
-        timerId = window.setTimeout(() => {
+        timerId = globalThis.setTimeout(() => {
+          if (!isMountedRef.current) return
           setPhase('holding')
         }, HOLD_DURATION_MS)
       }
     } else if (phase === 'holding') {
-      timerId = window.setTimeout(() => {
+      timerId = globalThis.setTimeout(() => {
+        if (!isMountedRef.current) return
         setPhase('deleting')
       }, HOLD_DURATION_MS)
     } else if (visibleCount > 0) {
-      timerId = window.setTimeout(() => {
+      timerId = globalThis.setTimeout(() => {
+        if (!isMountedRef.current) return
         setVisibleCount((current) => Math.max(0, current - 1))
       }, DELETE_SPEED_MS)
     } else {
@@ -61,7 +74,7 @@ function useTypedPhrase(phrases) {
       setPhase('typing')
     }
 
-    return () => window.clearTimeout(timerId)
+    return () => globalThis.clearTimeout(timerId)
   }, [phase, phraseIndex, prefersReducedMotion, safePhrases, visibleCount])
 
   const currentPhrase = safePhrases[phraseIndex] || ''
