@@ -1,6 +1,5 @@
 import { getToken, clearToken } from './auth'
-
-const BASE = String(import.meta.env.VITE_API_BASE || '').trim().replace(/\/$/, '')
+import { buildApiUrl as buildResolvedApiUrl, resolveApiBase } from './base'
 const TIMEOUT = 30000
 const GET_CACHE_TTL = 15000
 const GET_STALE_TTL = 60000
@@ -73,11 +72,11 @@ function requestGetKey(path, auth) {
 }
 
 export function buildApiUrl(path = '') {
-  if (!BASE) return path
-  return `${BASE}${path}`
+  return buildResolvedApiUrl(path)
 }
 
 async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal } = {}) {
+  const base = resolveApiBase()
   const headers = {}
   if (body && !(body instanceof FormData)) {
     headers['Content-Type'] = 'application/json'
@@ -92,7 +91,7 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
   const timer = setTimeout(() => timeoutController.abort(), timeout)
 
   try {
-    const resp = await fetch(`${BASE}${path}`, {
+    const resp = await fetch(`${base}${path}`, {
       method,
       headers,
       body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
