@@ -28,6 +28,7 @@ def test_home_modules_handles_topic_posts_without_profile(client, db_session):
             content_md="content",
             topic_key="unprofiled-topic",
             content_type="daily_brief",
+            cover_image="https://img.example.com/unprofiled-topic.jpg",
             is_published=True,
             created_at=datetime.now(timezone.utc),
         )
@@ -38,4 +39,7 @@ def test_home_modules_handles_topic_posts_without_profile(client, db_session):
     assert response.status_code == 200
 
     payload = response.json()
-    assert any(item["topic_key"] == "unprofiled-topic" for item in payload["topic_pulse"]["items"])
+    matching = next(item for item in payload["topic_pulse"]["items"] if item["topic_key"] == "unprofiled-topic")
+    assert matching["title"] == "Unprofiled topic pulse"
+    assert matching["description"] == "Summary for a topic without a topic profile."
+    assert matching["cover_image"] == "https://img.example.com/unprofiled-topic.jpg"

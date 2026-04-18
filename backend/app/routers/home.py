@@ -225,7 +225,7 @@ def get_home_modules(db: Session = Depends(get_db)):
                 "title": display_title,
                 "description": description,
                 "cover_image": (
-                    (profile.cover_image or "").strip()
+                    (((profile.cover_image if profile else "") or "").strip())
                     or (latest_post.cover_image if latest_post else "")
                     or ""
                 ),
