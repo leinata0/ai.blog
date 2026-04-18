@@ -1,3 +1,8 @@
+from datetime import datetime, timezone
+
+from app.models import Post
+
+
 def test_home_modules_returns_renderable_sections(client, seeded_db):
     response = client.get("/api/home/modules")
     assert response.status_code == 200
@@ -12,3 +17,25 @@ def test_home_modules_returns_renderable_sections(client, seeded_db):
     assert isinstance(payload["topic_pulse"]["items"], list)
     assert payload["continue_reading"]["local_only"] is True
     assert payload["subscription_cta"]["primary_to"] == "/feeds"
+
+
+def test_home_modules_handles_topic_posts_without_profile(client, db_session):
+    db_session.add(
+        Post(
+            title="Unprofiled topic pulse",
+            slug="unprofiled-topic-pulse",
+            summary="Summary for a topic without a topic profile.",
+            content_md="content",
+            topic_key="unprofiled-topic",
+            content_type="daily_brief",
+            is_published=True,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/home/modules")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert any(item["topic_key"] == "unprofiled-topic" for item in payload["topic_pulse"]["items"])

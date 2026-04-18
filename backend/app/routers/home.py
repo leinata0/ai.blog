@@ -210,12 +210,12 @@ def get_home_modules(db: Session = Depends(get_db)):
         profile = profiles_by_key.get(topic_key)
         latest_post = bucket["latest_post"]
         display_title = (
-            (profile.title or "").strip()
+            ((profile.title if profile else "") or "").strip()
             or (latest_post.title if latest_post else "")
             or topic_key
         )
         description = (
-            (profile.description or "").strip()
+            ((profile.description if profile else "") or "").strip()
             or (latest_post.summary if latest_post else "")
             or "沿着同一条主线继续追踪最近变化。"
         )

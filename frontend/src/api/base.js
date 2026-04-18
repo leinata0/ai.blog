@@ -14,24 +14,31 @@ export function resolveApiBase(currentLocation = globalThis?.window?.location) {
   const configuredBase = normalizeBaseUrl(import.meta.env.VITE_API_BASE)
   if (!configuredBase) return ''
 
-  if (envEnabled(import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API)) {
-    return configuredBase
-  }
-
   if (!currentLocation?.origin || !currentLocation?.hostname) {
     return configuredBase
   }
 
   try {
-    const targetOrigin = new URL(configuredBase, currentLocation.origin).origin
+    const targetUrl = new URL(configuredBase, currentLocation.origin)
+    const targetOrigin = targetUrl.origin
     if (targetOrigin === currentLocation.origin) {
       return configuredBase
+    }
+
+    const currentProtocol = currentLocation.protocol || new URL(currentLocation.origin).protocol
+    if (
+      currentProtocol === 'https:' &&
+      targetUrl.protocol !== 'https:' &&
+      !isLocalBrowserHost(currentLocation.hostname) &&
+      !envEnabled(import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API)
+    ) {
+      return ''
     }
   } catch {
     return configuredBase
   }
 
-  return isLocalBrowserHost(currentLocation.hostname) ? configuredBase : ''
+  return configuredBase
 }
 
 export function buildApiUrl(path = '', currentLocation = globalThis?.window?.location) {

@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 
 
 def clean_env(name: str, default: str = "") -> str:
@@ -72,19 +73,83 @@ def get_default_public_site_url() -> str:
     return "http://127.0.0.1:5173"
 
 
+def _expand_origin_variants(url: str) -> list[str]:
+    value = str(url or "").strip().rstrip("/")
+    if not value:
+        return []
+
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return []
+
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return []
+
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    origins = [origin]
+
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    if host and host not in {"localhost", "127.0.0.1", "::1"}:
+        if host.startswith("www."):
+            origins.append(f"{parsed.scheme}://{host[4:]}{port}")
+        else:
+            origins.append(f"{parsed.scheme}://www.{host}{port}")
+
+    deduped: list[str] = []
+    for item in origins:
+        if item and item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
+def _load_site_url_from_database() -> str:
+    try:
+        from sqlalchemy import text
+
+        from app.db import SessionLocal
+
+        with SessionLocal() as db:
+            row = db.execute(
+                text(
+                    "SELECT site_url FROM site_settings "
+                    "WHERE site_url IS NOT NULL AND TRIM(site_url) != '' "
+                    "LIMIT 1"
+                )
+            ).first()
+            if row and row[0]:
+                return str(row[0]).strip().rstrip("/")
+    except Exception:
+        return ""
+    return ""
+
+
 def get_allowed_origins() -> list[str]:
     configured = clean_env_list("ALLOWED_ORIGINS")
     if configured:
-        return configured
+        expanded: list[str] = []
+        for item in configured:
+            variants = _expand_origin_variants(item)
+            if variants:
+                expanded.extend(variants)
+            elif item not in expanded:
+                expanded.append(item)
+        return list(dict.fromkeys(expanded))
 
     default_site_url = get_default_public_site_url()
+    derived_origins = _expand_origin_variants(default_site_url)
+    if not derived_origins and is_production_env():
+        derived_origins = _expand_origin_variants(_load_site_url_from_database())
+
     if is_production_env():
-        return [default_site_url] if default_site_url else []
+        return derived_origins
 
     defaults = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ]
-    if default_site_url and default_site_url not in defaults:
-        defaults.append(default_site_url)
+    for item in derived_origins:
+        if item not in defaults:
+            defaults.append(item)
     return defaults
