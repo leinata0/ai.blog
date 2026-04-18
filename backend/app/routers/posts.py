@@ -6,7 +6,7 @@ from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, Response
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 from sqlalchemy import func, or_, select
 
 from app.db import get_db
@@ -85,6 +85,37 @@ def _post_list_item(post: Post) -> dict:
     }
 
 
+_POST_SUMMARY_FIELDS = (
+    Post.id,
+    Post.title,
+    Post.slug,
+    Post.summary,
+    Post.cover_image,
+    Post.content_type,
+    Post.topic_key,
+    Post.published_mode,
+    Post.coverage_date,
+    Post.series_slug,
+    Post.series_order,
+    Post.source_count,
+    Post.quality_score,
+    Post.reading_time,
+    Post.view_count,
+    Post.is_published,
+    Post.is_pinned,
+    Post.like_count,
+    Post.created_at,
+    Post.updated_at,
+)
+
+
+def _post_summary_options():
+    return (
+        load_only(*_POST_SUMMARY_FIELDS),
+        selectinload(Post.tags).load_only(Tag.name, Tag.slug),
+    )
+
+
 def _series_to_dict(series: Series, db: Session, include_posts: bool = False) -> dict:
     content_types = []
     try:
@@ -122,7 +153,7 @@ def _series_to_dict(series: Series, db: Session, include_posts: bool = False) ->
     if include_posts:
         posts = db.execute(
             select(Post)
-            .options(selectinload(Post.tags))
+            .options(*_post_summary_options())
             .where(Post.is_published == True)
             .where(Post.series_slug == series.slug)
             .order_by(func.coalesce(Post.series_order, 10**9).asc(), Post.created_at.desc())
@@ -257,6 +288,49 @@ def _record_search_insight(db: Session, query: str, result_count: int) -> None:
         insight.last_searched_at = now
         insight.updated_at = now
     db.commit()
+
+
+def _series_match_score(series: Series, query_terms: list[str]) -> int:
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                str(series.slug or "").strip().lower(),
+                str(series.title or "").strip().lower(),
+                str(series.description or "").strip().lower(),
+            ],
+        )
+    )
+    if not haystack or not query_terms:
+        return 0
+
+    score = 0
+    for term in query_terms[:6]:
+        if term in str(series.title or "").strip().lower():
+            score += 3
+        elif term in haystack:
+            score += 1
+    return score
+
+
+def _popular_search_queries(db: Session, current_query: str, limit: int = 6) -> list[dict]:
+    rows = db.execute(
+        select(SearchInsight)
+        .where(SearchInsight.query != current_query)
+        .where(SearchInsight.search_count > 0)
+        .order_by(SearchInsight.search_count.desc(), SearchInsight.last_searched_at.desc())
+        .limit(limit)
+    ).scalars().all()
+    return [
+        {
+            "query": row.query,
+            "search_count": int(row.search_count or 0),
+            "last_result_count": int(row.last_result_count or 0),
+            "last_searched_at": row.last_searched_at.isoformat() if row.last_searched_at else None,
+        }
+        for row in rows
+        if len(str(row.query or "").strip()) >= 2
+    ]
 
 
 def _safe_json_list(value: str | None) -> list[str]:
@@ -662,7 +736,7 @@ def list_posts(
 ):
     stmt = (
         select(Post)
-        .options(selectinload(Post.tags))
+        .options(*_post_summary_options())
         .where(Post.is_published == True)
         .order_by(Post.is_pinned.desc(), Post.created_at.desc())
     )
@@ -736,7 +810,7 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     if (post.series_slug or "").strip():
         same_series_posts = db.execute(
             select(Post)
-            .options(selectinload(Post.tags))
+            .options(*_post_summary_options())
             .where(Post.is_published == True)
             .where(Post.series_slug == post.series_slug)
             .where(Post.id != post.id)
@@ -748,7 +822,7 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     if (post.topic_key or "").strip():
         same_topic_posts = db.execute(
             select(Post)
-            .options(selectinload(Post.tags))
+            .options(*_post_summary_options())
             .where(Post.is_published == True)
             .where(Post.topic_key == post.topic_key)
             .where(Post.id != post.id)
@@ -760,7 +834,7 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     if (post.coverage_date or "").strip():
         same_week_posts = db.execute(
             select(Post)
-            .options(selectinload(Post.tags))
+            .options(*_post_summary_options())
             .where(Post.is_published == True)
             .where(Post.coverage_date == post.coverage_date)
             .where(Post.id != post.id)
@@ -831,7 +905,9 @@ def like_post(slug: str, request: Request, db: Session = Depends(get_db)):
 @router.get("/posts/{slug}/related")
 def get_related_posts(slug: str, db: Session = Depends(get_db)):
     post = db.execute(
-        select(Post).options(selectinload(Post.tags)).where(Post.slug == slug)
+        select(Post)
+        .options(load_only(Post.id, Post.slug), selectinload(Post.tags).load_only(Tag.id, Tag.name, Tag.slug))
+        .where(Post.slug == slug)
     ).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
@@ -842,7 +918,7 @@ def get_related_posts(slug: str, db: Session = Depends(get_db)):
 
     related = db.execute(
         select(Post)
-        .options(selectinload(Post.tags))
+        .options(*_post_summary_options())
         .join(post_tags)
         .where(post_tags.c.tag_id.in_(tag_ids))
         .where(Post.id != post.id)
@@ -931,7 +1007,21 @@ def get_friend_links(db: Session = Depends(get_db)):
 @router.get("/archive")
 def get_archive(db: Session = Depends(get_db)):
     posts = db.execute(
-        select(Post).where(Post.is_published == True).order_by(Post.created_at.desc())
+        select(Post)
+        .options(
+            load_only(
+                Post.title,
+                Post.slug,
+                Post.created_at,
+                Post.content_type,
+                Post.topic_key,
+                Post.published_mode,
+                Post.coverage_date,
+                Post.is_pinned,
+            )
+        )
+        .where(Post.is_published == True)
+        .order_by(Post.created_at.desc())
     ).scalars().all()
     groups: dict[int, list] = {}
     for p in posts:
@@ -1013,7 +1103,7 @@ def get_discover(
     if "latest_daily" in requested:
         latest_daily = db.execute(
             select(Post)
-            .options(selectinload(Post.tags))
+            .options(*_post_summary_options())
             .where(Post.is_published == True)
             .where(Post.content_type == "daily_brief")
             .order_by(Post.created_at.desc())
@@ -1024,7 +1114,7 @@ def get_discover(
     if "latest_weekly" in requested:
         latest_weekly = db.execute(
             select(Post)
-            .options(selectinload(Post.tags))
+            .options(*_post_summary_options())
             .where(Post.is_published == True)
             .where(Post.content_type == "weekly_review")
             .order_by(Post.created_at.desc())
@@ -1035,7 +1125,7 @@ def get_discover(
     if "editor_picks" in requested:
         editor_picks = db.execute(
             select(Post)
-            .options(selectinload(Post.tags))
+            .options(*_post_summary_options())
             .where(Post.is_published == True)
             .order_by(Post.is_pinned.desc(), Post.like_count.desc(), Post.view_count.desc(), Post.created_at.desc())
             .limit(8)
@@ -1044,7 +1134,7 @@ def get_discover(
 
     needs_items_query = bool({"items", "total", "facets"} & requested)
     if needs_items_query:
-        items_stmt = select(Post).options(selectinload(Post.tags)).where(Post.is_published == True)
+        items_stmt = select(Post).options(*_post_summary_options()).where(Post.is_published == True)
         total_stmt = select(func.count(Post.id)).where(Post.is_published == True)
 
         if q:
@@ -1098,7 +1188,7 @@ def search_posts(
     query_terms = [term for term in query.split(" ") if term]
     stmt = (
         select(Post)
-        .options(selectinload(Post.tags))
+        .options(*_post_summary_options())
         .where(Post.is_published == True)
     )
     if content_type:
@@ -1213,11 +1303,35 @@ def search_posts(
         )
 
     _record_search_insight(db, query, len(ranked))
+    available_series = db.execute(
+        select(Series).order_by(Series.is_featured.desc(), Series.sort_order.asc(), Series.updated_at.desc())
+    ).scalars().all()
+    scored_series = [
+        (score, series)
+        for series in available_series
+        for score in [_series_match_score(series, query_terms)]
+        if score > 0
+    ]
+    scored_series.sort(
+        key=lambda item: (
+            item[0],
+            int(bool(item[1].is_featured)),
+            item[1].updated_at.timestamp() if item[1].updated_at else 0,
+        ),
+        reverse=True,
+    )
+    suggested_series = [_series_to_dict(series, db, include_posts=False) for _, series in scored_series[:4]]
+    if not suggested_series:
+        fallback_series = [series for series in available_series if bool(series.is_featured)] or available_series
+        suggested_series = [_series_to_dict(series, db, include_posts=False) for series in fallback_series[:4]]
+
     return {
         "query": query,
         "items": items,
         "total": len(ranked),
         "topics": topics,
+        "series_suggestions": suggested_series,
+        "popular_queries": _popular_search_queries(db, query),
         "facets": {
             "content_type": content_type or "",
             "series_slug": series_slug or "",
@@ -1246,6 +1360,20 @@ def list_topics(
 
     posts = db.execute(
         select(Post)
+        .options(
+            load_only(
+                Post.id,
+                Post.title,
+                Post.summary,
+                Post.cover_image,
+                Post.content_type,
+                Post.topic_key,
+                Post.series_slug,
+                Post.source_count,
+                Post.quality_score,
+                Post.created_at,
+            )
+        )
         .where(Post.is_published == True)
         .where(Post.topic_key != "")
         .order_by(Post.created_at.desc())
@@ -1371,7 +1499,7 @@ def get_topic_detail(topic_key: str, db: Session = Depends(get_db)):
     ).scalar_one_or_none()
     posts = db.execute(
         select(Post)
-        .options(selectinload(Post.tags))
+        .options(*_post_summary_options())
         .where(Post.is_published == True)
         .where(Post.topic_key == normalized_topic_key)
         .order_by(Post.created_at.desc())
@@ -1423,6 +1551,7 @@ def feed_all(db: Session = Depends(get_db)):
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at))
         .where(Post.is_published == True)
         .order_by(Post.created_at.desc())
         .limit(30)
@@ -1437,6 +1566,7 @@ def feed_daily(db: Session = Depends(get_db)):
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at))
         .where(Post.is_published == True)
         .where(Post.content_type == "daily_brief")
         .order_by(Post.created_at.desc())
@@ -1452,6 +1582,7 @@ def feed_weekly(db: Session = Depends(get_db)):
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at))
         .where(Post.is_published == True)
         .where(Post.content_type == "weekly_review")
         .order_by(Post.created_at.desc())
@@ -1473,6 +1604,7 @@ def feed_topic(topic_key: str, db: Session = Depends(get_db)):
     ).scalar_one_or_none()
     posts = db.execute(
         select(Post)
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at, Post.content_type))
         .where(Post.is_published == True)
         .where(Post.topic_key == normalized_topic_key)
         .order_by(Post.created_at.desc())
@@ -1505,6 +1637,7 @@ def feed_series(slug: str, db: Session = Depends(get_db)):
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at))
         .where(Post.is_published == True)
         .where(Post.series_slug == normalized_slug)
         .order_by(func.coalesce(Post.series_order, 10**9).asc(), Post.created_at.desc())

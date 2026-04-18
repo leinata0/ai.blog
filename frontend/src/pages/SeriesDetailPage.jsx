@@ -44,6 +44,15 @@ export default function SeriesDetailPage() {
   const rssUrl = buildPublicApiUrl(`/api/feeds/series/${encodeURIComponent(slug || '')}.xml`)
   const starterPost = series?.posts?.[0] || null
   const quickReads = (series?.posts || []).slice(0, 3)
+  const latestUpdate = useMemo(() => {
+    const posts = Array.isArray(series?.posts) ? series.posts : []
+    if (posts.length === 0) return null
+    return [...posts].sort((left, right) => {
+      const leftTime = left?.created_at ? new Date(left.created_at).getTime() : 0
+      const rightTime = right?.created_at ? new Date(right.created_at).getTime() : 0
+      return rightTime - leftTime
+    })[0]
+  }, [series?.posts])
   const jsonLd = useMemo(() => ([
     buildCollectionPageJsonLd({
       siteUrl,
@@ -164,28 +173,56 @@ export default function SeriesDetailPage() {
               </motion.article>
 
               <motion.article variants={motionItemVariants} className="editorial-panel rounded-[1.8rem] px-6 py-6">
-                <EditorialSectionHeader
-                  eyebrow="快速读懂"
-                  title="先读这 3 篇就够快"
-                  titleClassName="!text-[1.45rem]"
-                  description="如果你想更快理解这个栏目在持续组织什么，可以先从这几篇开始建立阅读路径。"
-                />
-                <div className="mt-4 space-y-3">
-                  {quickReads.map((post) => (
+                {latestUpdate ? (
+                  <>
+                    <EditorialSectionHeader
+                      eyebrow="最新更新"
+                      title="先用最新一篇恢复系列上下文"
+                      titleClassName="!text-[1.45rem]"
+                      description="当你已经读过这个系列时，先从最近一次更新切回来会更快。"
+                    />
                     <Link
-                      key={post.slug}
-                      to={`/posts/${post.slug}`}
-                      className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+                      to={`/posts/${latestUpdate.slug}`}
+                      className="mt-4 block rounded-[1.2rem] border px-4 py-4 transition-all duration-200 hover:-translate-y-0.5"
+                      style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-canvas)' }}
                     >
-                      <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                        {post.title}
+                      <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                        {formatDate(latestUpdate.created_at)}
                       </div>
-                      <div className="mt-1 text-xs leading-6" style={{ color: 'var(--text-faint)' }}>
-                        {post.summary}
+                      <div className="mt-2 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        {latestUpdate.title}
+                      </div>
+                      <div className="mt-2 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
+                        {latestUpdate.summary}
                       </div>
                     </Link>
-                  ))}
-                </div>
+                  </>
+                ) : (
+                  <>
+                    <EditorialSectionHeader
+                      eyebrow="快速读懂"
+                      title="先读这 3 篇就够快"
+                      titleClassName="!text-[1.45rem]"
+                      description="如果你想更快理解这个栏目在持续组织什么，可以先从这几篇开始建立阅读路径。"
+                    />
+                    <div className="mt-4 space-y-3">
+                      {quickReads.map((post) => (
+                        <Link
+                          key={post.slug}
+                          to={`/posts/${post.slug}`}
+                          className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+                        >
+                          <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                            {post.title}
+                          </div>
+                          <div className="mt-1 text-xs leading-6" style={{ color: 'var(--text-faint)' }}>
+                            {post.summary}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </>
+                )}
               </motion.article>
             </motion.section>
 
@@ -196,10 +233,16 @@ export default function SeriesDetailPage() {
                 description="系列页会把同一栏目下的内容按时间和节奏组织在一起，方便连续阅读。"
               />
 
-              {(series.posts || []).length > 0 ? (series.posts || []).map((post) => (
+              {(series.posts || []).length > 0 ? (series.posts || []).map((post, index) => (
                 <motion.article key={post.slug} variants={motionItemVariants} className="editorial-card rounded-[1.8rem] border px-6 py-5">
                   <Link to={`/posts/${post.slug}`} className="block">
                     <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
+                      <span
+                        className="inline-flex rounded-full px-2.5 py-1 font-semibold"
+                        style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+                      >
+                        第 {index + 1} 篇
+                      </span>
                       <span className="inline-flex items-center gap-1">
                         <Calendar size={12} />
                         {formatDate(post.created_at)}

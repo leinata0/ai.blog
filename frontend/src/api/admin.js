@@ -21,11 +21,23 @@ export async function adminLogin(username, password) {
   return apiPost('/api/admin/login', { username, password })
 }
 
-export const adminCreatePost = (data) => apiPost('/api/admin/posts', data, { auth: true })
-export const adminUpdatePost = (id, data) => apiPut(`/api/admin/posts/${id}`, data, { auth: true })
-export const adminDeletePost = (id) => apiDelete(`/api/admin/posts/${id}`, { auth: true })
+export const adminCreatePost = (data) => apiPost('/api/admin/posts', data, {
+  auth: true,
+  invalidatePaths: ['/api/admin/posts', '/api/posts', '/api/discover', '/api/home/modules', '/api/stats', '/api/search'],
+})
+export const adminUpdatePost = (id, data) => apiPut(`/api/admin/posts/${id}`, data, {
+  auth: true,
+  invalidatePaths: [`/api/admin/posts/${id}`, '/api/admin/posts', '/api/posts', '/api/discover', '/api/home/modules', '/api/search'],
+})
+export const adminDeletePost = (id) => apiDelete(`/api/admin/posts/${id}`, {
+  auth: true,
+  invalidatePaths: [`/api/admin/posts/${id}`, '/api/admin/posts', '/api/posts', '/api/discover', '/api/home/modules', '/api/stats', '/api/search'],
+})
 export const generateAdminPostCover = (id, data = {}) =>
-  apiPost(`/api/admin/posts/${id}/generate-cover`, data, { auth: true })
+  apiPost(`/api/admin/posts/${id}/generate-cover`, data, {
+    auth: true,
+    invalidatePaths: [`/api/admin/posts/${id}`, '/api/admin/posts', '/api/posts', '/api/home/modules'],
+  })
 
 export async function adminUploadImage(file) {
   if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
@@ -37,9 +49,15 @@ export async function adminUploadImage(file) {
 }
 
 export const fetchSettings = () => apiGet('/api/settings')
-export const updateSettings = (data) => apiPut('/api/settings', data, { auth: true })
+export const updateSettings = (data) => apiPut('/api/settings', data, {
+  auth: true,
+  invalidatePaths: ['/api/settings', '/api/stats', '/api/home/modules'],
+})
 export const generateAdminHeroImage = (data = {}) =>
-  apiPost('/api/admin/settings/generate-hero', data, { auth: true })
+  apiPost('/api/admin/settings/generate-hero', data, {
+    auth: true,
+    invalidatePaths: ['/api/settings', '/api/home/modules'],
+  })
 
 export const fetchAdminPosts = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()
@@ -51,8 +69,14 @@ export const fetchAdminComments = (params = {}) => {
   return apiGet(`/api/admin/comments${qs ? `?${qs}` : ''}`, { auth: true })
 }
 
-export const approveComment = (id) => apiPut(`/api/admin/comments/${id}/approve`, {}, { auth: true })
-export const deleteComment = (id) => apiDelete(`/api/admin/comments/${id}`, { auth: true })
+export const approveComment = (id) => apiPut(`/api/admin/comments/${id}/approve`, {}, {
+  auth: true,
+  invalidatePaths: ['/api/admin/comments'],
+})
+export const deleteComment = (id) => apiDelete(`/api/admin/comments/${id}`, {
+  auth: true,
+  invalidatePaths: ['/api/admin/comments'],
+})
 
 export const fetchAdminStats = () => apiGet('/api/admin/stats', { auth: true })
 export const fetchAdminPublishingStatus = (params = {}) => {
@@ -60,10 +84,16 @@ export const fetchAdminPublishingStatus = (params = {}) => {
   return apiGet(`/api/admin/publishing-status${qs ? `?${qs}` : ''}`, { auth: true })
 }
 export const upsertAdminPublishingStatus = (data) =>
-  apiPost('/api/admin/publishing-status', data, { auth: true })
+  apiPost('/api/admin/publishing-status', data, {
+    auth: true,
+    invalidatePaths: ['/api/admin/publishing-status', '/api/home/modules'],
+  })
 
 export const fetchAdminImages = () => apiGet('/api/admin/images', { auth: true })
-export const deleteAdminImage = (filename) => apiDelete(`/api/admin/images/${filename}`, { auth: true })
+export const deleteAdminImage = (filename) => apiDelete(`/api/admin/images/${filename}`, {
+  auth: true,
+  invalidatePaths: ['/api/admin/images'],
+})
 
 export const fetchAdminContentHealth = () => apiGet('/api/admin/content-health', { auth: true })
 export const fetchAdminPublishingRunDetail = (id) =>
@@ -74,7 +104,10 @@ export const fetchAdminQualityInbox = (params = {}) => {
 }
 export const fetchAdminPostQuality = (id) => apiGet(`/api/admin/posts/${id}/quality`, { auth: true })
 export const updateAdminPostQualityReview = (id, data) =>
-  apiPut(`/api/admin/posts/${id}/quality-review`, data, { auth: true })
+  apiPut(`/api/admin/posts/${id}/quality-review`, data, {
+    auth: true,
+    invalidatePaths: [`/api/admin/posts/${id}/quality`, '/api/admin/quality-inbox', '/api/posts'],
+  })
 export const fetchAdminTopicFeedback = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
   return apiGet(`/api/admin/topic-feedback${qs ? `?${qs}` : ''}`, { auth: true })
@@ -82,20 +115,38 @@ export const fetchAdminTopicFeedback = (params = {}) => {
 
 export const fetchAdminSeries = (requestOptions = {}) =>
   apiGet('/api/admin/series', { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
-export const createAdminSeries = (data) => apiPost('/api/admin/series', data, { auth: true })
-export const updateAdminSeries = (id, data) => apiPut(`/api/admin/series/${id}`, data, { auth: true })
+export const createAdminSeries = (data) => apiPost('/api/admin/series', data, {
+  auth: true,
+  invalidatePaths: ['/api/admin/series', '/api/series', '/api/home/modules', '/api/search'],
+})
+export const updateAdminSeries = (id, data) => apiPut(`/api/admin/series/${id}`, data, {
+  auth: true,
+  invalidatePaths: [`/api/admin/series/${id}`, '/api/admin/series', '/api/series', '/api/home/modules', '/api/search'],
+})
 export const generateAdminSeriesCover = (id, data = {}) =>
-  apiPost(`/api/admin/series/${id}/generate-cover`, data, { auth: true })
+  apiPost(`/api/admin/series/${id}/generate-cover`, data, {
+    auth: true,
+    invalidatePaths: [`/api/admin/series/${id}`, '/api/admin/series', '/api/series', '/api/home/modules'],
+  })
 export const fetchAdminCoverGenerationStatus = (requestOptions = {}) =>
   apiGet('/api/admin/cover-generation-status', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
 
 export const fetchAdminTopicProfiles = (requestOptions = {}) =>
   apiGet('/api/admin/topic-profiles', { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
-export const createAdminTopicProfile = (data) => apiPost('/api/admin/topic-profiles', data, { auth: true })
+export const createAdminTopicProfile = (data) => apiPost('/api/admin/topic-profiles', data, {
+  auth: true,
+  invalidatePaths: ['/api/admin/topic-profiles', '/api/topics', '/api/home/modules', '/api/search'],
+})
 export const updateAdminTopicProfile = (id, data) =>
-  apiPut(`/api/admin/topic-profiles/${id}`, data, { auth: true })
+  apiPut(`/api/admin/topic-profiles/${id}`, data, {
+    auth: true,
+    invalidatePaths: [`/api/admin/topic-profiles/${id}`, '/api/admin/topic-profiles', '/api/topics', '/api/home/modules', '/api/search'],
+  })
 export const generateAdminTopicProfileCover = (id, data = {}) =>
-  apiPost(`/api/admin/topic-profiles/${id}/generate-cover`, data, { auth: true })
+  apiPost(`/api/admin/topic-profiles/${id}/generate-cover`, data, {
+    auth: true,
+    invalidatePaths: [`/api/admin/topic-profiles/${id}`, '/api/admin/topic-profiles', '/api/topics', '/api/home/modules'],
+  })
 
 export const fetchAdminTopicHealth = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()
@@ -109,7 +160,10 @@ export const fetchAdminSubscriptionHealth = (requestOptions = {}) =>
   apiGet('/api/admin/subscription-health', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
 
 export const upsertAdminPublishingMetadata = (data) =>
-  apiPost('/api/admin/publishing-metadata', data, { auth: true })
+  apiPost('/api/admin/publishing-metadata', data, {
+    auth: true,
+    invalidatePaths: ['/api/admin/publishing-metadata', '/api/home/modules', '/api/topics', '/api/series', '/api/search'],
+  })
 
 const HEALTH_CHECK_TIMEOUT = 10000
 

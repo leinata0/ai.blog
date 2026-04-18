@@ -20,6 +20,11 @@ import {
   resolveFormatProfileName,
 } from './lib/blog-format.mjs'
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  buildPostCoverPrompt,
+  buildTopicCoverPrompt as buildUnifiedTopicCoverPrompt,
+  presetFramingHint,
+} from './lib/cover-art.mjs'
 import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
 
@@ -1973,7 +1978,7 @@ async function downloadAndUploadImageResult(imageUrl, token) {
   }
 }
 
-async function generateCoverWithGrok(prompt, token) {
+async function generateCoverWithGrok(prompt, token, preset = 'post_cover') {
   if (!XAI_API_KEY) {
     return buildCoverGenerationResult({
       ok: false,
@@ -1990,7 +1995,7 @@ async function generateCoverWithGrok(prompt, token) {
       },
       body: JSON.stringify({
         model: 'grok-imagine-image',
-        prompt: `Wide landscape banner image, cinematic, high quality: ${prompt}`,
+        prompt: `${presetFramingHint(preset)}: ${prompt}`,
         n: 1,
       }),
       signal: AbortSignal.timeout(60000),
@@ -2445,14 +2450,20 @@ function buildTopicCoverPrompt(payload, post = {}) {
   const thesis = String(topicMetadata.primary_thesis || '').trim()
   const topicTitle = String(topicMetadata.topic_title || post?.title || '').trim()
   const family = String(topicMetadata.topic_family || '').trim()
-  return [
-    'Editorial hero image for a Chinese AI topic line.',
-    `Topic: ${zhTitle || topicTitle}.`,
-    zhSubtitle ? `Subtitle: ${zhSubtitle}.` : '',
-    thesis ? `Thesis: ${thesis}.` : '',
-    family ? `Theme family: ${family}.` : '',
-    'No text overlay, no watermark, cinematic composition, wide landscape banner.',
-  ].filter(Boolean).join(' ')
+  return buildUnifiedTopicCoverPrompt(
+    {
+      title: zhTitle || topicTitle,
+      topic_key: String(payload?.topic_metadata?.topic_key || post?.topic_key || topicTitle || '').trim(),
+      description: [zhSubtitle, thesis].filter(Boolean).join(' '),
+    },
+    {
+      title: String(post?.title || '').trim(),
+      summary: String(post?.summary || '').trim(),
+    },
+    {
+      manualPrompt: family ? `Theme family: ${family}.` : '',
+    },
+  )
 }
 
 async function enrichTopicMetadataCoverIfNeeded(token, payload, context = {}) {
@@ -2468,7 +2479,7 @@ async function enrichTopicMetadataCoverIfNeeded(token, payload, context = {}) {
 
   try {
     const prompt = buildTopicCoverPrompt(payload, post)
-    const topicCoverResult = await generateCoverWithGrok(prompt, token)
+    const topicCoverResult = await generateCoverWithGrok(prompt, token, 'topic_cover')
     if (!topicCoverResult.ok || !topicCoverResult.imageUrl) {
       logCoverGenerationResult(`Topic cover for post ${postId}`, topicCoverResult)
       return payload
@@ -2603,12 +2614,20 @@ async function buildPublishablePost({
     throw new Error(`Quality gate failed after repair attempts: ${gate.reasons.join(', ')}`)
   }
 
+  const normalizedPost = normalizeForApi(postForGate, fixedSlug, outline, metadata)
+  const normalizedOutline = {
+    ...outline,
+    cover_prompt: buildPostCoverPrompt(normalizedPost, {
+      manualPrompt: String(outline?.cover_prompt || '').trim(),
+    }),
+  }
+
   return {
-    outline,
+    outline: normalizedOutline,
     researchPack,
     imagePlans,
     gate,
-    post: normalizeForApi(postForGate, fixedSlug, outline, metadata),
+    post: normalizedPost,
   }
 }
 
@@ -2755,7 +2774,7 @@ async function runDailyMode(config, cliOptions) {
     let coverImage = ''
     if (XAI_API_KEY && token && artifact.outline.cover_prompt) {
       console.log(`Generating Grok cover image for ${slug}...`)
-      const coverResult = await generateCoverWithGrok(artifact.outline.cover_prompt, token)
+      const coverResult = await generateCoverWithGrok(artifact.outline.cover_prompt, token, 'post_cover')
       logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
       coverImage = coverResult.ok ? coverResult.imageUrl : ''
     }
@@ -3033,7 +3052,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
   let coverImage = ''
   if (XAI_API_KEY && token && outline.cover_prompt) {
     console.log('Generating Grok cover image...')
-    const coverResult = await generateCoverWithGrok(outline.cover_prompt, token)
+    const coverResult = await generateCoverWithGrok(outline.cover_prompt, token, 'post_cover')
     logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
     coverImage = coverResult.ok ? coverResult.imageUrl : ''
   }

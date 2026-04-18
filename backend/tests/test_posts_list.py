@@ -5,6 +5,7 @@ def test_list_posts_returns_items(client, seeded_db):
     assert len(body["items"]) >= 1
     assert {"title", "slug", "summary", "tags"}.issubset(body["items"][0].keys())
     assert {"series_slug", "source_count", "quality_score", "reading_time"}.issubset(body["items"][0].keys())
+    assert "content_md" not in body["items"][0]
 
 
 def test_list_posts_filter_by_tag(client, seeded_db):
@@ -28,3 +29,17 @@ def test_post_tag_relationship(db_session):
 
     assert len(post.tags) == 1
     assert post.tags[0].slug == "fastapi"
+
+
+def test_search_returns_zero_result_rescue_metadata(client, seeded_db):
+    client.get("/api/search", params={"q": "agent runtime"})
+    client.get("/api/search", params={"q": "model launches"})
+
+    resp = client.get("/api/search", params={"q": "totally missing signal"})
+    assert resp.status_code == 200
+
+    payload = resp.json()
+    assert "series_suggestions" in payload
+    assert "popular_queries" in payload
+    assert isinstance(payload["series_suggestions"], list)
+    assert isinstance(payload["popular_queries"], list)

@@ -1,0 +1,65 @@
+{
+  "version": "2026-04-editorial-tech-v1",
+  "brand_palette": [
+    "deep navy blue",
+    "bright editorial blue",
+    "electric cyan accent",
+    "mist white"
+  ],
+  "brand_motifs": [
+    "soft glass panels",
+    "signal ribbons",
+    "subtle grid",
+    "layered depth",
+    "editorial light"
+  ],
+  "layout_rules": [
+    "single focal subject",
+    "clean structure",
+    "avoid collage",
+    "preserve breathing room"
+  ],
+  "negative_rules": [
+    "readable text",
+    "title typography",
+    "logo",
+    "watermark",
+    "fake ui screenshot",
+    "code editor",
+    "chart axis labels",
+    "diagram labels",
+    "device mockup",
+    "magazine masthead",
+    "literal website screenshot"
+  ],
+  "presets": {
+    "site_hero": {
+      "label": "Homepage hero poster",
+      "orientation": "vertical",
+      "framing_hint": "4:5 vertical editorial poster, premium homepage hero, high quality",
+      "prompt_clause": "A refined editorial tech poster for a Chinese AI blog homepage, with one clear focal subject and calm premium energy.",
+      "safe_area_clause": "Keep the center composition strong and avoid relying on tiny edge details."
+    },
+    "post_cover": {
+      "label": "Article cover banner",
+      "orientation": "landscape",
+      "framing_hint": "Wide landscape editorial banner, website cover image, high quality",
+      "prompt_clause": "A horizontal editorial cover banner for a Chinese AI article, abstract but readable, shaped for a website story card.",
+      "safe_area_clause": "Reserve the lower 30 percent as a calm text-safe area with fewer sharp details."
+    },
+    "series_cover": {
+      "label": "Series cover banner",
+      "orientation": "landscape",
+      "framing_hint": "Wide landscape editorial banner, series cover image, high quality",
+      "prompt_clause": "A horizontal editorial banner that feels stable and repeatable for a long-running AI content series.",
+      "safe_area_clause": "Keep the lower 30 percent calmer for overlay copy and keep the visual center in the upper middle."
+    },
+    "topic_cover": {
+      "label": "Topic cover banner",
+      "orientation": "landscape",
+      "framing_hint": "Wide landscape editorial banner, topic cover image, high quality",
+      "prompt_clause": "A horizontal editorial banner for an AI topic line, emphasizing continuity, signal flow, and long-term tracking rather than a single event.",
+      "safe_area_clause": "Reserve the lower 30 percent as a calmer overlay-safe zone and avoid clutter."
+    }
+  }
+}

@@ -33,4 +33,5 @@ def test_get_stats(client, seeded_db):
     data = resp.json()
     assert data["post_count"] == 4
     assert data["tag_count"] == 8
+    assert data["series_count"] >= 0
     assert "category_count" not in data

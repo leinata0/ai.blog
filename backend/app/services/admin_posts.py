@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
 from sqlalchemy import Select, func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 
-from app.models import Post
+from app.models import Post, Tag
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,32 @@ def list_admin_posts(
 ) -> tuple[list[Post], int]:
     stmt = (
         select(Post)
-        .options(selectinload(Post.tags))
+        .options(
+            load_only(
+                Post.id,
+                Post.title,
+                Post.slug,
+                Post.summary,
+                Post.cover_image,
+                Post.content_type,
+                Post.topic_key,
+                Post.published_mode,
+                Post.coverage_date,
+                Post.series_slug,
+                Post.series_order,
+                Post.editor_note,
+                Post.source_count,
+                Post.quality_score,
+                Post.reading_time,
+                Post.view_count,
+                Post.is_published,
+                Post.is_pinned,
+                Post.like_count,
+                Post.created_at,
+                Post.updated_at,
+            ),
+            selectinload(Post.tags).load_only(Tag.name, Tag.slug),
+        )
         .order_by(Post.created_at.desc(), Post.id.desc())
     )
     count_stmt = select(func.count(Post.id))

@@ -4,6 +4,15 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  buildPostCoverPrompt,
+  buildPromptContext,
+  extractHeadings,
+  presetFramingHint,
+  sanitizeCoverPrompt,
+} from './lib/cover-art.mjs'
+
+export { buildPromptContext, extractHeadings, sanitizeCoverPrompt } from './lib/cover-art.mjs'
 
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
@@ -16,61 +25,8 @@ const POST_ID = Number(process.env.POST_ID || 0)
 const MANUAL_COVER_PROMPT = String(process.env.COVER_PROMPT || '').trim()
 const OVERWRITE_EXISTING_COVER = String(process.env.OVERWRITE_EXISTING_COVER || 'false').toLowerCase() === 'true'
 
-export function extractHeadings(contentMd, limit = 6) {
-  const matches = String(contentMd || '')
-    .split(/\r?\n/)
-    .map((line) => line.match(/^##+\s+(.*)$/)?.[1]?.trim() || '')
-    .filter(Boolean)
-  return matches.slice(0, limit)
-}
-
-function stripMarkdown(value) {
-  return String(value || '')
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`]*`/g, ' ')
-    .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
-    .replace(/\[[^\]]*]\([^)]*\)/g, ' ')
-    .replace(/^#+\s+/gm, '')
-    .replace(/[>*_|-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-export function buildPromptContext(post) {
-  const headings = extractHeadings(post?.content_md || '')
-  const summary = stripMarkdown(post?.summary || '').slice(0, 240)
-  const bodyPreview = stripMarkdown(post?.content_md || '').slice(0, 600)
-  return {
-    title: String(post?.title || '').trim(),
-    summary,
-    headings,
-    tags: Array.isArray(post?.tags) ? post.tags.map((tag) => typeof tag === 'string' ? tag : tag?.name || tag?.slug || '').filter(Boolean) : [],
-    contentType: String(post?.content_type || 'post').trim(),
-    bodyPreview,
-  }
-}
-
-export function sanitizeCoverPrompt(prompt) {
-  return String(prompt || '')
-    .replace(/^["'`]+|["'`]+$/g, '')
-    .replace(/^wide landscape banner[^:]*:\s*/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 export function buildHeuristicCoverPrompt(post) {
-  const context = buildPromptContext(post)
-  const headingPart = context.headings.length > 0
-    ? `Key angles: ${context.headings.slice(0, 3).join('; ')}.`
-    : ''
-  const tagPart = context.tags.length > 0
-    ? `Visual hints: ${context.tags.slice(0, 4).join(', ')}.`
-    : ''
-  return sanitizeCoverPrompt(
-    `Editorial hero illustration for a Chinese tech blog article about ${context.title}. `
-    + `${context.summary} ${headingPart} ${tagPart} `
-    + 'Professional, modern, cinematic, no text overlay, no watermark, strong focal subject, suitable for a wide website banner.'
-  )
+  return buildPostCoverPrompt(post)
 }
 
 async function login() {
@@ -148,7 +104,9 @@ async function generatePromptWithSiliconFlow(post) {
 
 async function buildAutoCoverPrompt(post) {
   const aiPrompt = await generatePromptWithSiliconFlow(post)
-  if (aiPrompt) return aiPrompt
+  if (aiPrompt) {
+    return buildPostCoverPrompt(post, { manualPrompt: aiPrompt })
+  }
   return buildHeuristicCoverPrompt(post)
 }
 
@@ -205,7 +163,7 @@ async function generateCoverWithGrok(prompt, token) {
     },
     body: JSON.stringify({
       model: 'grok-imagine-image',
-      prompt: `Wide landscape banner image, cinematic, high quality: ${prompt}`,
+      prompt: `${presetFramingHint('post_cover')}: ${prompt}`,
       n: 1,
     }),
     signal: AbortSignal.timeout(60000),

@@ -165,7 +165,7 @@ export function normalizePostList(payload) {
   }
 }
 
-function normalizeSeries(payload = {}) {
+export function normalizeSeries(payload = {}) {
   return {
     ...payload,
     slug: payload.slug ?? '',
@@ -181,7 +181,7 @@ function normalizeSeries(payload = {}) {
   }
 }
 
-function normalizeTopic(payload = {}) {
+export function normalizeTopic(payload = {}) {
   const profile = payload.profile && typeof payload.profile === 'object' ? payload.profile : {}
   const topicPosts = Array.isArray(payload.posts)
     ? payload.posts
@@ -294,6 +294,15 @@ export async function fetchSearch(params = {}, requestOptions = {}) {
     page: payload?.page ?? 1,
     page_size: payload?.page_size ?? items.length,
     topics: Array.isArray(payload?.topics) ? payload.topics.map((topic) => normalizeTopic(topic)) : [],
+    series_suggestions: Array.isArray(payload?.series_suggestions) ? payload.series_suggestions.map((series) => normalizeSeries(series)) : [],
+    popular_queries: Array.isArray(payload?.popular_queries)
+      ? payload.popular_queries.map((item) => ({
+          query: item?.query ?? '',
+          search_count: item?.search_count ?? 0,
+          last_result_count: item?.last_result_count ?? 0,
+          last_searched_at: item?.last_searched_at ?? null,
+        }))
+      : [],
     facets: payload?.facets ?? {},
   }
 }
@@ -331,7 +340,10 @@ export async function fetchComments(slug, requestOptions = {}) {
 }
 
 export async function postComment(slug, nickname, content, requestOptions = {}) {
-  return apiPost(`/api/posts/${slug}/comments`, { nickname, content }, requestOptions)
+  return apiPost(`/api/posts/${slug}/comments`, { nickname, content }, {
+    ...requestOptions,
+    invalidatePaths: requestOptions.invalidatePaths ?? [`/api/posts/${slug}/comments`],
+  })
 }
 
 export async function fetchArchive(requestOptions = {}) {
@@ -347,7 +359,10 @@ export async function fetchAllTags(requestOptions = {}) {
   return apiGet('/api/tags', requestOptions)
 }
 
-export const likePost = (slug, requestOptions = {}) => apiPost(`/api/posts/${slug}/like`, undefined, requestOptions)
+export const likePost = (slug, requestOptions = {}) => apiPost(`/api/posts/${slug}/like`, undefined, {
+  ...requestOptions,
+  invalidatePaths: requestOptions.invalidatePaths ?? [`/api/posts/${slug}`],
+})
 export const fetchRelatedPosts = async (slug, requestOptions = {}) => {
   const posts = await apiGet(`/api/posts/${slug}/related`, requestOptions)
   return Array.isArray(posts) ? posts.map((post) => normalizePost(post)) : []

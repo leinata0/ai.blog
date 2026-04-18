@@ -837,9 +837,10 @@ def test_admin_post_generate_cover_uses_artifact_prompt(client, monkeypatch):
 
     captured = {}
 
-    def fake_generate_cover_asset(prompt, filename_hint):
+    def fake_generate_cover_asset(prompt, filename_hint, framing_hint=""):
         captured["prompt"] = prompt
         captured["filename_hint"] = filename_hint
+        captured["framing_hint"] = framing_hint
         return "https://img.example.com/post-auto.png"
 
     monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
@@ -853,8 +854,11 @@ def test_admin_post_generate_cover_uses_artifact_prompt(client, monkeypatch):
     payload = response.json()
     assert payload["generated"] is True
     assert payload["cover_image"] == "https://img.example.com/post-auto.png"
-    assert captured["prompt"] == "cinematic privacy-first product trust scene"
+    assert payload["preset"] == "post_cover"
+    assert payload["art_direction_version"]
+    assert "cinematic privacy-first product trust scene" in captured["prompt"]
     assert captured["filename_hint"] == "post-trust-led-privacy-ux.png"
+    assert "website cover image" in captured["framing_hint"]
 
 
 def test_admin_post_generate_cover_reports_cover_exists(client):
@@ -1014,9 +1018,10 @@ def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):
 
     captured = {}
 
-    def fake_generate_cover_asset(prompt, filename_hint):
+    def fake_generate_cover_asset(prompt, filename_hint, framing_hint=""):
         captured["prompt"] = prompt
         captured["filename_hint"] = filename_hint
+        captured["framing_hint"] = framing_hint
         return "https://img.example.com/topic-auto.png"
 
     monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
@@ -1031,6 +1036,7 @@ def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):
     assert response.json()["cover_image"] == "https://img.example.com/topic-auto.png"
     assert "智能体记忆" in captured["prompt"]
     assert captured["filename_hint"] == "topic-agent-memory.png"
+    assert "topic cover image" in captured["framing_hint"]
 
 
 def test_admin_series_generate_cover_with_grok(client, monkeypatch):
@@ -1066,9 +1072,10 @@ def test_admin_series_generate_cover_with_grok(client, monkeypatch):
 
     captured = {}
 
-    def fake_generate_cover_asset(prompt, filename_hint):
+    def fake_generate_cover_asset(prompt, filename_hint, framing_hint=""):
         captured["prompt"] = prompt
         captured["filename_hint"] = filename_hint
+        captured["framing_hint"] = framing_hint
         return "https://img.example.com/series-auto.png"
 
     monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
@@ -1083,6 +1090,7 @@ def test_admin_series_generate_cover_with_grok(client, monkeypatch):
     assert response.json()["cover_image"] == "https://img.example.com/series-auto.png"
     assert "智能体运营" in captured["prompt"]
     assert captured["filename_hint"] == "series-ai-agent-ops.png"
+    assert "series cover image" in captured["framing_hint"]
 
 
 def test_delete_post(client):

@@ -35,14 +35,16 @@ export default function EditorialSectionHeader({
   actionIcon,
   className = '',
   titleClassName = '',
+  eyebrowClassName = '',
+  descriptionClassName = '',
   children,
 }) {
   return (
     <div className={`flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between ${className}`.trim()}>
       <div className="min-w-0">
-        {eyebrow ? <div className="section-kicker">{eyebrow}</div> : null}
+        {eyebrow ? <div className={`section-kicker ${eyebrowClassName}`.trim()}>{eyebrow}</div> : null}
         {title ? <h2 className={`section-title ${titleClassName}`.trim()}>{title}</h2> : null}
-        {description ? <p className="section-description">{description}</p> : null}
+        {description ? <p className={`section-description ${descriptionClassName}`.trim()}>{description}</p> : null}
       </div>
 
       {children || actionLabel ? (

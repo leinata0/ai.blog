@@ -40,6 +40,7 @@ export default function AdminSettings() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [coverStatus, setCoverStatus] = useState(null)
+  const [heroDiagnostics, setHeroDiagnostics] = useState(null)
   const avatarFileRef = useRef(null)
   const heroFileRef = useRef(null)
 
@@ -132,6 +133,12 @@ export default function AdminSettings() {
     setMsg('')
     try {
       const result = await generateAdminHeroImage({ overwrite: true })
+      setHeroDiagnostics({
+        prompt: result?.prompt || '',
+        preset: result?.preset || '',
+        artDirectionVersion: result?.art_direction_version || '',
+        error: result?.error || '',
+      })
       if (!result?.generated || !result?.hero_image) {
         setMsg(result?.error || 'Hero 海报生成失败')
         return
@@ -332,6 +339,14 @@ export default function AdminSettings() {
             <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
               {coverStatus?.message || '后台一键生图依赖 Render 后端运行环境中的 XAI_API_KEY。'}
             </p>
+            {heroDiagnostics ? (
+              <div className="mt-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-3 text-xs leading-6 text-[var(--text-secondary)]">
+                <div>Preset：{heroDiagnostics.preset || 'site_hero'}</div>
+                <div>Art Direction：{heroDiagnostics.artDirectionVersion || 'unknown'}</div>
+                {heroDiagnostics.prompt ? <div>Prompt：{heroDiagnostics.prompt}</div> : null}
+                {heroDiagnostics.error ? <div>Last Error：{heroDiagnostics.error}</div> : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="overflow-hidden rounded-[1.4rem] border border-[var(--border-muted)] bg-[var(--bg-surface)]">

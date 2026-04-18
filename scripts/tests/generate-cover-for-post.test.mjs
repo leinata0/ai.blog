@@ -44,7 +44,7 @@ test('buildHeuristicCoverPrompt builds a non-empty editorial prompt', () => {
     content_md: '## 一、问题\n\n内容\n\n## 二、迁移方案\n\n内容',
     tags: ['devops', 'neon', 'cloudflare'],
   })
-  assert.ok(prompt.includes('Editorial hero illustration'))
+  assert.ok(prompt.includes('horizontal editorial cover banner'))
   assert.ok(prompt.includes('Neon + R2'))
-  assert.ok(prompt.includes('wide website banner'))
+  assert.ok(prompt.includes('Strictly exclude readable text'))
 })

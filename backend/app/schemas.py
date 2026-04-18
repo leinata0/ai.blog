@@ -260,6 +260,61 @@ class DiscoverOut(BaseModel):
     editor_picks: list[PostListItemOut] = Field(default_factory=list)
 
 
+class HomeHeroOut(BaseModel):
+    image: str = ""
+    image_alt: str = ""
+    preset: str = "site_hero"
+    art_direction_version: str = ""
+
+
+class HomeTopicPulseItemOut(BaseModel):
+    topic_key: str
+    title: str
+    description: str = ""
+    cover_image: str = ""
+    post_count: int = 0
+    source_count: int = 0
+    latest_post_at: datetime | None = None
+    avg_quality_score: float | None = None
+    is_featured: bool = False
+
+
+class HomeTopicPulseOut(BaseModel):
+    title: str = "正在发酵"
+    description: str = ""
+    items: list[HomeTopicPulseItemOut] = Field(default_factory=list)
+
+
+class HomeContinueReadingOut(BaseModel):
+    title: str = "继续追更"
+    empty_hint: str = ""
+    local_only: bool = True
+    items: list[PostListItemOut] = Field(default_factory=list)
+
+
+class HomeSubscriptionCtaOut(BaseModel):
+    title: str = "订阅捷径"
+    description: str = ""
+    feeds_path: str = "/feeds"
+    rss_url: str = "/feed.xml"
+    primary_label: str = "打开订阅中心"
+    primary_to: str = "/feeds"
+    secondary_label: str = "RSS"
+    secondary_to: str = "/feed.xml"
+    email_enabled: bool = False
+    web_push_enabled: bool = False
+
+
+class HomeModulesOut(BaseModel):
+    hero: HomeHeroOut
+    latest_weekly: list[PostListItemOut] = Field(default_factory=list)
+    latest_daily: list[PostListItemOut] = Field(default_factory=list)
+    featured_series: list[SeriesOut] = Field(default_factory=list)
+    topic_pulse: HomeTopicPulseOut
+    continue_reading: HomeContinueReadingOut
+    subscription_cta: HomeSubscriptionCtaOut
+
+
 class ContentHealthSummaryOut(BaseModel):
     total_posts: int = 0
     posts_with_series: int = 0
@@ -552,6 +607,9 @@ class CoverGenerateResponse(BaseModel):
     id: int
     cover_image: str
     generated: bool = False
+    prompt: str | None = None
+    preset: str | None = None
+    art_direction_version: str | None = None
     error: str = ""
     error_code: str = ""
 
@@ -743,6 +801,8 @@ class SiteHeroGenerateResponse(BaseModel):
     generated: bool = False
     hero_image: str | None = None
     prompt: str | None = None
+    preset: str | None = None
+    art_direction_version: str | None = None
     error_code: str = ""
     error: str = ""
 
@@ -826,6 +886,7 @@ class StatsOut(BaseModel):
     model_config = {"from_attributes": True}
     post_count: int
     tag_count: int
+    series_count: int = 0
 
 
 # ── Comment schemas ───────────────────────────────

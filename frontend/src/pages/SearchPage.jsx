@@ -8,6 +8,7 @@ import {
   fetchSeriesList,
   fetchTopics,
   prefetchPostDetail,
+  prefetchSeriesDetail,
   prefetchTopicDetail,
 } from '../api/posts'
 import Navbar from '../components/Navbar'
@@ -106,6 +107,8 @@ export default function SearchPage() {
   })
   const [results, setResults] = useState([])
   const [topicSuggestions, setTopicSuggestions] = useState([])
+  const [seriesSuggestions, setSeriesSuggestions] = useState([])
+  const [popularQueries, setPopularQueries] = useState([])
   const [topics, setTopics] = useState([])
   const [seriesList, setSeriesList] = useState([])
   const [loading, setLoading] = useState(false)
@@ -182,6 +185,8 @@ export default function SearchPage() {
     if (!query.trim()) {
       setResults([])
       setTopicSuggestions(topics.slice(0, 4))
+      setSeriesSuggestions([])
+      setPopularQueries([])
       setLoading(false)
       return
     }
@@ -206,12 +211,16 @@ export default function SearchPage() {
         startTransition(() => {
           setResults(Array.isArray(payload?.items) ? payload.items : [])
           setTopicSuggestions(Array.isArray(payload?.topics) ? payload.topics : [])
+          setSeriesSuggestions(Array.isArray(payload?.series_suggestions) ? payload.series_suggestions : [])
+          setPopularQueries(Array.isArray(payload?.popular_queries) ? payload.popular_queries : [])
         })
       })
       .catch((err) => {
         if (controller.signal.aborted || err?.name === 'AbortError') return
         setResults([])
         setTopicSuggestions([])
+        setSeriesSuggestions([])
+        setPopularQueries([])
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -235,6 +244,18 @@ export default function SearchPage() {
     () => Object.fromEntries(topics.map((topic) => [topic.topic_key, getTopicTitle(topic)])),
     [topics],
   )
+  const rescueTopics = useMemo(
+    () => (topicSuggestions.length > 0 ? topicSuggestions.slice(0, 4) : topics.slice(0, 4)),
+    [topicSuggestions, topics],
+  )
+  const rescueSeries = useMemo(
+    () => (seriesSuggestions.length > 0 ? seriesSuggestions.slice(0, 4) : seriesList.slice(0, 4)),
+    [seriesList, seriesSuggestions],
+  )
+  const rescueQueries = useMemo(
+    () => popularQueries.filter((item) => item?.query).slice(0, 6),
+    [popularQueries],
+  )
 
   function prefetchPost(slug) {
     prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
@@ -244,9 +265,13 @@ export default function SearchPage() {
     prefetchTopicDetail(topicKey, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
   }
 
-  function handleSubmit(event) {
-    event.preventDefault()
-    const trimmed = queryInput.trim()
+  function prefetchSeries(slug) {
+    prefetchSeriesDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }
+
+  function applySearch(nextQuery) {
+    const trimmed = String(nextQuery || '').trim()
+    setQueryInput(trimmed)
     setQuery(trimmed)
     const next = new URLSearchParams()
     if (trimmed) next.set('q', trimmed)
@@ -254,6 +279,11 @@ export default function SearchPage() {
       if (value) next.set(key, value)
     })
     setSearchParams(next)
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault()
+    applySearch(queryInput)
   }
 
   return (
@@ -387,7 +417,101 @@ export default function SearchPage() {
                 />
               ))
             ) : (
-              <EmptyStatePanel title="还没有匹配结果" description={emptyMessage} icon={Search} />
+              <div className="space-y-4">
+                <EmptyStatePanel title="还没有匹配结果" description={emptyMessage} icon={Search} />
+
+                {hasActiveQuery ? (
+                  <section className="editorial-panel rounded-[1.8rem] px-6 py-6" data-ui="search-zero-rescue">
+                    <EditorialSectionHeader
+                      eyebrow="零结果救援"
+                      title="先从相邻主线恢复阅读路径"
+                      titleClassName="!text-[1.55rem]"
+                      description="没有完全命中时，先从相关主题、系列和热门查询切回更接近的阅读主线。"
+                    />
+
+                    <div className="mt-5 grid gap-5 xl:grid-cols-3">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--text-faint)' }}>
+                          相关主题
+                        </div>
+                        <div className="mt-3 space-y-3">
+                          {rescueTopics.length > 0 ? rescueTopics.map((topic) => (
+                            <Link
+                              key={topic.topic_key}
+                              to={`/topics/${topic.topic_key}`}
+                              onMouseEnter={() => prefetchTopic(topic.topic_key)}
+                              onFocus={() => prefetchTopic(topic.topic_key)}
+                              className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+                            >
+                              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                {getTopicTitle(topic)}
+                              </div>
+                              <div className="mt-1 text-xs leading-6" style={{ color: 'var(--text-faint)' }}>
+                                {topic.post_count ? `${topic.post_count} 篇文章` : '进入主题页继续追踪'}
+                              </div>
+                            </Link>
+                          )) : (
+                            <p className="text-sm leading-7" style={{ color: 'var(--text-faint)' }}>
+                              暂时没有更接近的主题建议。
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--text-faint)' }}>
+                          推荐系列
+                        </div>
+                        <div className="mt-3 space-y-3">
+                          {rescueSeries.length > 0 ? rescueSeries.map((series) => (
+                            <Link
+                              key={series.slug}
+                              to={`/series/${series.slug}`}
+                              onMouseEnter={() => prefetchSeries(series.slug)}
+                              onFocus={() => prefetchSeries(series.slug)}
+                              className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+                            >
+                              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                {getSeriesTitle(series)}
+                              </div>
+                              <div className="mt-1 text-xs leading-6" style={{ color: 'var(--text-faint)' }}>
+                                {series.description || '从系列页进入更适合恢复长期阅读脉络。'}
+                              </div>
+                            </Link>
+                          )) : (
+                            <p className="text-sm leading-7" style={{ color: 'var(--text-faint)' }}>
+                              暂时没有更接近的系列建议。
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--text-faint)' }}>
+                          热门查询
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {rescueQueries.length > 0 ? rescueQueries.map((item) => (
+                            <button
+                              key={item.query}
+                              type="button"
+                              onClick={() => applySearch(item.query)}
+                              className="rounded-full px-3 py-2 text-xs font-semibold transition-transform duration-200 hover:-translate-y-0.5"
+                              style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+                            >
+                              {item.query}
+                            </button>
+                          )) : (
+                            <p className="text-sm leading-7" style={{ color: 'var(--text-faint)' }}>
+                              暂时还没有足够的热门查询数据。
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
             )}
           </motion.div>
 

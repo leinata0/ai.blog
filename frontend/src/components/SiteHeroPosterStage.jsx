@@ -1,11 +1,12 @@
+import { useEffect, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 
 import { proxyImageUrl } from '../utils/proxyImage'
 
-function PosterSurface({ imageSrc, imageAlt, priority = false }) {
+function PosterSurface({ imageSrc, imageAlt, priority = false, imageFailed = false, onImageError }) {
   return (
     <div className="hero-poster-stage__surface">
-      {imageSrc ? (
+      {imageSrc && !imageFailed ? (
         <img
           src={imageSrc}
           alt={imageAlt}
@@ -13,9 +14,10 @@ function PosterSurface({ imageSrc, imageAlt, priority = false }) {
           loading={priority ? 'eager' : 'lazy'}
           fetchPriority={priority ? 'high' : 'auto'}
           referrerPolicy="no-referrer"
+          onError={onImageError}
         />
       ) : (
-        <div className="hero-poster-stage__placeholder" aria-hidden="true">
+        <div className="hero-poster-stage__placeholder" data-ui="home-hero-placeholder" aria-hidden="true">
           <div className="hero-poster-stage__placeholder-orb hero-poster-stage__placeholder-orb--primary" />
           <div className="hero-poster-stage__placeholder-orb hero-poster-stage__placeholder-orb--secondary" />
           <div className="hero-poster-stage__placeholder-ribbon hero-poster-stage__placeholder-ribbon--top" />
@@ -36,7 +38,12 @@ export default function SiteHeroPosterStage({
   imageAlt = 'Site hero poster',
 }) {
   const prefersReducedMotion = useReducedMotion()
+  const [imageFailed, setImageFailed] = useState(false)
   const imageSrc = image ? proxyImageUrl(image) : ''
+
+  useEffect(() => {
+    setImageFailed(false)
+  }, [imageSrc])
 
   return (
     <div className="hero-poster-stage" data-ui="home-hero-stage" data-layout="single-poster">
@@ -63,7 +70,13 @@ export default function SiteHeroPosterStage({
               }
         }
       >
-        <PosterSurface imageSrc={imageSrc} imageAlt={imageAlt} priority />
+        <PosterSurface
+          imageSrc={imageSrc}
+          imageAlt={imageAlt}
+          priority
+          imageFailed={imageFailed}
+          onImageError={() => setImageFailed(true)}
+        />
       </motion.div>
     </div>
   )

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import { buildPostCoverPrompt, presetFramingHint } from './lib/cover-art.mjs'
 
 const ARTICLE_FILE = process.env.ARTICLE_FILE || './content/blog-migration-neon-r2.mjs'
 const BLOG_API_BASE = resolveBlogApiBase()
@@ -83,7 +84,7 @@ async function downloadAndUploadImage(imageUrl, token) {
   return uploadData.url
 }
 
-async function generateCoverWithGrok(prompt, token) {
+async function generateCoverWithGrok(prompt, token, preset = 'post_cover') {
   if (!XAI_API_KEY || !prompt) return ''
 
   const resp = await fetch('https://api.x.ai/v1/images/generations', {
@@ -94,7 +95,7 @@ async function generateCoverWithGrok(prompt, token) {
     },
     body: JSON.stringify({
       model: 'grok-imagine-image',
-      prompt,
+      prompt: `${presetFramingHint(preset)}: ${prompt}`,
       n: 1,
     }),
     signal: AbortSignal.timeout(60000),
@@ -166,9 +167,12 @@ async function main() {
   }
 
   let coverImage = String(article.cover_image || '').trim()
-  if (!coverImage && article.cover_prompt) {
+  const normalizedCoverPrompt = buildPostCoverPrompt(article, {
+    manualPrompt: String(article.cover_prompt || '').trim(),
+  })
+  if (!coverImage && normalizedCoverPrompt) {
     console.log('Generating Grok cover image...')
-    coverImage = await generateCoverWithGrok(article.cover_prompt, token)
+    coverImage = await generateCoverWithGrok(normalizedCoverPrompt, token, 'post_cover')
     console.log(`Cover generated: ${coverImage}`)
   }
 

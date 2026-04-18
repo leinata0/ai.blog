@@ -60,7 +60,7 @@ export default function Sidebar() {
   const announcement = settings?.announcement || '新的日报、周报和主题主线会持续更新在这里。'
   const postCount = stats?.post_count ?? '-'
   const tagCount = stats?.tag_count ?? '-'
-  const categoryCount = stats?.category_count ?? '-'
+  const seriesCount = stats?.series_count ?? '-'
 
   useEffect(() => {
     setAvatarBroken(false)
@@ -101,7 +101,7 @@ export default function Sidebar() {
         <div className="mt-5 grid grid-cols-3 gap-3">
           <MetricLink to="/archive" label="文章" value={postCount} bordered />
           <MetricLink to="/tags" label="标签" value={tagCount} bordered />
-          <MetricLink label="分类" value={categoryCount} bordered />
+          <MetricLink to="/series" label="系列" value={seriesCount} bordered />
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">

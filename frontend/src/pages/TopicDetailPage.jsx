@@ -103,6 +103,12 @@ export default function TopicDetailPage() {
   const posts = topic?.posts || topic?.timeline || []
   const latestPost = posts[0] || null
   const starterPosts = posts.slice(0, 3)
+  const topicMetrics = useMemo(() => ([
+    { label: '累计文章', value: `${topic?.post_count || posts.length || 0}` },
+    { label: '来源信号', value: `${topic?.source_count || 0}` },
+    { label: '最近更新', value: topic?.latest_post_at ? formatDate(topic.latest_post_at) : '持续更新' },
+    { label: '平均质量', value: topic?.avg_quality_score ? `${topic.avg_quality_score}` : '待积累' },
+  ]), [posts.length, topic])
   const jsonLd = useMemo(() => ([
     buildCollectionPageJsonLd({
       siteUrl,
@@ -190,6 +196,23 @@ export default function TopicDetailPage() {
             )}
           />
         </motion.section>
+
+        <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {topicMetrics.map((item) => (
+            <div
+              key={item.label}
+              className="editorial-panel rounded-[1.4rem] px-5 py-4"
+              style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow-soft)' }}
+            >
+              <div className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--text-faint)' }}>
+                {item.label}
+              </div>
+              <div className="mt-2 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </section>
 
         <section className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr),300px]">
           <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="space-y-4">

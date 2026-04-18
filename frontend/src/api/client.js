@@ -3,6 +3,14 @@ import { buildApiUrl as buildResolvedApiUrl, resolveApiBase } from './base'
 const TIMEOUT = 30000
 const GET_CACHE_TTL = 15000
 const GET_STALE_TTL = 60000
+const SESSION_CACHE_PREFIX = 'blog.api-cache:'
+const SESSION_CACHE_MATCHERS = [
+  /^public:\/api\/settings(?:\?|$)/,
+  /^public:\/api\/stats(?:\?|$)/,
+  /^public:\/api\/home\/modules(?:\?|$)/,
+  /^public:\/api\/topics(?:\/|\?|$)/,
+  /^public:\/api\/series(?:\/|\?|$)/,
+]
 
 const getCache = new Map()
 const inflightGet = new Map()
@@ -44,12 +52,63 @@ function mergeAbortSignals(signals) {
   }
 }
 
+function canUseSessionStorage() {
+  if (typeof window === 'undefined') return false
+  try {
+    return Boolean(window.sessionStorage)
+  } catch {
+    return false
+  }
+}
+
+function shouldPersistCache(cacheKey) {
+  return SESSION_CACHE_MATCHERS.some((matcher) => matcher.test(cacheKey))
+}
+
+function readSessionCacheEntry(cacheKey) {
+  if (!canUseSessionStorage() || !shouldPersistCache(cacheKey)) return null
+  try {
+    const raw = window.sessionStorage.getItem(`${SESSION_CACHE_PREFIX}${cacheKey}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeSessionCacheEntry(cacheKey, entry) {
+  if (!canUseSessionStorage() || !shouldPersistCache(cacheKey)) return
+  try {
+    window.sessionStorage.setItem(`${SESSION_CACHE_PREFIX}${cacheKey}`, JSON.stringify(entry))
+  } catch {
+    // Ignore storage quota and serialization failures.
+  }
+}
+
+function deleteSessionCacheEntry(cacheKey) {
+  if (!canUseSessionStorage()) return
+  try {
+    window.sessionStorage.removeItem(`${SESSION_CACHE_PREFIX}${cacheKey}`)
+  } catch {
+    // Ignore storage deletion failures.
+  }
+}
+
 function readCacheEntry(cacheKey, now) {
-  const entry = getCache.get(cacheKey)
+  let entry = getCache.get(cacheKey)
+  if (!entry) {
+    entry = readSessionCacheEntry(cacheKey)
+    if (entry) {
+      getCache.set(cacheKey, entry)
+    }
+  }
   if (!entry) return null
 
   if (entry.staleUntil <= now) {
     getCache.delete(cacheKey)
+    deleteSessionCacheEntry(cacheKey)
     return null
   }
 
@@ -58,11 +117,13 @@ function readCacheEntry(cacheKey, now) {
 
 function writeCacheEntry(cacheKey, data, cacheTtl, staleTtl) {
   const now = Date.now()
-  getCache.set(cacheKey, {
+  const entry = {
     data,
     expiresAt: now + cacheTtl,
     staleUntil: now + Math.max(staleTtl, cacheTtl),
-  })
+  }
+  getCache.set(cacheKey, entry)
+  writeSessionCacheEntry(cacheKey, entry)
 }
 
 function requestGetKey(path, auth) {
@@ -188,34 +249,68 @@ export function apiPrefetchGet(path, opts = {}) {
 export function clearApiGetCache(matchPath = null) {
   if (!matchPath) {
     getCache.clear()
+    if (canUseSessionStorage()) {
+      for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+        const key = window.sessionStorage.key(index)
+        if (key?.startsWith(SESSION_CACHE_PREFIX)) {
+          window.sessionStorage.removeItem(key)
+        }
+      }
+    }
     return
   }
 
   for (const key of getCache.keys()) {
     if (typeof matchPath === 'string' && key.includes(matchPath)) {
       getCache.delete(key)
+      deleteSessionCacheEntry(key)
       continue
     }
     if (matchPath instanceof RegExp && matchPath.test(key)) {
       getCache.delete(key)
+      deleteSessionCacheEntry(key)
+    }
+  }
+
+  if (canUseSessionStorage()) {
+    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+      const storageKey = window.sessionStorage.key(index)
+      if (!storageKey?.startsWith(SESSION_CACHE_PREFIX)) continue
+      const rawCacheKey = storageKey.slice(SESSION_CACHE_PREFIX.length)
+      if (typeof matchPath === 'string' && rawCacheKey.includes(matchPath)) {
+        window.sessionStorage.removeItem(storageKey)
+        continue
+      }
+      if (matchPath instanceof RegExp && matchPath.test(rawCacheKey)) {
+        window.sessionStorage.removeItem(storageKey)
+      }
     }
   }
 }
 
-export async function apiPost(path, body, opts) {
+function invalidateRequestCaches(opts = {}) {
+  const targets = Array.isArray(opts.invalidatePaths)
+    ? opts.invalidatePaths
+    : opts.invalidatePaths
+      ? [opts.invalidatePaths]
+      : []
+  targets.filter(Boolean).forEach((target) => clearApiGetCache(target))
+}
+
+export async function apiPost(path, body, opts = {}) {
   const result = await request('POST', path, { body, ...opts })
-  clearApiGetCache()
+  invalidateRequestCaches(opts)
   return result
 }
 
-export async function apiPut(path, body, opts) {
+export async function apiPut(path, body, opts = {}) {
   const result = await request('PUT', path, { body, ...opts })
-  clearApiGetCache()
+  invalidateRequestCaches(opts)
   return result
 }
 
-export async function apiDelete(path, opts) {
+export async function apiDelete(path, opts = {}) {
   const result = await request('DELETE', path, opts)
-  clearApiGetCache()
+  invalidateRequestCaches(opts)
   return result
 }
