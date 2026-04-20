@@ -13,6 +13,12 @@
 - `Neon Postgres` 承载生产数据库
 - `Cloudflare R2 + Cloudflare` 承载图片与 CDN 分发
 
+## 线上地址
+
+- 正式访问地址：`https://www.563118077.xyz`
+- 该域名应作为站点的公开入口与 canonical host 使用
+- `PUBLIC_SITE_URL`、SEO canonical、RSS、sitemap 与前端路由输出都应保持与该域名一致
+
 ## 项目目标
 
 这个项目不是单纯的“博客模板”，而是一个偏内容系统化运营的 AI 资讯站：
@@ -197,6 +203,10 @@ npm run build
 2. `node ./scripts/prerender-public.mjs`
 
 预渲染脚本会生成首页、文章、主题、系列、归档等公开页面的 HTML。为避免滚动发布时前后端接口契约不一致，首页 bootstrap 已兼容从新接口回退到旧接口组合。
+
+当前正式站点访问地址为：
+
+- [www.563118077.xyz](https://www.563118077.xyz)
 
 ### Backend / Render
 
