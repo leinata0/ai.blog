@@ -109,6 +109,61 @@ async function fetchJson(apiBase, path) {
   return response.json()
 }
 
+async function fetchJsonWithStatus(apiBase, path) {
+  const response = await fetch(`${apiBase}${path}`, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'blog-prerender/1.0',
+    },
+  })
+
+  let data = null
+  if (response.ok) {
+    data = await response.json()
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data,
+  }
+}
+
+export async function loadHomeBootstrap(apiBase) {
+  const primaryPath = '/api/public/home-bootstrap?page=1&page_size=10'
+  let bootstrapResponse = null
+
+  try {
+    bootstrapResponse = await fetchJsonWithStatus(apiBase, primaryPath)
+  } catch (error) {
+    console.warn(`[prerender] home-bootstrap request failed, falling back to legacy public endpoints: ${error.message}`)
+  }
+
+  if (bootstrapResponse?.ok) {
+    return bootstrapResponse.data
+  }
+
+  if (bootstrapResponse && bootstrapResponse.status !== 404) {
+    throw new Error(`Failed to fetch ${primaryPath}: ${bootstrapResponse.status}`)
+  }
+
+  if (bootstrapResponse?.status === 404) {
+    console.warn('[prerender] home-bootstrap unavailable, falling back to legacy public endpoints.')
+  }
+
+  const [settings, homeModules, posts] = await Promise.all([
+    fetchJson(apiBase, '/api/settings'),
+    fetchJson(apiBase, '/api/home/modules'),
+    fetchJson(apiBase, '/api/posts?page=1&page_size=10'),
+  ])
+
+  return {
+    settings,
+    home_modules: homeModules,
+    posts,
+  }
+}
+
 function injectTemplate(template, { routePath, title, description, rootHtml, siteUrl, image = '', extraHead = '', extraScript = '' }) {
   const canonical = canonicalUrl(siteUrl, routePath)
   let html = template
@@ -460,7 +515,7 @@ function renderPostDetailPage(template, post, siteUrl) {
   })
 }
 
-async function main() {
+export async function main() {
   const template = await readFile(templatePath, 'utf8')
   const apiBase = normalizeUrl(process.env.PRERENDER_API_BASE || process.env.VITE_API_BASE || '')
   const siteUrl = normalizeUrl(process.env.PUBLIC_SITE_URL || 'https://563118077.xyz')
@@ -472,7 +527,7 @@ async function main() {
 
   console.log(`[prerender] using api base ${apiBase}`)
 
-  const homeBootstrap = await fetchJson(apiBase, '/api/public/home-bootstrap?page=1&page_size=10')
+  const homeBootstrap = await loadHomeBootstrap(apiBase)
   await writeRouteHtml('/', renderHomePage(template, homeBootstrap, siteUrl))
 
   const [archiveGroups, topicsPayload, seriesList, dailyDiscover, weeklyDiscover] = await Promise.all([
@@ -557,7 +612,9 @@ async function main() {
   )
 }
 
-main().catch((error) => {
-  console.error(`[prerender] failed: ${error.message}`)
-  process.exitCode = 1
-})
+if (process.argv[1] && resolve(process.argv[1]) === __filename) {
+  main().catch((error) => {
+    console.error(`[prerender] failed: ${error.message}`)
+    process.exitCode = 1
+  })
+}
