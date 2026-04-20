@@ -270,6 +270,30 @@ def ensure_schema_compat(engine) -> None:
             connection.execute(
                 text("CREATE INDEX IF NOT EXISTS ix_posts_series_slug ON posts (series_slug)")
             )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_created_at "
+                    "ON posts (is_published, created_at)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_content_type_created_at "
+                    "ON posts (is_published, content_type, created_at)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_topic_key_created_at "
+                    "ON posts (is_published, topic_key, created_at)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_series_slug_created_at "
+                    "ON posts (is_published, series_slug, created_at)"
+                )
+            )
 
     _create_table_if_missing(
         engine,

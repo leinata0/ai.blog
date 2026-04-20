@@ -1,5 +1,28 @@
 import { apiGet } from './client'
-import { normalizePost, normalizeSeries } from './posts'
+import { normalizePost, normalizePostList, normalizeSeries } from './posts'
+
+function normalizeSettings(payload = {}) {
+  return {
+    author_name: payload?.author_name ?? '',
+    bio: payload?.bio ?? '',
+    avatar_url: payload?.avatar_url ?? '',
+    hero_image: payload?.hero_image ?? '',
+    github_link: payload?.github_link ?? '',
+    announcement: payload?.announcement ?? '',
+    site_url: payload?.site_url ?? '',
+    friend_links: payload?.friend_links ?? '[]',
+  }
+}
+
+function buildQuery(params = {}) {
+  const qs = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return
+    qs.set(key, String(value))
+  })
+  const query = qs.toString()
+  return query ? `?${query}` : ''
+}
 
 function normalizeHero(payload = {}) {
   return {
@@ -63,5 +86,22 @@ export async function fetchHomeModules(requestOptions = {}) {
     topic_pulse: normalizeTopicPulse(payload?.topic_pulse),
     continue_reading: normalizeContinueReading(payload?.continue_reading),
     subscription_cta: normalizeSubscriptionCta(payload?.subscription_cta),
+  }
+}
+
+export async function fetchHomeBootstrap(params = {}, requestOptions = {}) {
+  const payload = await apiGet(`/api/public/home-bootstrap${buildQuery(params)}`, requestOptions)
+  return {
+    settings: normalizeSettings(payload?.settings),
+    home_modules: {
+      hero: normalizeHero(payload?.home_modules?.hero),
+      latest_weekly: Array.isArray(payload?.home_modules?.latest_weekly) ? payload.home_modules.latest_weekly.map((post) => normalizePost(post)) : [],
+      latest_daily: Array.isArray(payload?.home_modules?.latest_daily) ? payload.home_modules.latest_daily.map((post) => normalizePost(post)) : [],
+      featured_series: Array.isArray(payload?.home_modules?.featured_series) ? payload.home_modules.featured_series.map((series) => normalizeSeries(series)) : [],
+      topic_pulse: normalizeTopicPulse(payload?.home_modules?.topic_pulse),
+      continue_reading: normalizeContinueReading(payload?.home_modules?.continue_reading),
+      subscription_cta: normalizeSubscriptionCta(payload?.home_modules?.subscription_cta),
+    },
+    posts: normalizePostList(payload?.posts),
   }
 }

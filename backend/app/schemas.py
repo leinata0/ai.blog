@@ -791,6 +791,12 @@ class SiteSettingsUpdate(BaseModel):
     friend_links: str | None = None
 
 
+class HomeBootstrapOut(BaseModel):
+    settings: SiteSettingsOut
+    home_modules: HomeModulesOut
+    posts: PostListOut
+
+
 class SiteHeroGenerateRequest(BaseModel):
     prompt: str | None = None
     image_url: str | None = None

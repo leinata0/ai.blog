@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
+import logging
+from time import perf_counter
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 import httpx
-from fastapi import Depends, FastAPI, Query, Response
+from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
@@ -12,17 +14,19 @@ from app.bootstrap import initialize_runtime
 from app.db import get_db
 from app.env import clean_env, get_allowed_origins
 from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
+from app.http_cache import build_public_cache_control, public_json_response, public_text_response
 from app.models import Post, Series, SiteSettings, Tag
 from app.routers.admin import router as admin_router
-from app.routers.home import router as home_router
-from app.routers.posts import router as posts_router
+from app.routers.home import build_home_modules_payload, router as home_router
+from app.routers.posts import build_posts_list_payload, router as posts_router
 from app.routers.subscriptions import router as subscriptions_router
-from app.schemas import SiteSettingsOut, SiteSettingsUpdate, StatsOut
+from app.schemas import HomeBootstrapOut, SiteSettingsOut, SiteSettingsUpdate, StatsOut
 from app.site_config import resolve_public_site_url
 from app.storage import get_uploaded_image_bytes
 from app.uploads import UPLOADS_URL_PREFIX
 
 AUTO_SEED_ON_EMPTY = clean_env("AUTO_SEED_ON_EMPTY", "1") != "0"
+logger = logging.getLogger("blog.public")
 
 
 @asynccontextmanager
@@ -47,6 +51,52 @@ app.include_router(home_router)
 app.include_router(subscriptions_router)
 
 
+def build_settings_payload(db: Session) -> dict:
+    settings = db.query(SiteSettings).first()
+    return {
+        "author_name": settings.author_name,
+        "bio": settings.bio,
+        "avatar_url": settings.avatar_url,
+        "hero_image": settings.hero_image,
+        "github_link": settings.github_link,
+        "announcement": settings.announcement,
+        "site_url": settings.site_url,
+        "friend_links": settings.friend_links,
+    }
+
+
+def build_stats_payload(db: Session) -> dict:
+    post_count = db.query(func.count(Post.id)).scalar()
+    tag_count = db.query(func.count(Tag.id)).scalar()
+    series_count = db.query(func.count(Series.id)).scalar()
+    return {
+        "post_count": post_count,
+        "tag_count": tag_count,
+        "series_count": series_count,
+    }
+
+
+@app.middleware("http")
+async def log_public_request_timing(request: Request, call_next):
+    started_at = perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (perf_counter() - started_at) * 1000
+
+    if request.method == "GET" and (
+        request.url.path in {"/feed.xml", "/sitemap.xml"}
+        or request.url.path.startswith("/api/")
+    ):
+        response.headers.setdefault("Server-Timing", f"app;dur={elapsed_ms:.1f}")
+        logger.info(
+            "public_request path=%s status=%s duration_ms=%.1f",
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+
+    return response
+
+
 @app.get("/health")
 @app.get("/api/health")
 def health():
@@ -65,23 +115,20 @@ def serve_uploaded_file(filename: str):
     return Response(
         content=content,
         media_type=content_type or "application/octet-stream",
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers={
+            "Cache-Control": build_public_cache_control(max_age=86400, s_maxage=86400, stale_while_revalidate=604800),
+            "Vary": "Accept-Encoding",
+        },
     )
 
 
 @app.get("/api/settings", response_model=SiteSettingsOut)
-def get_settings(db: Session = Depends(get_db)):
-    settings = db.query(SiteSettings).first()
-    return {
-        "author_name": settings.author_name,
-        "bio": settings.bio,
-        "avatar_url": settings.avatar_url,
-        "hero_image": settings.hero_image,
-        "github_link": settings.github_link,
-        "announcement": settings.announcement,
-        "site_url": settings.site_url,
-        "friend_links": settings.friend_links,
-    }
+def get_settings(request: Request, db: Session = Depends(get_db)):
+    return public_json_response(
+        request,
+        build_settings_payload(db),
+        cache_control=build_public_cache_control(max_age=120, s_maxage=600, stale_while_revalidate=1800),
+    )
 
 
 @app.put("/api/settings", response_model=SiteSettingsOut)
@@ -119,15 +166,31 @@ def update_settings(
 
 
 @app.get("/api/stats", response_model=StatsOut)
-def get_stats(db: Session = Depends(get_db)):
-    post_count = db.query(func.count(Post.id)).scalar()
-    tag_count = db.query(func.count(Tag.id)).scalar()
-    series_count = db.query(func.count(Series.id)).scalar()
-    return {
-        "post_count": post_count,
-        "tag_count": tag_count,
-        "series_count": series_count,
+def get_stats(request: Request, db: Session = Depends(get_db)):
+    return public_json_response(
+        request,
+        build_stats_payload(db),
+        cache_control=build_public_cache_control(max_age=120, s_maxage=600, stale_while_revalidate=1800),
+    )
+
+
+@app.get("/api/public/home-bootstrap", response_model=HomeBootstrapOut)
+def get_public_home_bootstrap(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    payload = {
+        "settings": build_settings_payload(db),
+        "home_modules": build_home_modules_payload(db),
+        "posts": build_posts_list_payload(db, page=page, page_size=page_size),
     }
+    return public_json_response(
+        request,
+        payload,
+        cache_control=build_public_cache_control(max_age=60, s_maxage=300, stale_while_revalidate=900),
+    )
 
 
 _http_client = httpx.AsyncClient(
@@ -162,7 +225,7 @@ async def proxy_image(url: str = Query(..., min_length=8)):
 
 
 @app.get("/feed.xml")
-def rss_feed(db: Session = Depends(get_db)):
+def rss_feed(request: Request, db: Session = Depends(get_db)):
     settings = db.query(SiteSettings).first()
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
@@ -190,11 +253,18 @@ def rss_feed(db: Session = Depends(get_db)):
             SubElement(item, "pubDate").text = post.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
 
     xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(rss, encoding="unicode")
-    return Response(content=xml_str, media_type="application/xml")
+    last_modified = posts[0].created_at if posts else None
+    return public_text_response(
+        request,
+        xml_str,
+        media_type="application/xml",
+        cache_control=build_public_cache_control(max_age=300, s_maxage=900, stale_while_revalidate=3600),
+        last_modified=last_modified,
+    )
 
 
 @app.get("/sitemap.xml")
-def sitemap(db: Session = Depends(get_db)):
+def sitemap(request: Request, db: Session = Depends(get_db)):
     settings = db.query(SiteSettings).first()
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
@@ -218,6 +288,19 @@ def sitemap(db: Session = Depends(get_db)):
             SubElement(url_el, "lastmod").text = post.updated_at.strftime("%Y-%m-%d")
         SubElement(url_el, "changefreq").text = "weekly"
         SubElement(url_el, "priority").text = "0.8"
+    latest_modified = None
+    for post in posts:
+        candidate = post.updated_at or post.created_at
+        if candidate is None:
+            continue
+        if latest_modified is None or candidate > latest_modified:
+            latest_modified = candidate
 
     xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(urlset, encoding="unicode")
-    return Response(content=xml_str, media_type="application/xml")
+    return public_text_response(
+        request,
+        xml_str,
+        media_type="application/xml",
+        cache_control=build_public_cache_control(max_age=300, s_maxage=900, stale_while_revalidate=3600),
+        last_modified=latest_modified,
+    )

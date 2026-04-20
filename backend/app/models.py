@@ -1,6 +1,18 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -17,6 +29,12 @@ post_tags = Table(
 
 class Post(Base):
     __tablename__ = "posts"
+    __table_args__ = (
+        Index("ix_posts_public_published_created_at", "is_published", "created_at"),
+        Index("ix_posts_public_published_content_type_created_at", "is_published", "content_type", "created_at"),
+        Index("ix_posts_public_published_topic_key_created_at", "is_published", "topic_key", "created_at"),
+        Index("ix_posts_public_published_series_slug_created_at", "is_published", "series_slug", "created_at"),
+    )
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)
     slug = Column(String(200), unique=True, nullable=False, index=True)

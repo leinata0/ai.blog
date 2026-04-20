@@ -40,6 +40,7 @@ const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
 const BLOG_API_BASE = resolveBlogApiBase()
 const XAI_API_KEY = process.env.XAI_API_KEY?.trim() || ''
+const VERCEL_DEPLOY_HOOK_URL = process.env.VERCEL_DEPLOY_HOOK_URL?.trim() || ''
 const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)
   : resolve(__dirname, 'config', 'auto-blog.config.json')
@@ -62,6 +63,32 @@ const DAILY_STOP_WORDS = new Set([
   'daily', 'report', 'update', 'updates', 'breaking', 'says', 'say', 'ai', 'llm', 'model',
   'models', 'china', 'openai', 'anthropic', 'google', 'meta', 'microsoft',
 ])
+
+async function triggerFrontendRefresh(payload = {}) {
+  if (!VERCEL_DEPLOY_HOOK_URL) return false
+
+  const response = await fetch(VERCEL_DEPLOY_HOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    throw new Error(`frontend refresh hook failed with ${response.status}`)
+  }
+  return true
+}
+
+async function triggerFrontendRefreshSafe(payload = {}) {
+  if (!VERCEL_DEPLOY_HOOK_URL) return false
+  try {
+    await triggerFrontendRefresh(payload)
+    console.log('Triggered frontend refresh hook.')
+    return true
+  } catch (error) {
+    console.warn(`Frontend refresh hook warning: ${error.message}`)
+    return false
+  }
+}
 
 function trimText(value, max = 800) {
   const text = String(value || '').trim()
@@ -2889,6 +2916,15 @@ async function runDailyMode(config, cliOptions) {
       published_topics: publishedTopics,
       skipped_topics: [...preSkippedTopics, ...skippedTopics],
     })
+
+    if (results.length > 0) {
+      await triggerFrontendRefreshSafe({
+        source: 'auto-blog',
+        mode: runtime.mode,
+        coverage_date: coverageDate,
+        published_count: results.length,
+      })
+    }
   }
 
   return results
@@ -3095,6 +3131,13 @@ async function runWeeklyReviewMode(config, cliOptions) {
       }),
     ],
     skipped_topics: [],
+  })
+  await triggerFrontendRefreshSafe({
+    source: 'auto-blog',
+    mode: 'weekly-review',
+    coverage_date: today,
+    published_count: 1,
+    slug: artifact.post.slug,
   })
   return [{
     ...artifact,

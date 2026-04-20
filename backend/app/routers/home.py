@@ -1,11 +1,11 @@
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.db import get_db
+from app.http_cache import build_public_cache_control, public_json_response
 from app.models import Post, Series, SiteSettings, Tag, TopicProfile
 from app.notifications import email_delivery_ready, web_push_delivery_ready
 from app.schemas import HomeModulesOut
@@ -100,8 +100,7 @@ def _series_to_dict(series: Series, post_count: int = 0, latest_post_at=None) ->
     }
 
 
-@router.get("/modules", response_model=HomeModulesOut)
-def get_home_modules(db: Session = Depends(get_db)):
+def build_home_modules_payload(db: Session):
     settings = db.execute(select(SiteSettings).limit(1)).scalar_one_or_none()
     site_url = resolve_public_site_url(db, settings=settings)
     art_version = cover_art_version()
@@ -150,65 +149,84 @@ def get_home_modules(db: Session = Depends(get_db)):
     }
 
     since = datetime.now(timezone.utc) - timedelta(days=14)
-    recent_posts = db.execute(
-        select(Post)
-        .options(load_only(
-            Post.id,
-            Post.title,
-            Post.summary,
-            Post.slug,
-            Post.topic_key,
-            Post.cover_image,
-            Post.content_type,
-            Post.source_count,
-            Post.quality_score,
-            Post.created_at,
-            Post.series_slug,
-        ))
+    topic_rows = db.execute(
+        select(
+            Post.topic_key.label("topic_key"),
+            func.count(Post.id).label("post_count"),
+            func.coalesce(func.sum(Post.source_count), 0).label("source_count"),
+            func.max(Post.created_at).label("latest_post_at"),
+            func.avg(Post.quality_score).label("avg_quality_score"),
+        )
         .where(Post.is_published == True)
         .where(Post.topic_key != "")
         .where(Post.created_at >= since)
-        .order_by(Post.created_at.desc())
-    ).scalars().all()
+        .group_by(Post.topic_key)
+        .order_by(func.count(Post.id).desc(), func.max(Post.created_at).desc())
+        .limit(6)
+    ).all()
+
+    topic_keys = [str(row.topic_key or "").strip() for row in topic_rows if str(row.topic_key or "").strip()]
+    ranked_topic_posts = (
+        select(
+            Post.id.label("post_id"),
+            Post.topic_key.label("topic_key"),
+            func.row_number().over(
+                partition_by=Post.topic_key,
+                order_by=(Post.created_at.desc(), Post.id.desc()),
+            ).label("row_num"),
+        )
+        .where(Post.is_published == True)
+        .where(Post.topic_key.in_(topic_keys))
+        .where(Post.created_at >= since)
+        .subquery()
+    ) if topic_keys else None
+
+    latest_topic_posts = {}
+    if ranked_topic_posts is not None:
+        latest_topic_rows = db.execute(
+            select(ranked_topic_posts.c.topic_key, ranked_topic_posts.c.post_id)
+            .where(ranked_topic_posts.c.row_num == 1)
+        ).all()
+        latest_post_ids = [row.post_id for row in latest_topic_rows]
+        latest_post_topic_keys = {row.post_id: row.topic_key for row in latest_topic_rows}
+        if latest_post_ids:
+            latest_posts = db.execute(
+                select(Post)
+                .options(load_only(
+                    Post.id,
+                    Post.title,
+                    Post.summary,
+                    Post.slug,
+                    Post.topic_key,
+                    Post.cover_image,
+                    Post.content_type,
+                    Post.source_count,
+                    Post.quality_score,
+                    Post.created_at,
+                    Post.series_slug,
+                ))
+                .where(Post.id.in_(latest_post_ids))
+            ).scalars().all()
+            latest_topic_posts = {
+                latest_post_topic_keys[post.id]: post
+                for post in latest_posts
+                if post.id in latest_post_topic_keys
+            }
 
     profiles = db.execute(
-        select(TopicProfile).order_by(TopicProfile.priority.desc(), TopicProfile.updated_at.desc())
-    ).scalars().all()
+        select(TopicProfile)
+        .where(TopicProfile.topic_key.in_(topic_keys))
+        .order_by(TopicProfile.priority.desc(), TopicProfile.updated_at.desc())
+    ).scalars().all() if topic_keys else []
     profiles_by_key = {profile.topic_key: profile for profile in profiles}
 
-    grouped_topics: dict[str, dict] = defaultdict(
-        lambda: {
-            "post_count": 0,
-            "source_count": 0,
-            "latest_post_at": None,
-            "latest_post": None,
-            "quality_scores": [],
-        }
-    )
-    for post in recent_posts:
-        topic_key = (post.topic_key or "").strip()
+    topic_items = []
+    for row in topic_rows:
+        topic_key = str(row.topic_key or "").strip()
         if not topic_key:
             continue
-        bucket = grouped_topics[topic_key]
-        bucket["post_count"] += 1
-        bucket["source_count"] += int(post.source_count or 0)
-        if post.quality_score is not None:
-            bucket["quality_scores"].append(float(post.quality_score))
-        if bucket["latest_post_at"] is None or (post.created_at and post.created_at > bucket["latest_post_at"]):
-            bucket["latest_post_at"] = post.created_at
-            bucket["latest_post"] = post
-
-    topic_items = []
-    for topic_key, bucket in sorted(
-        grouped_topics.items(),
-        key=lambda item: (
-            item[1]["post_count"],
-            item[1]["latest_post_at"] or datetime.min.replace(tzinfo=timezone.utc),
-        ),
-        reverse=True,
-    )[:6]:
         profile = profiles_by_key.get(topic_key)
-        latest_post = bucket["latest_post"]
+        latest_post = latest_topic_posts.get(topic_key)
         display_title = (
             ((profile.title if profile else "") or "").strip()
             or (latest_post.title if latest_post else "")
@@ -229,14 +247,10 @@ def get_home_modules(db: Session = Depends(get_db)):
                     or (latest_post.cover_image if latest_post else "")
                     or ""
                 ),
-                "post_count": bucket["post_count"],
-                "source_count": bucket["source_count"],
-                "latest_post_at": bucket["latest_post_at"].isoformat() if bucket["latest_post_at"] else None,
-                "avg_quality_score": (
-                    round(sum(bucket["quality_scores"]) / len(bucket["quality_scores"]), 2)
-                    if bucket["quality_scores"]
-                    else None
-                ),
+                "post_count": int(row.post_count or 0),
+                "source_count": int(row.source_count or 0),
+                "latest_post_at": row.latest_post_at.isoformat() if row.latest_post_at else None,
+                "avg_quality_score": round(float(row.avg_quality_score), 2) if row.avg_quality_score is not None else None,
                 "is_featured": bool(profile.is_featured) if profile else False,
             }
         )
@@ -282,3 +296,13 @@ def get_home_modules(db: Session = Depends(get_db)):
             "web_push_enabled": web_push_delivery_ready(),
         },
     }
+
+
+@router.get("/modules", response_model=HomeModulesOut)
+def get_home_modules(request: Request, db: Session = Depends(get_db)):
+    payload = build_home_modules_payload(db)
+    return public_json_response(
+        request,
+        payload,
+        cache_control=build_public_cache_control(max_age=60, s_maxage=300, stale_while_revalidate=900),
+    )

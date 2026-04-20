@@ -7,6 +7,7 @@ const SESSION_CACHE_PREFIX = 'blog.api-cache:'
 const SESSION_CACHE_MATCHERS = [
   /^public:\/api\/settings(?:\?|$)/,
   /^public:\/api\/stats(?:\?|$)/,
+  /^public:\/api\/public\/home-bootstrap(?:\?|$)/,
   /^public:\/api\/home\/modules(?:\?|$)/,
   /^public:\/api\/topics(?:\/|\?|$)/,
   /^public:\/api\/series(?:\/|\?|$)/,

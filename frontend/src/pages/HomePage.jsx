@@ -41,6 +41,16 @@ import {
   motionItemVariants,
 } from '../utils/contentPresentation'
 
+const DEFAULT_HOME_MODULES = {
+  hero: null,
+  featured_series: [],
+  latest_daily: [],
+  latest_weekly: [],
+  topic_pulse: { items: [] },
+  continue_reading: { items: [] },
+  subscription_cta: null,
+}
+
 function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
   return (
     <form onSubmit={onSubmit} className="mt-8 flex max-w-2xl flex-col gap-3 sm:flex-row">
@@ -236,20 +246,12 @@ function PostCard({ post, onTagSelect, onPrefetch }) {
 }
 
 export default function HomePage() {
-  const { settings } = useSite()
+  const { settings, bootstrap, loading: siteLoading } = useSite()
   const [tag, setTag] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [posts, setPosts] = useState([])
-  const [homeModules, setHomeModules] = useState({
-    hero: null,
-    featured_series: [],
-    latest_daily: [],
-    latest_weekly: [],
-    topic_pulse: { items: [] },
-    continue_reading: { items: [] },
-    subscription_cta: null,
-  })
+  const [homeModules, setHomeModules] = useState(DEFAULT_HOME_MODULES)
   const [continueReadingItems, setContinueReadingItems] = useState([])
   const [homeModulesLoading, setHomeModulesLoading] = useState(false)
   const [homeModulesLoaded, setHomeModulesLoaded] = useState(false)
@@ -296,7 +298,36 @@ export default function HomePage() {
     prefetchTopicDetail(topicKey, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
   }, [])
 
+  const applyBootstrapPayload = useCallback((payload) => {
+    if (!payload?.posts || !payload?.home_modules) return false
+
+    startTransition(() => {
+      setHomeModules(payload.home_modules)
+      setPosts(Array.isArray(payload.posts.items) ? payload.posts.items : [])
+      setTotal(payload.posts.total ?? 0)
+    })
+    setHomeModulesLoaded(true)
+    setHomeModulesLoading(false)
+    setLoading(false)
+    setSlowLoading(false)
+    setError('')
+    return true
+  }, [])
+
   const loadHomeModules = useCallback((requestOptions = {}) => {
+    if (siteLoading && !bootstrap?.home_modules) {
+      return
+    }
+
+    if (bootstrap?.home_modules) {
+      startTransition(() => {
+        setHomeModules(bootstrap.home_modules)
+      })
+      setHomeModulesLoaded(true)
+      setHomeModulesLoading(false)
+      return
+    }
+
     modulesAbortRef.current?.abort()
     const controller = new AbortController()
     modulesAbortRef.current = controller
@@ -326,9 +357,17 @@ export default function HomePage() {
         if (controller.signal.aborted) return
         setHomeModulesLoading(false)
       })
-  }, [])
+  }, [bootstrap?.home_modules, siteLoading])
 
   const loadPosts = useCallback(() => {
+    if (siteLoading && !bootstrap?.posts && !tag && !searchQuery && page === 1) {
+      return
+    }
+
+    if (!tag && !searchQuery && page === 1 && applyBootstrapPayload(bootstrap)) {
+      return
+    }
+
     postsAbortRef.current?.abort()
     const controller = new AbortController()
     postsAbortRef.current = controller
@@ -365,11 +404,11 @@ export default function HomePage() {
         setLoading(false)
         setSlowLoading(false)
       })
-  }, [page, pageSize, searchQuery, tag])
+  }, [applyBootstrapPayload, bootstrap, page, pageSize, searchQuery, siteLoading, tag])
 
   useEffect(() => {
     loadPosts()
-  }, [loadPosts])
+  }, [loadPosts, bootstrap, applyBootstrapPayload, siteLoading])
 
   useEffect(() => () => {
     postsAbortRef.current?.abort()
@@ -378,7 +417,13 @@ export default function HomePage() {
 
   useEffect(() => {
     loadHomeModules()
-  }, [loadHomeModules])
+  }, [loadHomeModules, bootstrap, siteLoading])
+
+  useEffect(() => {
+    if (!tag && !searchQuery && page === 1) {
+      applyBootstrapPayload(bootstrap)
+    }
+  }, [applyBootstrapPayload, bootstrap, page, searchQuery, tag])
 
   useEffect(() => {
     function syncContinueReading() {

@@ -3,24 +3,24 @@ import { Routes, Route } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 
-const HomePage = lazy(() => import('./pages/HomePage'))
-const PostDetailPage = lazy(() => import('./pages/PostDetailPage'))
-const ArchivePage = lazy(() => import('./pages/ArchivePage'))
-const SeriesPage = lazy(() => import('./pages/SeriesPage'))
-const SeriesDetailPage = lazy(() => import('./pages/SeriesDetailPage'))
+import HomePage from './pages/HomePage'
+import PostDetailPage from './pages/PostDetailPage'
+import ArchivePage from './pages/ArchivePage'
+import SeriesPage from './pages/SeriesPage'
+import SeriesDetailPage from './pages/SeriesDetailPage'
+import TopicsPage from './pages/TopicsPage'
+import TopicDetailPage from './pages/TopicDetailPage'
+import ContentTypePage from './pages/ContentTypePage'
+import NotFoundPage from './pages/NotFoundPage'
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage'))
 const SearchPage = lazy(() => import('./pages/SearchPage'))
-const TopicsPage = lazy(() => import('./pages/TopicsPage'))
-const TopicDetailPage = lazy(() => import('./pages/TopicDetailPage'))
 const FollowingPage = lazy(() => import('./pages/FollowingPage'))
 const StartHerePage = lazy(() => import('./pages/StartHerePage'))
-const ContentTypePage = lazy(() => import('./pages/ContentTypePage'))
 const FeedsPage = lazy(() => import('./pages/FeedsPage'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))
 const FriendsPage = lazy(() => import('./pages/FriendsPage'))
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage'))
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
-const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 function PageLoader() {
   return (

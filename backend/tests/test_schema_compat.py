@@ -7,6 +7,7 @@ from app.schema_compat import (
     SERIES_COLUMNS,
     TOPIC_PROFILE_COLUMNS,
 )
+from app.models import Post
 
 
 def test_series_seed_uses_boolean_flags():
@@ -43,3 +44,11 @@ def test_topic_search_tables_contract_columns_exist():
     assert "query" in SEARCH_INSIGHT_COLUMNS
     assert "search_count" in SEARCH_INSIGHT_COLUMNS
     assert "last_searched_at" in SEARCH_INSIGHT_COLUMNS
+
+
+def test_post_model_declares_public_read_indexes():
+    index_names = {index.name for index in Post.__table__.indexes}
+    assert "ix_posts_public_published_created_at" in index_names
+    assert "ix_posts_public_published_content_type_created_at" in index_names
+    assert "ix_posts_public_published_topic_key_created_at" in index_names
+    assert "ix_posts_public_published_series_slug_created_at" in index_names

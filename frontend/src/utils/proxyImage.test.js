@@ -24,4 +24,8 @@ describe('proxyImageUrl', () => {
   it('keeps trusted image bases direct', () => {
     expect(proxyImageUrl('https://img.example.com/test.jpg')).toBe('https://img.example.com/test.jpg')
   })
+
+  it('treats the production R2 image domain as direct by default', () => {
+    expect(proxyImageUrl('https://img.563118077.xyz/test.jpg')).toBe('https://img.563118077.xyz/test.jpg')
+  })
 })
