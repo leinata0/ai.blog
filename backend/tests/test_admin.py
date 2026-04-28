@@ -910,6 +910,7 @@ def test_admin_generate_site_hero_with_grok(client, monkeypatch):
 
     token = _login(client)
     captured = {}
+    refresh_calls = []
 
     def fake_generate_cover_asset(prompt, filename_hint, framing_hint="Wide landscape banner image, cinematic, high quality"):
         captured["prompt"] = prompt
@@ -918,6 +919,7 @@ def test_admin_generate_site_hero_with_grok(client, monkeypatch):
         return "https://img.example.com/site-hero.png"
 
     monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
+    monkeypatch.setattr(admin_mod, "trigger_frontend_refresh_safe", lambda **kwargs: refresh_calls.append(kwargs) or False)
 
     response = client.post(
         "/api/admin/settings/generate-hero",
@@ -931,6 +933,7 @@ def test_admin_generate_site_hero_with_grok(client, monkeypatch):
     assert payload["prompt"]
     assert captured["filename_hint"] == "site-hero-poster.png"
     assert "4:5 vertical editorial poster" in captured["framing_hint"]
+    assert refresh_calls == [{"event": "site_hero.updated"}]
 
     settings_resp = client.get("/api/settings")
     assert settings_resp.status_code == 200

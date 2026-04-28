@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import { SiteProvider, useSite } from '../src/contexts/SiteContext'
@@ -74,6 +74,77 @@ function Probe() {
 beforeEach(() => {
   vi.clearAllMocks()
   delete window.__BLOG_BOOTSTRAP__
+})
+
+afterEach(() => {
+  cleanup()
+})
+
+it('refreshes stale runtime bootstrap data on the homepage after hydration', async () => {
+  window.__BLOG_BOOTSTRAP__ = {
+    settings: {
+      author_name: 'Runtime Author',
+      bio: '',
+      avatar_url: '',
+      hero_image: '',
+      github_link: '',
+      announcement: '',
+      site_url: 'https://563118077.xyz',
+      friend_links: '[]',
+    },
+    home_modules: {
+      hero: { image: '', image_alt: 'hero', preset: 'site_hero', art_direction_version: 'v0' },
+      featured_series: [],
+      latest_daily: [],
+      latest_weekly: [],
+      topic_pulse: { title: 'runtime-pulse', description: '', items: [] },
+      continue_reading: { title: 'continue', empty_hint: '', local_only: true, items: [] },
+      subscription_cta: { title: 'cta', primary_to: '/feeds', secondary_to: '/feed.xml' },
+    },
+    posts: { items: [], total: 0, page: 1, page_size: 10 },
+  }
+
+  fetchHomeBootstrap.mockResolvedValueOnce({
+    settings: {
+      author_name: 'Fresh Author',
+      bio: '',
+      avatar_url: '',
+      hero_image: '',
+      github_link: '',
+      announcement: '',
+      site_url: 'https://563118077.xyz',
+      friend_links: '[]',
+    },
+    home_modules: {
+      hero: { image: '', image_alt: 'hero', preset: 'site_hero', art_direction_version: 'v1' },
+      featured_series: [],
+      latest_daily: [],
+      latest_weekly: [],
+      topic_pulse: { title: 'fresh-pulse', description: '', items: [] },
+      continue_reading: { title: 'continue', empty_hint: '', local_only: true, items: [] },
+      subscription_cta: { title: 'cta', primary_to: '/feeds', secondary_to: '/feed.xml' },
+    },
+    posts: { items: [], total: 0, page: 1, page_size: 10 },
+  })
+
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <SiteProvider>
+        <Probe />
+      </SiteProvider>
+    </MemoryRouter>,
+  )
+
+  expect(screen.getByTestId('author')).toHaveTextContent('Runtime Author')
+
+  await waitFor(() => expect(screen.getByTestId('author')).toHaveTextContent('Fresh Author'))
+  expect(fetchHomeBootstrap).toHaveBeenCalledTimes(1)
+  expect(fetchHomeBootstrap).toHaveBeenCalledWith(
+    { page: 1, page_size: 10 },
+    expect.objectContaining({
+      forceRefresh: true,
+    }),
+  )
 })
 
 it('uses the aggregated home bootstrap on the homepage and skips health prewarm', async () => {

@@ -13,10 +13,16 @@ def test_get_settings(client):
 
 
 def test_update_settings(client):
+    import app.main as main_mod
+
     token = _login(client)
+    called = []
+    main_mod.trigger_frontend_refresh_safe = lambda **kwargs: called.append(kwargs) or False
+
     resp = client.put("/api/settings", json={"author_name": "新名字"}, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["author_name"] == "新名字"
+    assert called == [{"event": "settings.updated"}]
     # verify persistence
     resp2 = client.get("/api/settings")
     assert resp2.json()["author_name"] == "新名字"

@@ -44,6 +44,7 @@ export function SiteProvider({ children }) {
     const isHomeRoute = location.pathname === '/'
 
     function loadStatsInBackground() {
+      cancelBackgroundTask?.()
       cancelBackgroundTask = scheduleBackgroundTask(() => {
         apiGet('/api/stats', {
           cache: true,
@@ -67,7 +68,7 @@ export function SiteProvider({ children }) {
       loadStatsInBackground()
     }
 
-    function loadSettingsFallback() {
+    function loadSettingsFallback(requestOptions = {}) {
       if (!settings) {
         setLoading(true)
       }
@@ -77,6 +78,7 @@ export function SiteProvider({ children }) {
         cacheTtl: 60000,
         staleTtl: 180000,
         staleWhileRevalidate: true,
+        ...requestOptions,
       })
         .catch(() => null)
         .then((payload) => {
@@ -85,32 +87,38 @@ export function SiteProvider({ children }) {
         })
     }
 
+    function refreshHomeBootstrap(preserveCurrent = true) {
+      fetchHomeBootstrap(
+        { page: 1, page_size: 10 },
+        {
+          cache: true,
+          cacheTtl: 60000,
+          staleTtl: 180000,
+          staleWhileRevalidate: false,
+          forceRefresh: true,
+        },
+      )
+        .then((payload) => {
+          if (!active || !payload?.settings) return
+          applySettings(payload.settings, payload)
+        })
+        .catch(() => {
+          if (!active || preserveCurrent) return
+          loadSettingsFallback({ forceRefresh: true })
+        })
+    }
+
     if (isHomeRoute) {
       const runtimeBootstrap = readRuntimeBootstrap()
       if (runtimeBootstrap?.settings) {
         applySettings(runtimeBootstrap.settings, runtimeBootstrap)
+        refreshHomeBootstrap(true)
       } else {
         if (!settings) {
           setLoading(true)
         }
 
-        fetchHomeBootstrap(
-          { page: 1, page_size: 10 },
-          {
-            cache: true,
-            cacheTtl: 60000,
-            staleTtl: 180000,
-            staleWhileRevalidate: true,
-          },
-        )
-          .then((payload) => {
-            if (!active) return
-            applySettings(payload?.settings, payload)
-          })
-          .catch(() => {
-            if (!active) return
-            loadSettingsFallback()
-          })
+        refreshHomeBootstrap(false)
       }
     } else if (!settings) {
       loadSettingsFallback()

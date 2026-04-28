@@ -14,6 +14,7 @@ from app.bootstrap import initialize_runtime
 from app.db import get_db
 from app.env import clean_env, get_allowed_origins
 from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
+from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.http_cache import build_public_cache_control, public_json_response, public_text_response
 from app.models import Post, Series, SiteSettings, Tag
 from app.routers.admin import router as admin_router
@@ -153,6 +154,7 @@ def update_settings(
             setattr(settings, field, value)
     db.commit()
     db.refresh(settings)
+    trigger_frontend_refresh_safe(event="settings.updated")
     return {
         "author_name": settings.author_name,
         "bio": settings.bio,

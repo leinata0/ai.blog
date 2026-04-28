@@ -51,12 +51,12 @@ export async function adminUploadImage(file) {
 export const fetchSettings = () => apiGet('/api/settings')
 export const updateSettings = (data) => apiPut('/api/settings', data, {
   auth: true,
-  invalidatePaths: ['/api/settings', '/api/stats', '/api/home/modules'],
+  invalidatePaths: ['/api/settings', '/api/stats', '/api/home/modules', '/api/public/home-bootstrap'],
 })
 export const generateAdminHeroImage = (data = {}) =>
   apiPost('/api/admin/settings/generate-hero', data, {
     auth: true,
-    invalidatePaths: ['/api/settings', '/api/home/modules'],
+    invalidatePaths: ['/api/settings', '/api/home/modules', '/api/public/home-bootstrap'],
   })
 
 export const fetchAdminPosts = (params = {}, requestOptions = {}) => {

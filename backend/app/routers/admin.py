@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.auth import create_access_token, get_current_admin, verify_admin
 from app.db import get_db
 from app.env import clean_env
+from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.models import (
     Comment,
     Post,
@@ -1685,6 +1686,7 @@ def admin_generate_site_hero(
 
         db.commit()
         db.refresh(settings)
+        trigger_frontend_refresh_safe(event="site_hero.updated")
         return _hero_response(settings.hero_image, True, prompt or None, preset=preset)
     except CoverGenerationError as exc:
         db.rollback()
