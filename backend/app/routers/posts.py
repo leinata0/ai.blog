@@ -117,24 +117,52 @@ def _post_summary_options():
     )
 
 
-def _series_to_dict(series: Series, db: Session, include_posts: bool = False) -> dict:
+def _serialize_datetime(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _build_series_aggregation_index(
+    db: Session,
+    *,
+    series_slugs: list[str] | None = None,
+) -> dict[str, dict]:
+    if series_slugs is not None and len(series_slugs) == 0:
+        return {}
+
+    stmt = (
+        select(
+            Post.series_slug.label("series_slug"),
+            func.count(Post.id).label("post_count"),
+            func.max(Post.created_at).label("latest_post_at"),
+        )
+        .where(Post.is_published == True)
+        .where(Post.series_slug.is_not(None))
+        .where(Post.series_slug != "")
+        .group_by(Post.series_slug)
+    )
+    if series_slugs is not None:
+        stmt = stmt.where(Post.series_slug.in_(series_slugs))
+
+    return {
+        str(row.series_slug): {
+            "post_count": int(row.post_count or 0),
+            "latest_post_at": row.latest_post_at,
+        }
+        for row in db.execute(stmt).all()
+        if str(row.series_slug or "").strip()
+    }
+
+
+def _series_to_dict(series: Series, db: Session, include_posts: bool = False, aggregated: dict | None = None) -> dict:
     content_types = []
     try:
         content_types = json.loads(series.content_types or "[]")
     except (json.JSONDecodeError, TypeError):
         content_types = []
 
-    post_count = db.execute(
-        select(func.count(Post.id))
-        .where(Post.series_slug == series.slug)
-        .where(Post.is_published == True)
-    ).scalar() or 0
-
-    latest_post_at = db.execute(
-        select(func.max(Post.created_at))
-        .where(Post.series_slug == series.slug)
-        .where(Post.is_published == True)
-    ).scalar()
+    aggregated = aggregated or _build_series_aggregation_index(db, series_slugs=[series.slug]).get(series.slug, {})
+    post_count = int(aggregated.get("post_count") or 0)
+    latest_post_at = aggregated.get("latest_post_at")
 
     payload = {
         "id": series.id,
@@ -146,9 +174,9 @@ def _series_to_dict(series: Series, db: Session, include_posts: bool = False) ->
         "is_featured": bool(series.is_featured),
         "sort_order": series.sort_order or 0,
         "post_count": post_count,
-        "latest_post_at": latest_post_at.isoformat() if latest_post_at else None,
-        "created_at": series.created_at.isoformat() if series.created_at else None,
-        "updated_at": series.updated_at.isoformat() if series.updated_at else None,
+        "latest_post_at": _serialize_datetime(latest_post_at),
+        "created_at": _serialize_datetime(series.created_at),
+        "updated_at": _serialize_datetime(series.updated_at),
     }
 
     if include_posts:
@@ -1208,7 +1236,8 @@ def list_series(
     if limit is not None:
         stmt = stmt.limit(limit)
     series_list = db.execute(stmt).scalars().all()
-    payload = [_series_to_dict(series, db, include_posts=False) for series in series_list]
+    series_metrics = _build_series_aggregation_index(db, series_slugs=[series.slug for series in series_list])
+    payload = [_series_to_dict(series, db, include_posts=False, aggregated=series_metrics.get(series.slug, {})) for series in series_list]
     last_modified = max((series.updated_at or series.created_at for series in series_list), default=None)
     return public_json_response(
         request,
@@ -1264,7 +1293,11 @@ def get_discover(
             .order_by(Series.sort_order.asc(), Series.updated_at.desc())
             .limit(6)
         ).scalars().all()
-        payload["featured_series"] = [_series_to_dict(series, db, include_posts=False) for series in featured_series]
+        series_metrics = _build_series_aggregation_index(db, series_slugs=[series.slug for series in featured_series])
+        payload["featured_series"] = [
+            _series_to_dict(series, db, include_posts=False, aggregated=series_metrics.get(series.slug, {}))
+            for series in featured_series
+        ]
 
     if "latest_daily" in requested:
         latest_daily = db.execute(
@@ -1495,10 +1528,14 @@ def search_posts(
         ),
         reverse=True,
     )
-    suggested_series = [_series_to_dict(series, db, include_posts=False) for _, series in scored_series[:4]]
-    if not suggested_series:
-        fallback_series = [series for series in available_series if bool(series.is_featured)] or available_series
-        suggested_series = [_series_to_dict(series, db, include_posts=False) for series in fallback_series[:4]]
+    suggested_series_items = [series for _, series in scored_series[:4]]
+    if not suggested_series_items:
+        suggested_series_items = (fallback_series := [series for series in available_series if bool(series.is_featured)] or available_series)[:4]
+    series_metrics = _build_series_aggregation_index(db, series_slugs=[series.slug for series in suggested_series_items])
+    suggested_series = [
+        _series_to_dict(series, db, include_posts=False, aggregated=series_metrics.get(series.slug, {}))
+        for series in suggested_series_items
+    ]
 
     payload = {
         "query": query,

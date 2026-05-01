@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
+import ipaddress
 import logging
+import socket
 from time import perf_counter
+from urllib.parse import urlparse
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 import httpx
@@ -203,25 +206,57 @@ _http_client = httpx.AsyncClient(
 )
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"}
+MAX_PROXY_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+def _is_private_hostname(hostname: str) -> bool:
+    try:
+        addresses = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return True
+
+    for address in addresses:
+        ip_value = address[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_value)
+        except ValueError:
+            return True
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+            return True
+    return False
 
 
 @app.get("/proxy-image")
 async def proxy_image(url: str = Query(..., min_length=8)):
-    if not url.startswith(("http://", "https://")):
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return Response(status_code=400, content="Invalid URL")
+    if _is_private_hostname(parsed.hostname):
         return Response(status_code=400, content="Invalid URL")
     try:
-        resp = await _http_client.get(url)
-        content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-        if resp.status_code != 200 or content_type not in ALLOWED_CONTENT_TYPES:
-            return Response(status_code=502, content="Upstream image unavailable")
-        return Response(
-            content=resp.content,
-            media_type=content_type,
-            headers={
-                "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-                "Access-Control-Allow-Origin": "*",
-            },
-        )
+        async with _http_client.stream("GET", url) as resp:
+            content_type = resp.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            content_length = resp.headers.get("content-length")
+            if content_length and int(content_length) > MAX_PROXY_IMAGE_BYTES:
+                return Response(status_code=502, content="Upstream image too large")
+            if resp.status_code != 200 or content_type not in ALLOWED_CONTENT_TYPES:
+                return Response(status_code=502, content="Upstream image unavailable")
+
+            chunks = []
+            total = 0
+            async for chunk in resp.aiter_bytes():
+                total += len(chunk)
+                if total > MAX_PROXY_IMAGE_BYTES:
+                    return Response(status_code=502, content="Upstream image too large")
+                chunks.append(chunk)
+            return Response(
+                content=b"".join(chunks),
+                media_type=content_type,
+                headers={
+                    "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
     except Exception:
         return Response(status_code=502, content="Failed to fetch image")
 

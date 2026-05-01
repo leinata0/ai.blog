@@ -90,6 +90,7 @@ class Tag(Base):
 
 class Comment(Base):
     __tablename__ = "comments"
+    __table_args__ = (Index("ix_comments_ip_created_at", "ip_address", "created_at"),)
     id = Column(Integer, primary_key=True, index=True)
     post_id = Column(Integer, ForeignKey("posts.id"), nullable=False, index=True)
     nickname = Column(String(50), nullable=False)
@@ -124,6 +125,7 @@ class PostLike(Base):
 
 class ViewLog(Base):
     __tablename__ = "view_logs"
+    __table_args__ = (Index("ix_view_logs_post_ip_created_at", "post_id", "ip_address", "created_at"),)
     id = Column(Integer, primary_key=True, index=True)
     post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
     ip_address = Column(String, nullable=False)

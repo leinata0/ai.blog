@@ -66,7 +66,7 @@ def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(securi
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         username: str | None = payload.get("sub")
-        if username is None:
+        if username is None or not compare_digest(username, ADMIN_USERNAME):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         return username
     except JWTError as exc:

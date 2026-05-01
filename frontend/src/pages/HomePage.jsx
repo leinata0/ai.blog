@@ -59,6 +59,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
         <input
           value={searchInput}
           onChange={onInputChange}
+          aria-label="搜索文章"
           placeholder={SITE_COPY.homeSearchPlaceholder}
           className="w-full rounded-[1.3rem] border px-11 py-3.5 text-sm outline-none transition-colors"
           style={{
@@ -117,6 +118,8 @@ function WeeklySpotlight({ post, onPrefetch, loading }) {
               post.coverage_date || formatDate(post.created_at),
               CONTENT_TYPE_META.weekly_review.label,
             ]}
+            imageLoading="eager"
+            imageFetchPriority="high"
             footer={<span className="inline-flex items-center gap-2 font-semibold">进入这篇周报 <ArrowRight size={14} /></span>}
           />
         </div>
@@ -408,7 +411,7 @@ export default function HomePage() {
 
   useEffect(() => {
     loadPosts()
-  }, [loadPosts, bootstrap, applyBootstrapPayload, siteLoading])
+  }, [loadPosts])
 
   useEffect(() => () => {
     postsAbortRef.current?.abort()
