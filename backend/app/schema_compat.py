@@ -132,6 +132,21 @@ SEARCH_INSIGHT_COLUMNS = {
     "updated_at": "DATETIME",
 }
 
+AI_CHANNEL_CONFIG_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "purpose": "VARCHAR(50) NOT NULL UNIQUE",
+    "provider": "VARCHAR(50) NOT NULL DEFAULT 'openai_compatible'",
+    "base_url": "VARCHAR(500) NOT NULL DEFAULT ''",
+    "model": "VARCHAR(200) NOT NULL DEFAULT ''",
+    "api_key_env_var": "VARCHAR(120) NOT NULL DEFAULT ''",
+    "api_key_value": "TEXT NOT NULL DEFAULT ''",
+    "enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
+    "extra_json": "TEXT NOT NULL DEFAULT '{}'",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
+
 EMAIL_SUBSCRIPTION_COLUMNS = {
     "id": "INTEGER PRIMARY KEY",
     "email": "VARCHAR(255) NOT NULL UNIQUE",
@@ -382,6 +397,15 @@ def ensure_schema_compat(engine) -> None:
 
     _create_table_if_missing(
         engine,
+        "ai_channel_configs",
+        AI_CHANNEL_CONFIG_COLUMNS,
+        indexes=[
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_channel_configs_purpose ON ai_channel_configs (purpose)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
         "email_subscriptions",
         EMAIL_SUBSCRIPTION_COLUMNS,
         indexes=[
@@ -412,6 +436,7 @@ def ensure_schema_compat(engine) -> None:
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
     for table_name, columns in (
+        ("ai_channel_configs", AI_CHANNEL_CONFIG_COLUMNS),
         ("email_subscriptions", EMAIL_SUBSCRIPTION_COLUMNS),
         ("web_push_subscriptions", WEB_PUSH_SUBSCRIPTION_COLUMNS),
     ):

@@ -114,6 +114,21 @@ class SiteSettings(Base):
     friend_links = Column(Text, nullable=False, default="[]")
 
 
+class AiChannelConfig(Base):
+    __tablename__ = "ai_channel_configs"
+    id = Column(Integer, primary_key=True, index=True)
+    purpose = Column(String(50), nullable=False, unique=True, index=True)
+    provider = Column(String(50), nullable=False, default="openai_compatible")
+    base_url = Column(String(500), nullable=False, default="")
+    model = Column(String(200), nullable=False, default="")
+    api_key_env_var = Column(String(120), nullable=False, default="")
+    api_key_value = Column(Text, nullable=False, default="")
+    enabled = Column(Boolean, nullable=False, default=True)
+    extra_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class PostLike(Base):
     __tablename__ = "post_likes"
     id = Column(Integer, primary_key=True, index=True)

@@ -109,8 +109,8 @@ def _build_brand_clause(config: dict) -> str:
     motifs = ", ".join(config.get("brand_motifs", []))
     layout = ", ".join(config.get("layout_rules", []))
     return (
-        "Use a blue-white editorial technology aesthetic with "
-        f"{palette}. Include {motifs}. Keep {layout}."
+        "Use a restrained premium AI editorial visual system with "
+        f"{palette}. Include {motifs}. Composition rules: {layout}."
     )
 
 
@@ -172,7 +172,12 @@ def build_cover_prompt(
 
 
 def build_site_hero_prompt(settings: SiteSettings | None = None, manual_prompt: str = "") -> str:
-    extra_hints = []
+    extra_hints = [
+        "Primary subject: a single sculptural glass signal tower or luminous knowledge beacon, not a robot, not a person, not a UI screen.",
+        "Scene design: dark editorial studio atmosphere, soft volumetric light, layered translucent data ribbons, subtle geometric grid, refined depth of field.",
+        "Quality target: premium magazine cover art, elegant 3D editorial illustration, calm and trustworthy, no clutter, no cheap neon, no random icons.",
+        "Composition: vertical 4:5 poster, centered hero object, clear silhouette, generous negative space, suitable for a homepage right-side poster stage.",
+    ]
     if settings and (settings.author_name or "").strip():
         extra_hints.append(f"Brand voice: curated by {settings.author_name.strip()}.")
     if settings and (settings.bio or "").strip():
@@ -180,7 +185,7 @@ def build_site_hero_prompt(settings: SiteSettings | None = None, manual_prompt: 
     return build_cover_prompt(
         "site_hero",
         manual_prompt=manual_prompt,
-        content_hint="Show a calm, premium editorial signal wall with depth, glow, and a single strong focal structure.",
+        content_hint="Represent an AI editorial observatory: collecting signals, filtering noise, and turning fast AI news into calm insight. The image should feel iconic, quiet, premium, and immediately usable as a blog homepage poster.",
         extra_hints=extra_hints,
     )
 

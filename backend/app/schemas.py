@@ -614,12 +614,52 @@ class CoverGenerateResponse(BaseModel):
     error_code: str = ""
 
 
+class AiChannelOut(BaseModel):
+    purpose: str
+    provider: str
+    base_url: str = ""
+    model: str = ""
+    api_key_env_var: str = ""
+    has_api_key: bool = False
+    api_key_source: str = "missing"
+    masked_api_key: str = ""
+    enabled: bool = True
+    is_configured: bool = False
+    db_configured: bool = False
+    message: str = ""
+
+
+class AiChannelUpdateRequest(BaseModel):
+    provider: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    api_key_env_var: str | None = None
+    api_key_value: str | None = None
+    enabled: bool | None = None
+    extra_json: str | None = None
+
+
+class AiChannelTestResponse(BaseModel):
+    purpose: str
+    ok: bool = False
+    provider: str = ""
+    model: str = ""
+    message: str = ""
+    error_code: str = ""
+
+
 class CoverGenerationStatusOut(BaseModel):
     provider: str = "grok"
     has_xai_api_key: bool = False
     can_generate: bool = False
     supports_site_hero: bool = False
     message: str = ""
+    purpose: str = "image_generation"
+    model: str = ""
+    base_url: str = ""
+    api_key_source: str = "missing"
+    has_api_key: bool = False
+    enabled: bool = True
 
 
 class PostSourceInput(BaseModel):

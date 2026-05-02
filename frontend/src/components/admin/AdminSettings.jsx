@@ -3,9 +3,13 @@ import { Image, Plus, Sparkles, X } from 'lucide-react'
 
 import {
   adminUploadImage,
+  deleteAdminAiChannel,
+  fetchAdminAiChannels,
   fetchAdminCoverGenerationStatus,
   fetchSettings,
   generateAdminHeroImage,
+  testAdminAiChannel,
+  updateAdminAiChannel,
   updateSettings,
 } from '../../api/admin'
 
@@ -19,6 +23,32 @@ const EMPTY_SETTINGS = {
   site_url: '',
   friend_links: [],
 }
+
+const EMPTY_CHANNEL = {
+  purpose: '',
+  provider: 'openai_compatible',
+  base_url: '',
+  model: '',
+  api_key_env_var: '',
+  api_key_value: '',
+  has_api_key: false,
+  api_key_source: 'missing',
+  masked_api_key: '',
+  enabled: true,
+  is_configured: false,
+  message: '',
+}
+
+const CHANNEL_LABELS = {
+  image_generation: '生图 API',
+  text_generation: '生文字 API',
+}
+
+const PROVIDER_OPTIONS = [
+  { value: 'xai', label: 'XAI / Grok' },
+  { value: 'siliconflow', label: 'SiliconFlow' },
+  { value: 'openai_compatible', label: 'OpenAI-compatible' },
+]
 
 function parseFriendLinks(rawLinks) {
   let links = rawLinks || []
@@ -40,6 +70,11 @@ export default function AdminSettings() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [coverStatus, setCoverStatus] = useState(null)
+  const [channels, setChannels] = useState({
+    image_generation: { ...EMPTY_CHANNEL, purpose: 'image_generation' },
+    text_generation: { ...EMPTY_CHANNEL, purpose: 'text_generation' },
+  })
+  const [channelBusy, setChannelBusy] = useState('')
   const [heroDiagnostics, setHeroDiagnostics] = useState(null)
   const avatarFileRef = useRef(null)
   const heroFileRef = useRef(null)
@@ -53,6 +88,7 @@ export default function AdminSettings() {
   useEffect(() => {
     void loadSettings()
     void loadCoverStatus()
+    void loadAiChannels()
   }, [])
 
   async function loadSettings() {
@@ -80,6 +116,90 @@ export default function AdminSettings() {
       setCoverStatus(status)
     } catch {
       setCoverStatus(null)
+    }
+  }
+
+  async function loadAiChannels() {
+    try {
+      const items = await fetchAdminAiChannels()
+      const nextChannels = {
+        image_generation: { ...EMPTY_CHANNEL, purpose: 'image_generation' },
+        text_generation: { ...EMPTY_CHANNEL, purpose: 'text_generation' },
+      }
+      items.forEach((item) => {
+        if (item?.purpose && nextChannels[item.purpose]) {
+          nextChannels[item.purpose] = { ...EMPTY_CHANNEL, ...item, api_key_value: '' }
+        }
+      })
+      setChannels(nextChannels)
+    } catch {
+      setChannels((prev) => prev)
+    }
+  }
+
+  function updateChannelField(purpose, field, value) {
+    setChannels((prev) => ({
+      ...prev,
+      [purpose]: {
+        ...(prev[purpose] || EMPTY_CHANNEL),
+        purpose,
+        [field]: value,
+      },
+    }))
+  }
+
+  async function handleSaveChannel(purpose) {
+    const channel = channels[purpose]
+    if (!channel) return
+    setChannelBusy(`${purpose}:save`)
+    setMsg('')
+    try {
+      const updated = await updateAdminAiChannel(purpose, {
+        provider: channel.provider,
+        base_url: channel.base_url,
+        model: channel.model,
+        api_key_env_var: channel.api_key_env_var,
+        api_key_value: channel.api_key_value,
+        enabled: channel.enabled,
+      })
+      setChannels((prev) => ({
+        ...prev,
+        [purpose]: { ...EMPTY_CHANNEL, ...updated, api_key_value: '' },
+      }))
+      setMsg(`${CHANNEL_LABELS[purpose]} 已保存`)
+      await loadCoverStatus()
+    } catch (err) {
+      setMsg(err.message || `${CHANNEL_LABELS[purpose]} 保存失败`)
+    } finally {
+      setChannelBusy('')
+    }
+  }
+
+  async function handleResetChannel(purpose) {
+    setChannelBusy(`${purpose}:reset`)
+    setMsg('')
+    try {
+      await deleteAdminAiChannel(purpose)
+      await loadAiChannels()
+      await loadCoverStatus()
+      setMsg(`${CHANNEL_LABELS[purpose]} 已重置为默认配置`)
+    } catch (err) {
+      setMsg(err.message || `${CHANNEL_LABELS[purpose]} 重置失败`)
+    } finally {
+      setChannelBusy('')
+    }
+  }
+
+  async function handleTestChannel(purpose) {
+    setChannelBusy(`${purpose}:test`)
+    setMsg('')
+    try {
+      const result = await testAdminAiChannel(purpose)
+      setMsg(result?.message || (result?.ok ? `${CHANNEL_LABELS[purpose]} 测试成功` : `${CHANNEL_LABELS[purpose]} 测试失败`))
+    } catch (err) {
+      setMsg(err.message || `${CHANNEL_LABELS[purpose]} 测试失败`)
+    } finally {
+      setChannelBusy('')
     }
   }
 
@@ -183,7 +303,9 @@ export default function AdminSettings() {
   const isSuccess =
     msg === '站点设置已保存' ||
     msg.includes('图片已上传并写入地址') ||
-    msg.includes('Hero 海报已生成并直接替换当前首页主海报')
+    msg.includes('Hero 海报已生成并直接替换当前首页主海报') ||
+    msg.includes('已保存') ||
+    msg.includes('已重置为默认配置')
 
   return (
     <div
@@ -337,7 +459,7 @@ export default function AdminSettings() {
               <span className="text-xs text-[var(--text-faint)]">生成后会直接替换当前 Hero 海报</span>
             </div>
             <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              {coverStatus?.message || '后台一键生图依赖 Render 后端运行环境中的 XAI_API_KEY。'}
+              {coverStatus?.message || '后台一键生图会使用当前配置的生图 API 渠道。'}
             </p>
             {heroDiagnostics ? (
               <div className="mt-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-3 text-xs leading-6 text-[var(--text-secondary)]">
@@ -363,6 +485,135 @@ export default function AdminSettings() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-2xl border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-4">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">AI API 渠道配置</h3>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
+            生图渠道用于 Hero 和封面生成；生文字渠道用于后续文字生成工作流。API Key 可填环境变量名，也可在后台保存新 key。
+          </p>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          {['image_generation', 'text_generation'].map((purpose) => {
+            const channel = channels[purpose] || { ...EMPTY_CHANNEL, purpose }
+            const busyPrefix = `${purpose}:`
+            return (
+              <div key={purpose} className="space-y-3 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{CHANNEL_LABELS[purpose]}</div>
+                    <div className="mt-1 text-xs text-[var(--text-faint)]">
+                      {channel.db_configured ? '已保存自定义配置' : '使用默认/环境变量配置'} · {channel.is_configured ? '已配置' : channel.message || '待配置'}
+                    </div>
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={channel.enabled}
+                      onChange={(event) => updateChannelField(purpose, 'enabled', event.target.checked)}
+                    />
+                    启用
+                  </label>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
+                    Provider
+                    <select
+                      value={channel.provider}
+                      onChange={(event) => updateChannelField(purpose, 'provider', event.target.value)}
+                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                      style={inputStyle}
+                    >
+                      {PROVIDER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
+                    Model
+                    <input
+                      value={channel.model}
+                      onChange={(event) => updateChannelField(purpose, 'model', event.target.value)}
+                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                      style={inputStyle}
+                      placeholder={purpose === 'image_generation' ? 'grok-imagine-image' : 'deepseek-ai/DeepSeek-V3'}
+                    />
+                  </label>
+                </div>
+
+                <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
+                  Base URL
+                  <input
+                    value={channel.base_url}
+                    onChange={(event) => updateChannelField(purpose, 'base_url', event.target.value)}
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                    style={inputStyle}
+                    placeholder={purpose === 'image_generation' ? 'https://api.x.ai/v1' : 'https://api.siliconflow.cn/v1'}
+                  />
+                </label>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
+                    API Key 环境变量
+                    <input
+                      value={channel.api_key_env_var}
+                      onChange={(event) => updateChannelField(purpose, 'api_key_env_var', event.target.value)}
+                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                      style={inputStyle}
+                      placeholder={purpose === 'image_generation' ? 'XAI_API_KEY' : 'SILICONFLOW_API_KEY'}
+                    />
+                  </label>
+                  <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
+                    新 API Key
+                    <input
+                      type="password"
+                      value={channel.api_key_value}
+                      onChange={(event) => updateChannelField(purpose, 'api_key_value', event.target.value)}
+                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                      style={inputStyle}
+                      placeholder={channel.masked_api_key || '留空则不更新'}
+                    />
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs text-[var(--text-faint)]">
+                    Key 来源：{channel.api_key_source || 'missing'}{channel.masked_api_key ? ` · ${channel.masked_api_key}` : ''}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={channelBusy.startsWith(busyPrefix)}
+                      onClick={() => handleResetChannel(purpose)}
+                      className="rounded-lg border border-[var(--border-muted)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-50"
+                    >
+                      {channelBusy === `${purpose}:reset` ? '重置中…' : '重置'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={channelBusy.startsWith(busyPrefix)}
+                      onClick={() => handleTestChannel(purpose)}
+                      className="rounded-lg border border-[var(--border-muted)] px-3 py-2 text-xs font-semibold text-[var(--accent)] disabled:opacity-50"
+                    >
+                      {channelBusy === `${purpose}:test` ? '测试中…' : '测试连接'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={channelBusy.startsWith(busyPrefix)}
+                      onClick={() => handleSaveChannel(purpose)}
+                      className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {channelBusy === `${purpose}:save` ? '保存中…' : '保存渠道'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
 

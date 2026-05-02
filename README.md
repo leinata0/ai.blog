@@ -63,6 +63,7 @@ flowchart LR
 - 公开内容页：首页、文章详情、主题页、系列页、日报、周报、归档
 - 公开数据接口：`/api/public/home-bootstrap`、文章列表、主题、系列、discover、feeds
 - 管理后台：登录、文章管理、主题管理、系列管理、图片与设置管理
+- AI 渠道配置：后台可分别管理生图与生文字 API，用于 Hero、封面和内容流水线生成
 - 订阅能力：邮件 / Web Push / 企业微信 webhook
 - 媒体链路：优先直连 R2/CDN，一方图片不再默认走后端代理
 - 自动化内容：抓取 RSS / 来源、整理研究材料、生成封面、执行发布
@@ -155,6 +156,10 @@ node auto-blog.mjs --mode daily-manual --dry-run --max-posts 1
 - `WEB_PUSH_VAPID_PRIVATE_KEY`
 - `WEB_PUSH_SUBJECT`
 - `WECOM_WEBHOOK_URLS`
+- `XAI_API_KEY`（默认生图渠道）
+- `SILICONFLOW_API_KEY` / `SILICONFLOW_BASE_URL` / `SILICONFLOW_MODEL`（默认生文字渠道）
+
+后台“站点设置”里的 AI API 渠道配置会优先使用数据库保存的渠道设置；未保存或重置后回退到这些环境变量。生产环境仍建议把长期密钥放在 Render 环境变量中，后台保存新 key 主要用于运营侧快速切换或验证。
 
 ### Frontend 关键变量
 

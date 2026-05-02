@@ -187,6 +187,50 @@ vi.mock('../src/api/admin', () => ({
       message: '后端已检测到 XAI_API_KEY。',
     })
   ),
+  fetchAdminAiChannels: vi.fn(() => Promise.resolve([
+    {
+      purpose: 'image_generation',
+      provider: 'xai',
+      base_url: 'https://api.x.ai/v1',
+      model: 'grok-imagine-image',
+      api_key_env_var: 'XAI_API_KEY',
+      has_api_key: true,
+      api_key_source: 'env',
+      masked_api_key: 'xai-...demo',
+      enabled: true,
+      is_configured: true,
+      message: 'AI 渠道已配置，可用于生成。',
+    },
+    {
+      purpose: 'text_generation',
+      provider: 'siliconflow',
+      base_url: 'https://api.siliconflow.cn/v1',
+      model: 'deepseek-ai/DeepSeek-V3',
+      api_key_env_var: 'SILICONFLOW_API_KEY',
+      has_api_key: false,
+      api_key_source: 'missing',
+      masked_api_key: '',
+      enabled: true,
+      is_configured: false,
+      message: 'AI 渠道缺少 API Key。',
+    },
+  ])),
+  updateAdminAiChannel: vi.fn(() => Promise.resolve({
+    purpose: 'image_generation',
+    provider: 'xai',
+    base_url: 'https://api.x.ai/v1',
+    model: 'grok-imagine-image',
+    api_key_env_var: 'XAI_API_KEY',
+    has_api_key: true,
+    api_key_source: 'db',
+    masked_api_key: 'xai-...demo',
+    enabled: true,
+    is_configured: true,
+    db_configured: true,
+    message: 'AI 渠道已配置，可用于生成。',
+  })),
+  deleteAdminAiChannel: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
+  testAdminAiChannel: vi.fn(() => Promise.resolve({ ok: true, message: 'AI 渠道测试成功。' })),
   fetchAdminTopicProfiles: mocks.fetchTopicProfiles,
   createAdminTopicProfile: vi.fn(() => Promise.resolve({})),
   updateAdminTopicProfile: vi.fn(() => Promise.resolve({})),
@@ -269,3 +313,28 @@ it('opens endpoint health tab and renders probe and subscription results', async
   expect(document.querySelector('[data-ui="admin-endpoint-health"]')).toBeTruthy()
   expect(document.querySelector('[data-ui="admin-subscription-health"]')).toBeTruthy()
 })
+
+it('opens settings and manages AI channel configuration', async () => {
+  const adminApi = await import('../src/api/admin')
+
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  await screen.findByText('OpenAI released a new model')
+  await userEvent.click(screen.getByRole('button', { name: /站点设置/ }))
+
+  expect(await screen.findByRole('heading', { name: /AI API 渠道配置/ })).toBeInTheDocument()
+  expect((await screen.findAllByText(/使用默认\/环境变量配置/)).length).toBeGreaterThan(0)
+
+  await userEvent.click(screen.getAllByRole('button', { name: '测试连接' })[0])
+  expect(await screen.findByText('AI 渠道测试成功。')).toBeInTheDocument()
+  expect(adminApi.testAdminAiChannel).toHaveBeenCalledWith('image_generation')
+
+  await userEvent.click(screen.getAllByRole('button', { name: '重置' })[0])
+  expect(await screen.findByText('生图 API 已重置为默认配置')).toBeInTheDocument()
+  expect(adminApi.deleteAdminAiChannel).toHaveBeenCalledWith('image_generation')
+})
+

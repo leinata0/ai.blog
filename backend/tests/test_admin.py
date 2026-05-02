@@ -837,7 +837,7 @@ def test_admin_post_generate_cover_uses_artifact_prompt(client, monkeypatch):
 
     captured = {}
 
-    def fake_generate_cover_asset(prompt, filename_hint, framing_hint=""):
+    def fake_generate_cover_asset(db, prompt, filename_hint, framing_hint=""):
         captured["prompt"] = prompt
         captured["filename_hint"] = filename_hint
         captured["framing_hint"] = framing_hint
@@ -889,20 +889,109 @@ def test_admin_post_generate_cover_reports_cover_exists(client):
     assert payload["error_code"] == "cover_exists"
 
 
-def test_cover_generation_status_reports_backend_env(client, monkeypatch):
-    from app.routers import admin as admin_mod
-
+def test_ai_channels_are_admin_only_and_mask_keys(client):
     token = _login(client)
-    monkeypatch.setattr(admin_mod, "clean_env", lambda key: "")
+
+    unauthorized = client.get("/api/admin/ai-channels")
+    assert unauthorized.status_code in (401, 403)
+
+    update = client.put(
+        "/api/admin/ai-channels/image_generation",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://gateway.example.com/v1",
+            "model": "image-model",
+            "api_key_env_var": "CUSTOM_IMAGE_KEY",
+            "api_key_value": "sk-secret-123456",
+            "enabled": True,
+        },
+        headers=_auth(token),
+    )
+    assert update.status_code == 200
+    payload = update.json()
+    assert payload["purpose"] == "image_generation"
+    assert payload["provider"] == "openai_compatible"
+    assert payload["has_api_key"] is True
+    assert payload["api_key_source"] == "db"
+    assert payload["masked_api_key"] == "sk-s...3456"
+    assert "sk-secret" not in str(payload)
+
+    cleared = client.put(
+        "/api/admin/ai-channels/image_generation",
+        json={"api_key_value": ""},
+        headers=_auth(token),
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["api_key_source"] == "missing"
+
+    reset = client.delete("/api/admin/ai-channels/image_generation", headers=_auth(token))
+    assert reset.status_code == 200
+    fallback = client.get("/api/admin/ai-channels/image_generation", headers=_auth(token))
+    assert fallback.status_code == 200
+    assert fallback.json()["provider"] == "xai"
+    assert fallback.json()["db_configured"] is False
+
+
+def test_cover_generation_status_uses_ai_channel_fallback(client, monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-secret")
+    token = _login(client)
 
     response = client.get("/api/admin/cover-generation-status", headers=_auth(token))
     assert response.status_code == 200
     payload = response.json()
-    assert payload["provider"] == "grok"
-    assert payload["has_xai_api_key"] is False
-    assert payload["can_generate"] is False
-    assert payload["supports_site_hero"] is False
-    assert "Render" in payload["message"]
+    assert payload["provider"] == "xai"
+    assert payload["has_xai_api_key"] is True
+    assert payload["can_generate"] is True
+    assert payload["supports_site_hero"] is True
+    assert payload["model"] == "grok-imagine-image"
+
+
+def test_ai_channel_text_generation_test_uses_chat_completions(client, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+    client.put(
+        "/api/admin/ai-channels/text_generation",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://gateway.example.com/v1",
+            "model": "text-model",
+            "api_key_value": "sk-text-123456",
+            "enabled": True,
+        },
+        headers=_auth(token),
+    )
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "OK"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr(channel_mod.httpx, "post", fake_post)
+
+    response = client.post("/api/admin/ai-channels/text_generation/test", headers=_auth(token))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert captured["url"] == "https://gateway.example.com/v1/chat/completions"
+    assert captured["json"]["model"] == "text-model"
+
+    duplicate = client.post(
+        "/api/admin/ai-channels/text_generation",
+        json={"provider": "openai_compatible"},
+        headers=_auth(token),
+    )
+    assert duplicate.status_code == 409
 
 
 def test_admin_generate_site_hero_with_grok(client, monkeypatch):
@@ -912,7 +1001,7 @@ def test_admin_generate_site_hero_with_grok(client, monkeypatch):
     captured = {}
     refresh_calls = []
 
-    def fake_generate_cover_asset(prompt, filename_hint, framing_hint="Wide landscape banner image, cinematic, high quality"):
+    def fake_generate_cover_asset(db, prompt, filename_hint, framing_hint="Wide landscape banner image, cinematic, high quality"):
         captured["prompt"] = prompt
         captured["filename_hint"] = filename_hint
         captured["framing_hint"] = framing_hint
@@ -932,7 +1021,7 @@ def test_admin_generate_site_hero_with_grok(client, monkeypatch):
     assert payload["hero_image"] == "https://img.example.com/site-hero.png"
     assert payload["prompt"]
     assert captured["filename_hint"] == "site-hero-poster.png"
-    assert "4:5 vertical editorial poster" in captured["framing_hint"]
+    assert "homepage hero poster" in captured["framing_hint"]
     assert refresh_calls == [{"event": "site_hero.updated"}]
 
     settings_resp = client.get("/api/settings")
@@ -954,8 +1043,8 @@ def test_admin_generate_site_hero_reports_missing_env(client, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["generated"] is False
-    assert payload["error_code"] == "missing_env"
-    assert "Render" in payload["error"]
+    assert payload["error_code"] == "missing_api_key"
+    assert "API Key" in payload["error"]
 
 
 def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeypatch):
@@ -985,8 +1074,8 @@ def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeyp
     assert response.status_code == 200
     payload = response.json()
     assert payload["generated"] is False
-    assert payload["error_code"] == "missing_backend_env"
-    assert "Render" in payload["error"]
+    assert payload["error_code"] == "missing_api_key"
+    assert "API Key" in payload["error"]
 
 
 def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):
@@ -1021,7 +1110,7 @@ def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):
 
     captured = {}
 
-    def fake_generate_cover_asset(prompt, filename_hint, framing_hint=""):
+    def fake_generate_cover_asset(db, prompt, filename_hint, framing_hint=""):
         captured["prompt"] = prompt
         captured["filename_hint"] = filename_hint
         captured["framing_hint"] = framing_hint
@@ -1075,7 +1164,7 @@ def test_admin_series_generate_cover_with_grok(client, monkeypatch):
 
     captured = {}
 
-    def fake_generate_cover_asset(prompt, filename_hint, framing_hint=""):
+    def fake_generate_cover_asset(db, prompt, filename_hint, framing_hint=""):
         captured["prompt"] = prompt
         captured["filename_hint"] = filename_hint
         captured["framing_hint"] = framing_hint
@@ -1116,7 +1205,7 @@ def test_delete_post(client):
 def test_upload_requires_auth(client):
     resp = client.post(
         "/api/admin/upload",
-        files={"file": ("demo.png", b"png-bytes", "image/png")},
+        files={"file": ("demo.png", b"\x89PNG\r\n\x1a\nimage-bytes", "image/png")},
     )
     assert resp.status_code in (401, 403)
 
@@ -1125,7 +1214,7 @@ def test_upload_image_success(client, upload_dir):
     token = _login(client)
     resp = client.post(
         "/api/admin/upload",
-        files={"file": ("demo.png", b"png-bytes", "image/png")},
+        files={"file": ("demo.png", b"\x89PNG\r\n\x1a\nimage-bytes", "image/png")},
         headers=_auth(token),
     )
     assert resp.status_code == 200
@@ -1136,7 +1225,7 @@ def test_upload_image_success(client, upload_dir):
     assert (upload_dir / saved_name).exists()
     fetch_resp = client.get(data["url"])
     assert fetch_resp.status_code == 200
-    assert fetch_resp.content == b"png-bytes"
+    assert fetch_resp.content == b"\x89PNG\r\n\x1a\nimage-bytes"
 
 
 def test_upload_image_success_with_r2(client, monkeypatch):
@@ -1174,7 +1263,7 @@ def test_upload_image_success_with_r2(client, monkeypatch):
 
     resp = client.post(
         "/api/admin/upload",
-        files={"file": ("demo.png", b"png-bytes", "image/png")},
+        files={"file": ("demo.png", b"\x89PNG\r\n\x1a\nimage-bytes", "image/png")},
         headers=_auth(token),
     )
     assert resp.status_code == 200

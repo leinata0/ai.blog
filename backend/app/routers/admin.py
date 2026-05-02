@@ -29,6 +29,9 @@ from app.models import (
 )
 from app.notifications import dispatch_post_notifications_for_post, subscription_health_payload
 from app.schemas import (
+    AiChannelOut,
+    AiChannelTestResponse,
+    AiChannelUpdateRequest,
     CoverGenerationStatusOut,
     CoverGenerateRequest,
     CoverGenerateResponse,
@@ -66,7 +69,9 @@ from app.schemas import (
     UploadOut,
 )
 from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
+from app.services import ai_channels
 from app.services import cover_art as cover_art_service
+from app.services.ai_channels import AiChannelError
 from app.services.admin_posts import AdminPostFilters, list_admin_posts
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -218,21 +223,30 @@ def _download_image_bytes(image_url: str) -> tuple[bytes, str]:
     return response.content, content_type
 
 
-def _get_cover_generation_status_payload() -> dict:
-    has_xai_api_key = bool(clean_env("XAI_API_KEY"))
-    if has_xai_api_key:
-        message = "后端已检测到 XAI_API_KEY，可直接在后台生成主题、系列、文章和首页 Hero 海报。"
+def _get_cover_generation_status_payload(db: Session) -> dict:
+    channel = ai_channels.resolve_channel(db, ai_channels.IMAGE_PURPOSE)
+    payload = ai_channels.channel_to_public_dict(channel)
+    can_generate = bool(payload["is_configured"])
+    if can_generate:
+        message = f"生图渠道已就绪：{payload['provider']} / {payload['model']}。"
+    elif not payload["enabled"]:
+        message = "生图渠道已停用，请在 AI API 渠道配置中启用。"
+    elif not payload["has_api_key"]:
+        message = "生图渠道缺少 API Key，请配置环境变量或在后台保存 API Key。"
     else:
-        message = (
-            "后端未检测到 XAI_API_KEY。主题、系列与首页 Hero 海报生成都依赖 Render 后端运行环境中的该变量，"
-            "仅配置 GitHub Secret 不会让后台实时生图生效。"
-        )
+        message = "生图渠道配置不完整，请检查 Base URL 和模型名称。"
     return {
-        "provider": "grok",
-        "has_xai_api_key": has_xai_api_key,
-        "can_generate": has_xai_api_key,
-        "supports_site_hero": has_xai_api_key,
+        "provider": payload["provider"],
+        "has_xai_api_key": payload["has_api_key"] if payload["provider"] == "xai" else False,
+        "can_generate": can_generate,
+        "supports_site_hero": can_generate,
         "message": message,
+        "purpose": payload["purpose"],
+        "model": payload["model"],
+        "base_url": payload["base_url"],
+        "api_key_source": payload["api_key_source"],
+        "has_api_key": payload["has_api_key"],
+        "enabled": payload["enabled"],
     }
 
 
@@ -294,11 +308,15 @@ def _generate_grok_image_url(
 
 
 def _generate_cover_asset(
+    db: Session,
     prompt: str,
     filename_hint: str,
     framing_hint: str = "Wide landscape banner image, cinematic, high quality",
 ) -> str:
-    image_url = _generate_grok_image_url(prompt, framing_hint=framing_hint)
+    try:
+        image_url = ai_channels.generate_image_url(db, prompt, framing_hint=framing_hint)
+    except AiChannelError as exc:
+        raise CoverGenerationError(exc.code, exc.message) from exc
     contents, content_type = _download_image_bytes(image_url)
     try:
         stored = save_upload(filename_hint, contents, content_type)
@@ -1640,9 +1658,88 @@ def get_topic_health(
 
 @router.get("/cover-generation-status", response_model=CoverGenerationStatusOut)
 def get_cover_generation_status(
+    db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
-    return _get_cover_generation_status_payload()
+    return _get_cover_generation_status_payload(db)
+
+
+@router.get("/ai-channels", response_model=list[AiChannelOut])
+def list_ai_channels(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    return [
+        ai_channels.channel_to_public_dict(ai_channels.resolve_channel(db, purpose))
+        for purpose in (ai_channels.IMAGE_PURPOSE, ai_channels.TEXT_PURPOSE)
+    ]
+
+
+@router.get("/ai-channels/{purpose}", response_model=AiChannelOut)
+def get_ai_channel(
+    purpose: str,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        channel = ai_channels.resolve_channel(db, purpose)
+    except AiChannelError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    return ai_channels.channel_to_public_dict(channel)
+
+
+@router.post("/ai-channels/{purpose}", response_model=AiChannelOut, status_code=201)
+def create_ai_channel(
+    purpose: str,
+    body: AiChannelUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        channel = ai_channels.create_channel(db, purpose, body)
+    except AiChannelError as exc:
+        status_code = 409 if exc.code == "channel_exists" else 400
+        raise HTTPException(status_code=status_code, detail=exc.message) from exc
+    return ai_channels.channel_to_public_dict(channel)
+
+
+@router.put("/ai-channels/{purpose}", response_model=AiChannelOut)
+def update_ai_channel(
+    purpose: str,
+    body: AiChannelUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        channel = ai_channels.update_channel(db, purpose, body)
+    except AiChannelError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    return ai_channels.channel_to_public_dict(channel)
+
+
+@router.delete("/ai-channels/{purpose}")
+def delete_ai_channel(
+    purpose: str,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        ai_channels.delete_channel(db, purpose)
+    except AiChannelError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    return {"detail": "deleted"}
+
+
+@router.post("/ai-channels/{purpose}/test", response_model=AiChannelTestResponse)
+def test_ai_channel(
+    purpose: str,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        return ai_channels.test_channel(db, purpose)
+    except AiChannelError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
 
 
 @router.post("/settings/generate-hero", response_model=SiteHeroGenerateResponse)
@@ -1687,6 +1784,7 @@ def admin_generate_site_hero(
                 )
 
             settings.hero_image = _generate_cover_asset(
+                db,
                 prompt,
                 "site-hero-poster.png",
                 framing_hint=cover_art_service.preset_framing_hint(preset),
@@ -1779,6 +1877,7 @@ def admin_generate_series_cover(
                     preset,
                 )
             series.cover_image = _generate_cover_asset(
+                db,
                 prompt,
                 f"series-{series.slug}.png",
                 framing_hint=cover_art_service.preset_framing_hint(preset),
@@ -1872,6 +1971,7 @@ def admin_generate_topic_profile_cover(
                     preset,
                 )
             profile.cover_image = _generate_cover_asset(
+                db,
                 prompt,
                 f"topic-{profile.topic_key}.png",
                 framing_hint=cover_art_service.preset_framing_hint(preset),
@@ -1962,6 +2062,7 @@ def admin_generate_post_cover(
                 )
 
             post.cover_image = _generate_cover_asset(
+                db,
                 prompt,
                 f"post-{post.slug or post.id}.png",
                 framing_hint=cover_art_service.preset_framing_hint(preset),

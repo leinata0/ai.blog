@@ -1,23 +1,25 @@
 {
-  "version": "2026-04-editorial-tech-v1",
+  "version": "2026-05-site-hero-editorial-v2",
   "brand_palette": [
-    "deep navy blue",
-    "bright editorial blue",
-    "electric cyan accent",
-    "mist white"
+    "midnight navy background",
+    "soft porcelain white highlights",
+    "editorial cobalt blue",
+    "controlled cyan glow",
+    "subtle violet shadow"
   ],
   "brand_motifs": [
-    "soft glass panels",
-    "signal ribbons",
-    "subtle grid",
-    "layered depth",
-    "editorial light"
+    "one sculptural glass signal tower",
+    "layered translucent data ribbons",
+    "soft radial light field",
+    "minimal geometric grid",
+    "quiet atmospheric depth"
   ],
   "layout_rules": [
-    "single focal subject",
-    "clean structure",
-    "avoid collage",
-    "preserve breathing room"
+    "single iconic focal subject",
+    "large calm negative space",
+    "center-weighted vertical composition",
+    "premium 3D editorial illustration",
+    "avoid collage and visual noise"
   ],
   "negative_rules": [
     "readable text",
@@ -30,15 +32,23 @@
     "diagram labels",
     "device mockup",
     "magazine masthead",
-    "literal website screenshot"
+    "literal website screenshot",
+    "human face",
+    "hands",
+    "robot mascot",
+    "random icons",
+    "busy collage",
+    "messy particles",
+    "low quality render",
+    "oversaturated neon"
   ],
   "presets": {
     "site_hero": {
       "label": "Homepage hero poster",
       "orientation": "vertical",
-      "framing_hint": "4:5 vertical editorial poster, premium homepage hero, high quality",
-      "prompt_clause": "A refined editorial tech poster for a Chinese AI blog homepage, with one clear focal subject and calm premium energy.",
-      "safe_area_clause": "Keep the center composition strong and avoid relying on tiny edge details."
+      "framing_hint": "4:5 vertical homepage hero poster, premium editorial 3D illustration, single iconic focal object, high quality",
+      "prompt_clause": "Create a polished vertical hero poster for a Chinese AI editorial blog: one elegant glass signal tower floating in a quiet dark-blue atmosphere, layered translucent ribbons orbiting around it, soft porcelain-white highlights, restrained cyan glow, premium magazine-quality 3D editorial illustration.",
+      "safe_area_clause": "Use a center-weighted vertical composition with the main object in the middle third, generous negative space around the subject, clean silhouette, no small decorative clutter, no text, no logos, no UI screenshots."
     },
     "post_cover": {
       "label": "Article cover banner",
