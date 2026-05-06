@@ -617,6 +617,7 @@ class CoverGenerateResponse(BaseModel):
 class AiChannelOut(BaseModel):
     purpose: str
     provider: str
+    protocol: str = "openai"
     base_url: str = ""
     model: str = ""
     api_key_env_var: str = ""
@@ -646,6 +647,14 @@ class AiChannelTestResponse(BaseModel):
     model: str = ""
     message: str = ""
     error_code: str = ""
+
+
+class AiChannelTestWithConfigRequest(BaseModel):
+    provider: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    api_key_env_var: str | None = None
+    api_key_value: str | None = None
 
 
 class CoverGenerationStatusOut(BaseModel):

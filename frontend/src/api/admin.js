@@ -152,6 +152,8 @@ export const deleteAdminAiChannel = (purpose) =>
   })
 export const testAdminAiChannel = (purpose) =>
   apiPost(`/api/admin/ai-channels/${purpose}/test`, {}, { auth: true })
+export const testAdminAiChannelWithConfig = (purpose, config) =>
+  apiPost(`/api/admin/ai-channels/${purpose}/test-with-config`, config, { auth: true })
 
 export const fetchAdminTopicProfiles = (requestOptions = {}) =>
   apiGet('/api/admin/topic-profiles', { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })

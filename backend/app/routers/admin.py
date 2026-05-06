@@ -1,13 +1,18 @@
 import json
+import logging
 import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+
+from app.rate_limit import limiter
+
+logger = logging.getLogger("blog.admin")
 
 from app.auth import create_access_token, get_current_admin, verify_admin
 from app.db import get_db
@@ -31,6 +36,7 @@ from app.notifications import dispatch_post_notifications_for_post, subscription
 from app.schemas import (
     AiChannelOut,
     AiChannelTestResponse,
+    AiChannelTestWithConfigRequest,
     AiChannelUpdateRequest,
     CoverGenerationStatusOut,
     CoverGenerateRequest,
@@ -998,8 +1004,10 @@ def _raise_integrity_http_error(error: IntegrityError) -> None:
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest):
+@limiter.limit("5/minute")
+def login(request: Request, body: LoginRequest):
     if not verify_admin(body.username, body.password):
+        logger.warning("Login failed: username=%s client=%s", body.username, request.client.host if request.client else "unknown")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token(data={"sub": body.username})
     return {"access_token": token, "token_type": "bearer"}
@@ -1738,6 +1746,18 @@ def test_ai_channel(
 ):
     try:
         return ai_channels.test_channel(db, purpose)
+    except AiChannelError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+
+
+@router.post("/ai-channels/{purpose}/test-with-config", response_model=AiChannelTestResponse)
+def test_ai_channel_with_config(
+    purpose: str,
+    body: AiChannelTestWithConfigRequest,
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        return ai_channels.test_channel_with_config(purpose, body.model_dump())
     except AiChannelError as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
 

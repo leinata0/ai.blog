@@ -9,6 +9,7 @@ import {
   fetchSettings,
   generateAdminHeroImage,
   testAdminAiChannel,
+  testAdminAiChannelWithConfig,
   updateAdminAiChannel,
   updateSettings,
 } from '../../api/admin'
@@ -44,11 +45,30 @@ const CHANNEL_LABELS = {
   text_generation: '生文字 API',
 }
 
-const PROVIDER_OPTIONS = [
-  { value: 'xai', label: 'XAI / Grok' },
-  { value: 'siliconflow', label: 'SiliconFlow' },
-  { value: 'openai_compatible', label: 'OpenAI-compatible' },
-]
+const PROVIDER_PRESETS = {
+  xai: { label: 'XAI / Grok', base_url: 'https://api.x.ai/v1', model_image: 'grok-imagine-image', model_text: 'grok-4', env_var: 'XAI_API_KEY', group: 'OpenAI 兼容' },
+  openai: { label: 'OpenAI', base_url: 'https://api.openai.com/v1', model_image: 'dall-e-3', model_text: 'gpt-4o', env_var: 'OPENAI_API_KEY', group: 'OpenAI 兼容' },
+  deepseek: { label: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model_image: '', model_text: 'deepseek-chat', env_var: 'DEEPSEEK_API_KEY', group: 'OpenAI 兼容' },
+  siliconflow: { label: 'SiliconFlow', base_url: 'https://api.siliconflow.cn/v1', model_image: 'black-forest-labs/FLUX.1-schnell', model_text: 'deepseek-ai/DeepSeek-V3', env_var: 'SILICONFLOW_API_KEY', group: 'OpenAI 兼容' },
+  moonshot: { label: 'Moonshot / Kimi', base_url: 'https://api.moonshot.cn/v1', model_image: '', model_text: 'moonshot-v1-128k', env_var: 'MOONSHOT_API_KEY', group: 'OpenAI 兼容' },
+  zhipu: { label: '智谱 GLM', base_url: 'https://open.bigmodel.cn/api/paas/v4', model_image: 'cogview-4', model_text: 'glm-4-flash', env_var: 'ZHIPU_API_KEY', group: 'OpenAI 兼容' },
+  baichuan: { label: '百川', base_url: 'https://api.baichuan-ai.com/v1', model_image: '', model_text: 'Baichuan4', env_var: 'BAICHUAN_API_KEY', group: 'OpenAI 兼容' },
+  minimax: { label: 'MiniMax', base_url: 'https://api.minimax.chat/v1', model_image: '', model_text: 'MiniMax-Text-01', env_var: 'MINIMAX_API_KEY', group: 'OpenAI 兼容' },
+  doubao: { label: '豆包 / 火山引擎', base_url: 'https://ark.cn-beijing.volces.com/api/v3', model_image: '', model_text: 'doubao-pro-32k', env_var: 'DOUBAO_API_KEY', group: 'OpenAI 兼容' },
+  gemini: { label: 'Google Gemini', base_url: 'https://generativelanguage.googleapis.com/v1beta', model_image: 'imagen-3.0-generate-002', model_text: 'gemini-2.0-flash', env_var: 'GEMINI_API_KEY', group: 'OpenAI 兼容' },
+  mistral: { label: 'Mistral', base_url: 'https://api.mistral.ai/v1', model_image: '', model_text: 'mistral-large-latest', env_var: 'MISTRAL_API_KEY', group: 'OpenAI 兼容' },
+  groq: { label: 'Groq', base_url: 'https://api.groq.com/openai/v1', model_image: '', model_text: 'llama-3.3-70b-versatile', env_var: 'GROQ_API_KEY', group: 'OpenAI 兼容' },
+  together: { label: 'Together AI', base_url: 'https://api.together.xyz/v1', model_image: 'stabilityai/stable-diffusion-xl-base-1.0', model_text: 'meta-llama/Llama-3-70b-chat-hf', env_var: 'TOGETHER_API_KEY', group: 'OpenAI 兼容' },
+  anthropic: { label: 'Anthropic / Claude', base_url: 'https://api.anthropic.com', model_image: '', model_text: 'claude-sonnet-4-20250514', env_var: 'ANTHROPIC_API_KEY', group: 'Anthropic 兼容' },
+  openai_compatible: { label: '自定义 (OpenAI 兼容)', base_url: '', model_image: '', model_text: '', env_var: '', group: '自定义' },
+}
+
+const PROVIDER_GROUPS = Object.entries(PROVIDER_PRESETS).reduce((acc, [value, preset]) => {
+  const group = preset.group || '其他'
+  if (!acc[group]) acc[group] = []
+  acc[group].push({ value, ...preset })
+  return acc
+}, {})
 
 function parseFriendLinks(rawLinks) {
   let links = rawLinks || []
@@ -75,6 +95,10 @@ export default function AdminSettings() {
     text_generation: { ...EMPTY_CHANNEL, purpose: 'text_generation' },
   })
   const [channelBusy, setChannelBusy] = useState('')
+  const [channelTestResults, setChannelTestResults] = useState({
+    image_generation: null,
+    text_generation: null,
+  })
   const [heroDiagnostics, setHeroDiagnostics] = useState(null)
   const avatarFileRef = useRef(null)
   const heroFileRef = useRef(null)
@@ -148,6 +172,27 @@ export default function AdminSettings() {
     }))
   }
 
+  function handleProviderChange(purpose, newProvider) {
+    const preset = PROVIDER_PRESETS[newProvider]
+    if (!preset) {
+      updateChannelField(purpose, 'provider', newProvider)
+      return
+    }
+    const modelKey = purpose === 'image_generation' ? 'model_image' : 'model_text'
+    setChannels((prev) => ({
+      ...prev,
+      [purpose]: {
+        ...(prev[purpose] || EMPTY_CHANNEL),
+        purpose,
+        provider: newProvider,
+        base_url: preset.base_url || prev[purpose]?.base_url || '',
+        model: preset[modelKey] || prev[purpose]?.model || '',
+        api_key_env_var: preset.env_var || prev[purpose]?.api_key_env_var || '',
+      },
+    }))
+    setChannelTestResults((prev) => ({ ...prev, [purpose]: null }))
+  }
+
   async function handleSaveChannel(purpose) {
     const channel = channels[purpose]
     if (!channel) return
@@ -191,13 +236,24 @@ export default function AdminSettings() {
   }
 
   async function handleTestChannel(purpose) {
+    const channel = channels[purpose]
+    if (!channel) return
     setChannelBusy(`${purpose}:test`)
-    setMsg('')
+    setChannelTestResults((prev) => ({ ...prev, [purpose]: null }))
     try {
-      const result = await testAdminAiChannel(purpose)
-      setMsg(result?.message || (result?.ok ? `${CHANNEL_LABELS[purpose]} 测试成功` : `${CHANNEL_LABELS[purpose]} 测试失败`))
+      const result = await testAdminAiChannelWithConfig(purpose, {
+        provider: channel.provider,
+        base_url: channel.base_url,
+        model: channel.model,
+        api_key_env_var: channel.api_key_env_var,
+        api_key_value: channel.api_key_value,
+      })
+      setChannelTestResults((prev) => ({ ...prev, [purpose]: result }))
     } catch (err) {
-      setMsg(err.message || `${CHANNEL_LABELS[purpose]} 测试失败`)
+      setChannelTestResults((prev) => ({
+        ...prev,
+        [purpose]: { ok: false, message: err.message || `${CHANNEL_LABELS[purpose]} 测试失败` },
+      }))
     } finally {
       setChannelBusy('')
     }
@@ -305,7 +361,8 @@ export default function AdminSettings() {
     msg.includes('图片已上传并写入地址') ||
     msg.includes('Hero 海报已生成并直接替换当前首页主海报') ||
     msg.includes('已保存') ||
-    msg.includes('已重置为默认配置')
+    msg.includes('已重置为默认配置') ||
+    msg.includes('测试成功')
 
   return (
     <div
@@ -524,12 +581,16 @@ export default function AdminSettings() {
                     Provider
                     <select
                       value={channel.provider}
-                      onChange={(event) => updateChannelField(purpose, 'provider', event.target.value)}
+                      onChange={(event) => handleProviderChange(purpose, event.target.value)}
                       className="w-full rounded-lg px-3 py-2 text-sm outline-none"
                       style={inputStyle}
                     >
-                      {PROVIDER_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
+                      {Object.entries(PROVIDER_GROUPS).map(([groupLabel, options]) => (
+                        <optgroup key={groupLabel} label={groupLabel}>
+                          {options.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                   </label>
@@ -611,6 +672,19 @@ export default function AdminSettings() {
                     </button>
                   </div>
                 </div>
+
+                {channelTestResults[purpose] ? (
+                  <div
+                    className="rounded-lg px-3 py-2 text-xs"
+                    style={{
+                      backgroundColor: channelTestResults[purpose].ok ? 'var(--accent-soft)' : 'var(--danger-soft)',
+                      color: channelTestResults[purpose].ok ? 'var(--accent)' : '#ef4444',
+                    }}
+                  >
+                    {channelTestResults[purpose].ok ? '✓ ' : '✗ '}
+                    {channelTestResults[purpose].message}
+                  </div>
+                ) : null}
               </div>
             )
           })}
