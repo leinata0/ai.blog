@@ -99,6 +99,10 @@ export default function AdminSettings() {
     image_generation: null,
     text_generation: null,
   })
+  const [channelActionResults, setChannelActionResults] = useState({
+    image_generation: null,
+    text_generation: null,
+  })
   const [heroDiagnostics, setHeroDiagnostics] = useState(null)
   const avatarFileRef = useRef(null)
   const heroFileRef = useRef(null)
@@ -191,13 +195,14 @@ export default function AdminSettings() {
       },
     }))
     setChannelTestResults((prev) => ({ ...prev, [purpose]: null }))
+    setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
   }
 
   async function handleSaveChannel(purpose) {
     const channel = channels[purpose]
     if (!channel) return
     setChannelBusy(`${purpose}:save`)
-    setMsg('')
+    setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
     try {
       const updated = await updateAdminAiChannel(purpose, {
         provider: channel.provider,
@@ -211,10 +216,10 @@ export default function AdminSettings() {
         ...prev,
         [purpose]: { ...EMPTY_CHANNEL, ...updated, api_key_value: '' },
       }))
-      setMsg(`${CHANNEL_LABELS[purpose]} 已保存`)
+      setChannelActionResults((prev) => ({ ...prev, [purpose]: { ok: true, message: `${CHANNEL_LABELS[purpose]} 已保存` } }))
       await loadCoverStatus()
     } catch (err) {
-      setMsg(err.message || `${CHANNEL_LABELS[purpose]} 保存失败`)
+      setChannelActionResults((prev) => ({ ...prev, [purpose]: { ok: false, message: err.message || `${CHANNEL_LABELS[purpose]} 保存失败` } }))
     } finally {
       setChannelBusy('')
     }
@@ -222,14 +227,14 @@ export default function AdminSettings() {
 
   async function handleResetChannel(purpose) {
     setChannelBusy(`${purpose}:reset`)
-    setMsg('')
+    setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
     try {
       await deleteAdminAiChannel(purpose)
       await loadAiChannels()
       await loadCoverStatus()
-      setMsg(`${CHANNEL_LABELS[purpose]} 已重置为默认配置`)
+      setChannelActionResults((prev) => ({ ...prev, [purpose]: { ok: true, message: `${CHANNEL_LABELS[purpose]} 已重置为默认配置` } }))
     } catch (err) {
-      setMsg(err.message || `${CHANNEL_LABELS[purpose]} 重置失败`)
+      setChannelActionResults((prev) => ({ ...prev, [purpose]: { ok: false, message: err.message || `${CHANNEL_LABELS[purpose]} 重置失败` } }))
     } finally {
       setChannelBusy('')
     }
@@ -683,6 +688,19 @@ export default function AdminSettings() {
                   >
                     {channelTestResults[purpose].ok ? '✓ ' : '✗ '}
                     {channelTestResults[purpose].message}
+                  </div>
+                ) : null}
+
+                {channelActionResults[purpose] ? (
+                  <div
+                    className="rounded-lg px-3 py-2 text-xs"
+                    style={{
+                      backgroundColor: channelActionResults[purpose].ok ? 'var(--accent-soft)' : 'var(--danger-soft)',
+                      color: channelActionResults[purpose].ok ? 'var(--accent)' : '#ef4444',
+                    }}
+                  >
+                    {channelActionResults[purpose].ok ? '✓ ' : '✗ '}
+                    {channelActionResults[purpose].message}
                   </div>
                 ) : null}
               </div>
