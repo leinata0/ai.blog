@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.encryption import decrypt_value, encrypt_value
 from app.env import clean_env
 from app.models import AiChannelConfig
+
+logger = logging.getLogger(__name__)
 
 IMAGE_PURPOSE = "image_generation"
 TEXT_PURPOSE = "text_generation"
@@ -250,7 +253,12 @@ def resolve_channel(db: Session, purpose: str) -> ResolvedAiChannel:
     if config is None:
         return _fallback_channel(normalized_purpose)
 
-    provider = normalize_provider(config.provider, normalized_purpose)
+    try:
+        provider = normalize_provider(config.provider, normalized_purpose)
+    except AiChannelError:
+        logger.warning("Invalid AI channel provider in DB; falling back to defaults for purpose=%s", normalized_purpose)
+        return _fallback_channel(normalized_purpose)
+
     defaults = provider_defaults(provider, normalized_purpose)
     base_url = (config.base_url or defaults["base_url"]).strip().rstrip("/")
     model = (config.model or defaults["model"]).strip()
