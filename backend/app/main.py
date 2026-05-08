@@ -4,6 +4,7 @@ import logging
 import socket
 from time import perf_counter
 from uuid import uuid4
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
