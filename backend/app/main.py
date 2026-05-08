@@ -3,8 +3,7 @@ import ipaddress
 import logging
 import socket
 from time import perf_counter
-from urllib.parse import urlparse
-from xml.etree.ElementTree import Element, SubElement, tostring
+from uuid import uuid4
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
@@ -31,6 +30,7 @@ from app.uploads import UPLOADS_URL_PREFIX
 
 AUTO_SEED_ON_EMPTY = clean_env("AUTO_SEED_ON_EMPTY", "1") != "0"
 logger = logging.getLogger("blog.public")
+REQUEST_ID_HEADER = "X-Request-ID"
 
 
 @asynccontextmanager
@@ -42,24 +42,33 @@ async def lifespan(app):
 app = FastAPI(title="AI Dev Blog API", lifespan=lifespan)
 
 
+def _resolve_request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", None) or request.headers.get(REQUEST_ID_HEADER) or str(uuid4())
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    logger.warning("HTTP exception path=%s method=%s status=%s detail=%s", request.url.path, request.method, exc.status_code, exc.detail)
+    request_id = _resolve_request_id(request)
+    logger.warning("HTTP exception request_id=%s path=%s method=%s status=%s detail=%s", request_id, request.url.path, request.method, exc.status_code, exc.detail)
+    headers = dict(exc.headers or {})
+    headers[REQUEST_ID_HEADER] = request_id
     return Response(
-        content=httpx._content.json_dumps({"detail": exc.detail, "code": f"http_{exc.status_code}"}),
+        content=httpx._content.json_dumps({"detail": exc.detail, "code": f"http_{exc.status_code}", "request_id": request_id}),
         status_code=exc.status_code,
         media_type="application/json",
-        headers=dict(exc.headers or {}),
+        headers=headers,
     )
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    logger.exception("Unhandled exception path=%s method=%s", request.url.path, request.method)
+    request_id = _resolve_request_id(request)
+    logger.exception("Unhandled exception request_id=%s path=%s method=%s", request_id, request.url.path, request.method)
     return Response(
-        content=httpx._content.json_dumps({"detail": "Internal server error", "code": "internal_error"}),
+        content=httpx._content.json_dumps({"detail": "Internal server error", "code": "internal_error", "request_id": request_id}),
         status_code=500,
         media_type="application/json",
+        headers={REQUEST_ID_HEADER: request_id},
     )
 
 
@@ -68,7 +77,7 @@ app.add_middleware(
     allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
 )
 
 app.include_router(posts_router)
@@ -104,9 +113,12 @@ def build_stats_payload(db: Session) -> dict:
 
 @app.middleware("http")
 async def log_public_request_timing(request: Request, call_next):
+    request_id = _resolve_request_id(request)
+    request.state.request_id = request_id
     started_at = perf_counter()
     response = await call_next(request)
     elapsed_ms = (perf_counter() - started_at) * 1000
+    response.headers.setdefault(REQUEST_ID_HEADER, request_id)
 
     if request.method == "GET" and (
         request.url.path in {"/feed.xml", "/sitemap.xml"}
@@ -114,7 +126,8 @@ async def log_public_request_timing(request: Request, call_next):
     ):
         response.headers.setdefault("Server-Timing", f"app;dur={elapsed_ms:.1f}")
         logger.info(
-            "public_request path=%s status=%s duration_ms=%.1f",
+            "public_request request_id=%s path=%s status=%s duration_ms=%.1f",
+            request_id,
             request.url.path,
             response.status_code,
             elapsed_ms,
