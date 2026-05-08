@@ -231,6 +231,7 @@ vi.mock('../src/api/admin', () => ({
   })),
   deleteAdminAiChannel: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
   testAdminAiChannel: vi.fn(() => Promise.resolve({ ok: true, message: 'AI 渠道测试成功。' })),
+  testAdminAiChannelWithConfig: vi.fn(() => Promise.resolve({ ok: true, message: 'AI 渠道测试成功。' })),
   fetchAdminTopicProfiles: mocks.fetchTopicProfiles,
   createAdminTopicProfile: vi.fn(() => Promise.resolve({})),
   updateAdminTopicProfile: vi.fn(() => Promise.resolve({})),
@@ -330,11 +331,13 @@ it('opens settings and manages AI channel configuration', async () => {
   expect((await screen.findAllByText(/使用默认\/环境变量配置/)).length).toBeGreaterThan(0)
 
   await userEvent.click(screen.getAllByRole('button', { name: '测试连接' })[0])
-  expect(await screen.findByText('AI 渠道测试成功。')).toBeInTheDocument()
-  expect(adminApi.testAdminAiChannel).toHaveBeenCalledWith('image_generation')
+  expect(await screen.findByText(/AI 渠道测试成功/)).toBeInTheDocument()
+  expect(adminApi.testAdminAiChannelWithConfig).toHaveBeenCalledWith('image_generation', expect.objectContaining({
+    provider: 'xai',
+  }))
 
   await userEvent.click(screen.getAllByRole('button', { name: '重置' })[0])
-  expect(await screen.findByText('生图 API 已重置为默认配置')).toBeInTheDocument()
+  expect(await screen.findByText(/生图 API 已重置为默认配置/)).toBeInTheDocument()
   expect(adminApi.deleteAdminAiChannel).toHaveBeenCalledWith('image_generation')
 })
 

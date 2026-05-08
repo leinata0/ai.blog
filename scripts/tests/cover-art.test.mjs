@@ -11,8 +11,8 @@ import {
 } from '../lib/cover-art.mjs'
 
 test('cover art config exposes a stable version and preset framing hints', () => {
-  assert.equal(coverArtVersion(), '2026-04-editorial-tech-v1')
-  assert.match(presetFramingHint('site_hero'), /4:5 vertical editorial poster/i)
+  assert.equal(coverArtVersion(), '2026-05-site-hero-editorial-v2')
+  assert.match(presetFramingHint('site_hero'), /4:5 vertical homepage hero poster/i)
   assert.match(presetFramingHint('post_cover'), /wide landscape editorial banner/i)
   assert.match(presetFramingHint('series_cover'), /series cover image/i)
   assert.match(presetFramingHint('topic_cover'), /topic cover image/i)

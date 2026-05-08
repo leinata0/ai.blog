@@ -73,7 +73,7 @@ it('renders series detail onboarding blocks and discover page', async () => {
 
   expect(await screen.findByRole('heading', { name: 'AI 日报' })).toBeInTheDocument()
   expect(await screen.findByText('从哪一篇开始最合适')).toBeInTheDocument()
-  expect(await screen.findByText('先读这 3 篇就够快')).toBeInTheDocument()
+  expect(await screen.findByText('先用最新一篇恢复系列上下文')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /订阅这个系列/i })).toHaveAttribute('href', '/feeds?series_slug=ai-daily-brief')
 
   render(

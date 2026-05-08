@@ -68,6 +68,17 @@ def test_get_allowed_origins_falls_back_to_site_settings_when_env_missing(monkey
     assert "https://www.563118077.xyz" in origins
 
 
+def test_get_allowed_origins_uses_dev_defaults_when_no_derived_origin(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    monkeypatch.delenv("PUBLIC_SITE_URL", raising=False)
+    monkeypatch.delenv("SITE_URL", raising=False)
+    monkeypatch.setattr("app.env._load_site_url_from_database", lambda: "")
+
+    origins = get_allowed_origins()
+    assert origins == ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
 def test_auth_allows_dev_explicit_fallbacks(monkeypatch):
     import app.auth as auth_mod
 

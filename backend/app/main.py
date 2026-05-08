@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 import httpx
-from fastapi import Depends, FastAPI, Query, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
@@ -40,6 +40,28 @@ async def lifespan(app):
 
 
 app = FastAPI(title="AI Dev Blog API", lifespan=lifespan)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.warning("HTTP exception path=%s method=%s status=%s detail=%s", request.url.path, request.method, exc.status_code, exc.detail)
+    return Response(
+        content=httpx._content.json_dumps({"detail": exc.detail, "code": f"http_{exc.status_code}"}),
+        status_code=exc.status_code,
+        media_type="application/json",
+        headers=dict(exc.headers or {}),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception path=%s method=%s", request.url.path, request.method)
+    return Response(
+        content=httpx._content.json_dumps({"detail": "Internal server error", "code": "internal_error"}),
+        status_code=500,
+        media_type="application/json",
+    )
+
 
 app.add_middleware(
     CORSMiddleware,

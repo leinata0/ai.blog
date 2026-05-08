@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ActivitySquare,
@@ -20,21 +20,22 @@ import {
 
 import { clearToken, getToken } from '../api/auth'
 import { adminDeletePost, adminUpdatePost, fetchAdminPosts } from '../api/admin'
-import AdminComments from '../components/admin/AdminComments'
-import AdminContentHealth from '../components/admin/AdminContentHealth'
-import AdminEndpointHealth from '../components/admin/AdminEndpointHealth'
-import AdminImages from '../components/admin/AdminImages'
-import AdminPostEditor from '../components/admin/AdminPostEditor'
 import AdminPostsList from '../components/admin/AdminPostsList'
-import AdminPublishingStatus from '../components/admin/AdminPublishingStatus'
-import AdminQualityInbox from '../components/admin/AdminQualityInbox'
-import AdminSearchInsights from '../components/admin/AdminSearchInsights'
-import AdminSeriesManager from '../components/admin/AdminSeriesManager'
-import AdminSettings from '../components/admin/AdminSettings'
-import AdminStats from '../components/admin/AdminStats'
-import AdminTopicFeedback from '../components/admin/AdminTopicFeedback'
-import AdminTopicHealth from '../components/admin/AdminTopicHealth'
-import AdminTopicProfiles from '../components/admin/AdminTopicProfiles'
+
+const AdminComments = lazy(() => import('../components/admin/AdminComments'))
+const AdminContentHealth = lazy(() => import('../components/admin/AdminContentHealth'))
+const AdminEndpointHealth = lazy(() => import('../components/admin/AdminEndpointHealth'))
+const AdminImages = lazy(() => import('../components/admin/AdminImages'))
+const AdminPostEditor = lazy(() => import('../components/admin/AdminPostEditor'))
+const AdminPublishingStatus = lazy(() => import('../components/admin/AdminPublishingStatus'))
+const AdminQualityInbox = lazy(() => import('../components/admin/AdminQualityInbox'))
+const AdminSearchInsights = lazy(() => import('../components/admin/AdminSearchInsights'))
+const AdminSeriesManager = lazy(() => import('../components/admin/AdminSeriesManager'))
+const AdminSettings = lazy(() => import('../components/admin/AdminSettings'))
+const AdminStats = lazy(() => import('../components/admin/AdminStats'))
+const AdminTopicFeedback = lazy(() => import('../components/admin/AdminTopicFeedback'))
+const AdminTopicHealth = lazy(() => import('../components/admin/AdminTopicHealth'))
+const AdminTopicProfiles = lazy(() => import('../components/admin/AdminTopicProfiles'))
 
 const defaultPostFilters = {
   search: '',
@@ -65,6 +66,14 @@ function getBulkPatchPayload(action, value) {
   if (action === 'set_content_type') return { content_type: value || undefined }
   if (action === 'set_series') return { series_slug: value || null }
   return null
+}
+
+function AdminPanelLoader() {
+  return (
+    <div className="rounded-2xl border border-[var(--border-muted)] bg-[var(--bg-surface)] px-5 py-6 text-sm text-[var(--text-faint)]">
+      正在加载管理面板...
+    </div>
+  )
 }
 
 export default function AdminDashboardPage() {
@@ -221,37 +230,39 @@ export default function AdminDashboardPage() {
           <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
         ) : null}
 
-        {tab === 'posts' && view === 'list' ? (
-          <AdminPostsList
-            posts={posts}
-            filters={postFilters}
-            loading={postLoading}
-            bulkApplying={bulkApplying}
-            onNew={handleNew}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onRefresh={() => loadPosts(postFilters, { forceRefresh: true })}
-            onApplyFilters={handleApplyFilters}
-            onResetFilters={handleResetFilters}
-            onRunBulkAction={handleBulkAction}
-          />
-        ) : null}
-        {tab === 'posts' && view === 'editor' ? (
-          <AdminPostEditor editingPost={editingPost} onBack={() => setView('list')} onSaved={handlePostSaved} />
-        ) : null}
-        {tab === 'publishing' ? <AdminPublishingStatus /> : null}
-        {tab === 'health' ? <AdminContentHealth /> : null}
-        {tab === 'endpoint-health' ? <AdminEndpointHealth /> : null}
-        {tab === 'quality' ? <AdminQualityInbox /> : null}
-        {tab === 'topic-feedback' ? <AdminTopicFeedback /> : null}
-        {tab === 'topics' ? <AdminTopicProfiles /> : null}
-        {tab === 'topic-health' ? <AdminTopicHealth /> : null}
-        {tab === 'search-insights' ? <AdminSearchInsights /> : null}
-        {tab === 'series' ? <AdminSeriesManager /> : null}
-        {tab === 'comments' ? <AdminComments /> : null}
-        {tab === 'settings' ? <AdminSettings /> : null}
-        {tab === 'stats' ? <AdminStats /> : null}
-        {tab === 'images' ? <AdminImages /> : null}
+        <Suspense fallback={<AdminPanelLoader />}>
+          {tab === 'posts' && view === 'list' ? (
+            <AdminPostsList
+              posts={posts}
+              filters={postFilters}
+              loading={postLoading}
+              bulkApplying={bulkApplying}
+              onNew={handleNew}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onRefresh={() => loadPosts(postFilters, { forceRefresh: true })}
+              onApplyFilters={handleApplyFilters}
+              onResetFilters={handleResetFilters}
+              onRunBulkAction={handleBulkAction}
+            />
+          ) : null}
+          {tab === 'posts' && view === 'editor' ? (
+            <AdminPostEditor editingPost={editingPost} onBack={() => setView('list')} onSaved={handlePostSaved} />
+          ) : null}
+          {tab === 'publishing' ? <AdminPublishingStatus /> : null}
+          {tab === 'health' ? <AdminContentHealth /> : null}
+          {tab === 'endpoint-health' ? <AdminEndpointHealth /> : null}
+          {tab === 'quality' ? <AdminQualityInbox /> : null}
+          {tab === 'topic-feedback' ? <AdminTopicFeedback /> : null}
+          {tab === 'topics' ? <AdminTopicProfiles /> : null}
+          {tab === 'topic-health' ? <AdminTopicHealth /> : null}
+          {tab === 'search-insights' ? <AdminSearchInsights /> : null}
+          {tab === 'series' ? <AdminSeriesManager /> : null}
+          {tab === 'comments' ? <AdminComments /> : null}
+          {tab === 'settings' ? <AdminSettings /> : null}
+          {tab === 'stats' ? <AdminStats /> : null}
+          {tab === 'images' ? <AdminImages /> : null}
+        </Suspense>
       </div>
     </main>
   )

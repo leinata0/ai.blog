@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from urllib.parse import urlparse
 
@@ -139,6 +141,13 @@ def get_allowed_origins() -> list[str]:
 
     default_site_url = get_default_public_site_url()
     derived_origins = _expand_origin_variants(default_site_url)
+    if not derived_origins and not is_production_env():
+        defaults = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+        return defaults
+
     if not derived_origins and is_production_env():
         derived_origins = _expand_origin_variants(_load_site_url_from_database())
 

@@ -1,0 +1,47 @@
+name: 线上 Smoke 检查
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_site_url:
+        description: 公开站点 URL（例如 https://www.563118077.xyz）
+        required: true
+        type: string
+      blog_api_base:
+        description: 后端 API Base（例如 https://ai-blog-hbur.onrender.com）
+        required: true
+        type: string
+      include_admin:
+        description: 是否包含后台接口检查
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install script dependencies
+        run: npm ci
+
+      - name: Run smoke checks
+        env:
+          PUBLIC_SITE_URL: ${{ inputs.public_site_url }}
+          BLOG_API_BASE: ${{ inputs.blog_api_base }}
+          INCLUDE_ADMIN_SMOKE: ${{ inputs.include_admin && '1' || '0' }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: node smoke-check.mjs

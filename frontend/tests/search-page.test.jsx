@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -57,7 +57,7 @@ vi.mock('../src/api/posts', () => ({
 }))
 
 it('shows zero-result rescue modules with topics, series, and popular queries', async () => {
-  render(
+  const { container } = render(
     <MemoryRouter initialEntries={['/search?q=missing-signal']}>
       <ThemeProvider>
         <SiteProvider>
@@ -68,7 +68,9 @@ it('shows zero-result rescue modules with topics, series, and popular queries', 
   )
 
   expect(await screen.findByText('还没有匹配结果')).toBeInTheDocument()
-  expect(await screen.findByText('先从相邻主线恢复阅读路径')).toBeInTheDocument()
+  const rescue = container.querySelector('[data-ui="search-zero-rescue"]')
+  expect(rescue).toBeTruthy()
+  expect(within(rescue).getByText('先从相邻主线恢复阅读路径')).toBeInTheDocument()
   expect((await screen.findAllByRole('link', { name: /Agent 与 MCP/i }))[0]).toHaveAttribute('href', '/topics/agent-mcp')
   expect((await screen.findAllByRole('link', { name: /工具与工作流/i }))[0]).toHaveAttribute('href', '/series/tooling-workflow')
   expect(await screen.findByRole('button', { name: 'openai agent' })).toBeInTheDocument()
