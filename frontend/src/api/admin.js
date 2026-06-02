@@ -132,32 +132,6 @@ export const generateAdminSeriesCover = (id, data = {}) =>
 export const fetchAdminCoverGenerationStatus = (requestOptions = {}) =>
   apiGet('/api/admin/cover-generation-status', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
 
-export const fetchAdminAiChannels = (requestOptions = {}) =>
-  apiGet('/api/admin/ai-channels', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
-export const fetchAdminAiChannel = (purpose, requestOptions = {}) =>
-  apiGet(`/api/admin/ai-channels/${purpose}`, { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
-export const createAdminAiChannel = (purpose, data) =>
-  apiPost(`/api/admin/ai-channels/${purpose}`, data, {
-    auth: true,
-    invalidatePaths: ['/api/admin/ai-channels', `/api/admin/ai-channels/${purpose}`, '/api/admin/cover-generation-status'],
-  })
-export const updateAdminAiChannel = (purpose, data) =>
-  apiPut(`/api/admin/ai-channels/${purpose}`, data, {
-    auth: true,
-    invalidatePaths: ['/api/admin/ai-channels', `/api/admin/ai-channels/${purpose}`, '/api/admin/cover-generation-status'],
-  })
-export const deleteAdminAiChannel = (purpose) =>
-  apiDelete(`/api/admin/ai-channels/${purpose}`, {
-    auth: true,
-    invalidatePaths: ['/api/admin/ai-channels', `/api/admin/ai-channels/${purpose}`, '/api/admin/cover-generation-status'],
-  })
-export const testAdminAiChannel = (purpose) =>
-  apiPost(`/api/admin/ai-channels/${purpose}/test`, {}, { auth: true })
-export const testAdminAiChannelWithConfig = (purpose, config) =>
-  apiPost(`/api/admin/ai-channels/${purpose}/test-with-config`, config, { auth: true })
-export const fetchAdminAiChannelModelsWithConfig = (purpose, config) =>
-  apiPost(`/api/admin/ai-channels/${purpose}/models-with-config`, config, { auth: true })
-
 export const fetchAdminAiProviderSources = (requestOptions = {}) =>
   apiGet('/api/admin/ai-provider-sources', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
 export const createAdminAiProviderSource = (data) =>

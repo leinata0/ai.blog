@@ -37,11 +37,7 @@ from app.models import (
 from app.notifications import dispatch_post_notifications_for_post, subscription_health_payload
 from app.schemas import (
     AiChannelModelsResponse,
-    AiChannelModelsWithConfigRequest,
-    AiChannelOut,
     AiChannelTestResponse,
-    AiChannelTestWithConfigRequest,
-    AiChannelUpdateRequest,
     AiModelInstanceOut,
     AiModelInstanceUpdateRequest,
     AiModelOrderRequest,
@@ -240,30 +236,27 @@ def _download_image_bytes(image_url: str) -> tuple[bytes, str]:
 
 
 def _get_cover_generation_status_payload(db: Session) -> dict:
-    channel = ai_channels.resolve_channel(db, ai_channels.IMAGE_PURPOSE)
-    payload = ai_channels.channel_to_public_dict(channel)
-    can_generate = bool(payload["is_configured"])
-    if can_generate:
-        message = f"生图渠道已就绪：{payload['provider']} / {payload['model']}。"
-    elif not payload["enabled"]:
-        message = "生图渠道已停用，请在 AI API 渠道配置中启用。"
-    elif not payload["has_api_key"]:
-        message = "生图渠道缺少 API Key，请配置环境变量或在后台保存 API Key。"
-    else:
-        message = "生图渠道配置不完整，请检查 Base URL 和模型名称。"
+    plan = ai_provider_manager.resolve_runtime_plan(db, ai_channels.IMAGE_PURPOSE)
+    selected = ai_provider_manager.resolved_to_public(plan[0]) if plan else None
+    can_generate = selected is not None
+    message = (
+        f"Provider 生图模型已就绪：{selected['source_name']} / {selected['model']}。"
+        if selected
+        else "请在 AI Provider 配置中创建可用的生图模型实例。"
+    )
     return {
-        "provider": payload["provider"],
-        "has_xai_api_key": payload["has_api_key"] if payload["provider"] == "xai" else False,
+        "provider": selected["provider"] if selected else "provider",
+        "has_xai_api_key": bool(selected and selected["provider"] == "xai" and selected["has_api_key"]),
         "can_generate": can_generate,
         "supports_site_hero": can_generate,
         "message": message,
-        "purpose": payload["purpose"],
-        "model": payload["model"],
-        "base_url": payload["base_url"],
-        "api_key_env_var": payload["api_key_env_var"],
-        "api_key_source": payload["api_key_source"],
-        "has_api_key": payload["has_api_key"],
-        "enabled": payload["enabled"],
+        "purpose": ai_channels.IMAGE_PURPOSE,
+        "model": selected["model"] if selected else "",
+        "base_url": selected["base_url"] if selected else "",
+        "api_key_env_var": selected["api_key_env_var"] if selected else "",
+        "api_key_source": selected["api_key_source"] if selected else "missing",
+        "has_api_key": bool(selected and selected["has_api_key"]),
+        "enabled": can_generate,
     }
 
 
@@ -1840,109 +1833,6 @@ def get_ai_runtime_plan(
     _admin: str = Depends(get_current_admin),
 ):
     return ai_provider_manager.runtime_plan_public(db)
-
-
-@router.get("/ai-channels", response_model=list[AiChannelOut])
-def list_ai_channels(
-    db: Session = Depends(get_db),
-    _admin: str = Depends(get_current_admin),
-):
-    return [
-        ai_channels.channel_plan_to_public_dict(ai_channels.resolve_channel_plan(db, purpose))
-        for purpose in (ai_channels.IMAGE_PURPOSE, ai_channels.TEXT_PURPOSE)
-    ]
-
-
-@router.get("/ai-channels/{purpose}", response_model=AiChannelOut)
-def get_ai_channel(
-    purpose: str,
-    db: Session = Depends(get_db),
-    _admin: str = Depends(get_current_admin),
-):
-    try:
-        plan = ai_channels.resolve_channel_plan(db, purpose)
-    except AiChannelError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
-    return ai_channels.channel_plan_to_public_dict(plan)
-
-
-@router.post("/ai-channels/{purpose}", response_model=AiChannelOut, status_code=201)
-def create_ai_channel(
-    purpose: str,
-    body: AiChannelUpdateRequest,
-    db: Session = Depends(get_db),
-    _admin: str = Depends(get_current_admin),
-):
-    try:
-        ai_channels.create_channel(db, purpose, body)
-    except AiChannelError as exc:
-        status_code = 409 if exc.code == "channel_exists" else 400
-        raise HTTPException(status_code=status_code, detail=exc.message) from exc
-    return ai_channels.channel_plan_to_public_dict(ai_channels.resolve_channel_plan(db, purpose))
-
-
-@router.put("/ai-channels/{purpose}", response_model=AiChannelOut)
-def update_ai_channel(
-    purpose: str,
-    body: AiChannelUpdateRequest,
-    db: Session = Depends(get_db),
-    _admin: str = Depends(get_current_admin),
-):
-    try:
-        ai_channels.update_channel(db, purpose, body)
-    except AiChannelError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
-    return ai_channels.channel_plan_to_public_dict(ai_channels.resolve_channel_plan(db, purpose))
-
-
-@router.delete("/ai-channels/{purpose}")
-def delete_ai_channel(
-    purpose: str,
-    db: Session = Depends(get_db),
-    _admin: str = Depends(get_current_admin),
-):
-    try:
-        ai_channels.delete_channel(db, purpose)
-    except AiChannelError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
-    return {"detail": "deleted"}
-
-
-@router.post("/ai-channels/{purpose}/test", response_model=AiChannelTestResponse)
-def test_ai_channel(
-    purpose: str,
-    db: Session = Depends(get_db),
-    _admin: str = Depends(get_current_admin),
-):
-    try:
-        return ai_channels.test_channel(db, purpose)
-    except AiChannelError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
-
-
-@router.post("/ai-channels/{purpose}/test-with-config", response_model=AiChannelTestResponse)
-def test_ai_channel_with_config(
-    purpose: str,
-    body: AiChannelTestWithConfigRequest,
-    _admin: str = Depends(get_current_admin),
-):
-    try:
-        return ai_channels.test_channel_with_config(purpose, body.model_dump())
-    except AiChannelError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
-
-
-@router.post("/ai-channels/{purpose}/models-with-config", response_model=AiChannelModelsResponse)
-def list_ai_channel_models_with_config(
-    purpose: str,
-    body: AiChannelModelsWithConfigRequest,
-    db: Session = Depends(get_db),
-    _admin: str = Depends(get_current_admin),
-):
-    try:
-        return ai_channels.list_models_with_config(purpose, body.model_dump(), db=db)
-    except AiChannelError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
 
 
 @router.post("/settings/generate-hero", response_model=SiteHeroGenerateResponse)

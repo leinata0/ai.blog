@@ -5,21 +5,16 @@ import {
   adminUploadImage,
   createAdminAiModelInstance,
   createAdminAiProviderSource,
-  deleteAdminAiChannel,
   deleteAdminAiModelInstance,
   deleteAdminAiProviderSource,
-  fetchAdminAiChannels,
   fetchAdminAiModelInstances,
   fetchAdminAiProviderSourceModels,
   fetchAdminAiProviderSources,
   fetchAdminAiRuntimePlan,
   fetchAdminCoverGenerationStatus,
   fetchAdminSettings,
-  fetchAdminAiChannelModelsWithConfig,
   generateAdminHeroImage,
   testAdminAiModelInstance,
-  testAdminAiChannelWithConfig,
-  updateAdminAiChannel,
   updateAdminAiModelInstance,
   updateAdminAiModelOrder,
   updateAdminAiProviderSource,
@@ -35,41 +30,6 @@ const EMPTY_SETTINGS = {
   announcement: '',
   site_url: '',
   friend_links: [],
-}
-
-const EMPTY_TARGET = {
-  id: '',
-  priority: 1,
-  provider: 'openai_compatible',
-  base_url: '',
-  model: '',
-  api_key_env_var: 'AI_API_KEY',
-  api_key_value: '',
-  persist_api_key: false,
-  has_api_key: false,
-  api_key_source: 'missing',
-  masked_api_key: '',
-  enabled: true,
-  is_configured: false,
-  message: '',
-}
-
-const EMPTY_CHANNEL = {
-  purpose: '',
-  provider: 'openai_compatible',
-  base_url: '',
-  model: '',
-  api_key_env_var: 'AI_API_KEY',
-  api_key_value: '',
-  persist_api_key: false,
-  has_api_key: false,
-  api_key_source: 'missing',
-  masked_api_key: '',
-  enabled: true,
-  is_configured: false,
-  message: '',
-  targets: [],
-  active_target_count: 0,
 }
 
 const EMPTY_PROVIDER_SOURCE_FORM = {
@@ -127,60 +87,6 @@ const PROVIDER_GROUPS = Object.entries(PROVIDER_PRESETS).reduce((acc, [value, pr
   acc[group].push({ value, ...preset })
   return acc
 }, {})
-
-function makeTargetId() {
-  return `target-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-function targetFromChannel(channel, priority = 1) {
-  return {
-    ...EMPTY_TARGET,
-    id: channel.id || `target-${priority}`,
-    priority,
-    provider: channel.provider || EMPTY_TARGET.provider,
-    base_url: channel.base_url || '',
-    model: channel.model || '',
-    api_key_env_var: channel.api_key_env_var || 'AI_API_KEY',
-    has_api_key: Boolean(channel.has_api_key),
-    api_key_source: channel.api_key_source || 'missing',
-    masked_api_key: channel.masked_api_key || '',
-    enabled: channel.enabled !== false,
-    is_configured: Boolean(channel.is_configured),
-    message: channel.message || '',
-  }
-}
-
-function normalizeTargets(item, purpose) {
-  const rawTargets = Array.isArray(item?.targets) && item.targets.length ? item.targets : [targetFromChannel(item || { purpose }, 1)]
-  return rawTargets.map((target, index) => ({
-    ...EMPTY_TARGET,
-    ...target,
-    id: target.id || `target-${index + 1}`,
-    priority: index + 1,
-    api_key_value: target.api_key_value || '',
-    persist_api_key: Boolean(target.persist_api_key),
-    enabled: target.enabled !== false,
-  }))
-}
-
-function targetPayload(target, index) {
-  const payload = {
-    id: target.id,
-    priority: index + 1,
-    provider: target.provider,
-    base_url: target.base_url,
-    model: target.model,
-    api_key_env_var: target.api_key_env_var,
-    enabled: target.enabled,
-  }
-  if (target.persist_api_key && target.api_key_value?.trim()) {
-    payload.api_key_value = target.api_key_value.trim()
-  }
-  if (target.clear_api_key) {
-    payload.clear_api_key = true
-  }
-  return payload
-}
 
 function formatLatency(latencyMs) {
   return Number.isFinite(latencyMs) ? `${latencyMs} ms` : '未返回耗时'
@@ -246,27 +152,6 @@ export default function AdminSettings() {
   const [error, setError] = useState('')
   const [channelLoadError, setChannelLoadError] = useState('')
   const [coverStatus, setCoverStatus] = useState(null)
-  const [channels, setChannels] = useState({
-    image_generation: { ...EMPTY_CHANNEL, purpose: 'image_generation' },
-    text_generation: { ...EMPTY_CHANNEL, purpose: 'text_generation' },
-  })
-  const [channelBusy, setChannelBusy] = useState('')
-  const [channelTestResults, setChannelTestResults] = useState({
-    image_generation: null,
-    text_generation: null,
-  })
-  const [channelActionResults, setChannelActionResults] = useState({
-    image_generation: null,
-    text_generation: null,
-  })
-  const [channelModels, setChannelModels] = useState({
-    image_generation: [],
-    text_generation: [],
-  })
-  const [channelModelResults, setChannelModelResults] = useState({
-    image_generation: null,
-    text_generation: null,
-  })
   const [heroDiagnostics, setHeroDiagnostics] = useState(null)
   const [providerSources, setProviderSources] = useState([])
   const [modelInstances, setModelInstances] = useState([])
@@ -290,7 +175,6 @@ export default function AdminSettings() {
   useEffect(() => {
     void loadSettings()
     void loadCoverStatus()
-    void loadAiChannels()
     void loadProviderConfig()
   }, [])
 
@@ -324,29 +208,6 @@ export default function AdminSettings() {
     }
   }
 
-  async function loadAiChannels() {
-    try {
-      const items = await fetchAdminAiChannels()
-      const nextChannels = {
-        image_generation: { ...EMPTY_CHANNEL, purpose: 'image_generation' },
-        text_generation: { ...EMPTY_CHANNEL, purpose: 'text_generation' },
-      }
-      if (!Array.isArray(items)) {
-        throw new Error('AI 渠道接口返回格式异常')
-      }
-      items.forEach((item) => {
-        if (item?.purpose && nextChannels[item.purpose]) {
-          nextChannels[item.purpose] = { ...EMPTY_CHANNEL, ...item, api_key_value: '', targets: normalizeTargets(item, item.purpose) }
-        }
-      })
-      setChannels(nextChannels)
-      setChannelLoadError('')
-    } catch (err) {
-      setChannels((prev) => prev)
-      setChannelLoadError(err.message || '加载 AI 渠道配置失败')
-    }
-  }
-
   async function loadProviderConfig() {
     try {
       const [sources, instances, plan] = await Promise.all([
@@ -359,219 +220,10 @@ export default function AdminSettings() {
       setRuntimePlan(plan || { image_generation: [], text_generation: [] })
       setChannelLoadError('')
     } catch (err) {
+      setProviderSources([])
+      setModelInstances([])
+      setRuntimePlan({ image_generation: [], text_generation: [] })
       setChannelLoadError(err.message || '加载 AI Provider 配置失败')
-    }
-  }
-
-  function clearChannelModels(purpose) {
-    setChannelModels((prev) => ({ ...prev, [purpose]: [] }))
-    setChannelModelResults((prev) => ({ ...prev, [purpose]: null }))
-  }
-
-  function updateChannelField(purpose, field, value) {
-    setChannels((prev) => ({
-      ...prev,
-      [purpose]: {
-        ...(prev[purpose] || EMPTY_CHANNEL),
-        purpose,
-        [field]: value,
-      },
-    }))
-    if (['provider', 'base_url', 'api_key_env_var', 'api_key_value'].includes(field)) {
-      clearChannelModels(purpose)
-    }
-  }
-
-  function updateChannelTarget(purpose, index, field, value) {
-    setChannels((prev) => {
-      const channel = prev[purpose] || EMPTY_CHANNEL
-      const targets = normalizeTargets(channel, purpose).map((target, itemIndex) => (
-        itemIndex === index ? { ...target, [field]: value } : target
-      ))
-      return { ...prev, [purpose]: { ...channel, purpose, targets } }
-    })
-    if (['provider', 'base_url', 'api_key_env_var', 'api_key_value'].includes(field)) {
-      clearChannelModels(purpose)
-    }
-  }
-
-  function handleTargetProviderChange(purpose, index, newProvider) {
-    const preset = PROVIDER_PRESETS[newProvider]
-    const modelKey = purpose === 'image_generation' ? 'model_image' : 'model_text'
-    setChannels((prev) => {
-      const channel = prev[purpose] || EMPTY_CHANNEL
-      const targets = normalizeTargets(channel, purpose).map((target, itemIndex) => {
-        if (itemIndex !== index) return target
-        return {
-          ...target,
-          provider: newProvider,
-          base_url: preset?.base_url || target.base_url || '',
-          model: preset?.[modelKey] || target.model || '',
-          api_key_env_var: preset?.env_var || target.api_key_env_var || 'AI_API_KEY',
-        }
-      })
-      return { ...prev, [purpose]: { ...channel, purpose, targets } }
-    })
-    clearChannelModels(purpose)
-    setChannelTestResults((prev) => ({ ...prev, [purpose]: null }))
-    setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
-  }
-
-  function addChannelTarget(purpose) {
-    setChannels((prev) => {
-      const channel = prev[purpose] || EMPTY_CHANNEL
-      const targets = normalizeTargets(channel, purpose)
-      return {
-        ...prev,
-        [purpose]: {
-          ...channel,
-          purpose,
-          targets: [...targets, { ...EMPTY_TARGET, id: makeTargetId(), priority: targets.length + 1 }],
-        },
-      }
-    })
-  }
-
-  function removeChannelTarget(purpose, index) {
-    setChannels((prev) => {
-      const channel = prev[purpose] || EMPTY_CHANNEL
-      const targets = normalizeTargets(channel, purpose).filter((_, itemIndex) => itemIndex !== index)
-      return { ...prev, [purpose]: { ...channel, purpose, targets: (targets.length ? targets : [{ ...EMPTY_TARGET, id: makeTargetId() }]).map((target, itemIndex) => ({ ...target, priority: itemIndex + 1 })) } }
-    })
-  }
-
-  function moveChannelTarget(purpose, index, direction) {
-    setChannels((prev) => {
-      const channel = prev[purpose] || EMPTY_CHANNEL
-      const targets = normalizeTargets(channel, purpose)
-      const nextIndex = index + direction
-      if (nextIndex < 0 || nextIndex >= targets.length) return prev
-      const nextTargets = [...targets]
-      const [item] = nextTargets.splice(index, 1)
-      nextTargets.splice(nextIndex, 0, item)
-      return { ...prev, [purpose]: { ...channel, purpose, targets: nextTargets.map((target, itemIndex) => ({ ...target, priority: itemIndex + 1 })) } }
-    })
-  }
-
-  function handleProviderChange(purpose, newProvider) {
-    const preset = PROVIDER_PRESETS[newProvider]
-    if (!preset) {
-      updateChannelField(purpose, 'provider', newProvider)
-      return
-    }
-    const modelKey = purpose === 'image_generation' ? 'model_image' : 'model_text'
-    setChannels((prev) => ({
-      ...prev,
-      [purpose]: {
-        ...(prev[purpose] || EMPTY_CHANNEL),
-        purpose,
-        provider: newProvider,
-        base_url: preset.base_url || prev[purpose]?.base_url || '',
-        model: preset[modelKey] || prev[purpose]?.model || '',
-        api_key_env_var: preset.env_var || prev[purpose]?.api_key_env_var || '',
-      },
-    }))
-    clearChannelModels(purpose)
-    setChannelTestResults((prev) => ({ ...prev, [purpose]: null }))
-    setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
-  }
-
-  async function handleSaveChannel(purpose) {
-    const channel = channels[purpose]
-    if (!channel) return
-    const targets = normalizeTargets(channel, purpose)
-    setChannelBusy(`${purpose}:save`)
-    setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
-    try {
-      const firstTarget = targets[0] || EMPTY_TARGET
-      const payload = {
-        provider: firstTarget.provider,
-        base_url: firstTarget.base_url,
-        model: firstTarget.model,
-        api_key_env_var: firstTarget.api_key_env_var,
-        enabled: channel.enabled,
-        targets: targets.map(targetPayload),
-      }
-      const updated = await updateAdminAiChannel(purpose, payload)
-      setChannels((prev) => ({
-        ...prev,
-        [purpose]: { ...EMPTY_CHANNEL, ...updated, api_key_value: '', targets: normalizeTargets(updated, purpose) },
-      }))
-      setChannelActionResults((prev) => ({ ...prev, [purpose]: { ok: true, message: `${CHANNEL_LABELS[purpose]} 已保存` } }))
-      await loadCoverStatus()
-    } catch (err) {
-      setChannelActionResults((prev) => ({ ...prev, [purpose]: { ok: false, message: err.message || `${CHANNEL_LABELS[purpose]} 保存失败` } }))
-    } finally {
-      setChannelBusy('')
-    }
-  }
-
-  async function handleResetChannel(purpose) {
-    setChannelBusy(`${purpose}:reset`)
-    setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
-    try {
-      await deleteAdminAiChannel(purpose)
-      await loadAiChannels()
-      await loadCoverStatus()
-      setChannelActionResults((prev) => ({ ...prev, [purpose]: { ok: true, message: `${CHANNEL_LABELS[purpose]} 已重置为默认配置` } }))
-    } catch (err) {
-      setChannelActionResults((prev) => ({ ...prev, [purpose]: { ok: false, message: err.message || `${CHANNEL_LABELS[purpose]} 重置失败` } }))
-    } finally {
-      setChannelBusy('')
-    }
-  }
-
-  async function handleTestChannel(purpose) {
-    const channel = channels[purpose]
-    if (!channel) return
-    const targets = normalizeTargets(channel, purpose)
-    setChannelBusy(`${purpose}:test`)
-    setChannelTestResults((prev) => ({ ...prev, [purpose]: null }))
-    try {
-      const result = await testAdminAiChannelWithConfig(purpose, {
-        targets: targets.map(targetPayload),
-      })
-      setChannelTestResults((prev) => ({ ...prev, [purpose]: result }))
-    } catch (err) {
-      setChannelTestResults((prev) => ({
-        ...prev,
-        [purpose]: { ok: false, message: err.message || `${CHANNEL_LABELS[purpose]} 测试失败` },
-      }))
-    } finally {
-      setChannelBusy('')
-    }
-  }
-
-  async function handleFetchModels(purpose, targetIndex = 0) {
-    const channel = channels[purpose]
-    if (!channel) return
-    const target = normalizeTargets(channel, purpose)[targetIndex] || EMPTY_TARGET
-    setChannelBusy(`${purpose}:models:${targetIndex}`)
-    setChannelModelResults((prev) => ({ ...prev, [purpose]: null }))
-    try {
-      const result = await fetchAdminAiChannelModelsWithConfig(purpose, {
-        target: targetPayload(target, targetIndex),
-      })
-      const models = Array.isArray(result?.models) ? result.models : []
-      setChannelModels((prev) => ({ ...prev, [purpose]: models }))
-      setChannelModelResults((prev) => ({
-        ...prev,
-        [purpose]: {
-          ok: Boolean(result?.ok),
-          targetIndex,
-          message: `${result?.message || (result?.ok ? '已获取模型列表' : '获取模型失败')}${Number.isFinite(result?.latency_ms) ? `，耗时 ${result.latency_ms} ms` : ''}`,
-        },
-      }))
-      if (result?.ok && models.length === 1 && !target.model) {
-        updateChannelTarget(purpose, targetIndex, 'model', models[0].id)
-      }
-    } catch (err) {
-      setChannelModelResults((prev) => ({
-        ...prev,
-        [purpose]: { ok: false, targetIndex, message: err.message || `${CHANNEL_LABELS[purpose]} 获取模型失败` },
-      }))
-    } finally {
-      setChannelBusy('')
     }
   }
 
@@ -1390,251 +1042,10 @@ export default function AdminSettings() {
                     <span className="font-semibold text-[var(--text-primary)]">#{index + 1} {item.name || item.model}</span>
                     <span> · {item.source_name} · {item.provider} · {item.model}</span>
                   </div>
-                )) : <div className="rounded-lg border border-dashed border-[var(--border-muted)] px-3 py-4 text-center text-xs text-[var(--text-faint)]">没有可用模型实例，将使用旧 AI channel fallback</div>}
+                )) : <div className="rounded-lg border border-dashed border-[var(--border-muted)] px-3 py-4 text-center text-xs text-[var(--text-faint)]">没有可用模型实例，请先创建可用的 Provider 模型实例</div>}
               </div>
             </div>
           ))}
-        </div>
-      </div>
-
-      <div className="space-y-4 rounded-2xl border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-4">
-        <div>
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">AI API 渠道配置</h3>
-          <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
-            生图渠道用于 Hero 和封面生成；生文字渠道用于后续文字生成工作流。API Key 可填环境变量名，也可临时填入用于获取模型/测试连接。只有勾选保存时才会把新 Key 写入后台；不保存时刷新后需要重新输入 Key 或使用环境变量。
-          </p>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-2">
-          {['image_generation', 'text_generation'].map((purpose) => {
-            const channel = channels[purpose] || { ...EMPTY_CHANNEL, purpose }
-            const models = channelModels[purpose] || []
-            const modelResult = channelModelResults[purpose]
-            const busyPrefix = `${purpose}:`
-            const targets = normalizeTargets(channel, purpose)
-            return (
-              <div key={purpose} className="space-y-3 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">{CHANNEL_LABELS[purpose]}</div>
-                    <div className="mt-1 text-xs text-[var(--text-faint)]">
-                      {channel.db_configured ? '已保存自定义配置' : '使用默认/环境变量配置'} · {channel.is_configured ? '已配置' : channel.message || '待配置'}
-                    </div>
-                  </div>
-                  <label className="inline-flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
-                    <input
-                      type="checkbox"
-                      checked={channel.enabled}
-                      onChange={(event) => updateChannelField(purpose, 'enabled', event.target.checked)}
-                    />
-                    启用
-                  </label>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-semibold text-[var(--text-secondary)]">调用顺序（失败时自动尝试下一项）</div>
-                    <button
-                      type="button"
-                      disabled={channelBusy.startsWith(busyPrefix)}
-                      onClick={() => addChannelTarget(purpose)}
-                      className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)] disabled:opacity-50"
-                    >
-                      添加 API 渠道
-                    </button>
-                  </div>
-
-                  {targets.map((target, targetIndex) => (
-                    <div key={target.id || targetIndex} className="space-y-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-[var(--text-primary)]">优先级 {targetIndex + 1}</div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <label className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)]">
-                            <input
-                              type="checkbox"
-                              checked={target.enabled}
-                              onChange={(event) => updateChannelTarget(purpose, targetIndex, 'enabled', event.target.checked)}
-                            />
-                            启用
-                          </label>
-                          <button type="button" disabled={targetIndex === 0 || channelBusy.startsWith(busyPrefix)} onClick={() => moveChannelTarget(purpose, targetIndex, -1)} className="rounded border border-[var(--border-muted)] px-2 py-1 text-xs disabled:opacity-40">上移</button>
-                          <button type="button" disabled={targetIndex === targets.length - 1 || channelBusy.startsWith(busyPrefix)} onClick={() => moveChannelTarget(purpose, targetIndex, 1)} className="rounded border border-[var(--border-muted)] px-2 py-1 text-xs disabled:opacity-40">下移</button>
-                          <button type="button" disabled={targets.length <= 1 || channelBusy.startsWith(busyPrefix)} onClick={() => removeChannelTarget(purpose, targetIndex)} className="rounded border border-[var(--border-muted)] px-2 py-1 text-xs text-[#ef4444] disabled:opacity-40">删除</button>
-                        </div>
-                      </div>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
-                          Provider
-                          <select
-                            value={target.provider}
-                            onChange={(event) => handleTargetProviderChange(purpose, targetIndex, event.target.value)}
-                            className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                            style={inputStyle}
-                          >
-                            {Object.entries(PROVIDER_GROUPS).map(([groupLabel, options]) => (
-                              <optgroup key={groupLabel} label={groupLabel}>
-                                {options.map((option) => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                              </optgroup>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
-                          Model
-                          <input
-                            value={target.model}
-                            onChange={(event) => updateChannelTarget(purpose, targetIndex, 'model', event.target.value)}
-                            className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                            style={inputStyle}
-                            placeholder={purpose === 'image_generation' ? '例如 image-model' : '例如 text-model'}
-                          />
-                        </label>
-                      </div>
-
-                      <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
-                        Base URL
-                        <input
-                          value={target.base_url}
-                          onChange={(event) => updateChannelTarget(purpose, targetIndex, 'base_url', event.target.value)}
-                          className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                          style={inputStyle}
-                          placeholder="https://api.example.com 或 https://api.example.com/v1"
-                        />
-                      </label>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
-                          API Key 环境变量
-                          <input
-                            value={target.api_key_env_var}
-                            onChange={(event) => updateChannelTarget(purpose, targetIndex, 'api_key_env_var', event.target.value)}
-                            className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                            style={inputStyle}
-                            placeholder="AI_API_KEY"
-                          />
-                        </label>
-                        <div className="space-y-2">
-                          <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
-                            新 API Key
-                            <input
-                              type="password"
-                              value={target.api_key_value}
-                              onChange={(event) => updateChannelTarget(purpose, targetIndex, 'api_key_value', event.target.value)}
-                              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                              style={inputStyle}
-                              placeholder={target.masked_api_key || '留空则不更新'}
-                            />
-                          </label>
-                          <label className="flex items-start gap-2 text-xs font-medium text-[var(--text-faint)]">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(target.persist_api_key)}
-                              onChange={(event) => updateChannelTarget(purpose, targetIndex, 'persist_api_key', event.target.checked)}
-                              className="mt-0.5"
-                            />
-                            <span>保存这个 API Key 到后台。</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-faint)]">
-                        <span>Key 来源：{target.api_key_source || 'missing'}{target.masked_api_key ? ` · ${target.masked_api_key}` : ''}</span>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={channelBusy.startsWith(busyPrefix)}
-                            onClick={() => handleFetchModels(purpose, targetIndex)}
-                            className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)] disabled:opacity-50"
-                          >
-                            {channelBusy === `${purpose}:models:${targetIndex}` ? '获取中…' : '获取模型'}
-                          </button>
-                          {models.length && modelResult?.targetIndex === targetIndex ? (
-                            <select
-                              value=""
-                              onChange={(event) => event.target.value && updateChannelTarget(purpose, targetIndex, 'model', event.target.value)}
-                              className="min-w-0 rounded-lg px-3 py-1.5 text-xs outline-none"
-                              style={inputStyle}
-                              aria-label={`${CHANNEL_LABELS[purpose]} 候选 ${targetIndex + 1} 模型列表`}
-                            >
-                              <option value="">选择模型写入 Model</option>
-                              {models.map((model) => (
-                                <option key={model.id} value={model.id}>{model.label && model.label !== model.id ? `${model.label} (${model.id})` : model.id}</option>
-                              ))}
-                            </select>
-                          ) : null}
-                        </div>
-                      </div>
-                      {modelResult && modelResult.targetIndex === targetIndex ? (
-                        <div className="rounded-lg px-3 py-2 text-xs" style={{ backgroundColor: modelResult.ok ? 'var(--accent-soft)' : 'var(--danger-soft)', color: modelResult.ok ? 'var(--accent)' : '#ef4444' }}>
-                          {modelResult.ok ? '✓ ' : '✗ '}{modelResult.message}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-xs text-[var(--text-faint)]">
-                    Key 来源：{channel.api_key_source || 'missing'}{channel.masked_api_key ? ` · ${channel.masked_api_key}` : ''}
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      disabled={channelBusy.startsWith(busyPrefix)}
-                      onClick={() => handleResetChannel(purpose)}
-                      className="rounded-lg border border-[var(--border-muted)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-50"
-                    >
-                      {channelBusy === `${purpose}:reset` ? '重置中…' : '重置'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={channelBusy.startsWith(busyPrefix)}
-                      onClick={() => handleTestChannel(purpose)}
-                      className="rounded-lg border border-[var(--border-muted)] px-3 py-2 text-xs font-semibold text-[var(--accent)] disabled:opacity-50"
-                    >
-                      {channelBusy === `${purpose}:test` ? '测试中…' : '测试连接'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={channelBusy.startsWith(busyPrefix)}
-                      onClick={() => handleSaveChannel(purpose)}
-                      className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                    >
-                      {channelBusy === `${purpose}:save` ? '保存中…' : '保存渠道'}
-                    </button>
-                  </div>
-                </div>
-
-                {channelTestResults[purpose] ? (
-                  <div
-                    className="rounded-lg px-3 py-2 text-xs"
-                    style={{
-                      backgroundColor: channelTestResults[purpose].ok ? 'var(--accent-soft)' : 'var(--danger-soft)',
-                      color: channelTestResults[purpose].ok ? 'var(--accent)' : '#ef4444',
-                    }}
-                  >
-                    {channelTestResults[purpose].ok ? '✓ ' : '✗ '}
-                    {channelTestResults[purpose].message}
-                  </div>
-                ) : null}
-
-                {channelActionResults[purpose] ? (
-                  <div
-                    className="rounded-lg px-3 py-2 text-xs"
-                    style={{
-                      backgroundColor: channelActionResults[purpose].ok ? 'var(--accent-soft)' : 'var(--danger-soft)',
-                      color: channelActionResults[purpose].ok ? 'var(--accent)' : '#ef4444',
-                    }}
-                  >
-                    {channelActionResults[purpose].ok ? '✓ ' : '✗ '}
-                    {channelActionResults[purpose].message}
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
         </div>
       </div>
 
