@@ -239,16 +239,37 @@ export default function AdminSettings() {
     }))
   }
 
+  function validateProviderSourceForm() {
+    const name = providerSourceForm.name.trim()
+    const baseUrl = providerSourceForm.base_url.trim()
+    const envVar = providerSourceForm.api_key_env_var.trim()
+    if (!name) return '请填写服务源名称。'
+    if (!baseUrl) return '请填写 Base URL。'
+    if (!/^https?:\/\//i.test(baseUrl)) return 'Base URL 必须以 http:// 或 https:// 开头。'
+    if (!envVar) return '请填写 API Key 环境变量。'
+    try {
+      JSON.parse(providerSourceForm.extra_json || '{}')
+    } catch {
+      return '扩展配置必须是合法 JSON。'
+    }
+    return ''
+  }
+
   async function handleSaveProviderSource() {
+    const validationError = validateProviderSourceForm()
+    if (validationError) {
+      setProviderResult({ ok: false, message: validationError })
+      return
+    }
     setProviderBusy('source:save')
-    setProviderResult(null)
+    setProviderResult({ ok: true, message: providerSourceForm.id ? '正在保存服务源…' : '正在创建服务源…' })
     try {
       const payload = {
-        name: providerSourceForm.name,
+        name: providerSourceForm.name.trim(),
         provider: providerSourceForm.provider,
         protocol: providerSourceForm.protocol,
-        base_url: providerSourceForm.base_url,
-        api_key_env_var: providerSourceForm.api_key_env_var,
+        base_url: providerSourceForm.base_url.trim(),
+        api_key_env_var: providerSourceForm.api_key_env_var.trim(),
         enabled: providerSourceForm.enabled,
         extra_json: providerSourceForm.extra_json,
         clear_api_key: providerSourceForm.clear_api_key,
