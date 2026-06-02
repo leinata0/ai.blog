@@ -1681,7 +1681,7 @@ def list_ai_channels(
     _admin: str = Depends(get_current_admin),
 ):
     return [
-        ai_channels.channel_to_public_dict(ai_channels.resolve_channel(db, purpose))
+        ai_channels.channel_plan_to_public_dict(ai_channels.resolve_channel_plan(db, purpose))
         for purpose in (ai_channels.IMAGE_PURPOSE, ai_channels.TEXT_PURPOSE)
     ]
 
@@ -1693,10 +1693,10 @@ def get_ai_channel(
     _admin: str = Depends(get_current_admin),
 ):
     try:
-        channel = ai_channels.resolve_channel(db, purpose)
+        plan = ai_channels.resolve_channel_plan(db, purpose)
     except AiChannelError as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
-    return ai_channels.channel_to_public_dict(channel)
+    return ai_channels.channel_plan_to_public_dict(plan)
 
 
 @router.post("/ai-channels/{purpose}", response_model=AiChannelOut, status_code=201)
@@ -1707,11 +1707,11 @@ def create_ai_channel(
     _admin: str = Depends(get_current_admin),
 ):
     try:
-        channel = ai_channels.create_channel(db, purpose, body)
+        ai_channels.create_channel(db, purpose, body)
     except AiChannelError as exc:
         status_code = 409 if exc.code == "channel_exists" else 400
         raise HTTPException(status_code=status_code, detail=exc.message) from exc
-    return ai_channels.channel_to_public_dict(channel)
+    return ai_channels.channel_plan_to_public_dict(ai_channels.resolve_channel_plan(db, purpose))
 
 
 @router.put("/ai-channels/{purpose}", response_model=AiChannelOut)
@@ -1722,10 +1722,10 @@ def update_ai_channel(
     _admin: str = Depends(get_current_admin),
 ):
     try:
-        channel = ai_channels.update_channel(db, purpose, body)
+        ai_channels.update_channel(db, purpose, body)
     except AiChannelError as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
-    return ai_channels.channel_to_public_dict(channel)
+    return ai_channels.channel_plan_to_public_dict(ai_channels.resolve_channel_plan(db, purpose))
 
 
 @router.delete("/ai-channels/{purpose}")
@@ -1769,10 +1769,11 @@ def test_ai_channel_with_config(
 def list_ai_channel_models_with_config(
     purpose: str,
     body: AiChannelModelsWithConfigRequest,
+    db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
     try:
-        return ai_channels.list_models_with_config(purpose, body.model_dump())
+        return ai_channels.list_models_with_config(purpose, body.model_dump(), db=db)
     except AiChannelError as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
 

@@ -355,34 +355,45 @@ it('opens settings and manages AI channel configuration', async () => {
   await userEvent.click(screen.getAllByRole('button', { name: '测试连接' })[0])
   expect(await screen.findByText(/AI 渠道测试成功/)).toBeInTheDocument()
   expect(adminApi.testAdminAiChannelWithConfig).toHaveBeenCalledWith('image_generation', expect.objectContaining({
-    provider: 'xai',
-    api_key_value: 'sk-temporary-123456',
+    targets: expect.arrayContaining([
+      expect.objectContaining({
+        provider: 'xai',
+      }),
+    ]),
   }))
 
   await userEvent.click(screen.getAllByRole('button', { name: '获取模型' })[0])
   expect(await screen.findByText(/已获取模型列表/)).toBeInTheDocument()
   expect(adminApi.fetchAdminAiChannelModelsWithConfig).toHaveBeenCalledWith('image_generation', expect.objectContaining({
-    provider: 'xai',
-    base_url: 'https://api.x.ai/v1',
-    api_key_value: 'sk-temporary-123456',
+    target: expect.objectContaining({
+      provider: 'xai',
+      base_url: 'https://api.x.ai/v1',
+    }),
   }))
 
-  await userEvent.selectOptions(screen.getByLabelText('生图 API 模型列表'), 'grok-4')
+  await userEvent.selectOptions(screen.getByLabelText('生图 API 候选 1 模型列表'), 'grok-4')
   await userEvent.click(screen.getAllByRole('button', { name: '保存渠道' })[0])
   expect(await screen.findByText(/生图 API 已保存/)).toBeInTheDocument()
   expect(adminApi.updateAdminAiChannel).toHaveBeenCalledWith('image_generation', expect.objectContaining({
-    model: 'grok-4',
+    targets: expect.arrayContaining([
+      expect.objectContaining({ model: 'grok-4' }),
+    ]),
   }))
-  expect(adminApi.updateAdminAiChannel).toHaveBeenCalledWith('image_generation', expect.not.objectContaining({
-    api_key_value: expect.anything(),
+  expect(adminApi.updateAdminAiChannel).toHaveBeenCalledWith('image_generation', expect.objectContaining({
+    targets: expect.arrayContaining([
+      expect.not.objectContaining({ api_key_value: expect.anything() }),
+    ]),
   }))
 
-  await userEvent.click(screen.getAllByLabelText('保存这个 API Key 到后台，下次继续使用。不勾选时仅用于本次获取模型和测试连接。')[0])
+  await userEvent.click(screen.getAllByLabelText('保存这个 API Key 到后台。')[0])
+  await userEvent.clear(screen.getAllByLabelText('新 API Key')[0])
   await userEvent.type(screen.getAllByLabelText('新 API Key')[0], 'sk-persistent-789012')
   await userEvent.click(screen.getAllByRole('button', { name: '保存渠道' })[0])
   expect(await screen.findByText(/生图 API 已保存/)).toBeInTheDocument()
-  expect(adminApi.updateAdminAiChannel).toHaveBeenNthCalledWith(2, 'image_generation', expect.objectContaining({
-    api_key_value: 'sk-persistent-789012',
+  expect(adminApi.updateAdminAiChannel).toHaveBeenCalledWith('image_generation', expect.objectContaining({
+    targets: expect.arrayContaining([
+      expect.objectContaining({ api_key_value: 'sk-persistent-789012' }),
+    ]),
   }))
 
   await userEvent.click(screen.getAllByRole('button', { name: '重置' })[0])

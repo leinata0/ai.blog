@@ -614,6 +614,35 @@ class CoverGenerateResponse(BaseModel):
     error_code: str = ""
 
 
+class AiChannelTargetUpdateRequest(BaseModel):
+    id: str | None = None
+    priority: int | None = None
+    provider: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    api_key_env_var: str | None = None
+    api_key_value: str | None = None
+    clear_api_key: bool = False
+    enabled: bool | None = None
+    persist_api_key: bool = False
+
+
+class AiChannelTargetOut(BaseModel):
+    id: str = ""
+    priority: int = 1
+    provider: str = "openai_compatible"
+    protocol: str = "openai"
+    base_url: str = ""
+    model: str = ""
+    api_key_env_var: str = ""
+    has_api_key: bool = False
+    api_key_source: str = "missing"
+    masked_api_key: str = ""
+    enabled: bool = True
+    is_configured: bool = False
+    message: str = ""
+
+
 class AiChannelOut(BaseModel):
     purpose: str
     provider: str
@@ -628,6 +657,8 @@ class AiChannelOut(BaseModel):
     is_configured: bool = False
     db_configured: bool = False
     message: str = ""
+    targets: list[AiChannelTargetOut] = Field(default_factory=list)
+    active_target_count: int = 0
 
 
 class AiChannelUpdateRequest(BaseModel):
@@ -639,6 +670,19 @@ class AiChannelUpdateRequest(BaseModel):
     clear_api_key: bool = False
     enabled: bool | None = None
     extra_json: str | None = None
+    targets: list[AiChannelTargetUpdateRequest] | None = None
+
+
+class AiChannelTestAttemptOut(BaseModel):
+    target_id: str = ""
+    priority: int = 1
+    ok: bool = False
+    provider: str = ""
+    model: str = ""
+    api_key_source: str = "missing"
+    latency_ms: int | None = None
+    message: str = ""
+    error_code: str = ""
 
 
 class AiChannelTestResponse(BaseModel):
@@ -648,6 +692,10 @@ class AiChannelTestResponse(BaseModel):
     model: str = ""
     message: str = ""
     error_code: str = ""
+    latency_ms: int | None = None
+    attempts: list[AiChannelTestAttemptOut] = Field(default_factory=list)
+    selected_target_id: str = ""
+    selected_priority: int | None = None
 
 
 class AiChannelTestWithConfigRequest(BaseModel):
@@ -656,6 +704,7 @@ class AiChannelTestWithConfigRequest(BaseModel):
     model: str | None = None
     api_key_env_var: str | None = None
     api_key_value: str | None = None
+    targets: list[AiChannelTargetUpdateRequest] | None = None
 
 
 class AiChannelModelsWithConfigRequest(BaseModel):
@@ -664,6 +713,8 @@ class AiChannelModelsWithConfigRequest(BaseModel):
     model: str | None = None
     api_key_env_var: str | None = None
     api_key_value: str | None = None
+    target_id: str | None = None
+    target: AiChannelTargetUpdateRequest | None = None
 
 
 class AiChannelModelOut(BaseModel):
@@ -681,6 +732,7 @@ class AiChannelModelsResponse(BaseModel):
     ok: bool = False
     message: str = ""
     error_code: str = ""
+    latency_ms: int | None = None
     models: list[AiChannelModelOut] = Field(default_factory=list)
 
 
