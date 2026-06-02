@@ -129,6 +129,39 @@ class AiChannelConfig(Base):
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class AiProviderSource(Base):
+    __tablename__ = "ai_provider_sources"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(120), nullable=False, default="")
+    provider = Column(String(80), nullable=False, default="openai_compatible")
+    protocol = Column(String(40), nullable=False, default="openai")
+    base_url = Column(String(500), nullable=False, default="")
+    api_key_env_var = Column(String(120), nullable=False, default="AI_API_KEY")
+    api_key_value = Column(Text, nullable=False, default="")
+    enabled = Column(Boolean, nullable=False, default=True)
+    extra_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    model_instances = relationship("AiModelInstance", back_populates="source", cascade="all, delete-orphan")
+
+
+class AiModelInstance(Base):
+    __tablename__ = "ai_model_instances"
+    id = Column(Integer, primary_key=True, index=True)
+    source_id = Column(Integer, ForeignKey("ai_provider_sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(160), nullable=False, default="")
+    model = Column(String(240), nullable=False, default="")
+    purpose = Column(String(80), nullable=False, index=True)
+    capabilities_json = Column(Text, nullable=False, default="[]")
+    priority = Column(Integer, nullable=False, default=1)
+    enabled = Column(Boolean, nullable=False, default=True)
+    is_default = Column(Boolean, nullable=False, default=False)
+    extra_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    source = relationship("AiProviderSource", back_populates="model_instances")
+
+
 class PostLike(Base):
     __tablename__ = "post_likes"
     id = Column(Integer, primary_key=True, index=True)
