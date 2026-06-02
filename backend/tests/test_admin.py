@@ -916,9 +916,17 @@ def test_ai_channels_are_admin_only_and_mask_keys(client):
     assert payload["masked_api_key"] == "sk-s...3456"
     assert "sk-secret" not in str(payload)
 
-    cleared = client.put(
+    unchanged = client.put(
         "/api/admin/ai-channels/image_generation",
         json={"api_key_value": ""},
+        headers=_auth(token),
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.json()["api_key_source"] == "db"
+
+    cleared = client.put(
+        "/api/admin/ai-channels/image_generation",
+        json={"clear_api_key": True},
         headers=_auth(token),
     )
     assert cleared.status_code == 200
@@ -945,6 +953,108 @@ def test_cover_generation_status_uses_ai_channel_fallback(client, monkeypatch):
     assert payload["supports_site_hero"] is True
     assert payload["model"] == "grok-imagine-image"
 
+
+def test_ai_channel_models_with_config_fetches_openai_compatible_models(client, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+    unauthorized = client.post(
+        "/api/admin/ai-channels/text_generation/models-with-config",
+        json={"provider": "openai_compatible"},
+    )
+    assert unauthorized.status_code in (401, 403)
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "model-a", "owned_by": "gateway"}, {"id": "text-embedding-3-small"}, "model-b"]}
+
+    def fake_get(url, headers, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(channel_mod.httpx, "get", fake_get)
+
+    response = client.post(
+        "/api/admin/ai-channels/text_generation/models-with-config",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://gateway.example.com/v1/",
+            "api_key_value": "sk-secret-123456",
+        },
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["models"][0]["id"] == "model-a"
+    assert payload["models"][0]["owned_by"] == "gateway"
+    assert payload["models"][2]["id"] == "model-b"
+    assert captured["url"] == "https://gateway.example.com/v1/models"
+    assert captured["headers"]["Authorization"] == "Bearer sk-secret-123456"
+    assert "sk-secret" not in str(payload)
+
+
+def test_ai_channel_models_with_config_handles_anthropic_and_errors(client, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "claude-sonnet-4-20250514", "display_name": "Claude Sonnet 4"}]}
+
+    def fake_get(url, headers, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        return FakeResponse()
+
+    monkeypatch.setattr(channel_mod.httpx, "get", fake_get)
+
+    response = client.post(
+        "/api/admin/ai-channels/text_generation/models-with-config",
+        json={
+            "provider": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "api_key_value": "sk-ant-secret",
+        },
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["models"][0]["id"] == "claude-sonnet-4-20250514"
+    assert payload["models"][0]["label"] == "Claude Sonnet 4"
+    assert captured["url"] == "https://api.anthropic.com/v1/models"
+    assert captured["headers"]["x-api-key"] == "sk-ant-secret"
+
+    missing_key = client.post(
+        "/api/admin/ai-channels/text_generation/models-with-config",
+        json={"provider": "openai_compatible", "base_url": "https://gateway.example.com/v1"},
+        headers=_auth(token),
+    )
+    assert missing_key.status_code == 200
+    assert missing_key.json()["ok"] is False
+    assert missing_key.json()["error_code"] == "missing_api_key"
+
+    unsupported = client.post(
+        "/api/admin/ai-channels/image_generation/models-with-config",
+        json={"provider": "anthropic", "base_url": "https://api.anthropic.com", "api_key_value": "sk-ant-secret"},
+        headers=_auth(token),
+    )
+    assert unsupported.status_code == 200
+    assert unsupported.json()["ok"] is False
+    assert unsupported.json()["error_code"] == "unsupported_provider_for_purpose"
 
 def test_ai_channel_text_generation_test_uses_chat_completions(client, monkeypatch):
     from app.services import ai_channels as channel_mod

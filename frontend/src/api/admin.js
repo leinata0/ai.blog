@@ -48,7 +48,8 @@ export async function adminUploadImage(file) {
   return apiPost('/api/admin/upload', formData, { auth: true })
 }
 
-export const fetchSettings = () => apiGet('/api/settings')
+export const fetchSettings = (requestOptions = {}) => apiGet('/api/settings', requestOptions)
+export const fetchAdminSettings = () => apiGet('/api/settings', { auth: true, cache: false, forceRefresh: true, dedupe: false })
 export const updateSettings = (data) => apiPut('/api/settings', data, {
   auth: true,
   invalidatePaths: ['/api/settings', '/api/stats', '/api/home/modules', '/api/public/home-bootstrap'],
@@ -154,6 +155,8 @@ export const testAdminAiChannel = (purpose) =>
   apiPost(`/api/admin/ai-channels/${purpose}/test`, {}, { auth: true })
 export const testAdminAiChannelWithConfig = (purpose, config) =>
   apiPost(`/api/admin/ai-channels/${purpose}/test-with-config`, config, { auth: true })
+export const fetchAdminAiChannelModelsWithConfig = (purpose, config) =>
+  apiPost(`/api/admin/ai-channels/${purpose}/models-with-config`, config, { auth: true })
 
 export const fetchAdminTopicProfiles = (requestOptions = {}) =>
   apiGet('/api/admin/topic-profiles', { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })

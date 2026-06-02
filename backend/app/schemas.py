@@ -636,6 +636,7 @@ class AiChannelUpdateRequest(BaseModel):
     model: str | None = None
     api_key_env_var: str | None = None
     api_key_value: str | None = None
+    clear_api_key: bool = False
     enabled: bool | None = None
     extra_json: str | None = None
 
@@ -655,6 +656,32 @@ class AiChannelTestWithConfigRequest(BaseModel):
     model: str | None = None
     api_key_env_var: str | None = None
     api_key_value: str | None = None
+
+
+class AiChannelModelsWithConfigRequest(BaseModel):
+    provider: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    api_key_env_var: str | None = None
+    api_key_value: str | None = None
+
+
+class AiChannelModelOut(BaseModel):
+    id: str
+    label: str = ""
+    owned_by: str = ""
+    capabilities: list[str] = Field(default_factory=list)
+
+
+class AiChannelModelsResponse(BaseModel):
+    purpose: str
+    provider: str = ""
+    protocol: str = "openai"
+    base_url: str = ""
+    ok: bool = False
+    message: str = ""
+    error_code: str = ""
+    models: list[AiChannelModelOut] = Field(default_factory=list)
 
 
 class CoverGenerationStatusOut(BaseModel):
