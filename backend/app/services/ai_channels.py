@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import httpx
 from sqlalchemy.orm import Session
@@ -184,6 +186,41 @@ class ResolvedAiChannel:
         return self.enabled and self.has_api_key and bool(self.base_url) and bool(self.model)
 
 
+@dataclass(frozen=True)
+class ResolvedAiChannelTarget:
+    id: str
+    priority: int
+    purpose: str
+    provider: str
+    base_url: str
+    model: str
+    api_key: str
+    api_key_env_var: str
+    api_key_source: str
+    enabled: bool
+    db_configured: bool
+    protocol: str = PROTOCOL_OPENAI
+
+    @property
+    def has_api_key(self) -> bool:
+        return bool(self.api_key)
+
+    @property
+    def is_configured(self) -> bool:
+        return self.enabled and self.has_api_key and bool(self.base_url) and bool(self.model)
+
+
+@dataclass(frozen=True)
+class ResolvedAiChannelPlan:
+    purpose: str
+    enabled: bool
+    db_configured: bool
+    targets: list[ResolvedAiChannelTarget]
+
+
+FAILOVER_TARGETS_KEY = "failover_targets"
+
+
 def normalize_purpose(purpose: str) -> str:
     normalized = str(purpose or "").strip().lower()
     if normalized not in VALID_PURPOSES:
@@ -226,6 +263,172 @@ def mask_api_key(value: str) -> str:
     return f"{key[:4]}...{key[-4:]}"
 
 
+def _safe_extra_dict(value: str | None) -> dict[str, Any]:
+    try:
+        parsed = json.loads(str(value or "{}").strip() or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _target_message(target: ResolvedAiChannelTarget) -> str:
+    if not target.enabled:
+        return "该候选已停用。"
+    if target.is_configured:
+        return "AI 候选已配置，可用于生成。"
+    if not target.has_api_key:
+        return "AI 候选缺少 API Key。"
+    return "AI 候选配置不完整。"
+
+
+def _target_to_channel(target: ResolvedAiChannelTarget) -> ResolvedAiChannel:
+    return ResolvedAiChannel(
+        purpose=target.purpose,
+        provider=target.provider,
+        base_url=target.base_url,
+        model=target.model,
+        api_key=target.api_key,
+        api_key_env_var=target.api_key_env_var,
+        api_key_source=target.api_key_source,
+        enabled=target.enabled,
+        db_configured=target.db_configured,
+        protocol=target.protocol,
+    )
+
+
+def _channel_to_target(channel: ResolvedAiChannel, *, target_id: str = "primary", priority: int = 1) -> ResolvedAiChannelTarget:
+    return ResolvedAiChannelTarget(
+        id=target_id,
+        priority=priority,
+        purpose=channel.purpose,
+        provider=channel.provider,
+        base_url=channel.base_url,
+        model=channel.model,
+        api_key=channel.api_key,
+        api_key_env_var=channel.api_key_env_var,
+        api_key_source=channel.api_key_source,
+        enabled=channel.enabled,
+        db_configured=channel.db_configured,
+        protocol=channel.protocol,
+    )
+
+
+def _target_public_dict(target: ResolvedAiChannelTarget) -> dict[str, Any]:
+    return {
+        "id": target.id,
+        "priority": target.priority,
+        "provider": target.provider,
+        "protocol": target.protocol,
+        "base_url": target.base_url,
+        "model": target.model,
+        "api_key_env_var": target.api_key_env_var,
+        "has_api_key": target.has_api_key,
+        "api_key_source": target.api_key_source,
+        "masked_api_key": mask_api_key(target.api_key),
+        "enabled": target.enabled,
+        "is_configured": target.is_configured,
+        "message": _target_message(target),
+    }
+
+
+def _target_from_stored(raw: dict[str, Any], purpose: str, *, db_configured: bool) -> ResolvedAiChannelTarget | None:
+    if not isinstance(raw, dict):
+        return None
+    try:
+        provider = normalize_provider(raw.get("provider"), purpose)
+    except AiChannelError:
+        return None
+    defaults = provider_defaults(provider, purpose)
+    env_var = str(raw.get("api_key_env_var") or defaults["api_key_env_var"]).strip()
+    stored_key = decrypt_value(str(raw.get("api_key_value") or "").strip())
+    env_key = clean_env(env_var) if env_var else ""
+    api_key = stored_key or env_key
+    api_key_source = "db" if stored_key else "env" if env_key else "missing"
+    try:
+        priority = int(raw.get("priority") or 1)
+    except (TypeError, ValueError):
+        priority = 1
+    return ResolvedAiChannelTarget(
+        id=str(raw.get("id") or f"target-{priority}"),
+        priority=max(priority, 1),
+        purpose=purpose,
+        provider=provider,
+        base_url=str(raw.get("base_url") or defaults["base_url"]).strip().rstrip("/"),
+        model=str(raw.get("model") or defaults["model"]).strip(),
+        api_key=api_key,
+        api_key_env_var=env_var,
+        api_key_source=api_key_source,
+        enabled=bool(raw.get("enabled", True)),
+        db_configured=db_configured,
+        protocol=defaults.get("protocol", PROTOCOL_OPENAI),
+    )
+
+
+def _target_from_inline(raw: dict[str, Any], purpose: str, *, require_model: bool = True) -> ResolvedAiChannelTarget:
+    provider = normalize_provider(raw.get("provider"), purpose)
+    defaults = provider_defaults(provider, purpose)
+    env_var = str(raw.get("api_key_env_var") or defaults["api_key_env_var"]).strip()
+    api_key = str(raw.get("api_key_value") or "").strip()
+    env_key = clean_env(env_var) if env_var else ""
+    if not api_key and env_key:
+        api_key = env_key
+    try:
+        priority = int(raw.get("priority") or 1)
+    except (TypeError, ValueError):
+        priority = 1
+    return ResolvedAiChannelTarget(
+        id=str(raw.get("id") or f"inline-{priority}"),
+        priority=max(priority, 1),
+        purpose=purpose,
+        provider=provider,
+        base_url=str(raw.get("base_url") or defaults["base_url"]).strip().rstrip("/"),
+        model=str(raw.get("model") or (defaults["model"] if require_model else "")).strip(),
+        api_key=api_key,
+        api_key_env_var=env_var,
+        api_key_source="inline" if str(raw.get("api_key_value") or "").strip() else ("env" if env_key else "missing"),
+        enabled=bool(raw.get("enabled", True)),
+        db_configured=False,
+        protocol=defaults.get("protocol", PROTOCOL_OPENAI),
+    )
+
+
+def _stored_targets(config: AiChannelConfig, purpose: str) -> list[ResolvedAiChannelTarget]:
+    extra = _safe_extra_dict(config.extra_json)
+    raw_targets = extra.get(FAILOVER_TARGETS_KEY)
+    if not isinstance(raw_targets, list):
+        return []
+    targets = [t for item in raw_targets if (t := _target_from_stored(item, purpose, db_configured=True))]
+    return sorted(targets, key=lambda item: item.priority)
+
+
+def _legacy_channel_from_config(config: AiChannelConfig, purpose: str) -> ResolvedAiChannel:
+    try:
+        provider = normalize_provider(config.provider, purpose)
+    except AiChannelError:
+        logger.warning("Invalid AI channel provider in DB; falling back to defaults for purpose=%s", purpose)
+        return _fallback_channel(purpose)
+    defaults = provider_defaults(provider, purpose)
+    base_url = (config.base_url or defaults["base_url"]).strip().rstrip("/")
+    model = (config.model or defaults["model"]).strip()
+    env_var = (config.api_key_env_var or defaults["api_key_env_var"]).strip()
+    db_key = decrypt_value((config.api_key_value or "").strip())
+    env_key = clean_env(env_var) if env_var else ""
+    api_key = db_key or env_key
+    api_key_source = "db" if db_key else "env" if env_key else "missing"
+    return ResolvedAiChannel(
+        purpose=purpose,
+        provider=provider,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+        api_key_env_var=env_var,
+        api_key_source=api_key_source,
+        enabled=bool(config.enabled),
+        db_configured=True,
+        protocol=defaults.get("protocol", PROTOCOL_OPENAI),
+    )
+
+
 def _fallback_channel(purpose: str) -> ResolvedAiChannel:
     defaults = DEFAULTS[purpose]
     provider = defaults["provider"]
@@ -249,37 +452,51 @@ def _fallback_channel(purpose: str) -> ResolvedAiChannel:
 
 
 def resolve_channel(db: Session, purpose: str) -> ResolvedAiChannel:
+    plan = resolve_channel_plan(db, purpose)
+    if plan.targets:
+        return _target_to_channel(plan.targets[0])
+    return _fallback_channel(normalize_purpose(purpose))
+
+
+def resolve_channel_plan(db: Session, purpose: str) -> ResolvedAiChannelPlan:
     normalized_purpose = normalize_purpose(purpose)
     config = db.query(AiChannelConfig).filter(AiChannelConfig.purpose == normalized_purpose).first()
     if config is None:
-        return _fallback_channel(normalized_purpose)
+        channel = _fallback_channel(normalized_purpose)
+        return ResolvedAiChannelPlan(
+            purpose=normalized_purpose,
+            enabled=channel.enabled,
+            db_configured=False,
+            targets=[_channel_to_target(channel, target_id="default", priority=1)],
+        )
 
-    try:
-        provider = normalize_provider(config.provider, normalized_purpose)
-    except AiChannelError:
-        logger.warning("Invalid AI channel provider in DB; falling back to defaults for purpose=%s", normalized_purpose)
-        return _fallback_channel(normalized_purpose)
-
-    defaults = provider_defaults(provider, normalized_purpose)
-    base_url = (config.base_url or defaults["base_url"]).strip().rstrip("/")
-    model = (config.model or defaults["model"]).strip()
-    env_var = (config.api_key_env_var or defaults["api_key_env_var"]).strip()
-    db_key = decrypt_value((config.api_key_value or "").strip())
-    env_key = clean_env(env_var) if env_var else ""
-    api_key = db_key or env_key
-    api_key_source = "db" if db_key else "env" if env_key else "missing"
-
-    return ResolvedAiChannel(
+    targets = _stored_targets(config, normalized_purpose)
+    if not targets:
+        legacy = _legacy_channel_from_config(config, normalized_purpose)
+        targets = [_channel_to_target(legacy, target_id="primary", priority=1)]
+    else:
+        targets = [
+            ResolvedAiChannelTarget(
+                id=target.id,
+                priority=index + 1,
+                purpose=target.purpose,
+                provider=target.provider,
+                base_url=target.base_url,
+                model=target.model,
+                api_key=target.api_key,
+                api_key_env_var=target.api_key_env_var,
+                api_key_source=target.api_key_source,
+                enabled=bool(config.enabled) and target.enabled,
+                db_configured=target.db_configured,
+                protocol=target.protocol,
+            )
+            for index, target in enumerate(targets)
+        ]
+    return ResolvedAiChannelPlan(
         purpose=normalized_purpose,
-        provider=provider,
-        base_url=base_url,
-        model=model,
-        api_key=api_key,
-        api_key_env_var=env_var,
-        api_key_source=api_key_source,
         enabled=bool(config.enabled),
         db_configured=True,
-        protocol=defaults.get("protocol", PROTOCOL_OPENAI),
+        targets=targets,
     )
 
 
@@ -293,6 +510,7 @@ def channel_to_public_dict(channel: ResolvedAiChannel) -> dict[str, Any]:
     else:
         message = "AI 渠道配置不完整。"
 
+    target = _channel_to_target(channel, target_id="primary", priority=1)
     return {
         "purpose": channel.purpose,
         "provider": channel.provider,
@@ -307,7 +525,21 @@ def channel_to_public_dict(channel: ResolvedAiChannel) -> dict[str, Any]:
         "is_configured": channel.is_configured,
         "db_configured": channel.db_configured,
         "message": message,
+        "targets": [_target_public_dict(target)],
+        "active_target_count": 1 if target.is_configured else 0,
     }
+
+
+def channel_plan_to_public_dict(plan: ResolvedAiChannelPlan) -> dict[str, Any]:
+    primary = plan.targets[0] if plan.targets else _channel_to_target(_fallback_channel(plan.purpose), target_id="default", priority=1)
+    payload = channel_to_public_dict(_target_to_channel(primary))
+    payload["db_configured"] = plan.db_configured
+    payload["enabled"] = plan.enabled
+    payload["targets"] = [_target_public_dict(target) for target in plan.targets]
+    payload["active_target_count"] = sum(1 for target in plan.targets if target.is_configured)
+    if payload["active_target_count"] > 1:
+        payload["message"] = f"已配置 {payload['active_target_count']} 个可用候选，将按优先级自动切换。"
+    return payload
 
 
 def _normalize_extra_json(value: str | None) -> str:
@@ -321,30 +553,108 @@ def _normalize_extra_json(value: str | None) -> str:
     return json.dumps(parsed, ensure_ascii=False)
 
 
+def _payload_value(obj: Any, key: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _payload_has(obj: Any, key: str) -> bool:
+    if isinstance(obj, dict):
+        return key in obj
+    return hasattr(obj, key)
+
+
+def _payload_dict(obj: Any) -> dict[str, Any]:
+    if isinstance(obj, dict):
+        return obj
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    return dict(getattr(obj, "__dict__", {}))
+
+
+def _stored_target_lookup(config: AiChannelConfig) -> dict[str, dict[str, Any]]:
+    extra = _safe_extra_dict(config.extra_json)
+    items = extra.get(FAILOVER_TARGETS_KEY)
+    if not isinstance(items, list):
+        return {}
+    return {str(item.get("id")): item for item in items if isinstance(item, dict) and item.get("id")}
+
+
+def _normalize_target_payloads(config: AiChannelConfig, payload, purpose: str) -> list[dict[str, Any]] | None:
+    raw_targets = _payload_value(payload, "targets", None)
+    if raw_targets is None:
+        return None
+    if not isinstance(raw_targets, list):
+        raise AiChannelError("invalid_channel_config", "AI 候选配置必须是列表。")
+
+    existing = _stored_target_lookup(config)
+    normalized_targets: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_targets):
+        raw = _payload_dict(item)
+        provider = normalize_provider(raw.get("provider"), purpose)
+        defaults = provider_defaults(provider, purpose)
+        target_id = str(raw.get("id") or uuid4().hex[:12]).strip()
+        previous = existing.get(target_id, {})
+        api_key_value = str(raw.get("api_key_value") or "").strip()
+        if raw.get("clear_api_key"):
+            stored_key = ""
+        elif api_key_value:
+            stored_key = encrypt_value(api_key_value)
+        else:
+            stored_key = str(previous.get("api_key_value") or "")
+            if not stored_key and index == 0:
+                stored_key = str(config.api_key_value or "")
+        normalized_targets.append({
+            "id": target_id,
+            "priority": index + 1,
+            "provider": provider,
+            "base_url": str(raw.get("base_url") or defaults["base_url"]).strip().rstrip("/"),
+            "model": str(raw.get("model") or defaults["model"]).strip(),
+            "api_key_env_var": str(raw.get("api_key_env_var") or defaults["api_key_env_var"]).strip(),
+            "api_key_value": stored_key,
+            "enabled": bool(raw.get("enabled", True)),
+        })
+    if not normalized_targets:
+        raise AiChannelError("invalid_channel_config", "至少需要保留一个 AI 候选。")
+    return normalized_targets
+
+
 def _apply_channel_payload(config: AiChannelConfig, payload, purpose: str) -> None:
-    provider = normalize_provider(getattr(payload, "provider", None) or config.provider, purpose)
-    defaults = provider_defaults(provider, purpose)
-    config.provider = provider
-    config.base_url = str((getattr(payload, "base_url", None) if getattr(payload, "base_url", None) is not None else config.base_url) or defaults["base_url"]).strip().rstrip("/")
-    config.model = str((getattr(payload, "model", None) if getattr(payload, "model", None) is not None else config.model) or defaults["model"]).strip()
-    config.api_key_env_var = str(
-        (
-            getattr(payload, "api_key_env_var", None)
-            if getattr(payload, "api_key_env_var", None) is not None
-            else config.api_key_env_var
-        ) or defaults["api_key_env_var"]
-    ).strip()
-    api_key_value = getattr(payload, "api_key_value", None)
-    if getattr(payload, "clear_api_key", False):
-        config.api_key_value = ""
-    elif api_key_value is not None and str(api_key_value).strip():
-        config.api_key_value = encrypt_value(str(api_key_value).strip())
+    targets = _normalize_target_payloads(config, payload, purpose)
+    if targets is not None:
+        primary = targets[0]
+        config.provider = primary["provider"]
+        config.base_url = primary["base_url"]
+        config.model = primary["model"]
+        config.api_key_env_var = primary["api_key_env_var"]
+        config.api_key_value = primary["api_key_value"]
+        extra = _safe_extra_dict(config.extra_json)
+        extra[FAILOVER_TARGETS_KEY] = targets
+        config.extra_json = json.dumps(extra, ensure_ascii=False)
+    else:
+        provider = normalize_provider(getattr(payload, "provider", None) or config.provider, purpose)
+        defaults = provider_defaults(provider, purpose)
+        config.provider = provider
+        config.base_url = str((getattr(payload, "base_url", None) if getattr(payload, "base_url", None) is not None else config.base_url) or defaults["base_url"]).strip().rstrip("/")
+        config.model = str((getattr(payload, "model", None) if getattr(payload, "model", None) is not None else config.model) or defaults["model"]).strip()
+        config.api_key_env_var = str(
+            (
+                getattr(payload, "api_key_env_var", None)
+                if getattr(payload, "api_key_env_var", None) is not None
+                else config.api_key_env_var
+            ) or defaults["api_key_env_var"]
+        ).strip()
+        api_key_value = getattr(payload, "api_key_value", None)
+        if getattr(payload, "clear_api_key", False):
+            config.api_key_value = ""
+        elif api_key_value is not None and str(api_key_value).strip():
+            config.api_key_value = encrypt_value(str(api_key_value).strip())
+        if getattr(payload, "extra_json", None) is not None:
+            config.extra_json = _normalize_extra_json(payload.extra_json)
     if getattr(payload, "enabled", None) is not None:
         config.enabled = bool(payload.enabled)
-    if getattr(payload, "extra_json", None) is not None:
-        config.extra_json = _normalize_extra_json(payload.extra_json)
     config.updated_at = datetime.now(timezone.utc)
-
 
 def create_channel(db: Session, purpose: str, payload) -> ResolvedAiChannel:
     normalized_purpose = normalize_purpose(purpose)
@@ -542,90 +852,131 @@ def _generate_text_from_channel(channel: ResolvedAiChannel, messages: list[dict[
     return _generate_text_openai(channel, messages)
 
 
+def _attempt_result(target: ResolvedAiChannelTarget, *, ok: bool, latency_ms: int, message: str, error_code: str = "") -> dict[str, Any]:
+    return {
+        "target_id": target.id,
+        "priority": target.priority,
+        "ok": ok,
+        "provider": target.provider,
+        "model": target.model,
+        "api_key_source": target.api_key_source,
+        "latency_ms": latency_ms,
+        "message": message,
+        "error_code": error_code,
+    }
+
+
+def _run_target(target: ResolvedAiChannelTarget, runner) -> tuple[Any, dict[str, Any]]:
+    started = time.perf_counter()
+    try:
+        result = runner(_target_to_channel(target))
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        return result, _attempt_result(target, ok=True, latency_ms=latency_ms, message="候选测试成功。")
+    except AiChannelError as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        raise AiChannelError(exc.code, exc.message) from exc
+
+
+def _run_plan(plan: ResolvedAiChannelPlan, runner) -> tuple[Any, list[dict[str, Any]], ResolvedAiChannelTarget]:
+    attempts: list[dict[str, Any]] = []
+    last_error: AiChannelError | None = None
+    for target in plan.targets:
+        started = time.perf_counter()
+        try:
+            result = runner(_target_to_channel(target))
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            attempts.append(_attempt_result(target, ok=True, latency_ms=latency_ms, message="候选调用成功。"))
+            return result, attempts, target
+        except AiChannelError as exc:
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            attempts.append(_attempt_result(target, ok=False, latency_ms=latency_ms, message=exc.message, error_code=exc.code))
+            last_error = exc
+            logger.warning("AI channel target failed purpose=%s priority=%s provider=%s model=%s error=%s latency_ms=%s", target.purpose, target.priority, target.provider, target.model, exc.code, latency_ms)
+            continue
+    if last_error is not None:
+        if len(attempts) == 1:
+            last_error.attempts = attempts
+            raise last_error
+        failure = AiChannelError("all_targets_failed", "所有 AI 渠道候选均请求失败，请检查 API Key、模型和 Base URL。")
+        failure.attempts = attempts
+        raise failure
+    raise AiChannelError("invalid_channel_config", "AI 渠道没有可用候选。")
+
+
 def generate_image_url(db: Session, prompt: str, framing_hint: str = "") -> str:
-    channel = resolve_channel(db, IMAGE_PURPOSE)
-    return _generate_image_from_channel(channel, prompt, framing_hint)
+    plan = resolve_channel_plan(db, IMAGE_PURPOSE)
+    result, _, _ = _run_plan(plan, lambda channel: _generate_image_from_channel(channel, prompt, framing_hint))
+    return result
 
 
 def generate_text(db: Session, messages: list[dict[str, str]]) -> str:
-    channel = resolve_channel(db, TEXT_PURPOSE)
-    return _generate_text_from_channel(channel, messages)
+    plan = resolve_channel_plan(db, TEXT_PURPOSE)
+    result, _, _ = _run_plan(plan, lambda channel: _generate_text_from_channel(channel, messages))
+    return result
 
 
-def _test_channel_inline(channel: ResolvedAiChannel) -> dict[str, Any]:
+def _test_channel_inline(channel: ResolvedAiChannel) -> None:
     if channel.purpose == IMAGE_PURPOSE:
         _generate_image_from_channel(channel, "A small editorial test image for API connectivity.", "API connectivity test")
     else:
         _generate_text_from_channel(channel, [{"role": "user", "content": "请回复 OK，用于测试 API 连通性。"}])
+
+
+def _test_response(plan: ResolvedAiChannelPlan, *, ok: bool, provider: str = "", model: str = "", message: str = "", error_code: str = "", latency_ms: int | None = None, attempts: list[dict[str, Any]] | None = None, selected: ResolvedAiChannelTarget | None = None) -> dict[str, Any]:
     return {
-        "purpose": channel.purpose,
-        "ok": True,
-        "provider": channel.provider,
-        "model": channel.model,
-        "message": "AI 渠道测试成功。",
-        "error_code": "",
+        "purpose": plan.purpose,
+        "ok": ok,
+        "provider": provider,
+        "model": model,
+        "message": message,
+        "error_code": error_code,
+        "latency_ms": latency_ms,
+        "attempts": attempts or [],
+        "selected_target_id": selected.id if selected else "",
+        "selected_priority": selected.priority if selected else None,
     }
 
 
 def test_channel(db: Session, purpose: str) -> dict[str, Any]:
-    normalized_purpose = normalize_purpose(purpose)
-    channel = resolve_channel(db, normalized_purpose)
+    plan = resolve_channel_plan(db, purpose)
+    started = time.perf_counter()
     try:
-        return _test_channel_inline(channel)
+        _, attempts, selected = _run_plan(plan, _test_channel_inline)
+        total_ms = int((time.perf_counter() - started) * 1000)
+        return _test_response(plan, ok=True, provider=selected.provider, model=selected.model, message="AI 渠道测试成功。", latency_ms=total_ms, attempts=attempts, selected=selected)
     except AiChannelError as exc:
-        return {
-            "purpose": normalized_purpose,
-            "ok": False,
-            "provider": channel.provider,
-            "model": channel.model,
-            "message": exc.message,
-            "error_code": exc.code,
-        }
+        total_ms = int((time.perf_counter() - started) * 1000)
+        return _test_response(plan, ok=False, message=exc.message, error_code=exc.code, latency_ms=total_ms, attempts=getattr(exc, "attempts", []))
+
+
+def _inline_plan_from_config(purpose: str, config: dict[str, Any], *, require_model: bool = True) -> ResolvedAiChannelPlan:
+    normalized_purpose = normalize_purpose(purpose)
+    raw_targets = config.get("targets") if isinstance(config.get("targets"), list) else None
+    if raw_targets:
+        targets = [_target_from_inline(item, normalized_purpose, require_model=require_model) for item in raw_targets]
+        targets = [ResolvedAiChannelTarget(**{**target.__dict__, "priority": index + 1}) for index, target in enumerate(targets)]
+    else:
+        targets = [_channel_to_target(_inline_channel_from_config(normalized_purpose, config, require_model=require_model), target_id="inline-1", priority=1)]
+    return ResolvedAiChannelPlan(purpose=normalized_purpose, enabled=True, db_configured=False, targets=targets)
 
 
 def _inline_channel_from_config(purpose: str, config: dict[str, Any], *, require_model: bool = True) -> ResolvedAiChannel:
-    normalized_purpose = normalize_purpose(purpose)
-    provider = normalize_provider(config.get("provider"), normalized_purpose)
-    defaults = provider_defaults(provider, normalized_purpose)
-    base_url = str(config.get("base_url") or defaults["base_url"]).strip().rstrip("/")
-    model = str(config.get("model") or (defaults["model"] if require_model else "")).strip()
-    env_var = str(config.get("api_key_env_var") or defaults["api_key_env_var"]).strip()
-    api_key = str(config.get("api_key_value") or "").strip()
-    env_key = clean_env(env_var) if env_var else ""
-    if not api_key and env_key:
-        api_key = env_key
-    protocol = defaults.get("protocol", PROTOCOL_OPENAI)
-
-    return ResolvedAiChannel(
-        purpose=normalized_purpose,
-        provider=provider,
-        base_url=base_url,
-        model=model,
-        api_key=api_key,
-        api_key_env_var=env_var,
-        api_key_source="inline" if str(config.get("api_key_value") or "").strip() else ("env" if env_key else "missing"),
-        enabled=True,
-        db_configured=False,
-        protocol=protocol,
-    )
+    target = _target_from_inline(config, normalize_purpose(purpose), require_model=require_model)
+    return _target_to_channel(target)
 
 
 def test_channel_with_config(purpose: str, config: dict[str, Any]) -> dict[str, Any]:
-    normalized_purpose = normalize_purpose(purpose)
+    plan = _inline_plan_from_config(purpose, config)
+    started = time.perf_counter()
     try:
-        channel = _inline_channel_from_config(normalized_purpose, config)
-        return _test_channel_inline(channel)
+        _, attempts, selected = _run_plan(plan, _test_channel_inline)
+        total_ms = int((time.perf_counter() - started) * 1000)
+        return _test_response(plan, ok=True, provider=selected.provider, model=selected.model, message="AI 渠道测试成功。", latency_ms=total_ms, attempts=attempts, selected=selected)
     except AiChannelError as exc:
-        provider = str(config.get("provider") or DEFAULTS.get(normalized_purpose, {}).get("provider", "")).strip()
+        total_ms = int((time.perf_counter() - started) * 1000)
+        provider = str(config.get("provider") or DEFAULTS.get(plan.purpose, {}).get("provider", "")).strip()
         model = str(config.get("model") or "").strip()
-        return {
-            "purpose": normalized_purpose,
-            "ok": False,
-            "provider": provider,
-            "model": model,
-            "message": exc.message,
-            "error_code": exc.code,
-        }
+        return _test_response(plan, ok=False, provider=provider, model=model, message=exc.message, error_code=exc.code, latency_ms=total_ms)
 
 
 def _ensure_channel_ready_for_models(channel: ResolvedAiChannel) -> None:
@@ -749,7 +1100,7 @@ def _list_models_anthropic(channel: ResolvedAiChannel) -> list[dict[str, Any]]:
     return _normalize_models_payload(payload, channel.purpose, default_owner="anthropic")
 
 
-def _models_response(channel: ResolvedAiChannel, *, ok: bool, message: str, error_code: str = "", models: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _models_response(channel: ResolvedAiChannel, *, ok: bool, message: str, error_code: str = "", models: list[dict[str, Any]] | None = None, latency_ms: int | None = None) -> dict[str, Any]:
     return {
         "purpose": channel.purpose,
         "provider": channel.provider,
@@ -758,33 +1109,51 @@ def _models_response(channel: ResolvedAiChannel, *, ok: bool, message: str, erro
         "ok": ok,
         "message": message,
         "error_code": error_code,
+        "latency_ms": latency_ms,
         "models": models or [],
     }
 
 
-def list_models_with_config(purpose: str, config: dict[str, Any]) -> dict[str, Any]:
+def list_models_with_config(purpose: str, config: dict[str, Any], db: Session | None = None) -> dict[str, Any]:
     normalized_purpose = normalize_purpose(purpose)
+    started = time.perf_counter()
+    target_config = config.get("target") if isinstance(config.get("target"), dict) else config
+    if db is not None and isinstance(target_config, dict) and target_config.get("id") and not str(target_config.get("api_key_value") or "").strip():
+        try:
+            plan = resolve_channel_plan(db, normalized_purpose)
+            saved_target = next((target for target in plan.targets if target.id == str(target_config.get("id"))), None)
+            if saved_target is not None:
+                channel = _target_to_channel(saved_target)
+                _ensure_channel_ready_for_models(channel)
+                models = _list_models_anthropic(channel) if channel.protocol == PROTOCOL_ANTHROPIC else _list_models_openai(channel)
+                message = "已获取模型列表。" if models else "接口可用，但未返回模型列表。"
+                latency_ms = int((time.perf_counter() - started) * 1000)
+                return _models_response(channel, ok=True, message=message, models=models, latency_ms=latency_ms)
+        except AiChannelError:
+            pass
     try:
-        channel = _inline_channel_from_config(normalized_purpose, config, require_model=False)
+        channel = _inline_channel_from_config(normalized_purpose, target_config, require_model=False)
         _ensure_channel_ready_for_models(channel)
         models = _list_models_anthropic(channel) if channel.protocol == PROTOCOL_ANTHROPIC else _list_models_openai(channel)
         message = "已获取模型列表。" if models else "接口可用，但未返回模型列表。"
-        return _models_response(channel, ok=True, message=message, models=models)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        return _models_response(channel, ok=True, message=message, models=models, latency_ms=latency_ms)
     except AiChannelError as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
         try:
-            channel = _inline_channel_from_config(normalized_purpose, config, require_model=False)
+            channel = _inline_channel_from_config(normalized_purpose, target_config, require_model=False)
         except AiChannelError:
             defaults = DEFAULTS[normalized_purpose]
             channel = ResolvedAiChannel(
                 purpose=normalized_purpose,
-                provider=str(config.get("provider") or defaults["provider"]),
-                base_url=str(config.get("base_url") or "").strip().rstrip("/"),
+                provider=str(target_config.get("provider") or defaults["provider"]),
+                base_url=str(target_config.get("base_url") or "").strip().rstrip("/"),
                 model="",
                 api_key="",
-                api_key_env_var=str(config.get("api_key_env_var") or ""),
+                api_key_env_var=str(target_config.get("api_key_env_var") or ""),
                 api_key_source="missing",
                 enabled=True,
                 db_configured=False,
                 protocol=PROTOCOL_OPENAI,
             )
-        return _models_response(channel, ok=False, message=exc.message, error_code=exc.code)
+        return _models_response(channel, ok=False, message=exc.message, error_code=exc.code, latency_ms=latency_ms)
