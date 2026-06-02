@@ -239,16 +239,37 @@ export default function AdminSettings() {
     }))
   }
 
+  function validateProviderSourceForm() {
+    const name = providerSourceForm.name.trim()
+    const baseUrl = providerSourceForm.base_url.trim()
+    const envVar = providerSourceForm.api_key_env_var.trim()
+    if (!name) return '请填写服务源名称。'
+    if (!baseUrl) return '请填写 Base URL。'
+    if (!/^https?:\/\//i.test(baseUrl)) return 'Base URL 必须以 http:// 或 https:// 开头。'
+    if (!envVar) return '请填写 API Key 环境变量。'
+    try {
+      JSON.parse(providerSourceForm.extra_json || '{}')
+    } catch {
+      return '扩展配置必须是合法 JSON。'
+    }
+    return ''
+  }
+
   async function handleSaveProviderSource() {
+    const validationError = validateProviderSourceForm()
+    if (validationError) {
+      setProviderResult({ ok: false, message: validationError })
+      return
+    }
     setProviderBusy('source:save')
-    setProviderResult(null)
+    setProviderResult({ ok: true, message: providerSourceForm.id ? '正在保存服务源…' : '正在创建服务源…' })
     try {
       const payload = {
-        name: providerSourceForm.name,
+        name: providerSourceForm.name.trim(),
         provider: providerSourceForm.provider,
         protocol: providerSourceForm.protocol,
-        base_url: providerSourceForm.base_url,
-        api_key_env_var: providerSourceForm.api_key_env_var,
+        base_url: providerSourceForm.base_url.trim(),
+        api_key_env_var: providerSourceForm.api_key_env_var.trim(),
         enabled: providerSourceForm.enabled,
         extra_json: providerSourceForm.extra_json,
         clear_api_key: providerSourceForm.clear_api_key,
@@ -539,18 +560,6 @@ export default function AdminSettings() {
         </div>
       ) : null}
 
-      {providerResult ? (
-        <div
-          className="rounded-lg px-4 py-2 text-sm"
-          style={{
-            backgroundColor: providerResult.ok ? 'var(--accent-soft)' : 'var(--danger-soft)',
-            color: providerResult.ok ? 'var(--accent)' : '#ef4444',
-          }}
-        >
-          {providerResult.ok ? '✓ ' : '✗ '}{providerResult.message}
-        </div>
-      ) : null}
-
       <div className="space-y-1">
         <label className="text-sm font-medium text-[var(--text-secondary)]">博主名称</label>
         <input
@@ -715,6 +724,20 @@ export default function AdminSettings() {
             服务源保存 API 网关和密钥来源；模型实例决定生图/生文字的默认模型、优先级和失败重试顺序。
           </p>
         </div>
+
+        {providerResult ? (
+          <div
+            className="rounded-lg px-4 py-2 text-sm"
+            role="status"
+            aria-live="polite"
+            style={{
+              backgroundColor: providerResult.ok ? 'var(--accent-soft)' : 'var(--danger-soft)',
+              color: providerResult.ok ? 'var(--accent)' : '#ef4444',
+            }}
+          >
+            {providerResult.ok ? '✓ ' : '✗ '}{providerResult.message}
+          </div>
+        ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
           <div className="space-y-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
