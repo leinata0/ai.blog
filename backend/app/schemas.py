@@ -693,6 +693,7 @@ class CoverGenerationStatusOut(BaseModel):
     purpose: str = "image_generation"
     model: str = ""
     base_url: str = ""
+    api_key_env_var: str = ""
     api_key_source: str = "missing"
     has_api_key: bool = False
     enabled: bool = True

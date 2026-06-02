@@ -936,22 +936,26 @@ def test_ai_channels_are_admin_only_and_mask_keys(client):
     assert reset.status_code == 200
     fallback = client.get("/api/admin/ai-channels/image_generation", headers=_auth(token))
     assert fallback.status_code == 200
-    assert fallback.json()["provider"] == "xai"
+    assert fallback.json()["provider"] == "openai_compatible"
+    assert fallback.json()["api_key_env_var"] == "AI_API_KEY"
+    assert fallback.json()["base_url"] == ""
+    assert fallback.json()["model"] == ""
     assert fallback.json()["db_configured"] is False
 
 
 def test_cover_generation_status_uses_ai_channel_fallback(client, monkeypatch):
-    monkeypatch.setenv("XAI_API_KEY", "xai-secret")
+    monkeypatch.setenv("AI_API_KEY", "ai-secret")
     token = _login(client)
 
     response = client.get("/api/admin/cover-generation-status", headers=_auth(token))
     assert response.status_code == 200
     payload = response.json()
-    assert payload["provider"] == "xai"
-    assert payload["has_xai_api_key"] is True
-    assert payload["can_generate"] is True
-    assert payload["supports_site_hero"] is True
-    assert payload["model"] == "grok-imagine-image"
+    assert payload["provider"] == "openai_compatible"
+    assert payload["has_xai_api_key"] is False
+    assert payload["can_generate"] is False
+    assert payload["supports_site_hero"] is False
+    assert payload["api_key_env_var"] == "AI_API_KEY"
+    assert payload["model"] == ""
 
 
 def test_ai_channel_models_with_config_fetches_openai_compatible_models(client, monkeypatch):
@@ -1149,6 +1153,53 @@ def test_ai_channel_text_generation_test_uses_chat_completions(client, monkeypat
         headers=_auth(token),
     )
     assert duplicate.status_code == 409
+
+
+def test_ai_channel_text_generation_test_falls_back_to_v1_chat_completions(client, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+    captured_urls = []
+
+    class HtmlResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("not json")
+
+    class JsonResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "OK"}}]}
+
+    def fake_post(url, headers, json, timeout):
+        captured_urls.append(url)
+        if url.endswith("/v1/chat/completions"):
+            return JsonResponse()
+        return HtmlResponse()
+
+    monkeypatch.setattr(channel_mod.httpx, "post", fake_post)
+
+    response = client.post(
+        "/api/admin/ai-channels/text_generation/test-with-config",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://ai.999555777.xyz",
+            "model": "deepseek-ai/DeepSeek-V3",
+            "api_key_value": "sk-secret-123456",
+        },
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert captured_urls == [
+        "https://ai.999555777.xyz/chat/completions",
+        "https://ai.999555777.xyz/v1/chat/completions",
+    ]
 
 
 def test_admin_generate_site_hero_with_grok(client, monkeypatch):

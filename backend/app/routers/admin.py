@@ -252,6 +252,7 @@ def _get_cover_generation_status_payload(db: Session) -> dict:
         "purpose": payload["purpose"],
         "model": payload["model"],
         "base_url": payload["base_url"],
+        "api_key_env_var": payload["api_key_env_var"],
         "api_key_source": payload["api_key_source"],
         "has_api_key": payload["has_api_key"],
         "enabled": payload["enabled"],
