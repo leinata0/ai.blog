@@ -158,6 +158,54 @@ export const testAdminAiChannelWithConfig = (purpose, config) =>
 export const fetchAdminAiChannelModelsWithConfig = (purpose, config) =>
   apiPost(`/api/admin/ai-channels/${purpose}/models-with-config`, config, { auth: true })
 
+export const fetchAdminAiProviderSources = (requestOptions = {}) =>
+  apiGet('/api/admin/ai-provider-sources', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
+export const createAdminAiProviderSource = (data) =>
+  apiPost('/api/admin/ai-provider-sources', data, {
+    auth: true,
+    invalidatePaths: ['/api/admin/ai-provider-sources', '/api/admin/ai-model-instances', '/api/admin/ai-runtime-plan', '/api/admin/cover-generation-status'],
+  })
+export const updateAdminAiProviderSource = (id, data) =>
+  apiPut(`/api/admin/ai-provider-sources/${id}`, data, {
+    auth: true,
+    invalidatePaths: ['/api/admin/ai-provider-sources', '/api/admin/ai-model-instances', '/api/admin/ai-runtime-plan', '/api/admin/cover-generation-status'],
+  })
+export const deleteAdminAiProviderSource = (id) =>
+  apiDelete(`/api/admin/ai-provider-sources/${id}`, {
+    auth: true,
+    invalidatePaths: ['/api/admin/ai-provider-sources', '/api/admin/ai-model-instances', '/api/admin/ai-runtime-plan', '/api/admin/cover-generation-status'],
+  })
+export const fetchAdminAiProviderSourceModels = (id) =>
+  apiPost(`/api/admin/ai-provider-sources/${id}/models`, {}, { auth: true })
+export const fetchAdminAiModelInstances = (params = {}, requestOptions = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/ai-model-instances${qs ? `?${qs}` : ''}`, { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
+}
+export const createAdminAiModelInstance = (data) =>
+  apiPost('/api/admin/ai-model-instances', data, {
+    auth: true,
+    invalidatePaths: ['/api/admin/ai-model-instances', '/api/admin/ai-runtime-plan', '/api/admin/cover-generation-status'],
+  })
+export const updateAdminAiModelInstance = (id, data) =>
+  apiPut(`/api/admin/ai-model-instances/${id}`, data, {
+    auth: true,
+    invalidatePaths: ['/api/admin/ai-model-instances', '/api/admin/ai-runtime-plan', '/api/admin/cover-generation-status'],
+  })
+export const deleteAdminAiModelInstance = (id) =>
+  apiDelete(`/api/admin/ai-model-instances/${id}`, {
+    auth: true,
+    invalidatePaths: ['/api/admin/ai-model-instances', '/api/admin/ai-runtime-plan', '/api/admin/cover-generation-status'],
+  })
+export const updateAdminAiModelOrder = (data) =>
+  apiPost('/api/admin/ai-model-instances/order', data, {
+    auth: true,
+    invalidatePaths: ['/api/admin/ai-model-instances', '/api/admin/ai-runtime-plan', '/api/admin/cover-generation-status'],
+  })
+export const testAdminAiModelInstance = (id) =>
+  apiPost(`/api/admin/ai-model-instances/${id}/test`, {}, { auth: true })
+export const fetchAdminAiRuntimePlan = (requestOptions = {}) =>
+  apiGet('/api/admin/ai-runtime-plan', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
+
 export const fetchAdminTopicProfiles = (requestOptions = {}) =>
   apiGet('/api/admin/topic-profiles', { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
 export const createAdminTopicProfile = (data) => apiPost('/api/admin/topic-profiles', data, {

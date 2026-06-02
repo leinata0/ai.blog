@@ -19,6 +19,8 @@ from app.db import get_db
 from app.env import clean_env
 from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.models import (
+    AiModelInstance,
+    AiProviderSource,
     Comment,
     Post,
     PostQualityReview,
@@ -40,6 +42,12 @@ from app.schemas import (
     AiChannelTestResponse,
     AiChannelTestWithConfigRequest,
     AiChannelUpdateRequest,
+    AiModelInstanceOut,
+    AiModelInstanceUpdateRequest,
+    AiModelOrderRequest,
+    AiProviderSourceOut,
+    AiProviderSourceUpdateRequest,
+    AiRuntimePlanOut,
     CoverGenerationStatusOut,
     CoverGenerateRequest,
     CoverGenerateResponse,
@@ -77,7 +85,7 @@ from app.schemas import (
     UploadOut,
 )
 from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
-from app.services import ai_channels
+from app.services import ai_channels, ai_provider_manager
 from app.services import cover_art as cover_art_service
 from app.services.ai_channels import AiChannelError
 from app.services.admin_posts import AdminPostFilters, list_admin_posts
@@ -1673,6 +1681,165 @@ def get_cover_generation_status(
     _admin: str = Depends(get_current_admin),
 ):
     return _get_cover_generation_status_payload(db)
+
+
+def _raise_ai_provider_http_error(exc: AiChannelError) -> None:
+    status_code = 404 if exc.code == "not_found" else 400
+    raise HTTPException(status_code=status_code, detail=exc.message)
+
+
+@router.get("/ai-provider-sources", response_model=list[AiProviderSourceOut])
+def list_ai_provider_sources(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    sources = db.execute(
+        select(AiProviderSource).order_by(AiProviderSource.updated_at.desc(), AiProviderSource.id.desc())
+    ).scalars().all()
+    return [ai_provider_manager.source_to_public_dict(source) for source in sources]
+
+
+@router.post("/ai-provider-sources", response_model=AiProviderSourceOut, status_code=201)
+def create_ai_provider_source(
+    body: AiProviderSourceUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        source = ai_provider_manager.create_source(db, body.model_dump())
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+    return ai_provider_manager.source_to_public_dict(source)
+
+
+@router.put("/ai-provider-sources/{source_id}", response_model=AiProviderSourceOut)
+def update_ai_provider_source(
+    source_id: int,
+    body: AiProviderSourceUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        source = ai_provider_manager.update_source(db, source_id, body.model_dump())
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+    return ai_provider_manager.source_to_public_dict(source)
+
+
+@router.delete("/ai-provider-sources/{source_id}")
+def delete_ai_provider_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        ai_provider_manager.delete_source(db, source_id)
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+    return {"detail": "deleted"}
+
+
+@router.post("/ai-provider-sources/{source_id}/models", response_model=AiChannelModelsResponse)
+def list_ai_provider_source_models(
+    source_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        return ai_provider_manager.list_models_for_source(db, source_id)
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+
+
+@router.get("/ai-model-instances", response_model=list[AiModelInstanceOut])
+def list_ai_model_instances(
+    purpose: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    stmt = select(AiModelInstance).options(selectinload(AiModelInstance.source))
+    if purpose:
+        try:
+            stmt = stmt.where(AiModelInstance.purpose == ai_channels.normalize_purpose(purpose))
+        except AiChannelError as exc:
+            _raise_ai_provider_http_error(exc)
+    instances = db.execute(
+        stmt.order_by(AiModelInstance.purpose.asc(), AiModelInstance.is_default.desc(), AiModelInstance.priority.asc(), AiModelInstance.id.asc())
+    ).scalars().all()
+    return [ai_provider_manager.instance_to_public_dict(instance) for instance in instances]
+
+
+@router.post("/ai-model-instances", response_model=AiModelInstanceOut, status_code=201)
+def create_ai_model_instance(
+    body: AiModelInstanceUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        instance = ai_provider_manager.create_instance(db, body.model_dump())
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+    return ai_provider_manager.instance_to_public_dict(instance)
+
+
+@router.put("/ai-model-instances/{instance_id}", response_model=AiModelInstanceOut)
+def update_ai_model_instance(
+    instance_id: int,
+    body: AiModelInstanceUpdateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        instance = ai_provider_manager.update_instance(db, instance_id, body.model_dump())
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+    return ai_provider_manager.instance_to_public_dict(instance)
+
+
+@router.delete("/ai-model-instances/{instance_id}")
+def delete_ai_model_instance(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        ai_provider_manager.delete_instance(db, instance_id)
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+    return {"detail": "deleted"}
+
+
+@router.post("/ai-model-instances/order", response_model=list[AiModelInstanceOut])
+def update_ai_model_instance_order(
+    body: AiModelOrderRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        instances = ai_provider_manager.update_order(db, body.purpose, [item.model_dump() for item in body.items])
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+    return [ai_provider_manager.instance_to_public_dict(instance) for instance in instances]
+
+
+@router.post("/ai-model-instances/{instance_id}/test", response_model=AiChannelTestResponse)
+def test_ai_model_instance(
+    instance_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        return ai_provider_manager.test_instance(db, instance_id)
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+
+
+@router.get("/ai-runtime-plan", response_model=AiRuntimePlanOut)
+def get_ai_runtime_plan(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    return ai_provider_manager.runtime_plan_public(db)
 
 
 @router.get("/ai-channels", response_model=list[AiChannelOut])

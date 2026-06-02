@@ -147,6 +147,36 @@ AI_CHANNEL_CONFIG_COLUMNS = {
 }
 
 
+AI_PROVIDER_SOURCE_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "name": "VARCHAR(120) NOT NULL DEFAULT ''",
+    "provider": "VARCHAR(80) NOT NULL DEFAULT 'openai_compatible'",
+    "protocol": "VARCHAR(40) NOT NULL DEFAULT 'openai'",
+    "base_url": "VARCHAR(500) NOT NULL DEFAULT ''",
+    "api_key_env_var": "VARCHAR(120) NOT NULL DEFAULT 'AI_API_KEY'",
+    "api_key_value": "TEXT NOT NULL DEFAULT ''",
+    "enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
+    "extra_json": "TEXT NOT NULL DEFAULT '{}'",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
+AI_MODEL_INSTANCE_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "source_id": "INTEGER NOT NULL",
+    "name": "VARCHAR(160) NOT NULL DEFAULT ''",
+    "model": "VARCHAR(240) NOT NULL DEFAULT ''",
+    "purpose": "VARCHAR(80) NOT NULL",
+    "capabilities_json": "TEXT NOT NULL DEFAULT '[]'",
+    "priority": "INTEGER NOT NULL DEFAULT 1",
+    "enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
+    "is_default": "BOOLEAN NOT NULL DEFAULT FALSE",
+    "extra_json": "TEXT NOT NULL DEFAULT '{}'",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
+
 EMAIL_SUBSCRIPTION_COLUMNS = {
     "id": "INTEGER PRIMARY KEY",
     "email": "VARCHAR(255) NOT NULL UNIQUE",
@@ -401,6 +431,26 @@ def ensure_schema_compat(engine) -> None:
         AI_CHANNEL_CONFIG_COLUMNS,
         indexes=[
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_channel_configs_purpose ON ai_channel_configs (purpose)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "ai_provider_sources",
+        AI_PROVIDER_SOURCE_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_ai_provider_sources_provider ON ai_provider_sources (provider)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "ai_model_instances",
+        AI_MODEL_INSTANCE_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_source_id ON ai_model_instances (source_id)",
+            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_purpose ON ai_model_instances (purpose)",
+            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_priority ON ai_model_instances (priority)",
         ],
     )
 

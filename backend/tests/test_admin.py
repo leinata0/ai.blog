@@ -1107,6 +1107,238 @@ def test_ai_channel_models_with_config_handles_anthropic_and_errors(client, monk
     assert unsupported.json()["ok"] is False
     assert unsupported.json()["error_code"] == "unsupported_provider_for_purpose"
 
+def test_ai_provider_sources_and_model_instances_crud(client, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+    unauthorized = client.get("/api/admin/ai-provider-sources")
+    assert unauthorized.status_code in (401, 403)
+
+    source_resp = client.post(
+        "/api/admin/ai-provider-sources",
+        json={
+            "name": "Main Gateway",
+            "provider": "openai_compatible",
+            "base_url": "https://gateway.example.com/v1/",
+            "api_key_env_var": "GATEWAY_API_KEY",
+            "api_key_value": "sk-provider-123456",
+            "extra_json": "{}",
+        },
+        headers=_auth(token),
+    )
+    assert source_resp.status_code == 201
+    source = source_resp.json()
+    assert source["base_url"] == "https://gateway.example.com/v1"
+    assert source["has_api_key"] is True
+    assert source["api_key_source"] == "db"
+    assert source["masked_api_key"] == "sk-p...3456"
+    assert "sk-provider" not in str(source)
+
+    bad_json = client.post(
+        "/api/admin/ai-provider-sources",
+        json={"provider": "openai_compatible", "extra_json": "{"},
+        headers=_auth(token),
+    )
+    assert bad_json.status_code == 400
+
+    first = client.post(
+        "/api/admin/ai-model-instances",
+        json={
+            "source_id": source["id"],
+            "name": "Text Fast",
+            "model": "text-fast",
+            "purpose": "text_generation",
+            "capabilities": ["chat"],
+            "priority": 2,
+            "is_default": True,
+        },
+        headers=_auth(token),
+    )
+    assert first.status_code == 201
+    first_model = first.json()
+    assert first_model["is_default"] is True
+    assert first_model["is_configured"] is True
+    assert first_model["capabilities"] == ["text_generation", "chat"]
+
+    second = client.post(
+        "/api/admin/ai-model-instances",
+        json={
+            "source_id": source["id"],
+            "name": "Text Backup",
+            "model": "text-backup",
+            "purpose": "text_generation",
+            "priority": 1,
+            "is_default": True,
+        },
+        headers=_auth(token),
+    )
+    assert second.status_code == 201
+    second_model = second.json()
+
+    models = client.get("/api/admin/ai-model-instances?purpose=text_generation", headers=_auth(token))
+    assert models.status_code == 200
+    by_id = {item["id"]: item for item in models.json()}
+    assert by_id[first_model["id"]]["is_default"] is False
+    assert by_id[second_model["id"]]["is_default"] is True
+
+    order = client.post(
+        "/api/admin/ai-model-instances/order",
+        json={
+            "purpose": "text_generation",
+            "items": [
+                {"id": first_model["id"], "priority": 1, "is_default": True},
+                {"id": second_model["id"], "priority": 2, "is_default": False},
+            ],
+        },
+        headers=_auth(token),
+    )
+    assert order.status_code == 200
+    ordered = order.json()
+    assert ordered[0]["id"] == first_model["id"]
+    assert ordered[0]["is_default"] is True
+
+    runtime_plan = client.get("/api/admin/ai-runtime-plan", headers=_auth(token))
+    assert runtime_plan.status_code == 200
+    assert runtime_plan.json()["text_generation"][0]["model"] == "text-fast"
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "OK"}}]}
+
+    captured = {}
+
+    def fake_post(url, headers, json, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        return FakeResponse()
+
+    monkeypatch.setattr(channel_mod.httpx, "post", fake_post)
+    test_resp = client.post(f"/api/admin/ai-model-instances/{first_model['id']}/test", headers=_auth(token))
+    assert test_resp.status_code == 200
+    assert test_resp.json()["ok"] is True
+    assert captured["json"]["model"] == "text-fast"
+    assert captured["headers"]["Authorization"] == "Bearer sk-provider-123456"
+
+    delete_resp = client.delete(f"/api/admin/ai-provider-sources/{source['id']}", headers=_auth(token))
+    assert delete_resp.status_code == 200
+    assert client.get("/api/admin/ai-model-instances", headers=_auth(token)).json() == []
+
+
+def test_ai_provider_source_model_discovery_uses_source_credentials(client, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+    source_resp = client.post(
+        "/api/admin/ai-provider-sources",
+        json={
+            "name": "Discovery Gateway",
+            "provider": "openai_compatible",
+            "base_url": "https://gateway.example.com/v1/",
+            "api_key_value": "sk-discovery-123456",
+        },
+        headers=_auth(token),
+    )
+    assert source_resp.status_code == 201
+    source_id = source_resp.json()["id"]
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "model-a", "owned_by": "gateway"}]}
+
+    captured = {}
+
+    def fake_get(url, headers, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        return FakeResponse()
+
+    monkeypatch.setattr(channel_mod.httpx, "get", fake_get)
+    response = client.post(f"/api/admin/ai-provider-sources/{source_id}/models", headers=_auth(token))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["models"][0]["id"] == "model-a"
+    assert captured["url"] == "https://gateway.example.com/v1/models"
+    assert captured["headers"]["Authorization"] == "Bearer sk-discovery-123456"
+
+
+def test_ai_provider_runtime_prefers_model_instances_and_keeps_legacy_fallback(client, db_session, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+    legacy = client.put(
+        "/api/admin/ai-channels/text_generation",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://legacy.example.com/v1",
+            "model": "legacy-text",
+            "api_key_value": "sk-legacy-123456",
+            "enabled": True,
+        },
+        headers=_auth(token),
+    )
+    assert legacy.status_code == 200
+
+    class FakeResponse:
+        def __init__(self, content):
+            self._content = content
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": self._content}}]}
+
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append({"url": url, "model": json["model"], "key": headers.get("Authorization", "")})
+        return FakeResponse(json["model"])
+
+    monkeypatch.setattr(channel_mod.httpx, "post", fake_post)
+
+    assert channel_mod.generate_text(db_session, [{"role": "user", "content": "hello"}]) == "legacy-text"
+    assert calls[-1]["model"] == "legacy-text"
+    assert calls[-1]["url"] == "https://legacy.example.com/v1/chat/completions"
+
+    source_resp = client.post(
+        "/api/admin/ai-provider-sources",
+        json={
+            "name": "Primary Gateway",
+            "provider": "openai_compatible",
+            "base_url": "https://primary.example.com/v1",
+            "api_key_value": "sk-primary-123456",
+        },
+        headers=_auth(token),
+    )
+    assert source_resp.status_code == 201
+    instance_resp = client.post(
+        "/api/admin/ai-model-instances",
+        json={
+            "source_id": source_resp.json()["id"],
+            "name": "Primary Text",
+            "model": "primary-text",
+            "purpose": "text_generation",
+            "priority": 1,
+            "is_default": True,
+        },
+        headers=_auth(token),
+    )
+    assert instance_resp.status_code == 201
+
+    assert channel_mod.generate_text(db_session, [{"role": "user", "content": "hello"}]) == "primary-text"
+    assert calls[-1]["model"] == "primary-text"
+    assert calls[-1]["url"] == "https://primary.example.com/v1/chat/completions"
+    assert calls[-1]["key"] == "Bearer sk-primary-123456"
+
+
 def test_ai_channel_text_generation_test_uses_chat_completions(client, monkeypatch):
     from app.services import ai_channels as channel_mod
 

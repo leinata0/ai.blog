@@ -199,6 +199,61 @@ vi.mock('../src/api/admin', () => ({
       message: '后端已检测到 XAI_API_KEY。',
     })
   ),
+  fetchAdminAiProviderSources: vi.fn(() => Promise.resolve([
+    {
+      id: 1,
+      name: 'Main Gateway',
+      provider: 'openai_compatible',
+      protocol: 'openai',
+      base_url: 'https://gateway.example.com/v1',
+      api_key_env_var: 'AI_API_KEY',
+      has_api_key: true,
+      api_key_source: 'env',
+      masked_api_key: 'sk-...demo',
+      enabled: true,
+      extra_json: '{}',
+    },
+  ])),
+  createAdminAiProviderSource: vi.fn(() => Promise.resolve({ id: 2, name: 'New Gateway' })),
+  updateAdminAiProviderSource: vi.fn(() => Promise.resolve({ id: 1, name: 'Main Gateway' })),
+  deleteAdminAiProviderSource: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
+  fetchAdminAiProviderSourceModels: vi.fn(() => Promise.resolve({
+    ok: true,
+    message: '已获取模型列表。',
+    latency_ms: 12,
+    models: [{ id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek V3' }],
+  })),
+  fetchAdminAiModelInstances: vi.fn(() => Promise.resolve([
+    {
+      id: 11,
+      source_id: 1,
+      source_name: 'Main Gateway',
+      name: 'Text Primary',
+      provider: 'openai_compatible',
+      protocol: 'openai',
+      base_url: 'https://gateway.example.com/v1',
+      model: 'deepseek-ai/DeepSeek-V3',
+      purpose: 'text_generation',
+      capabilities: ['text_generation'],
+      priority: 1,
+      enabled: true,
+      source_enabled: true,
+      is_default: true,
+      is_configured: true,
+      extra_json: '{}',
+    },
+  ])),
+  createAdminAiModelInstance: vi.fn(() => Promise.resolve({ id: 12, model: 'grok-4' })),
+  updateAdminAiModelInstance: vi.fn(() => Promise.resolve({ id: 11, model: 'deepseek-ai/DeepSeek-V3' })),
+  deleteAdminAiModelInstance: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
+  updateAdminAiModelOrder: vi.fn(() => Promise.resolve([])),
+  testAdminAiModelInstance: vi.fn(() => Promise.resolve({ ok: true, message: 'AI 模型实例测试成功。', latency_ms: 21 })),
+  fetchAdminAiRuntimePlan: vi.fn(() => Promise.resolve({
+    image_generation: [],
+    text_generation: [
+      { instance_id: 11, source_id: 1, name: 'Text Primary', source_name: 'Main Gateway', provider: 'openai_compatible', model: 'deepseek-ai/DeepSeek-V3' },
+    ],
+  })),
   fetchAdminAiChannels: vi.fn(() => Promise.resolve([
     {
       purpose: 'image_generation',
@@ -399,5 +454,38 @@ it('opens settings and manages AI channel configuration', async () => {
   await userEvent.click(screen.getAllByRole('button', { name: '重置' })[0])
   expect(await screen.findByText(/生图 API 已重置为默认配置/)).toBeInTheDocument()
   expect(adminApi.deleteAdminAiChannel).toHaveBeenCalledWith('image_generation')
+})
+
+it('opens settings and manages AI provider sources and model instances', async () => {
+  const adminApi = await import('../src/api/admin')
+
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  await screen.findByText('OpenAI released a new model')
+  await userEvent.click(screen.getByRole('button', { name: /站点设置/ }))
+
+  expect(await screen.findByText('AI Provider 配置')).toBeInTheDocument()
+  expect((await screen.findAllByText('Main Gateway')).length).toBeGreaterThan(0)
+  expect(await screen.findByText('Text Primary')).toBeInTheDocument()
+  expect((await screen.findAllByText(/deepseek-ai\/DeepSeek-V3/)).length).toBeGreaterThan(0)
+
+  await userEvent.click(screen.getByRole('button', { name: '发现模型' }))
+  expect(await screen.findByText(/已获取模型列表/)).toBeInTheDocument()
+  expect(adminApi.fetchAdminAiProviderSourceModels).toHaveBeenCalledWith(1)
+
+  await userEvent.click(screen.getByRole('button', { name: '测试' }))
+  expect(await screen.findByText(/AI 模型实例测试成功/)).toBeInTheDocument()
+  expect(adminApi.testAdminAiModelInstance).toHaveBeenCalledWith(11)
+
+  await userEvent.click(screen.getByRole('button', { name: '保存 生文字 API 顺序' }))
+  expect(await screen.findByText(/生文字 API 模型顺序已保存/)).toBeInTheDocument()
+  expect(adminApi.updateAdminAiModelOrder).toHaveBeenCalledWith(expect.objectContaining({
+    purpose: 'text_generation',
+    items: expect.arrayContaining([expect.objectContaining({ id: 11, priority: 1, is_default: true })]),
+  }))
 })
 

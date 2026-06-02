@@ -614,6 +614,79 @@ class CoverGenerateResponse(BaseModel):
     error_code: str = ""
 
 
+class AiProviderSourceUpdateRequest(BaseModel):
+    name: str | None = None
+    provider: str | None = None
+    protocol: str | None = None
+    base_url: str | None = None
+    api_key_env_var: str | None = None
+    api_key_value: str | None = None
+    clear_api_key: bool = False
+    enabled: bool | None = None
+    extra_json: str | None = None
+
+
+class AiProviderSourceOut(BaseModel):
+    id: int
+    name: str = ""
+    provider: str = "openai_compatible"
+    protocol: str = "openai"
+    base_url: str = ""
+    api_key_env_var: str = ""
+    has_api_key: bool = False
+    api_key_source: str = "missing"
+    masked_api_key: str = ""
+    enabled: bool = True
+    extra_json: str = "{}"
+
+
+class AiModelInstanceUpdateRequest(BaseModel):
+    source_id: int | None = None
+    name: str | None = None
+    model: str | None = None
+    purpose: str | None = None
+    capabilities: list[str] | None = None
+    priority: int | None = None
+    enabled: bool | None = None
+    is_default: bool | None = None
+    extra_json: str | None = None
+
+
+class AiModelInstanceOut(BaseModel):
+    id: int
+    source_id: int
+    source_name: str = ""
+    name: str = ""
+    provider: str = ""
+    protocol: str = "openai"
+    base_url: str = ""
+    model: str = ""
+    purpose: str = ""
+    capabilities: list[str] = Field(default_factory=list)
+    priority: int = 1
+    enabled: bool = True
+    source_enabled: bool = True
+    is_default: bool = False
+    is_configured: bool = False
+    extra_json: str = "{}"
+
+
+class AiModelOrderItem(BaseModel):
+    id: int
+    priority: int | None = None
+    is_default: bool = False
+
+
+class AiModelOrderRequest(BaseModel):
+    purpose: str
+    items: list[AiModelOrderItem] = Field(default_factory=list)
+
+
+class AiRuntimePlanOut(BaseModel):
+    image_generation: list[dict] = Field(default_factory=list)
+    text_generation: list[dict] = Field(default_factory=list)
+
+
 class AiChannelTargetUpdateRequest(BaseModel):
     id: str | None = None
     priority: int | None = None
