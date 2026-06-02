@@ -132,24 +132,24 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "base_url": "",
         "model_image": "",
         "model_text": "",
-        "api_key_env_var": "",
+        "api_key_env_var": "AI_API_KEY",
         "protocol": PROTOCOL_OPENAI,
     },
 }
 
 DEFAULTS = {
     IMAGE_PURPOSE: {
-        "provider": "xai",
-        "base_url": "https://api.x.ai/v1",
-        "model": "grok-imagine-image",
-        "api_key_env_var": "XAI_API_KEY",
+        "provider": "openai_compatible",
+        "base_url": "",
+        "model": "",
+        "api_key_env_var": "AI_API_KEY",
         "protocol": PROTOCOL_OPENAI,
     },
     TEXT_PURPOSE: {
-        "provider": "siliconflow",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "model": "deepseek-ai/DeepSeek-V3",
-        "api_key_env_var": "SILICONFLOW_API_KEY",
+        "provider": "openai_compatible",
+        "base_url": "",
+        "model": "",
+        "api_key_env_var": "AI_API_KEY",
         "protocol": PROTOCOL_OPENAI,
     },
 }
@@ -404,62 +404,87 @@ def ensure_channel_ready(channel: ResolvedAiChannel) -> None:
         raise AiChannelError("invalid_channel_config", "AI 渠道缺少 Base URL 或模型名称。")
 
 
+def _openai_endpoints(base_url: str, suffix: str) -> list[str]:
+    normalized = base_url.rstrip("/")
+    normalized_suffix = suffix if suffix.startswith("/") else f"/{suffix}"
+    endpoints = [f"{normalized}{normalized_suffix}"]
+    parsed = urlparse(normalized)
+    path = (parsed.path or "").rstrip("/")
+    if not path.endswith("/v1"):
+        endpoints.append(f"{normalized}/v1{normalized_suffix}")
+    return endpoints
+
+
 def _generate_image_from_channel(channel: ResolvedAiChannel, prompt: str, framing_hint: str = "") -> str:
     ensure_channel_ready(channel)
     full_prompt = f"{framing_hint}: {prompt}" if framing_hint else prompt
-    try:
-        response = httpx.post(
-            f"{channel.base_url}/images/generations",
-            headers={
-                "Authorization": f"Bearer {channel.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": channel.model,
-                "prompt": full_prompt,
-                "n": 1,
-            },
-            timeout=60,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except httpx.HTTPStatusError as exc:
-        raise AiChannelError("generation_failed", f"生图请求失败，HTTP {exc.response.status_code}。") from exc
-    except httpx.HTTPError as exc:
-        raise AiChannelError("generation_failed", "生图请求失败，请稍后重试。") from exc
-
-    image_url = (data.get("data") or [{}])[0].get("url")
-    if not image_url:
-        raise AiChannelError("generation_failed", "生图服务未返回可用图片地址。")
-    return image_url
+    last_error: AiChannelError | None = None
+    for endpoint in _openai_endpoints(channel.base_url, "/images/generations"):
+        try:
+            response = httpx.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {channel.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": channel.model,
+                    "prompt": full_prompt,
+                    "n": 1,
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()
+            image_url = (data.get("data") or [{}])[0].get("url")
+            if not image_url:
+                last_error = AiChannelError("generation_failed", "生图服务未返回可用图片地址。")
+                continue
+            return image_url
+        except httpx.HTTPStatusError as exc:
+            last_error = AiChannelError("generation_failed", f"生图请求失败，HTTP {exc.response.status_code}。")
+        except httpx.HTTPError:
+            last_error = AiChannelError("generation_failed", "生图请求失败，请稍后重试。")
+        except ValueError:
+            last_error = AiChannelError("generation_failed", "生图服务响应不是合法 JSON。")
+    if last_error is not None:
+        raise last_error
+    raise AiChannelError("generation_failed", "生图请求失败，请检查 Base URL。")
 
 
 def _generate_text_openai(channel: ResolvedAiChannel, messages: list[dict[str, str]]) -> str:
-    try:
-        response = httpx.post(
-            f"{channel.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {channel.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": channel.model,
-                "messages": messages,
-                "temperature": 0.2,
-            },
-            timeout=60,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except httpx.HTTPStatusError as exc:
-        raise AiChannelError("generation_failed", f"生文字请求失败，HTTP {exc.response.status_code}。") from exc
-    except httpx.HTTPError as exc:
-        raise AiChannelError("generation_failed", "生文字请求失败，请稍后重试。") from exc
-
-    content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content")
-    if not content:
-        raise AiChannelError("generation_failed", "生文字服务未返回可用内容。")
-    return str(content)
+    last_error: AiChannelError | None = None
+    for endpoint in _openai_endpoints(channel.base_url, "/chat/completions"):
+        try:
+            response = httpx.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {channel.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": channel.model,
+                    "messages": messages,
+                    "temperature": 0.2,
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content")
+            if not content:
+                last_error = AiChannelError("generation_failed", "生文字服务未返回可用内容。")
+                continue
+            return str(content)
+        except httpx.HTTPStatusError as exc:
+            last_error = AiChannelError("generation_failed", f"生文字请求失败，HTTP {exc.response.status_code}。")
+        except httpx.HTTPError:
+            last_error = AiChannelError("generation_failed", "生文字请求失败，请稍后重试。")
+        except ValueError:
+            last_error = AiChannelError("generation_failed", "生文字服务响应不是合法 JSON。")
+    if last_error is not None:
+        raise last_error
+    raise AiChannelError("generation_failed", "生文字请求失败，请检查 Base URL。")
 
 
 def _generate_text_anthropic(channel: ResolvedAiChannel, messages: list[dict[str, str]]) -> str:

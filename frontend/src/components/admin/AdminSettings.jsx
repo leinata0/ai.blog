@@ -30,8 +30,9 @@ const EMPTY_CHANNEL = {
   provider: 'openai_compatible',
   base_url: '',
   model: '',
-  api_key_env_var: '',
+  api_key_env_var: 'AI_API_KEY',
   api_key_value: '',
+  persist_api_key: false,
   has_api_key: false,
   api_key_source: 'missing',
   masked_api_key: '',
@@ -60,7 +61,7 @@ const PROVIDER_PRESETS = {
   groq: { label: 'Groq', base_url: 'https://api.groq.com/openai/v1', model_image: '', model_text: 'llama-3.3-70b-versatile', env_var: 'GROQ_API_KEY', group: 'OpenAI 兼容' },
   together: { label: 'Together AI', base_url: 'https://api.together.xyz/v1', model_image: 'stabilityai/stable-diffusion-xl-base-1.0', model_text: 'meta-llama/Llama-3-70b-chat-hf', env_var: 'TOGETHER_API_KEY', group: 'OpenAI 兼容' },
   anthropic: { label: 'Anthropic / Claude', base_url: 'https://api.anthropic.com', model_image: '', model_text: 'claude-sonnet-4-20250514', env_var: 'ANTHROPIC_API_KEY', group: 'Anthropic 兼容' },
-  openai_compatible: { label: '自定义 (OpenAI 兼容)', base_url: '', model_image: '', model_text: '', env_var: '', group: '自定义' },
+  openai_compatible: { label: '自定义 (OpenAI 兼容)', base_url: '', model_image: '', model_text: '', env_var: 'AI_API_KEY', group: '自定义' },
 }
 
 const PROVIDER_GROUPS = Object.entries(PROVIDER_PRESETS).reduce((acc, [value, preset]) => {
@@ -236,7 +237,7 @@ export default function AdminSettings() {
         api_key_env_var: channel.api_key_env_var,
         enabled: channel.enabled,
       }
-      if (channel.api_key_value?.trim()) {
+      if (channel.persist_api_key && channel.api_key_value?.trim()) {
         payload.api_key_value = channel.api_key_value.trim()
       }
       const updated = await updateAdminAiChannel(purpose, payload)
@@ -621,7 +622,7 @@ export default function AdminSettings() {
         <div>
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">AI API 渠道配置</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
-            生图渠道用于 Hero 和封面生成；生文字渠道用于后续文字生成工作流。API Key 可填环境变量名，也可在后台保存新 key。填写 Base URL 和 Key 后可先获取模型列表，选择模型不会自动保存配置。
+            生图渠道用于 Hero 和封面生成；生文字渠道用于后续文字生成工作流。API Key 可填环境变量名，也可临时填入用于获取模型/测试连接。只有勾选保存时才会把新 Key 写入后台；不保存时刷新后需要重新输入 Key 或使用环境变量。
           </p>
         </div>
 
@@ -676,7 +677,7 @@ export default function AdminSettings() {
                         onChange={(event) => updateChannelField(purpose, 'model', event.target.value)}
                         className="w-full rounded-lg px-3 py-2 text-sm outline-none"
                         style={inputStyle}
-                        placeholder={purpose === 'image_generation' ? 'grok-imagine-image' : 'deepseek-ai/DeepSeek-V3'}
+                        placeholder={purpose === 'image_generation' ? '例如 image-model' : '例如 text-model'}
                       />
                     </label>
                     <div className="flex flex-col gap-2 sm:flex-row">
@@ -727,7 +728,7 @@ export default function AdminSettings() {
                     onChange={(event) => updateChannelField(purpose, 'base_url', event.target.value)}
                     className="w-full rounded-lg px-3 py-2 text-sm outline-none"
                     style={inputStyle}
-                    placeholder={purpose === 'image_generation' ? 'https://api.x.ai/v1' : 'https://api.siliconflow.cn/v1'}
+                    placeholder="https://api.example.com 或 https://api.example.com/v1"
                   />
                 </label>
 
@@ -739,20 +740,31 @@ export default function AdminSettings() {
                       onChange={(event) => updateChannelField(purpose, 'api_key_env_var', event.target.value)}
                       className="w-full rounded-lg px-3 py-2 text-sm outline-none"
                       style={inputStyle}
-                      placeholder={purpose === 'image_generation' ? 'XAI_API_KEY' : 'SILICONFLOW_API_KEY'}
+                      placeholder="AI_API_KEY"
                     />
                   </label>
-                  <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
-                    新 API Key
-                    <input
-                      type="password"
-                      value={channel.api_key_value}
-                      onChange={(event) => updateChannelField(purpose, 'api_key_value', event.target.value)}
-                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                      style={inputStyle}
-                      placeholder={channel.masked_api_key || '留空则不更新'}
-                    />
-                  </label>
+                  <div className="space-y-2">
+                    <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
+                      新 API Key
+                      <input
+                        type="password"
+                        value={channel.api_key_value}
+                        onChange={(event) => updateChannelField(purpose, 'api_key_value', event.target.value)}
+                        className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                        style={inputStyle}
+                        placeholder={channel.masked_api_key || '留空则不更新'}
+                      />
+                    </label>
+                    <label className="flex items-start gap-2 text-xs font-medium text-[var(--text-faint)]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(channel.persist_api_key)}
+                        onChange={(event) => updateChannelField(purpose, 'persist_api_key', event.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>保存这个 API Key 到后台，下次继续使用。不勾选时仅用于本次获取模型和测试连接。</span>
+                    </label>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
