@@ -68,7 +68,9 @@ async function main() {
 
   await expectJson(`${blogApiBase}/api/admin/posts?page_size=1`, { headers: authHeaders })
   await expectJson(`${blogApiBase}/api/admin/cover-generation-status`, { headers: authHeaders })
-  await expectJson(`${blogApiBase}/api/admin/ai-channels`, { headers: authHeaders })
+  await expectJson(`${blogApiBase}/api/admin/ai-provider-sources`, { headers: authHeaders })
+  await expectJson(`${blogApiBase}/api/admin/ai-model-instances`, { headers: authHeaders })
+  await expectJson(`${blogApiBase}/api/admin/ai-runtime-plan`, { headers: authHeaders })
 
   console.log('[smoke] Public + admin checks passed')
 }

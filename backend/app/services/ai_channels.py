@@ -910,14 +910,7 @@ def generate_image_url(db: Session, prompt: str, framing_hint: str = "") -> str:
         db,
         IMAGE_PURPOSE,
         lambda channel: _generate_image_from_channel(channel, prompt, framing_hint),
-        lambda: _generate_image_url_legacy(db, prompt, framing_hint),
     )
-
-
-def _generate_image_url_legacy(db: Session, prompt: str, framing_hint: str = "") -> str:
-    plan = resolve_channel_plan(db, IMAGE_PURPOSE)
-    result, _, _ = _run_plan(plan, lambda channel: _generate_image_from_channel(channel, prompt, framing_hint))
-    return result
 
 
 def generate_text(db: Session, messages: list[dict[str, str]]) -> str:
@@ -927,14 +920,7 @@ def generate_text(db: Session, messages: list[dict[str, str]]) -> str:
         db,
         TEXT_PURPOSE,
         lambda channel: _generate_text_from_channel(channel, messages),
-        lambda: _generate_text_legacy(db, messages),
     )
-
-
-def _generate_text_legacy(db: Session, messages: list[dict[str, str]]) -> str:
-    plan = resolve_channel_plan(db, TEXT_PURPOSE)
-    result, _, _ = _run_plan(plan, lambda channel: _generate_text_from_channel(channel, messages))
-    return result
 
 
 def _test_channel_inline(channel: ResolvedAiChannel) -> None:

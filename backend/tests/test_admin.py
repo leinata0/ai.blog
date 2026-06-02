@@ -1,3 +1,5 @@
+import pytest
+
 def _login(client):
     resp = client.post("/api/admin/login", json={"username": "admin", "password": "admin123"})
     assert resp.status_code == 200
@@ -889,224 +891,6 @@ def test_admin_post_generate_cover_reports_cover_exists(client):
     assert payload["error_code"] == "cover_exists"
 
 
-def test_ai_channels_are_admin_only_and_mask_keys(client):
-    token = _login(client)
-
-    unauthorized = client.get("/api/admin/ai-channels")
-    assert unauthorized.status_code in (401, 403)
-
-    update = client.put(
-        "/api/admin/ai-channels/image_generation",
-        json={
-            "provider": "openai_compatible",
-            "base_url": "https://gateway.example.com/v1",
-            "model": "image-model",
-            "api_key_env_var": "CUSTOM_IMAGE_KEY",
-            "api_key_value": "sk-secret-123456",
-            "enabled": True,
-        },
-        headers=_auth(token),
-    )
-    assert update.status_code == 200
-    payload = update.json()
-    assert payload["purpose"] == "image_generation"
-    assert payload["provider"] == "openai_compatible"
-    assert payload["has_api_key"] is True
-    assert payload["api_key_source"] == "db"
-    assert payload["masked_api_key"] == "sk-s...3456"
-    assert "sk-secret" not in str(payload)
-
-    unchanged = client.put(
-        "/api/admin/ai-channels/image_generation",
-        json={"api_key_value": ""},
-        headers=_auth(token),
-    )
-    assert unchanged.status_code == 200
-    assert unchanged.json()["api_key_source"] == "db"
-
-    cleared = client.put(
-        "/api/admin/ai-channels/image_generation",
-        json={"clear_api_key": True},
-        headers=_auth(token),
-    )
-    assert cleared.status_code == 200
-    assert cleared.json()["api_key_source"] == "missing"
-
-    reset = client.delete("/api/admin/ai-channels/image_generation", headers=_auth(token))
-    assert reset.status_code == 200
-    fallback = client.get("/api/admin/ai-channels/image_generation", headers=_auth(token))
-    assert fallback.status_code == 200
-    assert fallback.json()["provider"] == "openai_compatible"
-    assert fallback.json()["api_key_env_var"] == "AI_API_KEY"
-    assert fallback.json()["base_url"] == ""
-    assert fallback.json()["model"] == ""
-    assert fallback.json()["db_configured"] is False
-
-
-def test_cover_generation_status_uses_ai_channel_fallback(client, monkeypatch):
-    monkeypatch.setenv("AI_API_KEY", "ai-secret")
-    token = _login(client)
-
-    response = client.get("/api/admin/cover-generation-status", headers=_auth(token))
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["provider"] == "openai_compatible"
-    assert payload["has_xai_api_key"] is False
-    assert payload["can_generate"] is False
-    assert payload["supports_site_hero"] is False
-    assert payload["api_key_env_var"] == "AI_API_KEY"
-    assert payload["model"] == ""
-
-
-def test_ai_channel_models_with_config_fetches_openai_compatible_models(client, monkeypatch):
-    from app.services import ai_channels as channel_mod
-
-    token = _login(client)
-    unauthorized = client.post(
-        "/api/admin/ai-channels/text_generation/models-with-config",
-        json={"provider": "openai_compatible"},
-    )
-    assert unauthorized.status_code in (401, 403)
-
-    captured = {}
-
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"data": [{"id": "model-a", "owned_by": "gateway"}, {"id": "text-embedding-3-small"}, "model-b"]}
-
-    def fake_get(url, headers, timeout):
-        captured["url"] = url
-        captured["headers"] = headers
-        captured["timeout"] = timeout
-        return FakeResponse()
-
-    monkeypatch.setattr(channel_mod.httpx, "get", fake_get)
-
-    response = client.post(
-        "/api/admin/ai-channels/text_generation/models-with-config",
-        json={
-            "provider": "openai_compatible",
-            "base_url": "https://gateway.example.com/v1/",
-            "api_key_value": "sk-secret-123456",
-        },
-        headers=_auth(token),
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["models"][0]["id"] == "model-a"
-    assert payload["models"][0]["owned_by"] == "gateway"
-    assert payload["models"][2]["id"] == "model-b"
-    assert captured["url"] == "https://gateway.example.com/v1/models"
-    assert captured["headers"]["Authorization"] == "Bearer sk-secret-123456"
-    assert "sk-secret" not in str(payload)
-
-
-def test_ai_channel_models_with_config_falls_back_to_v1_models(client, monkeypatch):
-    from app.services import ai_channels as channel_mod
-
-    token = _login(client)
-    captured_urls = []
-
-    class HtmlResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            raise ValueError("not json")
-
-    class JsonResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"models": [{"id": "deepseek-ai/DeepSeek-V3"}]}
-
-    def fake_get(url, headers, timeout):
-        captured_urls.append(url)
-        if url.endswith("/v1/models"):
-            return JsonResponse()
-        return HtmlResponse()
-
-    monkeypatch.setattr(channel_mod.httpx, "get", fake_get)
-
-    response = client.post(
-        "/api/admin/ai-channels/text_generation/models-with-config",
-        json={
-            "provider": "openai_compatible",
-            "base_url": "https://ai.999555777.xyz",
-            "api_key_value": "sk-secret-123456",
-        },
-        headers=_auth(token),
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["models"][0]["id"] == "deepseek-ai/DeepSeek-V3"
-    assert captured_urls == [
-        "https://ai.999555777.xyz/models",
-        "https://ai.999555777.xyz/v1/models",
-    ]
-
-
-def test_ai_channel_models_with_config_handles_anthropic_and_errors(client, monkeypatch):
-    from app.services import ai_channels as channel_mod
-
-    token = _login(client)
-    captured = {}
-
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"data": [{"id": "claude-sonnet-4-20250514", "display_name": "Claude Sonnet 4"}]}
-
-    def fake_get(url, headers, timeout):
-        captured["url"] = url
-        captured["headers"] = headers
-        return FakeResponse()
-
-    monkeypatch.setattr(channel_mod.httpx, "get", fake_get)
-
-    response = client.post(
-        "/api/admin/ai-channels/text_generation/models-with-config",
-        json={
-            "provider": "anthropic",
-            "base_url": "https://api.anthropic.com",
-            "api_key_value": "sk-ant-secret",
-        },
-        headers=_auth(token),
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["models"][0]["id"] == "claude-sonnet-4-20250514"
-    assert payload["models"][0]["label"] == "Claude Sonnet 4"
-    assert captured["url"] == "https://api.anthropic.com/v1/models"
-    assert captured["headers"]["x-api-key"] == "sk-ant-secret"
-
-    missing_key = client.post(
-        "/api/admin/ai-channels/text_generation/models-with-config",
-        json={"provider": "openai_compatible", "base_url": "https://gateway.example.com/v1"},
-        headers=_auth(token),
-    )
-    assert missing_key.status_code == 200
-    assert missing_key.json()["ok"] is False
-    assert missing_key.json()["error_code"] == "missing_api_key"
-
-    unsupported = client.post(
-        "/api/admin/ai-channels/image_generation/models-with-config",
-        json={"provider": "anthropic", "base_url": "https://api.anthropic.com", "api_key_value": "sk-ant-secret"},
-        headers=_auth(token),
-    )
-    assert unsupported.status_code == 200
-    assert unsupported.json()["ok"] is False
-    assert unsupported.json()["error_code"] == "unsupported_provider_for_purpose"
-
 def test_ai_provider_sources_and_model_instances_crud(client, monkeypatch):
     from app.services import ai_channels as channel_mod
 
@@ -1269,22 +1053,14 @@ def test_ai_provider_source_model_discovery_uses_source_credentials(client, monk
     assert captured["headers"]["Authorization"] == "Bearer sk-discovery-123456"
 
 
-def test_ai_provider_runtime_prefers_model_instances_and_keeps_legacy_fallback(client, db_session, monkeypatch):
+def test_ai_provider_runtime_requires_model_instances(client, db_session, monkeypatch):
     from app.services import ai_channels as channel_mod
 
+    with pytest.raises(channel_mod.AiChannelError) as missing:
+        channel_mod.generate_text(db_session, [{"role": "user", "content": "hello"}])
+    assert missing.value.code == "missing_provider_model"
+
     token = _login(client)
-    legacy = client.put(
-        "/api/admin/ai-channels/text_generation",
-        json={
-            "provider": "openai_compatible",
-            "base_url": "https://legacy.example.com/v1",
-            "model": "legacy-text",
-            "api_key_value": "sk-legacy-123456",
-            "enabled": True,
-        },
-        headers=_auth(token),
-    )
-    assert legacy.status_code == 200
 
     class FakeResponse:
         def __init__(self, content):
@@ -1303,10 +1079,6 @@ def test_ai_provider_runtime_prefers_model_instances_and_keeps_legacy_fallback(c
         return FakeResponse(json["model"])
 
     monkeypatch.setattr(channel_mod.httpx, "post", fake_post)
-
-    assert channel_mod.generate_text(db_session, [{"role": "user", "content": "hello"}]) == "legacy-text"
-    assert calls[-1]["model"] == "legacy-text"
-    assert calls[-1]["url"] == "https://legacy.example.com/v1/chat/completions"
 
     source_resp = client.post(
         "/api/admin/ai-provider-sources",
@@ -1337,101 +1109,6 @@ def test_ai_provider_runtime_prefers_model_instances_and_keeps_legacy_fallback(c
     assert calls[-1]["model"] == "primary-text"
     assert calls[-1]["url"] == "https://primary.example.com/v1/chat/completions"
     assert calls[-1]["key"] == "Bearer sk-primary-123456"
-
-
-def test_ai_channel_text_generation_test_uses_chat_completions(client, monkeypatch):
-    from app.services import ai_channels as channel_mod
-
-    token = _login(client)
-    client.put(
-        "/api/admin/ai-channels/text_generation",
-        json={
-            "provider": "openai_compatible",
-            "base_url": "https://gateway.example.com/v1",
-            "model": "text-model",
-            "api_key_value": "sk-text-123456",
-            "enabled": True,
-        },
-        headers=_auth(token),
-    )
-
-    captured = {}
-
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"choices": [{"message": {"content": "OK"}}]}
-
-    def fake_post(url, headers, json, timeout):
-        captured["url"] = url
-        captured["headers"] = headers
-        captured["json"] = json
-        return FakeResponse()
-
-    monkeypatch.setattr(channel_mod.httpx, "post", fake_post)
-
-    response = client.post("/api/admin/ai-channels/text_generation/test", headers=_auth(token))
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert captured["url"] == "https://gateway.example.com/v1/chat/completions"
-    assert captured["json"]["model"] == "text-model"
-
-    duplicate = client.post(
-        "/api/admin/ai-channels/text_generation",
-        json={"provider": "openai_compatible"},
-        headers=_auth(token),
-    )
-    assert duplicate.status_code == 409
-
-
-def test_ai_channel_text_generation_test_falls_back_to_v1_chat_completions(client, monkeypatch):
-    from app.services import ai_channels as channel_mod
-
-    token = _login(client)
-    captured_urls = []
-
-    class HtmlResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            raise ValueError("not json")
-
-    class JsonResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"choices": [{"message": {"content": "OK"}}]}
-
-    def fake_post(url, headers, json, timeout):
-        captured_urls.append(url)
-        if url.endswith("/v1/chat/completions"):
-            return JsonResponse()
-        return HtmlResponse()
-
-    monkeypatch.setattr(channel_mod.httpx, "post", fake_post)
-
-    response = client.post(
-        "/api/admin/ai-channels/text_generation/test-with-config",
-        json={
-            "provider": "openai_compatible",
-            "base_url": "https://ai.999555777.xyz",
-            "model": "deepseek-ai/DeepSeek-V3",
-            "api_key_value": "sk-secret-123456",
-        },
-        headers=_auth(token),
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert captured_urls == [
-        "https://ai.999555777.xyz/chat/completions",
-        "https://ai.999555777.xyz/v1/chat/completions",
-    ]
 
 
 def test_admin_generate_site_hero_with_grok(client, monkeypatch):
@@ -1483,8 +1160,8 @@ def test_admin_generate_site_hero_reports_missing_env(client, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["generated"] is False
-    assert payload["error_code"] == "missing_api_key"
-    assert "API Key" in payload["error"]
+    assert payload["error_code"] == "missing_provider_model"
+    assert "Provider" in payload["error"]
 
 
 def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeypatch):
@@ -1514,8 +1191,8 @@ def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeyp
     assert response.status_code == 200
     payload = response.json()
     assert payload["generated"] is False
-    assert payload["error_code"] == "missing_api_key"
-    assert "API Key" in payload["error"]
+    assert payload["error_code"] == "missing_provider_model"
+    assert "Provider" in payload["error"]
 
 
 def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):

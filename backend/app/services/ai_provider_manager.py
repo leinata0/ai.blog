@@ -388,10 +388,11 @@ def _attempt(item: ResolvedModelProvider, *, ok: bool, latency_ms: int, message:
     }
 
 
-def run_generation(db: Session, purpose: str, runner: Callable[[ai_channels.ResolvedAiChannel], T], legacy_runner: Callable[[], T]) -> T:
-    plan = resolve_runtime_plan(db, purpose)
+def run_generation(db: Session, purpose: str, runner: Callable[[ai_channels.ResolvedAiChannel], T]) -> T:
+    normalized = ai_channels.normalize_purpose(purpose)
+    plan = resolve_runtime_plan(db, normalized)
     if not plan:
-        return legacy_runner()
+        raise ai_channels.AiChannelError("missing_provider_model", "请在后台 AI Provider 配置中创建可用的服务源和模型实例。")
     attempts = []
     last_error: ai_channels.AiChannelError | None = None
     for item in plan:
@@ -407,7 +408,7 @@ def run_generation(db: Session, purpose: str, runner: Callable[[ai_channels.Reso
         failure = ai_channels.AiChannelError("all_models_failed", "所有 AI 模型实例均调用失败，请检查服务源、模型和 API Key。")
         failure.attempts = attempts
         raise failure
-    return legacy_runner()
+    raise ai_channels.AiChannelError("missing_provider_model", "请在后台 AI Provider 配置中创建可用的服务源和模型实例。")
 
 
 def test_instance(db: Session, instance_id: int) -> dict[str, Any]:

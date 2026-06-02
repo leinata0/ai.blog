@@ -159,7 +159,7 @@ node auto-blog.mjs --mode daily-manual --dry-run --max-posts 1
 - `XAI_API_KEY`（默认生图渠道）
 - `SILICONFLOW_API_KEY` / `SILICONFLOW_BASE_URL` / `SILICONFLOW_MODEL`（默认生文字渠道）
 
-后台“站点设置”里的 AI API 渠道配置会优先使用数据库保存的渠道设置；未保存或重置后回退到这些环境变量。生产环境仍建议把长期密钥放在 Render 环境变量中，后台保存新 key 主要用于运营侧快速切换或验证。
+后台“站点设置”里的 AI Provider 配置用于管理服务源、模型实例和按用途的默认/fallback 顺序。生产环境仍建议把长期密钥放在 Render 环境变量中，后台保存新 key 主要用于运营侧快速切换或验证；运行时不再回退到旧 AI Channel 配置。
 
 ### Frontend 关键变量
 
