@@ -34,6 +34,8 @@ from app.models import (
 )
 from app.notifications import dispatch_post_notifications_for_post, subscription_health_payload
 from app.schemas import (
+    AiChannelModelsResponse,
+    AiChannelModelsWithConfigRequest,
     AiChannelOut,
     AiChannelTestResponse,
     AiChannelTestWithConfigRequest,
@@ -1758,6 +1760,18 @@ def test_ai_channel_with_config(
 ):
     try:
         return ai_channels.test_channel_with_config(purpose, body.model_dump())
+    except AiChannelError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+
+
+@router.post("/ai-channels/{purpose}/models-with-config", response_model=AiChannelModelsResponse)
+def list_ai_channel_models_with_config(
+    purpose: str,
+    body: AiChannelModelsWithConfigRequest,
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        return ai_channels.list_models_with_config(purpose, body.model_dump())
     except AiChannelError as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
 

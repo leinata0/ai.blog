@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -334,7 +335,9 @@ def _apply_channel_payload(config: AiChannelConfig, payload, purpose: str) -> No
         ) or defaults["api_key_env_var"]
     ).strip()
     api_key_value = getattr(payload, "api_key_value", None)
-    if api_key_value is not None:
+    if getattr(payload, "clear_api_key", False):
+        config.api_key_value = ""
+    elif api_key_value is not None and str(api_key_value).strip():
         config.api_key_value = encrypt_value(str(api_key_value).strip())
     if getattr(payload, "enabled", None) is not None:
         config.enabled = bool(payload.enabled)
@@ -555,33 +558,41 @@ def test_channel(db: Session, purpose: str) -> dict[str, Any]:
         }
 
 
-def test_channel_with_config(purpose: str, config: dict[str, Any]) -> dict[str, Any]:
+def _inline_channel_from_config(purpose: str, config: dict[str, Any], *, require_model: bool = True) -> ResolvedAiChannel:
     normalized_purpose = normalize_purpose(purpose)
     provider = normalize_provider(config.get("provider"), normalized_purpose)
     defaults = provider_defaults(provider, normalized_purpose)
     base_url = str(config.get("base_url") or defaults["base_url"]).strip().rstrip("/")
-    model = str(config.get("model") or defaults["model"]).strip()
+    model = str(config.get("model") or (defaults["model"] if require_model else "")).strip()
     env_var = str(config.get("api_key_env_var") or defaults["api_key_env_var"]).strip()
     api_key = str(config.get("api_key_value") or "").strip()
-    if not api_key and env_var:
-        api_key = clean_env(env_var) or ""
+    env_key = clean_env(env_var) if env_var else ""
+    if not api_key and env_key:
+        api_key = env_key
     protocol = defaults.get("protocol", PROTOCOL_OPENAI)
 
-    channel = ResolvedAiChannel(
+    return ResolvedAiChannel(
         purpose=normalized_purpose,
         provider=provider,
         base_url=base_url,
         model=model,
         api_key=api_key,
         api_key_env_var=env_var,
-        api_key_source="inline" if api_key else ("env" if clean_env(env_var) else "missing"),
+        api_key_source="inline" if str(config.get("api_key_value") or "").strip() else ("env" if env_key else "missing"),
         enabled=True,
         db_configured=False,
         protocol=protocol,
     )
+
+
+def test_channel_with_config(purpose: str, config: dict[str, Any]) -> dict[str, Any]:
+    normalized_purpose = normalize_purpose(purpose)
     try:
+        channel = _inline_channel_from_config(normalized_purpose, config)
         return _test_channel_inline(channel)
     except AiChannelError as exc:
+        provider = str(config.get("provider") or DEFAULTS.get(normalized_purpose, {}).get("provider", "")).strip()
+        model = str(config.get("model") or "").strip()
         return {
             "purpose": normalized_purpose,
             "ok": False,
@@ -590,3 +601,143 @@ def test_channel_with_config(purpose: str, config: dict[str, Any]) -> dict[str, 
             "message": exc.message,
             "error_code": exc.code,
         }
+
+
+def _ensure_channel_ready_for_models(channel: ResolvedAiChannel) -> None:
+    if not channel.enabled:
+        raise AiChannelError("channel_disabled", "该 AI 渠道已停用。")
+    if not channel.api_key:
+        raise AiChannelError("missing_api_key", "AI 渠道缺少 API Key，请先填写新 API Key 或可用的环境变量名。")
+    if not channel.base_url:
+        raise AiChannelError("invalid_channel_config", "AI 渠道缺少 Base URL。")
+    parsed = urlparse(channel.base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise AiChannelError("invalid_channel_config", "Base URL 必须是有效的 HTTP(S) 地址。")
+
+
+def _model_capabilities(model_id: str, purpose: str) -> list[str]:
+    lowered = model_id.lower()
+    if purpose == TEXT_PURPOSE:
+        if any(token in lowered for token in ("embedding", "embed", "rerank", "moderation")):
+            return []
+        return [TEXT_PURPOSE]
+    if any(token in lowered for token in ("image", "dall", "imagen", "flux", "stable-diffusion", "cogview")):
+        return [IMAGE_PURPOSE]
+    return []
+
+
+def _normalize_models_payload(payload: Any, purpose: str, *, default_owner: str = "") -> list[dict[str, Any]]:
+    raw_items = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(raw_items, list):
+        raise AiChannelError("models_parse_failed", "模型列表响应结构不可识别。")
+
+    models: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        if isinstance(item, str):
+            model_id = item.strip()
+            label = model_id
+            owned_by = default_owner
+        elif isinstance(item, dict):
+            model_id = str(item.get("id") or item.get("name") or "").strip()
+            label = str(item.get("display_name") or item.get("label") or item.get("name") or model_id).strip()
+            owned_by = str(item.get("owned_by") or item.get("owner") or default_owner or "").strip()
+        else:
+            continue
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        models.append({
+            "id": model_id,
+            "label": label or model_id,
+            "owned_by": owned_by,
+            "capabilities": _model_capabilities(model_id, purpose),
+        })
+        if len(models) >= 500:
+            break
+    return models
+
+
+def _list_models_openai(channel: ResolvedAiChannel) -> list[dict[str, Any]]:
+    try:
+        response = httpx.get(
+            f"{channel.base_url}/models",
+            headers={"Authorization": f"Bearer {channel.api_key}", "Accept": "application/json"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise AiChannelError("models_fetch_failed", f"模型列表请求失败，HTTP {exc.response.status_code}。") from exc
+    except ValueError as exc:
+        raise AiChannelError("models_parse_failed", "模型列表响应不是合法 JSON。") from exc
+    except httpx.HTTPError as exc:
+        raise AiChannelError("models_fetch_failed", "模型列表请求失败，请检查 Base URL 和网络连接。") from exc
+    return _normalize_models_payload(payload, channel.purpose)
+
+
+def _list_models_anthropic(channel: ResolvedAiChannel) -> list[dict[str, Any]]:
+    if channel.purpose == IMAGE_PURPOSE:
+        raise AiChannelError("unsupported_provider_for_purpose", "Anthropic 当前不支持作为生图渠道自动拉取模型。")
+    base_url = channel.base_url.rstrip("/")
+    endpoint = f"{base_url}/models" if "/v1" in base_url else f"{base_url}/v1/models"
+    try:
+        response = httpx.get(
+            endpoint,
+            headers={
+                "x-api-key": channel.api_key,
+                "anthropic-version": "2023-06-01",
+                "Accept": "application/json",
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise AiChannelError("models_fetch_failed", f"模型列表请求失败，HTTP {exc.response.status_code}。") from exc
+    except ValueError as exc:
+        raise AiChannelError("models_parse_failed", "模型列表响应不是合法 JSON。") from exc
+    except httpx.HTTPError as exc:
+        raise AiChannelError("models_fetch_failed", "模型列表请求失败，请检查 Base URL 和网络连接。") from exc
+    return _normalize_models_payload(payload, channel.purpose, default_owner="anthropic")
+
+
+def _models_response(channel: ResolvedAiChannel, *, ok: bool, message: str, error_code: str = "", models: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {
+        "purpose": channel.purpose,
+        "provider": channel.provider,
+        "protocol": channel.protocol,
+        "base_url": channel.base_url,
+        "ok": ok,
+        "message": message,
+        "error_code": error_code,
+        "models": models or [],
+    }
+
+
+def list_models_with_config(purpose: str, config: dict[str, Any]) -> dict[str, Any]:
+    normalized_purpose = normalize_purpose(purpose)
+    try:
+        channel = _inline_channel_from_config(normalized_purpose, config, require_model=False)
+        _ensure_channel_ready_for_models(channel)
+        models = _list_models_anthropic(channel) if channel.protocol == PROTOCOL_ANTHROPIC else _list_models_openai(channel)
+        message = "已获取模型列表。" if models else "接口可用，但未返回模型列表。"
+        return _models_response(channel, ok=True, message=message, models=models)
+    except AiChannelError as exc:
+        try:
+            channel = _inline_channel_from_config(normalized_purpose, config, require_model=False)
+        except AiChannelError:
+            defaults = DEFAULTS[normalized_purpose]
+            channel = ResolvedAiChannel(
+                purpose=normalized_purpose,
+                provider=str(config.get("provider") or defaults["provider"]),
+                base_url=str(config.get("base_url") or "").strip().rstrip("/"),
+                model="",
+                api_key="",
+                api_key_env_var=str(config.get("api_key_env_var") or ""),
+                api_key_source="missing",
+                enabled=True,
+                db_configured=False,
+                protocol=PROTOCOL_OPENAI,
+            )
+        return _models_response(channel, ok=False, message=exc.message, error_code=exc.code)

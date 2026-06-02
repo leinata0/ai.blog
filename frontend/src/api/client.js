@@ -137,6 +137,29 @@ export function buildApiUrl(path = '') {
   return buildResolvedApiUrl(path)
 }
 
+async function readErrorMessage(resp) {
+  const text = await resp.text().catch(() => '')
+  if (!text) return `HTTP ${resp.status}`
+
+  const contentType = resp.headers.get('content-type') || ''
+  if (contentType.includes('json')) {
+    try {
+      const parsed = JSON.parse(text)
+      const detail = parsed?.detail
+      const message = typeof detail === 'string'
+        ? detail
+        : detail
+          ? JSON.stringify(detail)
+          : parsed?.message || text
+      return parsed?.request_id ? `${message}（Request ID: ${parsed.request_id}）` : message
+    } catch {
+      return text
+    }
+  }
+
+  return text
+}
+
 async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal } = {}) {
   const base = resolveApiBase()
   const headers = {}
@@ -167,10 +190,9 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
       if (resp.status === 401 && auth) {
         clearToken()
         window.location.href = '/admin/login'
-        return
+        throw new Error('登录已过期，请重新登录')
       }
-      const text = await resp.text().catch(() => '')
-      throw new Error(text || `HTTP ${resp.status}`)
+      throw new Error(await readErrorMessage(resp))
     }
 
     const contentType = resp.headers.get('content-type') || ''

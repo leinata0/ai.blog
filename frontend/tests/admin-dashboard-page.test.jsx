@@ -156,6 +156,18 @@ vi.mock('../src/api/admin', () => ({
       friend_links: '[]',
     })
   ),
+  fetchAdminSettings: vi.fn(() =>
+    Promise.resolve({
+      author_name: '站点作者',
+      bio: '简介',
+      avatar_url: '',
+      hero_image: '',
+      github_link: '',
+      announcement: '',
+      site_url: 'https://example.com',
+      friend_links: '[]',
+    })
+  ),
   updateSettings: vi.fn(() => Promise.resolve({})),
   adminUploadImage: vi.fn(() => Promise.resolve({ url: '/uploads/demo.png' })),
   generateAdminHeroImage: vi.fn(() =>
@@ -232,6 +244,14 @@ vi.mock('../src/api/admin', () => ({
   deleteAdminAiChannel: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
   testAdminAiChannel: vi.fn(() => Promise.resolve({ ok: true, message: 'AI 渠道测试成功。' })),
   testAdminAiChannelWithConfig: vi.fn(() => Promise.resolve({ ok: true, message: 'AI 渠道测试成功。' })),
+  fetchAdminAiChannelModelsWithConfig: vi.fn(() => Promise.resolve({
+    ok: true,
+    message: '已获取模型列表。',
+    models: [
+      { id: 'grok-imagine-image', label: 'Grok Image' },
+      { id: 'grok-4', label: 'Grok 4' },
+    ],
+  })),
   fetchAdminTopicProfiles: mocks.fetchTopicProfiles,
   createAdminTopicProfile: vi.fn(() => Promise.resolve({})),
   updateAdminTopicProfile: vi.fn(() => Promise.resolve({})),
@@ -334,6 +354,23 @@ it('opens settings and manages AI channel configuration', async () => {
   expect(await screen.findByText(/AI 渠道测试成功/)).toBeInTheDocument()
   expect(adminApi.testAdminAiChannelWithConfig).toHaveBeenCalledWith('image_generation', expect.objectContaining({
     provider: 'xai',
+  }))
+
+  await userEvent.click(screen.getAllByRole('button', { name: '获取模型' })[0])
+  expect(await screen.findByText(/已获取模型列表/)).toBeInTheDocument()
+  expect(adminApi.fetchAdminAiChannelModelsWithConfig).toHaveBeenCalledWith('image_generation', expect.objectContaining({
+    provider: 'xai',
+    base_url: 'https://api.x.ai/v1',
+  }))
+
+  await userEvent.selectOptions(screen.getByLabelText('生图 API 模型列表'), 'grok-4')
+  await userEvent.click(screen.getAllByRole('button', { name: '保存渠道' })[0])
+  expect(await screen.findByText(/生图 API 已保存/)).toBeInTheDocument()
+  expect(adminApi.updateAdminAiChannel).toHaveBeenCalledWith('image_generation', expect.objectContaining({
+    model: 'grok-4',
+  }))
+  expect(adminApi.updateAdminAiChannel).toHaveBeenCalledWith('image_generation', expect.not.objectContaining({
+    api_key_value: expect.anything(),
   }))
 
   await userEvent.click(screen.getAllByRole('button', { name: '重置' })[0])

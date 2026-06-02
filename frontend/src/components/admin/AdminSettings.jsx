@@ -6,9 +6,9 @@ import {
   deleteAdminAiChannel,
   fetchAdminAiChannels,
   fetchAdminCoverGenerationStatus,
-  fetchSettings,
+  fetchAdminSettings,
+  fetchAdminAiChannelModelsWithConfig,
   generateAdminHeroImage,
-  testAdminAiChannel,
   testAdminAiChannelWithConfig,
   updateAdminAiChannel,
   updateSettings,
@@ -89,6 +89,7 @@ export default function AdminSettings() {
   const [heroGenerating, setHeroGenerating] = useState(false)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
+  const [channelLoadError, setChannelLoadError] = useState('')
   const [coverStatus, setCoverStatus] = useState(null)
   const [channels, setChannels] = useState({
     image_generation: { ...EMPTY_CHANNEL, purpose: 'image_generation' },
@@ -100,6 +101,14 @@ export default function AdminSettings() {
     text_generation: null,
   })
   const [channelActionResults, setChannelActionResults] = useState({
+    image_generation: null,
+    text_generation: null,
+  })
+  const [channelModels, setChannelModels] = useState({
+    image_generation: [],
+    text_generation: [],
+  })
+  const [channelModelResults, setChannelModelResults] = useState({
     image_generation: null,
     text_generation: null,
   })
@@ -121,7 +130,7 @@ export default function AdminSettings() {
 
   async function loadSettings() {
     try {
-      const settings = await fetchSettings()
+      const settings = await fetchAdminSettings()
       setSiteSettings({
         author_name: settings.author_name || '',
         bio: settings.bio || '',
@@ -142,8 +151,10 @@ export default function AdminSettings() {
     try {
       const status = await fetchAdminCoverGenerationStatus()
       setCoverStatus(status)
-    } catch {
+      setChannelLoadError('')
+    } catch (err) {
       setCoverStatus(null)
+      setChannelLoadError(err.message || '加载后台生图状态失败')
     }
   }
 
@@ -154,15 +165,25 @@ export default function AdminSettings() {
         image_generation: { ...EMPTY_CHANNEL, purpose: 'image_generation' },
         text_generation: { ...EMPTY_CHANNEL, purpose: 'text_generation' },
       }
+      if (!Array.isArray(items)) {
+        throw new Error('AI 渠道接口返回格式异常')
+      }
       items.forEach((item) => {
         if (item?.purpose && nextChannels[item.purpose]) {
           nextChannels[item.purpose] = { ...EMPTY_CHANNEL, ...item, api_key_value: '' }
         }
       })
       setChannels(nextChannels)
-    } catch {
+      setChannelLoadError('')
+    } catch (err) {
       setChannels((prev) => prev)
+      setChannelLoadError(err.message || '加载 AI 渠道配置失败')
     }
+  }
+
+  function clearChannelModels(purpose) {
+    setChannelModels((prev) => ({ ...prev, [purpose]: [] }))
+    setChannelModelResults((prev) => ({ ...prev, [purpose]: null }))
   }
 
   function updateChannelField(purpose, field, value) {
@@ -174,6 +195,9 @@ export default function AdminSettings() {
         [field]: value,
       },
     }))
+    if (['provider', 'base_url', 'api_key_env_var', 'api_key_value'].includes(field)) {
+      clearChannelModels(purpose)
+    }
   }
 
   function handleProviderChange(purpose, newProvider) {
@@ -194,6 +218,7 @@ export default function AdminSettings() {
         api_key_env_var: preset.env_var || prev[purpose]?.api_key_env_var || '',
       },
     }))
+    clearChannelModels(purpose)
     setChannelTestResults((prev) => ({ ...prev, [purpose]: null }))
     setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
   }
@@ -204,14 +229,17 @@ export default function AdminSettings() {
     setChannelBusy(`${purpose}:save`)
     setChannelActionResults((prev) => ({ ...prev, [purpose]: null }))
     try {
-      const updated = await updateAdminAiChannel(purpose, {
+      const payload = {
         provider: channel.provider,
         base_url: channel.base_url,
         model: channel.model,
         api_key_env_var: channel.api_key_env_var,
-        api_key_value: channel.api_key_value,
         enabled: channel.enabled,
-      })
+      }
+      if (channel.api_key_value?.trim()) {
+        payload.api_key_value = channel.api_key_value.trim()
+      }
+      const updated = await updateAdminAiChannel(purpose, payload)
       setChannels((prev) => ({
         ...prev,
         [purpose]: { ...EMPTY_CHANNEL, ...updated, api_key_value: '' },
@@ -258,6 +286,41 @@ export default function AdminSettings() {
       setChannelTestResults((prev) => ({
         ...prev,
         [purpose]: { ok: false, message: err.message || `${CHANNEL_LABELS[purpose]} 测试失败` },
+      }))
+    } finally {
+      setChannelBusy('')
+    }
+  }
+
+  async function handleFetchModels(purpose) {
+    const channel = channels[purpose]
+    if (!channel) return
+    setChannelBusy(`${purpose}:models`)
+    setChannelModelResults((prev) => ({ ...prev, [purpose]: null }))
+    try {
+      const result = await fetchAdminAiChannelModelsWithConfig(purpose, {
+        provider: channel.provider,
+        base_url: channel.base_url,
+        model: channel.model,
+        api_key_env_var: channel.api_key_env_var,
+        api_key_value: channel.api_key_value,
+      })
+      const models = Array.isArray(result?.models) ? result.models : []
+      setChannelModels((prev) => ({ ...prev, [purpose]: models }))
+      setChannelModelResults((prev) => ({
+        ...prev,
+        [purpose]: {
+          ok: Boolean(result?.ok),
+          message: result?.message || (result?.ok ? '已获取模型列表' : '获取模型失败'),
+        },
+      }))
+      if (result?.ok && models.length === 1 && !channel.model) {
+        updateChannelField(purpose, 'model', models[0].id)
+      }
+    } catch (err) {
+      setChannelModelResults((prev) => ({
+        ...prev,
+        [purpose]: { ok: false, message: err.message || `${CHANNEL_LABELS[purpose]} 获取模型失败` },
       }))
     } finally {
       setChannelBusy('')
@@ -379,6 +442,10 @@ export default function AdminSettings() {
 
       {error ? (
         <div className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+      ) : null}
+
+      {channelLoadError ? (
+        <div className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{channelLoadError}</div>
       ) : null}
 
       {msg ? (
@@ -554,13 +621,15 @@ export default function AdminSettings() {
         <div>
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">AI API 渠道配置</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
-            生图渠道用于 Hero 和封面生成；生文字渠道用于后续文字生成工作流。API Key 可填环境变量名，也可在后台保存新 key。
+            生图渠道用于 Hero 和封面生成；生文字渠道用于后续文字生成工作流。API Key 可填环境变量名，也可在后台保存新 key。填写 Base URL 和 Key 后可先获取模型列表，选择模型不会自动保存配置。
           </p>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
           {['image_generation', 'text_generation'].map((purpose) => {
             const channel = channels[purpose] || { ...EMPTY_CHANNEL, purpose }
+            const models = channelModels[purpose] || []
+            const modelResult = channelModelResults[purpose]
             const busyPrefix = `${purpose}:`
             return (
               <div key={purpose} className="space-y-3 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
@@ -599,16 +668,56 @@ export default function AdminSettings() {
                       ))}
                     </select>
                   </label>
-                  <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
-                    Model
-                    <input
-                      value={channel.model}
-                      onChange={(event) => updateChannelField(purpose, 'model', event.target.value)}
-                      className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                      style={inputStyle}
-                      placeholder={purpose === 'image_generation' ? 'grok-imagine-image' : 'deepseek-ai/DeepSeek-V3'}
-                    />
-                  </label>
+                  <div className="space-y-2">
+                    <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
+                      Model
+                      <input
+                        value={channel.model}
+                        onChange={(event) => updateChannelField(purpose, 'model', event.target.value)}
+                        className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                        style={inputStyle}
+                        placeholder={purpose === 'image_generation' ? 'grok-imagine-image' : 'deepseek-ai/DeepSeek-V3'}
+                      />
+                    </label>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        disabled={channelBusy.startsWith(busyPrefix)}
+                        onClick={() => handleFetchModels(purpose)}
+                        className="rounded-lg border border-[var(--border-muted)] px-3 py-2 text-xs font-semibold text-[var(--accent)] disabled:opacity-50"
+                      >
+                        {channelBusy === `${purpose}:models` ? '获取中…' : '获取模型'}
+                      </button>
+                      {models.length ? (
+                        <select
+                          value=""
+                          onChange={(event) => event.target.value && updateChannelField(purpose, 'model', event.target.value)}
+                          className="min-w-0 flex-1 rounded-lg px-3 py-2 text-xs outline-none"
+                          style={inputStyle}
+                          aria-label={`${CHANNEL_LABELS[purpose]} 模型列表`}
+                        >
+                          <option value="">选择模型写入 Model</option>
+                          {models.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.label && model.label !== model.id ? `${model.label} (${model.id})` : model.id}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </div>
+                    {modelResult ? (
+                      <div
+                        className="rounded-lg px-3 py-2 text-xs"
+                        style={{
+                          backgroundColor: modelResult.ok ? 'var(--accent-soft)' : 'var(--danger-soft)',
+                          color: modelResult.ok ? 'var(--accent)' : '#ef4444',
+                        }}
+                      >
+                        {modelResult.ok ? '✓ ' : '✗ '}
+                        {modelResult.message}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
 
                 <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
