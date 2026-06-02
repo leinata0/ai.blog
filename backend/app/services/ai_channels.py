@@ -627,7 +627,14 @@ def _model_capabilities(model_id: str, purpose: str) -> list[str]:
 
 
 def _normalize_models_payload(payload: Any, purpose: str, *, default_owner: str = "") -> list[dict[str, Any]]:
-    raw_items = payload.get("data") if isinstance(payload, dict) else payload
+    raw_items = None
+    if isinstance(payload, dict):
+        for key in ("data", "models", "model_list"):
+            if isinstance(payload.get(key), list):
+                raw_items = payload[key]
+                break
+    else:
+        raw_items = payload
     if not isinstance(raw_items, list):
         raise AiChannelError("models_parse_failed", "模型列表响应结构不可识别。")
 
@@ -658,22 +665,37 @@ def _normalize_models_payload(payload: Any, purpose: str, *, default_owner: str 
     return models
 
 
+def _openai_model_endpoints(base_url: str) -> list[str]:
+    normalized = base_url.rstrip("/")
+    endpoints = [f"{normalized}/models"]
+    parsed = urlparse(normalized)
+    path = (parsed.path or "").rstrip("/")
+    if not path.endswith("/v1"):
+        endpoints.append(f"{normalized}/v1/models")
+    return endpoints
+
+
 def _list_models_openai(channel: ResolvedAiChannel) -> list[dict[str, Any]]:
-    try:
-        response = httpx.get(
-            f"{channel.base_url}/models",
-            headers={"Authorization": f"Bearer {channel.api_key}", "Accept": "application/json"},
-            timeout=20,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except httpx.HTTPStatusError as exc:
-        raise AiChannelError("models_fetch_failed", f"模型列表请求失败，HTTP {exc.response.status_code}。") from exc
-    except ValueError as exc:
-        raise AiChannelError("models_parse_failed", "模型列表响应不是合法 JSON。") from exc
-    except httpx.HTTPError as exc:
-        raise AiChannelError("models_fetch_failed", "模型列表请求失败，请检查 Base URL 和网络连接。") from exc
-    return _normalize_models_payload(payload, channel.purpose)
+    last_error: AiChannelError | None = None
+    for endpoint in _openai_model_endpoints(channel.base_url):
+        try:
+            response = httpx.get(
+                endpoint,
+                headers={"Authorization": f"Bearer {channel.api_key}", "Accept": "application/json"},
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return _normalize_models_payload(payload, channel.purpose)
+        except httpx.HTTPStatusError as exc:
+            last_error = AiChannelError("models_fetch_failed", f"模型列表请求失败，HTTP {exc.response.status_code}。")
+        except ValueError:
+            last_error = AiChannelError("models_parse_failed", "模型列表响应不是合法 JSON。")
+        except httpx.HTTPError:
+            last_error = AiChannelError("models_fetch_failed", "模型列表请求失败，请检查 Base URL 和网络连接。")
+    if last_error is not None:
+        raise last_error
+    raise AiChannelError("models_fetch_failed", "模型列表请求失败，请检查 Base URL。")
 
 
 def _list_models_anthropic(channel: ResolvedAiChannel) -> list[dict[str, Any]]:

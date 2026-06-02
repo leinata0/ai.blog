@@ -1001,6 +1001,53 @@ def test_ai_channel_models_with_config_fetches_openai_compatible_models(client, 
     assert "sk-secret" not in str(payload)
 
 
+def test_ai_channel_models_with_config_falls_back_to_v1_models(client, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+    captured_urls = []
+
+    class HtmlResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("not json")
+
+    class JsonResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"models": [{"id": "deepseek-ai/DeepSeek-V3"}]}
+
+    def fake_get(url, headers, timeout):
+        captured_urls.append(url)
+        if url.endswith("/v1/models"):
+            return JsonResponse()
+        return HtmlResponse()
+
+    monkeypatch.setattr(channel_mod.httpx, "get", fake_get)
+
+    response = client.post(
+        "/api/admin/ai-channels/text_generation/models-with-config",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://ai.999555777.xyz",
+            "api_key_value": "sk-secret-123456",
+        },
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["models"][0]["id"] == "deepseek-ai/DeepSeek-V3"
+    assert captured_urls == [
+        "https://ai.999555777.xyz/models",
+        "https://ai.999555777.xyz/v1/models",
+    ]
+
+
 def test_ai_channel_models_with_config_handles_anthropic_and_errors(client, monkeypatch):
     from app.services import ai_channels as channel_mod
 
