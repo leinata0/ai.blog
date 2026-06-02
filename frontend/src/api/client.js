@@ -26,6 +26,13 @@ function createAbortError(message) {
   return error
 }
 
+function createNetworkError(path) {
+  const apiBase = resolveApiBase()
+  const target = buildResolvedApiUrl(path)
+  const baseHint = apiBase || '当前站点同源 API'
+  return new Error(`无法连接后端 API（${baseHint}）。请确认后端服务正在运行、VITE_API_BASE 配置正确，并且后端 CORS 允许当前前端域名。请求：${target}`)
+}
+
 function mergeAbortSignals(signals) {
   const controller = new AbortController()
   const cleanups = []
@@ -204,6 +211,9 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
     if (isAbortError(err)) {
       if (signal?.aborted) throw createAbortError('请求已取消')
       throw createAbortError('请求超时，请稍后重试')
+    }
+    if (err instanceof TypeError && /failed to fetch|networkerror|load failed|fetch/i.test(String(err.message || ''))) {
+      throw createNetworkError(path)
     }
     throw err
   }
