@@ -288,14 +288,62 @@ LEGACY_SERIES_DEFAULTS = {
 
 def _create_table_if_missing(engine, table_name: str, columns: dict[str, str], indexes: list[str] | None = None) -> None:
     inspector = inspect(engine)
-    if table_name in set(inspector.get_table_names()):
-        return
+    table_exists = table_name in set(inspector.get_table_names())
 
-    column_sql = ", ".join(f"{name} {ddl}" for name, ddl in columns.items())
+    if not table_exists:
+        column_sql = ", ".join(f"{name} {ddl}" for name, ddl in columns.items())
+        with engine.begin() as connection:
+            connection.execute(text(f"CREATE TABLE {table_name} ({column_sql})"))
+
     with engine.begin() as connection:
-        connection.execute(text(f"CREATE TABLE {table_name} ({column_sql})"))
         for index_sql in indexes or []:
             connection.execute(text(index_sql))
+
+
+def _ensure_postgres_id_default(engine, table_name: str) -> None:
+    if engine.dialect.name != "postgresql":
+        return
+    sequence_name = f"{table_name}_id_seq"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"""
+                CREATE SEQUENCE IF NOT EXISTS {sequence_name};
+                ALTER SEQUENCE {sequence_name} OWNED BY {table_name}.id;
+                ALTER TABLE {table_name}
+                    ALTER COLUMN id SET DEFAULT nextval('{sequence_name}'::regclass);
+                SELECT setval(
+                    '{sequence_name}'::regclass,
+                    COALESCE((SELECT MAX(id) FROM {table_name}), 0) + 1,
+                    false
+                );
+                """
+            )
+        )
+
+
+def ensure_ai_provider_schema_compat(engine) -> None:
+    _create_table_if_missing(
+        engine,
+        "ai_provider_sources",
+        AI_PROVIDER_SOURCE_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_ai_provider_sources_provider ON ai_provider_sources (provider)",
+        ],
+    )
+    _ensure_postgres_id_default(engine, "ai_provider_sources")
+
+    _create_table_if_missing(
+        engine,
+        "ai_model_instances",
+        AI_MODEL_INSTANCE_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_source_id ON ai_model_instances (source_id)",
+            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_purpose ON ai_model_instances (purpose)",
+            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_priority ON ai_model_instances (priority)",
+        ],
+    )
+    _ensure_postgres_id_default(engine, "ai_model_instances")
 
 
 def ensure_schema_compat(engine) -> None:
@@ -434,25 +482,7 @@ def ensure_schema_compat(engine) -> None:
         ],
     )
 
-    _create_table_if_missing(
-        engine,
-        "ai_provider_sources",
-        AI_PROVIDER_SOURCE_COLUMNS,
-        indexes=[
-            "CREATE INDEX IF NOT EXISTS ix_ai_provider_sources_provider ON ai_provider_sources (provider)",
-        ],
-    )
-
-    _create_table_if_missing(
-        engine,
-        "ai_model_instances",
-        AI_MODEL_INSTANCE_COLUMNS,
-        indexes=[
-            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_source_id ON ai_model_instances (source_id)",
-            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_purpose ON ai_model_instances (purpose)",
-            "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_priority ON ai_model_instances (priority)",
-        ],
-    )
+    ensure_ai_provider_schema_compat(engine)
 
     _create_table_if_missing(
         engine,
