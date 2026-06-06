@@ -286,12 +286,21 @@ LEGACY_SERIES_DEFAULTS = {
 }
 
 
+def _ddl_for_dialect(ddl: str, dialect_name: str) -> str:
+    if dialect_name == "postgresql":
+        return ddl.replace("DATETIME", "TIMESTAMP")
+    return ddl
+
+
 def _create_table_if_missing(engine, table_name: str, columns: dict[str, str], indexes: list[str] | None = None) -> None:
     inspector = inspect(engine)
     table_exists = table_name in set(inspector.get_table_names())
 
     if not table_exists:
-        column_sql = ", ".join(f"{name} {ddl}" for name, ddl in columns.items())
+        column_sql = ", ".join(
+            f"{name} {_ddl_for_dialect(ddl, engine.dialect.name)}"
+            for name, ddl in columns.items()
+        )
         with engine.begin() as connection:
             connection.execute(text(f"CREATE TABLE {table_name} ({column_sql})"))
 
