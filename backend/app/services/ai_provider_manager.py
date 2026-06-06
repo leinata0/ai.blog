@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.encryption import decrypt_value, encrypt_value
 from app.env import clean_env
 from app.models import AiModelInstance, AiProviderSource
+from app.schema_compat import ensure_ai_provider_schema_compat
 from app.services import ai_channels
 
 T = TypeVar("T")
@@ -142,6 +143,7 @@ def instance_to_public_dict(instance: AiModelInstance) -> dict[str, Any]:
 
 
 def create_source(db: Session, payload: dict[str, Any]) -> AiProviderSource:
+    ensure_ai_provider_schema_compat(db.get_bind())
     payload = _payload_dict(payload)
     provider = ai_channels.normalize_provider(payload.get("provider"), ai_channels.TEXT_PURPOSE)
     defaults = ai_channels.provider_defaults(provider, ai_channels.TEXT_PURPOSE)
