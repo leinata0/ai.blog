@@ -6,7 +6,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-it('uses the configured https backend in deployed browsers when provided', () => {
+it('uses same-origin api paths in deployed browsers unless cross-origin is explicitly enabled', () => {
   vi.stubEnv('VITE_API_BASE', 'https://ai-blog-hbur.onrender.com')
 
   const location = {
@@ -15,8 +15,8 @@ it('uses the configured https backend in deployed browsers when provided', () =>
     protocol: 'https:',
   }
 
-  expect(resolveApiBase(location)).toBe('https://ai-blog-hbur.onrender.com')
-  expect(buildApiUrl('/api/posts', location)).toBe('https://ai-blog-hbur.onrender.com/api/posts')
+  expect(resolveApiBase(location)).toBe('')
+  expect(buildApiUrl('/api/posts', location)).toBe('/api/posts')
 })
 
 it('keeps the configured backend origin during localhost development', () => {
@@ -45,7 +45,21 @@ it('blocks insecure http api bases on https pages unless explicitly enabled', ()
   expect(buildApiUrl('/api/posts', location)).toBe('/api/posts')
 })
 
-it('allows insecure cross-origin browser requests only when explicitly enabled', () => {
+it('allows cross-origin browser requests only when explicitly enabled', () => {
+  vi.stubEnv('VITE_API_BASE', 'https://api.example.com')
+  vi.stubEnv('VITE_ALLOW_CROSS_ORIGIN_API', '1')
+
+  const location = {
+    origin: 'https://www.563118077.xyz',
+    hostname: 'www.563118077.xyz',
+    protocol: 'https:',
+  }
+
+  expect(resolveApiBase(location)).toBe('https://api.example.com')
+  expect(buildApiUrl('/api/posts', location)).toBe('https://api.example.com/api/posts')
+})
+
+it('allows explicitly enabled insecure cross-origin api bases', () => {
   vi.stubEnv('VITE_API_BASE', 'http://api.example.com')
   vi.stubEnv('VITE_ALLOW_CROSS_ORIGIN_API', '1')
 

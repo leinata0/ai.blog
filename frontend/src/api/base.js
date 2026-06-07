@@ -25,13 +25,9 @@ export function resolveApiBase(currentLocation = globalThis?.window?.location) {
       return configuredBase
     }
 
-    const currentProtocol = currentLocation.protocol || new URL(currentLocation.origin).protocol
-    if (
-      currentProtocol === 'https:' &&
-      targetUrl.protocol !== 'https:' &&
-      !isLocalBrowserHost(currentLocation.hostname) &&
-      !envEnabled(import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API)
-    ) {
+    const crossOrigin = targetOrigin !== currentLocation.origin
+    const allowCrossOrigin = envEnabled(import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API)
+    if (crossOrigin && !isLocalBrowserHost(currentLocation.hostname) && !allowCrossOrigin) {
       return ''
     }
   } catch {
