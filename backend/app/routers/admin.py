@@ -19,6 +19,7 @@ from app.db import get_db
 from app.env import clean_env
 from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.models import (
+    AdminImageGenerationJob,
     AiModelInstance,
     AiProviderSource,
     Comment,
@@ -36,6 +37,7 @@ from app.models import (
 )
 from app.notifications import dispatch_post_notifications_for_post, subscription_health_payload
 from app.schemas import (
+    AdminImageGenerationJobOut,
     AiChannelModelsResponse,
     AiChannelTestResponse,
     AiModelInstanceOut,
@@ -46,7 +48,6 @@ from app.schemas import (
     AiRuntimePlanOut,
     CoverGenerationStatusOut,
     CoverGenerateRequest,
-    CoverGenerateResponse,
     ContentHealthOut,
     LoginRequest,
     LoginResponse,
@@ -65,7 +66,6 @@ from app.schemas import (
     PublishingRunUpsertRequest,
     PublishingStatusResponse,
     SiteHeroGenerateRequest,
-    SiteHeroGenerateResponse,
     TopicFeedbackOut,
     SeriesCreateRequest,
     SeriesOut,
@@ -81,7 +81,7 @@ from app.schemas import (
     UploadOut,
 )
 from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
-from app.services import ai_channels, ai_provider_manager
+from app.services import ai_channels, ai_provider_manager, image_generation_jobs
 from app.services import cover_art as cover_art_service
 from app.services.ai_channels import AiChannelError
 from app.services.admin_posts import AdminPostFilters, list_admin_posts
@@ -333,6 +333,39 @@ def _generate_cover_asset(
     except Exception as exc:
         raise CoverGenerationError("upload_failed", "图片已生成，但上传到博客存储失败。") from exc
     return stored.url
+
+
+class _ImageGenerationExecutor:
+    CoverGenerationError = CoverGenerationError
+
+    @staticmethod
+    def generate_cover_asset(db, prompt, filename_hint, framing_hint="Wide landscape banner image, cinematic, high quality"):
+        return _generate_cover_asset(db, prompt, filename_hint, framing_hint=framing_hint)
+
+    @staticmethod
+    def extract_post_cover_prompt_from_artifact(post_id, db):
+        return _extract_post_cover_prompt_from_artifact(post_id, db)
+
+    @staticmethod
+    def trigger_frontend_refresh_safe(**kwargs):
+        return trigger_frontend_refresh_safe(**kwargs)
+
+
+_IMAGE_GENERATION_EXECUTOR = _ImageGenerationExecutor()
+
+
+def _enqueue_image_generation_job(
+    db: Session,
+    background_tasks: BackgroundTasks,
+    *,
+    job_type: str,
+    target_id: int | None,
+    body,
+) -> dict:
+    image_generation_jobs.mark_stale_running_failed(db)
+    job = image_generation_jobs.create_job(db, job_type=job_type, target_id=target_id, body=body)
+    background_tasks.add_task(image_generation_jobs.run_job, job.id, executor=_IMAGE_GENERATION_EXECUTOR)
+    return image_generation_jobs.job_to_dict(job)
 
 
 def _post_to_dict(post: Post) -> dict:
@@ -1835,9 +1868,10 @@ def get_ai_runtime_plan(
     return ai_provider_manager.runtime_plan_public(db)
 
 
-@router.post("/settings/generate-hero", response_model=SiteHeroGenerateResponse)
+@router.post("/settings/generate-hero", response_model=AdminImageGenerationJobOut)
 def admin_generate_site_hero(
     body: SiteHeroGenerateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
@@ -1845,359 +1879,86 @@ def admin_generate_site_hero(
     if settings is None:
         settings = SiteSettings(id=1)
         db.add(settings)
-        db.flush()
-
-    preset = "site_hero"
-    prompt = cover_art_service.sanitize_cover_prompt(body.prompt or "")
-
-    try:
-        image_url = (body.image_url or "").strip()
-        if image_url:
-            settings.hero_image = image_url
-        else:
-            if (settings.hero_image or "").strip() and not body.overwrite:
-                return _hero_response(
-                    settings.hero_image,
-                    False,
-                    prompt,
-                    "当前 Hero 海报已经存在，如需覆盖请使用重生成。",
-                    "cover_exists",
-                    preset,
-                )
-
-            prompt = cover_art_service.build_site_hero_prompt(settings, manual_prompt=prompt)
-            if not prompt:
-                return _hero_response(
-                    settings.hero_image,
-                    False,
-                    prompt or None,
-                    "当前站点缺少可用提示词，暂时无法生成 Hero 海报。",
-                    "prompt_unavailable",
-                    preset,
-                )
-
-            settings.hero_image = _generate_cover_asset(
-                db,
-                prompt,
-                "site-hero-poster.png",
-                framing_hint=cover_art_service.preset_framing_hint(preset),
-            )
-
-        if not (settings.hero_image or "").strip():
-            return _hero_response(
-                settings.hero_image,
-                False,
-                prompt,
-                "Hero 海报生成失败，未得到可用图片。",
-                "generation_failed",
-                preset,
-            )
-
         db.commit()
-        db.refresh(settings)
-        trigger_frontend_refresh_safe(event="site_hero.updated")
-        return _hero_response(settings.hero_image, True, prompt or None, preset=preset)
-    except CoverGenerationError as exc:
-        db.rollback()
-        error_code = "missing_env" if exc.code == "missing_backend_env" else exc.code
-        return _hero_response(
-            settings.hero_image,
-            False,
-            prompt or None,
-            exc.message,
-            error_code,
-            preset,
-        )
-    except Exception as exc:
-        db.rollback()
-        return _hero_response(
-            settings.hero_image,
-            False,
-            prompt or None,
-            f"Hero 海报生成出现未预期错误：{exc}",
-            "unexpected_error",
-            preset,
-        )
+    return _enqueue_image_generation_job(
+        db,
+        background_tasks,
+        job_type=image_generation_jobs.JOB_SITE_HERO,
+        target_id=settings.id,
+        body=body,
+    )
 
 
-@router.post("/series/{series_id}/generate-cover", response_model=CoverGenerateResponse)
+@router.post("/series/{series_id}/generate-cover", response_model=AdminImageGenerationJobOut)
 def admin_generate_series_cover(
     series_id: int,
     body: CoverGenerateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
     series = db.execute(select(Series).where(Series.id == series_id)).scalar_one_or_none()
     if series is None:
         raise HTTPException(status_code=404, detail="Series not found")
-
-    preset = "series_cover"
-    prompt = cover_art_service.sanitize_cover_prompt(body.prompt or "")
-    try:
-        image_url = (body.image_url or "").strip()
-        if image_url:
-            series.cover_image = image_url
-        else:
-            if (series.cover_image or "").strip() and not body.overwrite:
-                return _cover_response(
-                    series.id,
-                    series.cover_image or "",
-                    False,
-                    "当前系列已经有封面，如需覆盖请使用重生成。",
-                    "cover_exists",
-                    prompt or None,
-                    preset,
-                )
-            recent_post = db.execute(
-                select(Post)
-                .where(Post.series_slug == series.slug)
-                .order_by(Post.created_at.desc())
-                .limit(1)
-            ).scalar_one_or_none()
-            prompt = cover_art_service.build_series_cover_prompt(
-                series,
-                recent_post,
-                manual_prompt=prompt,
-            )
-            if not prompt:
-                return _cover_response(
-                    series.id,
-                    series.cover_image or "",
-                    False,
-                    "当前系列缺少可用提示词，暂时无法生成封面。",
-                    "prompt_unavailable",
-                    prompt or None,
-                    preset,
-                )
-            series.cover_image = _generate_cover_asset(
-                db,
-                prompt,
-                f"series-{series.slug}.png",
-                framing_hint=cover_art_service.preset_framing_hint(preset),
-            )
-
-        if not (series.cover_image or "").strip():
-            return _cover_response(
-                series.id,
-                series.cover_image or "",
-                False,
-                "封面生成失败，未得到可用图片。",
-                "generation_failed",
-                prompt or None,
-                preset,
-            )
-        series.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(series)
-        return _cover_response(series.id, series.cover_image or "", True, prompt=prompt or None, preset=preset)
-    except CoverGenerationError as exc:
-        db.rollback()
-        return _cover_response(
-            series.id,
-            series.cover_image or "",
-            False,
-            exc.message,
-            exc.code,
-            prompt or None,
-            preset,
-        )
-    except Exception as exc:
-        db.rollback()
-        return _cover_response(
-            series.id,
-            series.cover_image or "",
-            False,
-            f"封面生成出现未预期错误：{exc}",
-            "unexpected_error",
-            prompt or None,
-            preset,
-        )
+    return _enqueue_image_generation_job(
+        db,
+        background_tasks,
+        job_type=image_generation_jobs.JOB_SERIES_COVER,
+        target_id=series.id,
+        body=body,
+    )
 
 
-@router.post("/topic-profiles/{profile_id}/generate-cover", response_model=CoverGenerateResponse)
+@router.post("/topic-profiles/{profile_id}/generate-cover", response_model=AdminImageGenerationJobOut)
 def admin_generate_topic_profile_cover(
     profile_id: int,
     body: CoverGenerateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
     profile = db.execute(select(TopicProfile).where(TopicProfile.id == profile_id)).scalar_one_or_none()
     if profile is None:
         raise HTTPException(status_code=404, detail="Topic profile not found")
-
-    preset = "topic_cover"
-    prompt = cover_art_service.sanitize_cover_prompt(body.prompt or "")
-    try:
-        image_url = (body.image_url or "").strip()
-        if image_url:
-            profile.cover_image = image_url
-        else:
-            if (profile.cover_image or "").strip() and not body.overwrite:
-                return _cover_response(
-                    profile.id,
-                    profile.cover_image or "",
-                    False,
-                    "当前主题已经有封面，如需覆盖请使用重生成。",
-                    "cover_exists",
-                    prompt or None,
-                    preset,
-                )
-            recent_post = db.execute(
-                select(Post)
-                .where(Post.topic_key == profile.topic_key)
-                .order_by(Post.created_at.desc())
-                .limit(1)
-            ).scalar_one_or_none()
-            prompt = cover_art_service.build_topic_cover_prompt(
-                profile,
-                recent_post,
-                manual_prompt=prompt,
-            )
-            if not prompt:
-                return _cover_response(
-                    profile.id,
-                    profile.cover_image or "",
-                    False,
-                    "当前主题缺少可用提示词，暂时无法生成封面。",
-                    "prompt_unavailable",
-                    prompt or None,
-                    preset,
-                )
-            profile.cover_image = _generate_cover_asset(
-                db,
-                prompt,
-                f"topic-{profile.topic_key}.png",
-                framing_hint=cover_art_service.preset_framing_hint(preset),
-            )
-
-        if not (profile.cover_image or "").strip():
-            return _cover_response(
-                profile.id,
-                profile.cover_image or "",
-                False,
-                "封面生成失败，未得到可用图片。",
-                "generation_failed",
-                prompt or None,
-                preset,
-            )
-        profile.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(profile)
-        return _cover_response(profile.id, profile.cover_image or "", True, prompt=prompt or None, preset=preset)
-    except CoverGenerationError as exc:
-        db.rollback()
-        return _cover_response(
-            profile.id,
-            profile.cover_image or "",
-            False,
-            exc.message,
-            exc.code,
-            prompt or None,
-            preset,
-        )
-    except Exception as exc:
-        db.rollback()
-        return _cover_response(
-            profile.id,
-            profile.cover_image or "",
-            False,
-            f"封面生成出现未预期错误：{exc}",
-            "unexpected_error",
-            prompt or None,
-            preset,
-        )
+    return _enqueue_image_generation_job(
+        db,
+        background_tasks,
+        job_type=image_generation_jobs.JOB_TOPIC_COVER,
+        target_id=profile.id,
+        body=body,
+    )
 
 
-@router.post("/posts/{post_id}/generate-cover", response_model=CoverGenerateResponse)
+@router.post("/posts/{post_id}/generate-cover", response_model=AdminImageGenerationJobOut)
 def admin_generate_post_cover(
     post_id: int,
     body: CoverGenerateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
     post = db.execute(select(Post).where(Post.id == post_id)).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
+    return _enqueue_image_generation_job(
+        db,
+        background_tasks,
+        job_type=image_generation_jobs.JOB_POST_COVER,
+        target_id=post.id,
+        body=body,
+    )
 
-    preset = "post_cover"
-    prompt = cover_art_service.sanitize_cover_prompt(body.prompt or "")
-    try:
-        image_url = (body.image_url or "").strip()
-        if image_url:
-            post.cover_image = image_url
-        else:
-            if (post.cover_image or "").strip() and not body.overwrite:
-                return _cover_response(
-                    post.id,
-                    post.cover_image or "",
-                    False,
-                    "当前文章已经有封面，如需覆盖请使用重生成。",
-                    "cover_exists",
-                    prompt or None,
-                    preset,
-                )
 
-            artifact_prompt = _extract_post_cover_prompt_from_artifact(post.id, db)
-            prompt = cover_art_service.build_post_cover_prompt(
-                post,
-                artifact_prompt=artifact_prompt,
-                manual_prompt=prompt,
-            )
-            if not prompt:
-                return _cover_response(
-                    post.id,
-                    post.cover_image or "",
-                    False,
-                    "当前文章缺少可用提示词，暂时无法生成封面。",
-                    "prompt_unavailable",
-                    prompt or None,
-                    preset,
-                )
-
-            post.cover_image = _generate_cover_asset(
-                db,
-                prompt,
-                f"post-{post.slug or post.id}.png",
-                framing_hint=cover_art_service.preset_framing_hint(preset),
-            )
-
-        if not (post.cover_image or "").strip():
-            return _cover_response(
-                post.id,
-                post.cover_image or "",
-                False,
-                "封面生成失败，未得到可用图片。",
-                "generation_failed",
-                prompt or None,
-                preset,
-            )
-
-        post.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(post)
-        return _cover_response(post.id, post.cover_image or "", True, prompt=prompt or None, preset=preset)
-    except CoverGenerationError as exc:
-        db.rollback()
-        return _cover_response(
-            post.id,
-            post.cover_image or "",
-            False,
-            exc.message,
-            exc.code,
-            prompt or None,
-            preset,
-        )
-    except Exception as exc:
-        db.rollback()
-        return _cover_response(
-            post.id,
-            post.cover_image or "",
-            False,
-            f"封面生成出现未预期错误：{exc}",
-            "unexpected_error",
-            prompt or None,
-            preset,
-        )
+@router.get("/image-generation-jobs/{job_id}", response_model=AdminImageGenerationJobOut)
+def get_image_generation_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    job = db.get(AdminImageGenerationJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Image generation job not found")
+    return image_generation_jobs.job_to_dict(job)
 
 
 @router.get("/search-insights", response_model=SearchInsightsOut)

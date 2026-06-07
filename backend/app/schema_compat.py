@@ -176,6 +176,26 @@ AI_MODEL_INSTANCE_COLUMNS = {
     "updated_at": "DATETIME",
 }
 
+ADMIN_IMAGE_GENERATION_JOB_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "job_type": "VARCHAR(40) NOT NULL",
+    "target_id": "INTEGER",
+    "status": "VARCHAR(20) NOT NULL DEFAULT 'queued'",
+    "request_json": "TEXT NOT NULL DEFAULT '{}'",
+    "prompt": "TEXT NOT NULL DEFAULT ''",
+    "preset": "VARCHAR(80) NOT NULL DEFAULT ''",
+    "art_direction_version": "VARCHAR(80) NOT NULL DEFAULT ''",
+    "result_image_url": "VARCHAR(500) NOT NULL DEFAULT ''",
+    "error_code": "VARCHAR(80) NOT NULL DEFAULT ''",
+    "error": "TEXT NOT NULL DEFAULT ''",
+    "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+    "locked_at": "DATETIME",
+    "started_at": "DATETIME",
+    "finished_at": "DATETIME",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+}
+
 
 EMAIL_SUBSCRIPTION_COLUMNS = {
     "id": "INTEGER PRIMARY KEY",
@@ -355,6 +375,20 @@ def ensure_ai_provider_schema_compat(engine) -> None:
     _ensure_postgres_id_default(engine, "ai_model_instances")
 
 
+def ensure_admin_image_generation_schema_compat(engine) -> None:
+    _create_table_if_missing(
+        engine,
+        "admin_image_generation_jobs",
+        ADMIN_IMAGE_GENERATION_JOB_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_admin_image_generation_jobs_status ON admin_image_generation_jobs (status)",
+            "CREATE INDEX IF NOT EXISTS ix_admin_image_generation_jobs_type_target_created ON admin_image_generation_jobs (job_type, target_id, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_admin_image_generation_jobs_created_at ON admin_image_generation_jobs (created_at)",
+        ],
+    )
+    _ensure_postgres_id_default(engine, "admin_image_generation_jobs")
+
+
 def ensure_schema_compat(engine) -> None:
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
@@ -492,6 +526,7 @@ def ensure_schema_compat(engine) -> None:
     )
 
     ensure_ai_provider_schema_compat(engine)
+    ensure_admin_image_generation_schema_compat(engine)
 
     _create_table_if_missing(
         engine,

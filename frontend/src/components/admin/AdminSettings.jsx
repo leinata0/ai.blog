@@ -14,6 +14,7 @@ import {
   fetchAdminCoverGenerationStatus,
   fetchAdminSettings,
   generateAdminHeroImage,
+  waitForAdminImageGenerationJob,
   testAdminAiModelInstance,
   updateAdminAiModelInstance,
   updateAdminAiModelOrder,
@@ -470,7 +471,9 @@ export default function AdminSettings() {
     setHeroGenerating(true)
     setMsg('')
     try {
-      const result = await generateAdminHeroImage({ overwrite: true })
+      const response = await generateAdminHeroImage({ overwrite: true })
+      setMsg('Hero 海报生成任务已提交，正在后台生成...')
+      const result = await waitForAdminImageGenerationJob(response)
       setHeroDiagnostics({
         prompt: result?.prompt || '',
         preset: result?.preset || '',

@@ -6,6 +6,7 @@ import {
   fetchAdminCoverGenerationStatus,
   fetchAdminSeries,
   generateAdminSeriesCover,
+  waitForAdminImageGenerationJob,
   updateAdminSeries,
 } from '../../api/admin'
 import { proxyImageUrl } from '../../utils/proxyImage'
@@ -242,7 +243,9 @@ export default function AdminSeriesManager() {
     setNotice('')
 
     try {
-      const result = await generateAdminSeriesCover(item.id, { overwrite })
+      const response = await generateAdminSeriesCover(item.id, { overwrite })
+      setNotice('系列封面生成任务已提交，正在后台生成...')
+      const result = await waitForAdminImageGenerationJob(response)
       await Promise.all([loadSeries({ forceRefresh: true }), loadCoverStatus({ forceRefresh: true })])
 
       if (editing?.id === item.id) {

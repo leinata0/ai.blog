@@ -232,6 +232,36 @@ async function upsertPublishingMetadata(token, payload) {
   return resp.json()
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function fetchImageGenerationJob(token, jobId) {
+  const resp = await fetch(`${BLOG_API_BASE}/api/admin/image-generation-jobs/${jobId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!resp.ok) {
+    throw new Error(`Fetch image generation job failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
+  }
+  return resp.json()
+}
+
+async function waitForImageGenerationJob(token, payload, { intervalMs = 2500, timeoutMs = 180000 } = {}) {
+  const jobId = payload?.job_id || payload?.id
+  const terminal = new Set(['succeeded', 'failed', 'canceled'])
+  if (!jobId || terminal.has(payload?.status)) return payload
+
+  let latest = payload
+  const startedAt = Date.now()
+  while (!latest || !terminal.has(latest.status)) {
+    if (Date.now() - startedAt > timeoutMs) {
+      return latest || { job_id: jobId, status: 'running', error_code: 'poll_timeout', error: 'Image generation is still running.' }
+    }
+    await sleep(intervalMs)
+    latest = await fetchImageGenerationJob(token, jobId)
+  }
+  return latest
+}
+
 async function generatePostCover(token, postId, overwrite = false) {
   const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${postId}/generate-cover`, {
     method: 'POST',
@@ -245,7 +275,7 @@ async function generatePostCover(token, postId, overwrite = false) {
   if (!resp.ok) {
     throw new Error(`Generate post cover failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
-  return resp.json()
+  return waitForImageGenerationJob(token, await resp.json())
 }
 
 async function updatePostContent(token, postId, contentMd) {
