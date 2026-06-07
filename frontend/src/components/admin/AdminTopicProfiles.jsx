@@ -6,6 +6,7 @@ import {
   fetchAdminCoverGenerationStatus,
   fetchAdminTopicProfiles,
   generateAdminTopicProfileCover,
+  waitForAdminImageGenerationJob,
   updateAdminTopicProfile,
 } from '../../api/admin'
 import { proxyImageUrl } from '../../utils/proxyImage'
@@ -270,7 +271,9 @@ export default function AdminTopicProfiles() {
     setNotice('')
 
     try {
-      const result = await generateAdminTopicProfileCover(item.id, { overwrite })
+      const response = await generateAdminTopicProfileCover(item.id, { overwrite })
+      setNotice('主题封面生成任务已提交，正在后台生成...')
+      const result = await waitForAdminImageGenerationJob(response)
       await Promise.all([loadTopics({ forceRefresh: true }), loadCoverStatus({ forceRefresh: true })])
 
       if (editing?.id === item.id) {

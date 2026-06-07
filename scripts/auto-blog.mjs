@@ -71,6 +71,7 @@ async function triggerFrontendRefresh(payload = {}) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
   })
   if (!response.ok) {
     throw new Error(`frontend refresh hook failed with ${response.status}`)
@@ -1284,6 +1285,7 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120000),
       })
       errText = await response.clone().text()
       if (response.ok) break
@@ -2058,6 +2060,7 @@ async function getAdminToken() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    signal: AbortSignal.timeout(15000),
   })
   if (!resp.ok) throw new Error(`Admin login failed: ${resp.status}`)
   return (await resp.json()).access_token
@@ -2065,7 +2068,9 @@ async function getAdminToken() {
 
 async function checkSlugExists(slug) {
   try {
-    return (await fetch(`${BLOG_API_BASE}/api/posts/${slug}`)).ok
+    return (await fetch(`${BLOG_API_BASE}/api/posts/${slug}`, {
+      signal: AbortSignal.timeout(10000),
+    })).ok
   } catch {
     return false
   }
@@ -2227,6 +2232,7 @@ async function publishPost(token, payload, coverImage = '') {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(30000),
     })
     if (!updateResp.ok) {
       throw new Error(`Publish update failed: ${updateResp.status} ${(await updateResp.text()).slice(0, 300)}`)
@@ -2241,6 +2247,7 @@ async function publishPost(token, payload, coverImage = '') {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(30000),
   })
 
   if (resp.status === 409) {
@@ -2253,6 +2260,7 @@ async function publishPost(token, payload, coverImage = '') {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30000),
       })
       if (!retryResp.ok) {
         throw new Error(`Publish conflict-retry failed: ${retryResp.status} ${(await retryResp.text()).slice(0, 300)}`)

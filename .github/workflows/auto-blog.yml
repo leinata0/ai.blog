@@ -26,6 +26,13 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-blog-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   generate:
     runs-on: ubuntu-latest
@@ -42,10 +49,13 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
 
       # 安装脚本依赖
       - name: 安装脚本依赖
-        run: cd scripts && npm install
+        run: npm ci
+        working-directory: scripts
 
       # 检查自动发文所需密钥
       - name: 检查必要密钥

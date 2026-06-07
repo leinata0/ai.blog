@@ -1,4 +1,10 @@
 .worktrees/
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+aidiag*.body
+aidiag*.headers
+coverdiag*.body
+coverdiag*.headers
 backend/.pytest_cache/
 backend/__pycache__/
 backend/**/*.pyc

@@ -612,6 +612,30 @@ class CoverGenerateResponse(BaseModel):
     art_direction_version: str | None = None
     error: str = ""
     error_code: str = ""
+    job_id: int | None = None
+    status: str | None = None
+    result_image_url: str = ""
+
+
+class AdminImageGenerationJobOut(BaseModel):
+    id: int
+    job_id: int
+    job_type: str
+    target_id: int | None = None
+    status: str
+    generated: bool = False
+    cover_image: str = ""
+    hero_image: str | None = None
+    result_image_url: str = ""
+    prompt: str | None = None
+    preset: str | None = None
+    art_direction_version: str | None = None
+    error: str = ""
+    error_code: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 class AiProviderSourceUpdateRequest(BaseModel):
@@ -1013,6 +1037,9 @@ class SiteHeroGenerateResponse(BaseModel):
     art_direction_version: str | None = None
     error_code: str = ""
     error: str = ""
+    job_id: int | None = None
+    status: str | None = None
+    result_image_url: str = ""
 
 
 class SubscriptionStatusOut(BaseModel):

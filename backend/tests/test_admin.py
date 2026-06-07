@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 def _login(client):
@@ -8,6 +10,22 @@ def _login(client):
 
 def _auth(token):
     return {"Authorization": f"Bearer {token}"}
+
+
+def _resolve_image_job(client, token, payload):
+    job_id = payload.get("job_id") or payload.get("id")
+    terminal = {"succeeded", "failed", "canceled"}
+    if not job_id or payload.get("status") in terminal:
+        return payload
+    latest = payload
+    for _ in range(20):
+        resp = client.get(f"/api/admin/image-generation-jobs/{job_id}", headers=_auth(token))
+        assert resp.status_code == 200
+        latest = resp.json()
+        if latest.get("status") in terminal:
+            return latest
+        time.sleep(0.05)
+    return latest
 
 
 def test_login_success(client):
@@ -694,8 +712,9 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
         headers=_auth(token),
     )
     assert topic_cover_resp.status_code == 200
-    assert topic_cover_resp.json()["generated"] is True
-    assert topic_cover_resp.json()["cover_image"] == "https://img.example.com/topic-generate.png"
+    topic_cover_payload = _resolve_image_job(client, token, topic_cover_resp.json())
+    assert topic_cover_payload["generated"] is True
+    assert topic_cover_payload["cover_image"] == "https://img.example.com/topic-generate.png"
 
     topic_cover_noop = client.post(
         f"/api/admin/topic-profiles/{profile_id}/generate-cover",
@@ -703,8 +722,9 @@ def test_admin_topic_profiles_topic_health_and_search_insights(client):
         headers=_auth(token),
     )
     assert topic_cover_noop.status_code == 200
-    assert topic_cover_noop.json()["generated"] is False
-    assert topic_cover_noop.json()["error_code"] == "cover_exists"
+    topic_cover_noop_payload = _resolve_image_job(client, token, topic_cover_noop.json())
+    assert topic_cover_noop_payload["generated"] is False
+    assert topic_cover_noop_payload["error_code"] == "cover_exists"
 
     create_post = client.post(
         "/api/admin/posts",
@@ -786,8 +806,9 @@ def test_admin_series_generate_cover(client):
         headers=_auth(token),
     )
     assert generated.status_code == 200
-    assert generated.json()["generated"] is True
-    assert generated.json()["cover_image"] == "https://img.example.com/series-cover.png"
+    generated_payload = _resolve_image_job(client, token, generated.json())
+    assert generated_payload["generated"] is True
+    assert generated_payload["cover_image"] == "https://img.example.com/series-cover.png"
 
     no_image = client.post(
         f"/api/admin/series/{series_id}/generate-cover",
@@ -795,8 +816,9 @@ def test_admin_series_generate_cover(client):
         headers=_auth(token),
     )
     assert no_image.status_code == 200
-    assert no_image.json()["generated"] is False
-    assert no_image.json()["error_code"] == "cover_exists"
+    no_image_payload = _resolve_image_job(client, token, no_image.json())
+    assert no_image_payload["generated"] is False
+    assert no_image_payload["error_code"] == "cover_exists"
 
 
 def test_admin_post_generate_cover_uses_artifact_prompt(client, monkeypatch):
@@ -853,7 +875,7 @@ def test_admin_post_generate_cover_uses_artifact_prompt(client, monkeypatch):
         headers=_auth(token),
     )
     assert response.status_code == 200
-    payload = response.json()
+    payload = _resolve_image_job(client, token, response.json())
     assert payload["generated"] is True
     assert payload["cover_image"] == "https://img.example.com/post-auto.png"
     assert payload["preset"] == "post_cover"
@@ -886,7 +908,7 @@ def test_admin_post_generate_cover_reports_cover_exists(client):
         headers=_auth(token),
     )
     assert response.status_code == 200
-    payload = response.json()
+    payload = _resolve_image_job(client, token, response.json())
     assert payload["generated"] is False
     assert payload["error_code"] == "cover_exists"
 
@@ -1133,7 +1155,7 @@ def test_admin_generate_site_hero_with_grok(client, monkeypatch):
         headers=_auth(token),
     )
     assert response.status_code == 200
-    payload = response.json()
+    payload = _resolve_image_job(client, token, response.json())
     assert payload["generated"] is True
     assert payload["hero_image"] == "https://img.example.com/site-hero.png"
     assert payload["prompt"]
@@ -1158,7 +1180,7 @@ def test_admin_generate_site_hero_reports_missing_env(client, monkeypatch):
         headers=_auth(token),
     )
     assert response.status_code == 200
-    payload = response.json()
+    payload = _resolve_image_job(client, token, response.json())
     assert payload["generated"] is False
     assert payload["error_code"] == "missing_provider_model"
     assert "Provider" in payload["error"]
@@ -1189,7 +1211,7 @@ def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeyp
         headers=_auth(token),
     )
     assert response.status_code == 200
-    payload = response.json()
+    payload = _resolve_image_job(client, token, response.json())
     assert payload["generated"] is False
     assert payload["error_code"] == "missing_provider_model"
     assert "Provider" in payload["error"]
@@ -1241,8 +1263,9 @@ def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):
         headers=_auth(token),
     )
     assert response.status_code == 200
-    assert response.json()["generated"] is True
-    assert response.json()["cover_image"] == "https://img.example.com/topic-auto.png"
+    payload = _resolve_image_job(client, token, response.json())
+    assert payload["generated"] is True
+    assert payload["cover_image"] == "https://img.example.com/topic-auto.png"
     assert "智能体记忆" in captured["prompt"]
     assert captured["filename_hint"] == "topic-agent-memory.png"
     assert "topic cover image" in captured["framing_hint"]
@@ -1295,8 +1318,9 @@ def test_admin_series_generate_cover_with_grok(client, monkeypatch):
         headers=_auth(token),
     )
     assert response.status_code == 200
-    assert response.json()["generated"] is True
-    assert response.json()["cover_image"] == "https://img.example.com/series-auto.png"
+    payload = _resolve_image_job(client, token, response.json())
+    assert payload["generated"] is True
+    assert payload["cover_image"] == "https://img.example.com/series-auto.png"
     assert "智能体运营" in captured["prompt"]
     assert captured["filename_hint"] == "series-ai-agent-ops.png"
     assert "series cover image" in captured["framing_hint"]

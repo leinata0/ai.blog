@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useLocation } from 'react-router-dom'
 import { ArrowLeft, Heart, Pin } from 'lucide-react'
 import { motion, useScroll, useSpring } from 'framer-motion'
 
@@ -238,6 +238,7 @@ function TopicTrackingSection({ post }) {
 export default function PostDetailPage({ slug: overrideSlug }) {
   const { settings } = useSite()
   const params = useParams()
+  const location = useLocation()
   const slug = overrideSlug ?? params.slug
   const [post, setPost] = useState(null)
   const [error, setError] = useState('')
@@ -255,6 +256,12 @@ export default function PostDetailPage({ slug: overrideSlug }) {
     damping: 30,
     mass: 0.2,
   })
+
+  useEffect(() => {
+    if (location.hash) return
+    if (import.meta.env.MODE === 'test') return
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [slug, location.hash])
 
   useEffect(() => {
     const controller = new AbortController()

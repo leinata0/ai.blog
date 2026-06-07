@@ -8,6 +8,7 @@ import {
   adminUpdatePost,
   adminUploadImage,
   generateAdminPostCover,
+  waitForAdminImageGenerationJob,
 } from '../../api/admin'
 
 const emptyForm = {
@@ -167,11 +168,13 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     setError('')
     try {
       const response = await generateAdminPostCover(editingId, { overwrite })
-      if (response.generated && response.cover_image) {
-        setForm((prev) => ({ ...prev, cover_image: response.cover_image }))
+      setCoverMessage('封面生成任务已提交，正在后台生成...')
+      const result = await waitForAdminImageGenerationJob(response)
+      if (result.generated && (result.cover_image || result.result_image_url)) {
+        setForm((prev) => ({ ...prev, cover_image: result.cover_image || result.result_image_url }))
         setCoverMessage(overwrite ? '封面已重生成。' : '封面已生成。')
       } else {
-        setCoverMessage(response.error || '封面暂时未生成。')
+        setCoverMessage(result.error || '封面暂时未生成。')
       }
     } catch (err) {
       setCoverMessage(err.message || '封面生成失败')

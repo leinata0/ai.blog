@@ -1,5 +1,5 @@
 import { getToken } from './auth'
-import { apiDelete, apiGet, apiPost, apiPut, buildApiUrl } from './client'
+import { apiDelete, apiGet, apiPost, apiPut, buildApiUrl, clearApiGetCache } from './client'
 
 const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 const ADMIN_LIST_CACHE_OPTIONS = Object.freeze({
@@ -16,6 +16,10 @@ const ADMIN_STATUS_CACHE_OPTIONS = Object.freeze({
   staleTtl: 30000,
   staleWhileRevalidate: true,
 })
+const ADMIN_IMAGE_GENERATION_SUBMIT_TIMEOUT_MS = 60000
+const ADMIN_IMAGE_GENERATION_POLL_REQUEST_TIMEOUT_MS = 15000
+const ADMIN_IMAGE_GENERATION_STILL_RUNNING_MESSAGE = '生成任务仍在后台执行，请稍后刷新查看结果。'
+const ADMIN_IMAGE_GENERATION_SUBMIT_TIMEOUT_MESSAGE = '生成请求已发送，但服务器响应较慢；任务可能仍在后台执行，请稍后刷新页面查看结果。'
 
 export async function adminLogin(username, password) {
   return apiPost('/api/admin/login', { username, password })
@@ -33,11 +37,91 @@ export const adminDeletePost = (id) => apiDelete(`/api/admin/posts/${id}`, {
   auth: true,
   invalidatePaths: [`/api/admin/posts/${id}`, '/api/admin/posts', '/api/posts', '/api/discover', '/api/home/modules', '/api/stats', '/api/search'],
 })
+export const fetchAdminImageGenerationJob = (id, requestOptions = {}) =>
+  apiGet(`/api/admin/image-generation-jobs/${id}`, { ...requestOptions, auth: true, cache: false, forceRefresh: true, dedupe: false })
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function isAdminImageGenerationSubmitTimeout(error) {
+  return error?.name === 'AbortError' && /请求超时/.test(String(error?.message || ''))
+}
+
+function isTransientImageGenerationPollError(error) {
+  const message = String(error?.message || '')
+  return error?.name === 'AbortError'
+    || /请求超时|请求已取消|无法连接后端 API|network|failed to fetch/i.test(message)
+}
+
+function imageGenerationSubmitPossiblyRunning() {
+  return {
+    generated: false,
+    status: 'running',
+    error: ADMIN_IMAGE_GENERATION_SUBMIT_TIMEOUT_MESSAGE,
+    error_code: 'submit_timeout_no_job_id',
+    maybe_running: true,
+  }
+}
+
+function imageGenerationStillRunning(jobId, latest, errorCode = 'poll_timeout') {
+  return {
+    ...(latest || {}),
+    job_id: latest?.job_id || latest?.id || jobId,
+    status: latest?.status === 'queued' ? 'queued' : 'running',
+    error: ADMIN_IMAGE_GENERATION_STILL_RUNNING_MESSAGE,
+    error_code: errorCode,
+  }
+}
+
+async function submitAdminImageGeneration(path, data = {}) {
+  try {
+    return await apiPost(path, data, { auth: true, timeout: ADMIN_IMAGE_GENERATION_SUBMIT_TIMEOUT_MS })
+  } catch (error) {
+    if (isAdminImageGenerationSubmitTimeout(error)) {
+      return imageGenerationSubmitPossiblyRunning()
+    }
+    throw error
+  }
+}
+
+function invalidateImageGenerationCaches(job) {
+  const common = ['/api/home/modules', '/api/search']
+  const byType = {
+    post_cover: [`/api/admin/posts/${job.target_id}`, '/api/admin/posts', '/api/posts', '/api/discover', ...common],
+    site_hero: ['/api/settings', '/api/stats', '/api/public/home-bootstrap', '/api/home/modules'],
+    series_cover: [`/api/admin/series/${job.target_id}`, '/api/admin/series', '/api/series', ...common],
+    topic_cover: [`/api/admin/topic-profiles/${job.target_id}`, '/api/admin/topic-profiles', '/api/topics', ...common],
+  }
+  const paths = byType[job?.job_type] || []
+  paths.filter(Boolean).forEach((path) => clearApiGetCache(path))
+}
+
+export async function waitForAdminImageGenerationJob(jobOrId, { intervalMs = 2500, timeoutMs = 180000 } = {}) {
+  const jobId = typeof jobOrId === 'object' ? (jobOrId.job_id || jobOrId.id) : jobOrId
+  if (!jobId) return jobOrId
+  const terminal = new Set(['succeeded', 'failed', 'canceled'])
+  let latest = typeof jobOrId === 'object' ? jobOrId : null
+  if (latest && !latest.status && (latest.generated || latest.error_code)) return latest
+  const startedAt = Date.now()
+  while (!latest || !terminal.has(latest.status)) {
+    if (Date.now() - startedAt > timeoutMs) {
+      return imageGenerationStillRunning(jobId, latest)
+    }
+    await sleep(intervalMs)
+    try {
+      latest = await fetchAdminImageGenerationJob(jobId, { timeout: ADMIN_IMAGE_GENERATION_POLL_REQUEST_TIMEOUT_MS })
+    } catch (error) {
+      if (!isTransientImageGenerationPollError(error)) throw error
+      latest = imageGenerationStillRunning(jobId, latest, 'poll_transient_timeout')
+    }
+  }
+  if (latest?.status === 'succeeded') {
+    invalidateImageGenerationCaches(latest)
+  }
+  return latest
+}
+
 export const generateAdminPostCover = (id, data = {}) =>
-  apiPost(`/api/admin/posts/${id}/generate-cover`, data, {
-    auth: true,
-    invalidatePaths: [`/api/admin/posts/${id}`, '/api/admin/posts', '/api/posts', '/api/home/modules'],
-  })
+  submitAdminImageGeneration(`/api/admin/posts/${id}/generate-cover`, data)
 
 export async function adminUploadImage(file) {
   if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
@@ -55,10 +139,7 @@ export const updateSettings = (data) => apiPut('/api/settings', data, {
   invalidatePaths: ['/api/settings', '/api/stats', '/api/home/modules', '/api/public/home-bootstrap'],
 })
 export const generateAdminHeroImage = (data = {}) =>
-  apiPost('/api/admin/settings/generate-hero', data, {
-    auth: true,
-    invalidatePaths: ['/api/settings', '/api/home/modules', '/api/public/home-bootstrap'],
-  })
+  submitAdminImageGeneration('/api/admin/settings/generate-hero', data)
 
 export const fetchAdminPosts = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()
@@ -125,10 +206,7 @@ export const updateAdminSeries = (id, data) => apiPut(`/api/admin/series/${id}`,
   invalidatePaths: [`/api/admin/series/${id}`, '/api/admin/series', '/api/series', '/api/home/modules', '/api/search'],
 })
 export const generateAdminSeriesCover = (id, data = {}) =>
-  apiPost(`/api/admin/series/${id}/generate-cover`, data, {
-    auth: true,
-    invalidatePaths: [`/api/admin/series/${id}`, '/api/admin/series', '/api/series', '/api/home/modules'],
-  })
+  submitAdminImageGeneration(`/api/admin/series/${id}/generate-cover`, data)
 export const fetchAdminCoverGenerationStatus = (requestOptions = {}) =>
   apiGet('/api/admin/cover-generation-status', { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })
 
@@ -192,10 +270,7 @@ export const updateAdminTopicProfile = (id, data) =>
     invalidatePaths: [`/api/admin/topic-profiles/${id}`, '/api/admin/topic-profiles', '/api/topics', '/api/home/modules', '/api/search'],
   })
 export const generateAdminTopicProfileCover = (id, data = {}) =>
-  apiPost(`/api/admin/topic-profiles/${id}/generate-cover`, data, {
-    auth: true,
-    invalidatePaths: [`/api/admin/topic-profiles/${id}`, '/api/admin/topic-profiles', '/api/topics', '/api/home/modules'],
-  })
+  submitAdminImageGeneration(`/api/admin/topic-profiles/${id}/generate-cover`, data)
 
 export const fetchAdminTopicHealth = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()

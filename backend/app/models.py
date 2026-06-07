@@ -162,6 +162,27 @@ class AiModelInstance(Base):
     source = relationship("AiProviderSource", back_populates="model_instances")
 
 
+class AdminImageGenerationJob(Base):
+    __tablename__ = "admin_image_generation_jobs"
+    id = Column(Integer, primary_key=True, index=True)
+    job_type = Column(String(40), nullable=False, index=True)
+    target_id = Column(Integer, nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    request_json = Column(Text, nullable=False, default="{}")
+    prompt = Column(Text, nullable=False, default="")
+    preset = Column(String(80), nullable=False, default="")
+    art_direction_version = Column(String(80), nullable=False, default="")
+    result_image_url = Column(String(500), nullable=False, default="")
+    error_code = Column(String(80), nullable=False, default="")
+    error = Column(Text, nullable=False, default="")
+    attempt_count = Column(Integer, nullable=False, default=0)
+    locked_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class PostLike(Base):
     __tablename__ = "post_likes"
     id = Column(Integer, primary_key=True, index=True)
