@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => ({
       ],
       total: 1,
       page: 1,
-      page_size: 50,
+      page_size: 20,
     })
   ),
   fetchPublishingStatus: vi.fn(() =>
@@ -117,6 +117,7 @@ const mocks = vi.hoisted(() => ({
       ],
     })
   ),
+  generateAdminPostCover: vi.fn(() => Promise.resolve({ job_id: 123, status: 'queued' })),
   fetchSubscriptionHealth: vi.fn(() =>
     Promise.resolve({
       checked_at: '2026-04-16T01:00:00.000Z',
@@ -144,6 +145,7 @@ vi.mock('../src/api/admin', () => ({
   fetchAdminPosts: mocks.fetchAdminPosts,
   adminDeletePost: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
   adminUpdatePost: vi.fn(() => Promise.resolve({ detail: 'updated' })),
+  generateAdminPostCover: mocks.generateAdminPostCover,
   fetchSettings: vi.fn(() =>
     Promise.resolve({
       author_name: '站点作者',
@@ -275,6 +277,32 @@ vi.mock('../src/api/auth', async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.fetchAdminPosts.mockResolvedValue({
+    items: [
+      {
+        id: 1,
+        title: 'OpenAI released a new model',
+        slug: 'openai-new-model',
+        summary: 'summary',
+        cover_image: '',
+        content_type: 'daily_brief',
+        topic_key: 'openai-new-model',
+        published_mode: 'auto',
+        coverage_date: '2026-04-14',
+        view_count: 10,
+        is_published: true,
+        is_pinned: false,
+        like_count: 2,
+        created_at: '2026-04-14T10:00:00+00:00',
+        updated_at: '2026-04-14T10:00:00+00:00',
+        tags: [],
+      },
+    ],
+    total: 1,
+    page: 1,
+    page_size: 20,
+  })
+  mocks.generateAdminPostCover.mockResolvedValue({ job_id: 123, status: 'queued' })
   window.localStorage.clear()
 })
 
@@ -291,6 +319,176 @@ it('renders the posts tab by default', async () => {
 
   expect(await screen.findByText('OpenAI released a new model')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /文章管理/ })).toBeInTheDocument()
+  expect(mocks.fetchAdminPosts).toHaveBeenCalledWith({ page: 1, page_size: 20 }, expect.anything())
+})
+
+it('renders pagination metadata and loads the next page', async () => {
+  mocks.fetchAdminPosts
+    .mockResolvedValueOnce({
+      items: [
+        {
+          id: 1,
+          title: 'Newest post',
+          slug: 'newest-post',
+          summary: 'summary',
+          cover_image: '',
+          content_type: 'post',
+          published_mode: 'manual',
+          coverage_date: '2026-04-14',
+          is_published: true,
+          is_pinned: false,
+          tags: [],
+        },
+        {
+          id: 2,
+          title: 'Second post',
+          slug: 'second-post',
+          summary: 'summary',
+          cover_image: '',
+          content_type: 'post',
+          published_mode: 'manual',
+          coverage_date: '2026-04-13',
+          is_published: true,
+          is_pinned: false,
+          tags: [],
+        },
+      ],
+      total: 55,
+      page: 1,
+      page_size: 20,
+    })
+    .mockResolvedValueOnce({
+      items: [
+        {
+          id: 21,
+          title: 'Older post',
+          slug: 'older-post',
+          summary: 'summary',
+          cover_image: '',
+          content_type: 'post',
+          published_mode: 'manual',
+          coverage_date: '2026-03-01',
+          is_published: true,
+          is_pinned: false,
+          tags: [],
+        },
+      ],
+      total: 55,
+      page: 2,
+      page_size: 20,
+    })
+
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  expect(await screen.findByText('Newest post')).toBeInTheDocument()
+  expect(screen.getByText('显示 1–2 / 共 55 篇')).toBeInTheDocument()
+  expect(screen.getByText('第 1 / 3 页')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: '下一页' }))
+
+  expect(await screen.findByText('Older post')).toBeInTheDocument()
+  expect(mocks.fetchAdminPosts).toHaveBeenLastCalledWith({ page: 2, page_size: 20 }, {})
+})
+
+it('resets pagination to the first page when applying filters', async () => {
+  mocks.fetchAdminPosts
+    .mockResolvedValueOnce({
+      items: [{ id: 1, title: 'First page post', slug: 'first-page-post', cover_image: '', content_type: 'post', published_mode: 'manual', is_published: true, is_pinned: false, tags: [] }],
+      total: 40,
+      page: 1,
+      page_size: 20,
+    })
+    .mockResolvedValueOnce({
+      items: [{ id: 21, title: 'Second page post', slug: 'second-page-post', cover_image: '', content_type: 'post', published_mode: 'manual', is_published: true, is_pinned: false, tags: [] }],
+      total: 40,
+      page: 2,
+      page_size: 20,
+    })
+    .mockResolvedValueOnce({
+      items: [{ id: 3, title: 'Filtered post', slug: 'filtered-post', cover_image: '', content_type: 'post', published_mode: 'manual', is_published: true, is_pinned: false, tags: [] }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    })
+
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  await screen.findByText('First page post')
+  await userEvent.click(screen.getByRole('button', { name: '下一页' }))
+  await screen.findByText('Second page post')
+
+  await userEvent.type(screen.getByPlaceholderText('标题 / slug / topic_key'), 'filtered')
+  await userEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+
+  expect(await screen.findByText('Filtered post')).toBeInTheDocument()
+  expect(mocks.fetchAdminPosts).toHaveBeenLastCalledWith({ page: 1, page_size: 20, q: 'filtered' }, {})
+})
+
+it('bulk-generates covers only for selected current-page posts missing covers', async () => {
+  const adminApi = await import('../src/api/admin')
+  mocks.fetchAdminPosts.mockResolvedValue({
+    items: [
+      {
+        id: 1,
+        title: 'Post without cover',
+        slug: 'post-without-cover',
+        summary: 'summary',
+        cover_image: '',
+        content_type: 'post',
+        published_mode: 'manual',
+        coverage_date: '2026-04-14',
+        is_published: true,
+        is_pinned: false,
+        tags: [],
+      },
+      {
+        id: 2,
+        title: 'Post with cover',
+        slug: 'post-with-cover',
+        summary: 'summary',
+        cover_image: 'https://example.com/cover.jpg',
+        content_type: 'post',
+        published_mode: 'manual',
+        coverage_date: '2026-04-14',
+        is_published: true,
+        is_pinned: false,
+        tags: [],
+      },
+    ],
+    total: 2,
+    page: 1,
+    page_size: 20,
+  })
+
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  expect(await screen.findByText('Post without cover')).toBeInTheDocument()
+  expect(await screen.findByText('Post with cover')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByLabelText('选择当前页文章'))
+  expect(screen.getByText('已选择当前页：2')).toBeInTheDocument()
+  expect(screen.getByText(/批量操作仅影响当前页已勾选文章/)).toBeInTheDocument()
+  await userEvent.selectOptions(screen.getByDisplayValue('批量发布'), 'generate_missing_covers')
+  await userEvent.click(screen.getByRole('button', { name: '执行批量操作' }))
+
+  await waitFor(() => {
+    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(1, { mode: 'apply', overwrite: false })
+  })
+  expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(1)
+  expect(adminApi.generateAdminPostCover).not.toHaveBeenCalledWith(2, expect.anything())
+  expect(await screen.findByText('已提交 1 篇无封面文章的封面生成任务，跳过 1 篇已有封面的文章。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()
 })
 
 it('opens topic management, topic health, and search insights tabs', async () => {

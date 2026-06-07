@@ -41,6 +41,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
   const [uploadError, setUploadError] = useState('')
   const [coverGenerating, setCoverGenerating] = useState(false)
   const [coverMessage, setCoverMessage] = useState('')
+  const [coverCandidate, setCoverCandidate] = useState(null)
   const [autoSaveMsg, setAutoSaveMsg] = useState('')
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -73,6 +74,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     setError('')
     setUploadError('')
     setCoverMessage('')
+    setCoverCandidate(null)
     try {
       const detail = await fetchPostDetail(post.slug)
       setForm({
@@ -95,6 +97,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     setError('')
     setUploadError('')
     setCoverMessage('')
+    setCoverCandidate(null)
 
     const draft = localStorage.getItem('admin_draft')
     if (!draft) {
@@ -160,19 +163,57 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     }
   }
 
-  async function handleGenerateCover(overwrite = false) {
+  async function handleGenerateCover() {
+    if (!editingId) return
+
+    const originalCover = form.cover_image || ''
+    const hasExistingCover = Boolean(originalCover)
+    setCoverGenerating(true)
+    setCoverMessage('')
+    setCoverCandidate(null)
+    setError('')
+    try {
+      const response = await generateAdminPostCover(editingId, hasExistingCover
+        ? { mode: 'preview' }
+        : { mode: 'apply', overwrite: false })
+      setCoverMessage('封面生成任务已提交，正在后台生成...')
+      const result = await waitForAdminImageGenerationJob(response)
+      const generatedUrl = result.cover_image || result.result_image_url
+      if (result.generated && generatedUrl) {
+        if (hasExistingCover) {
+          setCoverCandidate({ original: originalCover, candidate: generatedUrl })
+          setCoverMessage('已生成候选封面，请选择保留当前封面或使用新封面。')
+        } else {
+          setForm((prev) => ({ ...prev, cover_image: generatedUrl }))
+          setCoverMessage('封面已生成。')
+        }
+      } else {
+        setCoverCandidate(null)
+        setCoverMessage(result.error || '封面暂时未生成。')
+      }
+    } catch (err) {
+      setCoverCandidate(null)
+      setCoverMessage(err.message || '封面生成失败')
+    } finally {
+      setCoverGenerating(false)
+    }
+  }
+
+  async function handleDangerousDirectOverwriteCover() {
     if (!editingId) return
 
     setCoverGenerating(true)
     setCoverMessage('')
+    setCoverCandidate(null)
     setError('')
     try {
-      const response = await generateAdminPostCover(editingId, { overwrite })
-      setCoverMessage('封面生成任务已提交，正在后台生成...')
+      const response = await generateAdminPostCover(editingId, { mode: 'apply', overwrite: true })
+      setCoverMessage('封面覆盖任务已提交，正在后台生成...')
       const result = await waitForAdminImageGenerationJob(response)
-      if (result.generated && (result.cover_image || result.result_image_url)) {
-        setForm((prev) => ({ ...prev, cover_image: result.cover_image || result.result_image_url }))
-        setCoverMessage(overwrite ? '封面已重生成。' : '封面已生成。')
+      const generatedUrl = result.cover_image || result.result_image_url
+      if (result.generated && generatedUrl) {
+        setForm((prev) => ({ ...prev, cover_image: generatedUrl }))
+        setCoverMessage('封面已直接覆盖。')
       } else {
         setCoverMessage(result.error || '封面暂时未生成。')
       }
@@ -181,6 +222,19 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     } finally {
       setCoverGenerating(false)
     }
+  }
+
+  function handleKeepCurrentCover() {
+    setForm((prev) => ({ ...prev, cover_image: coverCandidate?.original || prev.cover_image }))
+    setCoverCandidate(null)
+    setCoverMessage('已保留当前封面。')
+  }
+
+  function handleUseCandidateCover() {
+    if (!coverCandidate?.candidate) return
+    setForm((prev) => ({ ...prev, cover_image: coverCandidate.candidate }))
+    setCoverCandidate(null)
+    setCoverMessage('已使用新封面，请保存修改后生效。')
   }
 
   async function handleSave() {
@@ -204,6 +258,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
       } else {
         await adminCreatePost(data)
       }
+      setCoverCandidate(null)
       localStorage.removeItem('admin_draft')
       onSaved()
     } catch (err) {
@@ -304,7 +359,10 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
             <label className="text-sm font-medium text-[var(--text-secondary)]">封面图 URL</label>
             <input
               value={form.cover_image}
-              onChange={(event) => setForm({ ...form, cover_image: event.target.value })}
+              onChange={(event) => {
+                setCoverCandidate(null)
+                setForm({ ...form, cover_image: event.target.value })
+              }}
               className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
               style={inputStyle}
               placeholder="https://... 或留空"
@@ -313,7 +371,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => handleGenerateCover(Boolean(form.cover_image))}
+                  onClick={handleGenerateCover}
                   disabled={coverGenerating}
                   className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition-colors duration-200 disabled:opacity-50"
                 >
@@ -322,13 +380,51 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
                 {form.cover_image && (
                   <button
                     type="button"
-                    onClick={() => handleGenerateCover(true)}
+                    onClick={handleDangerousDirectOverwriteCover}
                     disabled={coverGenerating}
                     className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors duration-200 disabled:opacity-50"
                   >
-                    强制覆盖
+                    危险：直接覆盖当前封面
                   </button>
                 )}
+              </div>
+            )}
+            {coverCandidate && (
+              <div className="mt-3 rounded-lg border border-[var(--border-muted)] p-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-[var(--text-secondary)]">当前封面</div>
+                    <img
+                      src={coverCandidate.original}
+                      alt="当前封面"
+                      className="h-32 w-full rounded-lg object-cover"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-[var(--text-secondary)]">生成候选封面</div>
+                    <img
+                      src={coverCandidate.candidate}
+                      alt="生成候选封面"
+                      className="h-32 w-full rounded-lg object-cover"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleKeepCurrentCover}
+                    className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors duration-200"
+                  >
+                    保留当前封面
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUseCandidateCover}
+                    className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition-colors duration-200"
+                  >
+                    使用新封面
+                  </button>
+                </div>
               </div>
             )}
             {coverMessage && (

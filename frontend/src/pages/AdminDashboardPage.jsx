@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 
 import { clearToken, getToken } from '../api/auth'
-import { adminDeletePost, adminUpdatePost, fetchAdminPosts } from '../api/admin'
+import { adminDeletePost, adminUpdatePost, fetchAdminPosts, generateAdminPostCover } from '../api/admin'
 import AdminPostsList from '../components/admin/AdminPostsList'
 
 const AdminComments = lazy(() => import('../components/admin/AdminComments'))
@@ -46,8 +46,14 @@ const defaultPostFilters = {
   series_slug: '',
 }
 
-function normalizePostFilters(filters) {
-  const params = { page_size: 20 }
+const defaultPostPagination = {
+  total: 0,
+  page: 1,
+  pageSize: 20,
+}
+
+function normalizePostFilters(filters, { page = 1, pageSize = 20 } = {}) {
+  const params = { page, page_size: pageSize }
   if (filters.search?.trim()) params.q = filters.search.trim()
   if (filters.content_type) params.content_type = filters.content_type
   if (filters.published === 'published') params.is_published = 'true'
@@ -68,6 +74,17 @@ function getBulkPatchPayload(action, value) {
   return null
 }
 
+async function runWithConcurrency(items, limit, task) {
+  const queue = [...items]
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift()
+      await task(item)
+    }
+  })
+  await Promise.all(workers)
+}
+
 function AdminPanelLoader() {
   return (
     <div className="rounded-2xl border border-[var(--border-muted)] bg-[var(--bg-surface)] px-5 py-6 text-sm text-[var(--text-faint)]">
@@ -85,7 +102,9 @@ export default function AdminDashboardPage() {
   const [posts, setPosts] = useState([])
   const [editingPost, setEditingPost] = useState(null)
   const [error, setError] = useState('')
+  const [status, setStatus] = useState('')
   const [postFilters, setPostFilters] = useState(defaultPostFilters)
+  const [postPagination, setPostPagination] = useState(defaultPostPagination)
   const [postLoading, setPostLoading] = useState(false)
   const [bulkApplying, setBulkApplying] = useState(false)
 
@@ -94,16 +113,25 @@ export default function AdminDashboardPage() {
       navigate('/admin/login')
       return
     }
-    loadPosts(defaultPostFilters)
+    loadPosts(defaultPostFilters, {}, { page: 1, pageSize: defaultPostPagination.pageSize })
   }, [])
 
-  async function loadPosts(nextFilters = postFilters, requestOptions = {}) {
+  async function loadPosts(nextFilters = postFilters, requestOptions = {}, paginationOptions = {}) {
     setPostLoading(true)
     try {
-      const params = normalizePostFilters(nextFilters)
+      const nextPage = paginationOptions.page ?? postPagination.page ?? defaultPostPagination.page
+      const nextPageSize = paginationOptions.pageSize ?? postPagination.pageSize ?? defaultPostPagination.pageSize
+      const params = normalizePostFilters(nextFilters, { page: nextPage, pageSize: nextPageSize })
       const result = await fetchAdminPosts(params, requestOptions)
-      setPosts(result.items || result || [])
+      const items = result.items || result || []
+      setPosts(items)
+      setPostPagination({
+        total: Number(result.total ?? items.length),
+        page: Number(result.page ?? nextPage),
+        pageSize: Number(result.page_size ?? nextPageSize),
+      })
       setError('')
+      setStatus('')
     } catch (err) {
       setError(err.message || '加载文章列表失败')
     } finally {
@@ -132,24 +160,51 @@ export default function AdminDashboardPage() {
     if (!window.confirm(`确定删除《${post.title}》吗？`)) return
     try {
       await adminDeletePost(post.id)
-      await loadPosts()
+      const remainingTotal = Math.max(0, postPagination.total - 1)
+      const maxPage = Math.max(1, Math.ceil(remainingTotal / postPagination.pageSize))
+      await loadPosts(postFilters, {}, { page: Math.min(postPagination.page, maxPage) })
     } catch (err) {
       setError(err.message || '删除文章失败')
     }
   }
 
   function handlePostSaved() {
-    loadPosts()
+    loadPosts(postFilters, {}, { page: postPagination.page })
     setView('list')
   }
 
-  async function handleBulkAction({ action, postIds, value }) {
-    const patch = getBulkPatchPayload(action, value)
-    if (!patch) return
+  async function handleBulkAction({ action, postIds, value, skippedCount = 0 }) {
     setBulkApplying(true)
+    setStatus('')
     try {
+      if (action === 'generate_missing_covers') {
+        const submissions = []
+        await runWithConcurrency(postIds, 2, async (id) => {
+          try {
+            const result = await generateAdminPostCover(id, { mode: 'apply', overwrite: false })
+            submissions.push({ id, result })
+          } catch (err) {
+            submissions.push({ id, error: err })
+          }
+        })
+        const submittedCount = submissions.filter(({ result }) => result?.job_id || result?.id).length
+        const maybeRunningCount = submissions.filter(({ result }) => result?.maybe_running).length
+        const failedCount = submissions.filter(({ error }) => error).length
+        const countedSubmitted = submittedCount + maybeRunningCount
+        await loadPosts(postFilters, {}, { page: postPagination.page })
+        setError(failedCount === submissions.length ? '批量封面生成提交失败，请稍后重试。' : '')
+        const parts = [`已提交 ${countedSubmitted} 篇无封面文章的封面生成任务`]
+        if (skippedCount) parts.push(`跳过 ${skippedCount} 篇已有封面的文章`)
+        if (maybeRunningCount) parts.push(`${maybeRunningCount} 个请求响应较慢但可能仍在后台执行`)
+        if (failedCount) parts.push(`${failedCount} 篇提交失败`)
+        setStatus(`${parts.join('，')}。任务会在后台依次处理，请稍后刷新查看结果。`)
+        return
+      }
+
+      const patch = getBulkPatchPayload(action, value)
+      if (!patch) return
       await Promise.all(postIds.map((id) => adminUpdatePost(id, patch)))
-      await loadPosts()
+      await loadPosts(postFilters, {}, { page: postPagination.page })
       setError('')
     } catch (err) {
       setError(err.message || '批量操作失败')
@@ -160,12 +215,20 @@ export default function AdminDashboardPage() {
 
   function handleApplyFilters(nextFilters) {
     setPostFilters(nextFilters)
-    loadPosts(nextFilters)
+    loadPosts(nextFilters, {}, { page: 1 })
   }
 
   function handleResetFilters(nextFilters) {
     setPostFilters(nextFilters)
-    loadPosts(nextFilters)
+    loadPosts(nextFilters, {}, { page: 1 })
+  }
+
+  function handlePageChange(page) {
+    loadPosts(postFilters, {}, { page })
+  }
+
+  function handlePageSizeChange(pageSize) {
+    loadPosts(postFilters, {}, { page: 1, pageSize })
   }
 
   const tabItems = [
@@ -229,20 +292,26 @@ export default function AdminDashboardPage() {
         {error ? (
           <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
         ) : null}
+        {status ? (
+          <div className="mb-4 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)]">{status}</div>
+        ) : null}
 
         <Suspense fallback={<AdminPanelLoader />}>
           {tab === 'posts' && view === 'list' ? (
             <AdminPostsList
               posts={posts}
               filters={postFilters}
+              pagination={postPagination}
               loading={postLoading}
               bulkApplying={bulkApplying}
               onNew={handleNew}
               onEdit={handleEdit}
               onDelete={handleDelete}
-              onRefresh={() => loadPosts(postFilters, { forceRefresh: true })}
+              onRefresh={() => loadPosts(postFilters, { forceRefresh: true }, { page: postPagination.page })}
               onApplyFilters={handleApplyFilters}
               onResetFilters={handleResetFilters}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
               onRunBulkAction={handleBulkAction}
             />
           ) : null}

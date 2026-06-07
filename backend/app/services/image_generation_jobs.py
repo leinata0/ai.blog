@@ -190,12 +190,14 @@ def _execute_post_cover(db: Session, job: AdminImageGenerationJob, payload: dict
     prompt = cover_art_service.sanitize_cover_prompt(payload.get("prompt") or "")
     image_url = str(payload.get("image_url") or "").strip()
     overwrite = bool(payload.get("overwrite"))
+    preview = payload.get("mode") == "preview"
     if image_url:
-        post.cover_image = image_url
-        post.updated_at = _now()
+        if not preview:
+            post.cover_image = image_url
+            post.updated_at = _now()
         _finish_success(job, image_url, prompt or None, preset)
         return
-    if (post.cover_image or "").strip() and not overwrite:
+    if (post.cover_image or "").strip() and not overwrite and not preview:
         _finish_failure(job, "cover_exists", "当前文章已经有封面，如需覆盖请使用重生成。", prompt or None, preset)
         return
     artifact_prompt = executor.extract_post_cover_prompt_from_artifact(post.id, db)
@@ -204,12 +206,14 @@ def _execute_post_cover(db: Session, job: AdminImageGenerationJob, payload: dict
         _finish_failure(job, "prompt_unavailable", "当前文章缺少可用提示词，暂时无法生成封面。", prompt or None, preset)
         return
     try:
-        post.cover_image = executor.generate_cover_asset(db, prompt, f"post-{post.slug or post.id}.png", framing_hint=cover_art_service.preset_framing_hint(preset))
+        generated_image_url = executor.generate_cover_asset(db, prompt, f"post-{post.slug or post.id}.png", framing_hint=cover_art_service.preset_framing_hint(preset))
     except executor.CoverGenerationError as exc:
         _finish_failure(job, exc.code, exc.message, prompt or None, preset)
         return
-    post.updated_at = _now()
-    _finish_success(job, post.cover_image or "", prompt, preset)
+    if not preview:
+        post.cover_image = generated_image_url
+        post.updated_at = _now()
+    _finish_success(job, generated_image_url or "", prompt, preset)
 
 
 def _execute_site_hero(db: Session, job: AdminImageGenerationJob, payload: dict[str, Any], *, executor) -> None:

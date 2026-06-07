@@ -601,6 +601,7 @@ class CoverGenerateRequest(BaseModel):
     prompt: str | None = None
     image_url: str | None = None
     overwrite: bool = False
+    mode: str = Field(default="apply", pattern=r"^(apply|preview)$")
 
 
 class CoverGenerateResponse(BaseModel):

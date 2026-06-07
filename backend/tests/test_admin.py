@@ -229,6 +229,45 @@ def test_admin_posts_filters_support_dashboard_contract(client):
     assert combined_payload["items"][0]["slug"] == "general-published-manual"
 
 
+def test_admin_posts_pagination_returns_total_and_distinct_pages(client):
+    token = _login(client)
+    for index in range(25):
+        response = client.post(
+            "/api/admin/posts",
+            json={
+                "title": f"Pagination Contract {index:02d}",
+                "slug": f"pagination-contract-{index:02d}",
+                "summary": "pagination contract summary",
+                "content_md": "content",
+                "is_published": True,
+            },
+            headers=_auth(token),
+        )
+        assert response.status_code == 200
+
+    page_one = client.get("/api/admin/posts?q=pagination-contract&page=1&page_size=20", headers=_auth(token))
+    assert page_one.status_code == 200
+    page_one_payload = page_one.json()
+    assert page_one_payload["total"] == 25
+    assert page_one_payload["page"] == 1
+    assert page_one_payload["page_size"] == 20
+    assert len(page_one_payload["items"]) == 20
+
+    page_two = client.get("/api/admin/posts?q=pagination-contract&page=2&page_size=20", headers=_auth(token))
+    assert page_two.status_code == 200
+    page_two_payload = page_two.json()
+    assert page_two_payload["total"] == 25
+    assert page_two_payload["page"] == 2
+    assert page_two_payload["page_size"] == 20
+    assert len(page_two_payload["items"]) == 5
+
+    page_one_slugs = [item["slug"] for item in page_one_payload["items"]]
+    page_two_slugs = [item["slug"] for item in page_two_payload["items"]]
+    assert not set(page_one_slugs).intersection(page_two_slugs)
+    assert page_one_slugs[0] == "pagination-contract-24"
+    assert page_two_slugs[-1] == "pagination-contract-00"
+
+
 def test_upsert_and_fetch_publishing_status(client):
     token = _login(client)
     payload = {
@@ -911,6 +950,120 @@ def test_admin_post_generate_cover_reports_cover_exists(client):
     payload = _resolve_image_job(client, token, response.json())
     assert payload["generated"] is False
     assert payload["error_code"] == "cover_exists"
+
+
+
+def test_admin_post_generate_cover_preview_bypasses_existing_cover_without_mutation(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Preview Existing Cover Post",
+            "slug": "preview-existing-cover-post",
+            "summary": "summary",
+            "content_md": "content",
+            "cover_image": "https://img.example.com/existing-preview-cover.png",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+    post_id = create_post.json()["id"]
+    original = client.get(f"/api/admin/posts/{post_id}", headers=_auth(token)).json()
+
+    def fake_generate_cover_asset(db, prompt, filename_hint, framing_hint=""):
+        return "https://img.example.com/preview-candidate.png"
+
+    monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
+
+    response = client.post(
+        f"/api/admin/posts/{post_id}/generate-cover",
+        json={"mode": "preview", "prompt": "preview candidate"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = _resolve_image_job(client, token, response.json())
+    assert payload["generated"] is True
+    assert payload["cover_image"] == "https://img.example.com/preview-candidate.png"
+
+    current = client.get(f"/api/admin/posts/{post_id}", headers=_auth(token)).json()
+    assert current["cover_image"] == original["cover_image"]
+    assert current["updated_at"] == original["updated_at"]
+
+
+
+def test_admin_post_generate_cover_overwrite_replaces_existing_cover(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Overwrite Existing Cover Post",
+            "slug": "overwrite-existing-cover-post",
+            "summary": "summary",
+            "content_md": "content",
+            "cover_image": "https://img.example.com/old-cover.png",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+    post_id = create_post.json()["id"]
+
+    def fake_generate_cover_asset(db, prompt, filename_hint, framing_hint=""):
+        return "https://img.example.com/overwrite-cover.png"
+
+    monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
+
+    response = client.post(
+        f"/api/admin/posts/{post_id}/generate-cover",
+        json={"overwrite": True, "prompt": "overwrite candidate"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = _resolve_image_job(client, token, response.json())
+    assert payload["generated"] is True
+    assert payload["cover_image"] == "https://img.example.com/overwrite-cover.png"
+
+    current = client.get(f"/api/admin/posts/{post_id}", headers=_auth(token)).json()
+    assert current["cover_image"] == "https://img.example.com/overwrite-cover.png"
+
+
+
+def test_admin_post_generate_cover_image_url_preview_does_not_mutate(client):
+    token = _login(client)
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Image URL Preview Post",
+            "slug": "image-url-preview-post",
+            "summary": "summary",
+            "content_md": "content",
+            "cover_image": "https://img.example.com/original-url-cover.png",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+    post_id = create_post.json()["id"]
+    original = client.get(f"/api/admin/posts/{post_id}", headers=_auth(token)).json()
+
+    response = client.post(
+        f"/api/admin/posts/{post_id}/generate-cover",
+        json={"mode": "preview", "image_url": "https://img.example.com/url-candidate.png"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = _resolve_image_job(client, token, response.json())
+    assert payload["generated"] is True
+    assert payload["cover_image"] == "https://img.example.com/url-candidate.png"
+
+    current = client.get(f"/api/admin/posts/{post_id}", headers=_auth(token)).json()
+    assert current["cover_image"] == original["cover_image"]
+    assert current["updated_at"] == original["updated_at"]
 
 
 def test_ai_provider_sources_and_model_instances_crud(client, monkeypatch):
