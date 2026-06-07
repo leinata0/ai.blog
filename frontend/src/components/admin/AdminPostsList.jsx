@@ -68,6 +68,8 @@ export default function AdminPostsList({
   const postIdSet = useMemo(() => new Set(postIds), [postIds])
   const allSelected = postIds.length > 0 && postIds.every((id) => selectedPostIds.has(id))
   const selectedCurrentPageCount = Array.from(selectedPostIds).filter((id) => postIdSet.has(id)).length
+  const currentPageMissingCoverCount = posts.filter((post) => !String(post.cover_image || '').trim()).length
+  const selectedMissingCoverCount = posts.filter((post) => selectedPostIds.has(post.id) && !String(post.cover_image || '').trim()).length
   const total = Number(pagination?.total ?? posts.length)
   const page = Number(pagination?.page ?? 1)
   const pageSize = Number(pagination?.pageSize ?? (posts.length || 20))
@@ -100,22 +102,26 @@ export default function AdminPostsList({
     })
   }
 
-  async function handleBulkApply() {
+  async function handleBulkApply(forcedAction = bulkAction) {
+    const action = forcedAction
     let ids = Array.from(selectedPostIds).filter((id) => postIdSet.has(id))
-    if (!ids.length) return
     let skippedCount = 0
-    if (bulkAction === 'generate_missing_covers') {
-      const selectedPosts = posts.filter((post) => selectedPostIds.has(post.id))
-      const eligiblePosts = selectedPosts.filter((post) => !String(post.cover_image || '').trim())
-      skippedCount = selectedPosts.length - eligiblePosts.length
+    if (action === 'generate_missing_covers') {
+      const targetPosts = ids.length ? posts.filter((post) => selectedPostIds.has(post.id)) : posts
+      const eligiblePosts = targetPosts.filter((post) => !String(post.cover_image || '').trim())
+      skippedCount = targetPosts.length - eligiblePosts.length
       ids = eligiblePosts.map((post) => post.id)
       if (!ids.length) {
-        setBulkNotice('所选当前页文章均已有封面，无需生成。')
+        setBulkNotice(targetPosts.length ? '所选文章均已有封面，无需生成。' : '当前页没有可生成封面的文章。')
         return
       }
+      setBulkNotice(`正在提交 ${ids.length} 篇文章的封面生成任务，请稍候...`)
+    } else if (!ids.length) {
+      return
+    } else {
+      setBulkNotice('')
     }
-    setBulkNotice('')
-    await onRunBulkAction({ action: bulkAction, postIds: ids, value: bulkValue, skippedCount })
+    await onRunBulkAction({ action, postIds: ids, value: bulkValue, skippedCount })
     setSelectedPostIds(new Set())
   }
 
@@ -295,15 +301,27 @@ export default function AdminPostsList({
           ) : null}
           <button
             type="button"
-            onClick={handleBulkApply}
-            disabled={bulkApplying || selectedCurrentPageCount === 0}
+            onClick={() => handleBulkApply()}
+            disabled={bulkApplying || (bulkAction === 'generate_missing_covers' ? posts.length === 0 : selectedCurrentPageCount === 0)}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            {bulkApplying ? '执行中...' : '执行批量操作'}
+            {bulkApplying ? '执行中...' : bulkAction === 'generate_missing_covers' ? '提交封面生成任务' : '执行批量操作'}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleBulkApply('generate_missing_covers')}
+            disabled={bulkApplying || posts.length === 0}
+            className="rounded-lg border border-[var(--accent-border)] px-4 py-2 text-sm font-medium text-[var(--accent)] disabled:opacity-60"
+          >
+            {bulkApplying
+              ? '提交中...'
+              : selectedCurrentPageCount
+                ? `为已选无封面生成封面 (${selectedMissingCoverCount})`
+                : `为当前页无封面生成封面 (${currentPageMissingCoverCount})`}
           </button>
         </div>
         <div className="mt-2 text-xs text-[var(--text-faint)]">
-          批量操作仅影响当前页已勾选文章；如需处理更多历史文章，请翻页或使用筛选缩小范围。
+          批量操作仅影响当前页；未勾选时，“为无封面文章生成封面”会处理当前页所有无封面文章。如需处理更多历史文章，请翻页或使用筛选缩小范围。
         </div>
         {bulkNotice ? (
           <div className="mt-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-secondary)]">

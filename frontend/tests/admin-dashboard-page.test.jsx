@@ -479,9 +479,8 @@ it('bulk-generates covers only for selected current-page posts missing covers', 
 
   await userEvent.click(screen.getByLabelText('选择当前页文章'))
   expect(screen.getByText('已选择当前页：2')).toBeInTheDocument()
-  expect(screen.getByText(/批量操作仅影响当前页已勾选文章/)).toBeInTheDocument()
-  await userEvent.selectOptions(screen.getByDisplayValue('批量发布'), 'generate_missing_covers')
-  await userEvent.click(screen.getByRole('button', { name: '执行批量操作' }))
+  expect(screen.getByText(/未勾选时，“为无封面文章生成封面”会处理当前页所有无封面文章/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '为已选无封面生成封面 (1)' }))
 
   await waitFor(() => {
     expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(1, { mode: 'apply', overwrite: false })
@@ -489,6 +488,59 @@ it('bulk-generates covers only for selected current-page posts missing covers', 
   expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(1)
   expect(adminApi.generateAdminPostCover).not.toHaveBeenCalledWith(2, expect.anything())
   expect(await screen.findByText('已提交 1 篇无封面文章的封面生成任务，跳过 1 篇已有封面的文章。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()
+})
+
+it('bulk-generates current-page missing covers without requiring manual selection', async () => {
+  const adminApi = await import('../src/api/admin')
+  mocks.fetchAdminPosts.mockResolvedValue({
+    items: [
+      {
+        id: 1,
+        title: 'No cover one',
+        slug: 'no-cover-one',
+        summary: 'summary',
+        cover_image: '',
+        content_type: 'post',
+        published_mode: 'manual',
+        coverage_date: '2026-04-14',
+        is_published: true,
+        is_pinned: false,
+        tags: [],
+      },
+      {
+        id: 2,
+        title: 'No cover two',
+        slug: 'no-cover-two',
+        summary: 'summary',
+        cover_image: '',
+        content_type: 'post',
+        published_mode: 'manual',
+        coverage_date: '2026-04-14',
+        is_published: true,
+        is_pinned: false,
+        tags: [],
+      },
+    ],
+    total: 2,
+    page: 1,
+    page_size: 20,
+  })
+
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  expect(await screen.findByText('No cover one')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '为当前页无封面生成封面 (2)' }))
+
+  await waitFor(() => {
+    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(1, { mode: 'apply', overwrite: false })
+    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(2, { mode: 'apply', overwrite: false })
+  })
+  expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(2)
+  expect(await screen.findByText('已提交 2 篇无封面文章的封面生成任务。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()
 })
 
 it('opens topic management, topic health, and search insights tabs', async () => {
