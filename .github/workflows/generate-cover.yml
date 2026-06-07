@@ -17,6 +17,13 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
+concurrency:
+  group: generate-cover-${{ github.workflow }}-${{ github.event.inputs.post_id }}
+  cancel-in-progress: false
+
 jobs:
   generate-cover:
     runs-on: ubuntu-latest
@@ -31,10 +38,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
 
       # 安装脚本依赖
       - name: 安装脚本依赖
-        run: cd scripts && npm install
+        run: npm ci
+        working-directory: scripts
 
       # 检查必要密钥
       - name: 检查必要密钥

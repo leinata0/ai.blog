@@ -3,6 +3,7 @@ import ipaddress
 import logging
 import socket
 from time import perf_counter
+from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 from xml.etree.ElementTree import Element, SubElement, tostring
 
@@ -235,7 +236,7 @@ def get_public_home_bootstrap(
 
 
 _http_client = httpx.AsyncClient(
-    follow_redirects=True,
+    follow_redirects=False,
     timeout=15.0,
     limits=httpx.Limits(max_connections=20),
     headers={"User-Agent": "BlogImageProxy/1.0"},
@@ -262,39 +263,61 @@ def _is_private_hostname(hostname: str) -> bool:
     return False
 
 
+PROXY_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+MAX_PROXY_REDIRECTS = 3
+
+
+def _is_proxy_url_allowed(url: str) -> bool:
+    parsed = urlparse(url)
+    return bool(parsed.scheme in {"http", "https"} and parsed.hostname and not _is_private_hostname(parsed.hostname))
+
+
 @app.get("/proxy-image")
 async def proxy_image(url: str = Query(..., min_length=8)):
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        return Response(status_code=400, content="Invalid URL")
-    if _is_private_hostname(parsed.hostname):
-        return Response(status_code=400, content="Invalid URL")
-    try:
-        async with _http_client.stream("GET", url) as resp:
-            content_type = resp.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-            content_length = resp.headers.get("content-length")
-            if content_length and int(content_length) > MAX_PROXY_IMAGE_BYTES:
-                return Response(status_code=502, content="Upstream image too large")
-            if resp.status_code != 200 or content_type not in ALLOWED_CONTENT_TYPES:
-                return Response(status_code=502, content="Upstream image unavailable")
+    current_url = url
+    for redirect_count in range(MAX_PROXY_REDIRECTS + 1):
+        if not _is_proxy_url_allowed(current_url):
+            return Response(status_code=400, content="Invalid URL")
+        try:
+            async with _http_client.stream("GET", current_url) as resp:
+                if resp.status_code in PROXY_REDIRECT_STATUSES:
+                    if redirect_count >= MAX_PROXY_REDIRECTS:
+                        return Response(status_code=502, content="Upstream image unavailable")
+                    location = resp.headers.get("location", "").strip()
+                    if not location:
+                        return Response(status_code=502, content="Upstream image unavailable")
+                    current_url = urljoin(current_url, location)
+                    continue
 
-            chunks = []
-            total = 0
-            async for chunk in resp.aiter_bytes():
-                total += len(chunk)
-                if total > MAX_PROXY_IMAGE_BYTES:
-                    return Response(status_code=502, content="Upstream image too large")
-                chunks.append(chunk)
-            return Response(
-                content=b"".join(chunks),
-                media_type=content_type,
-                headers={
-                    "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-                    "Access-Control-Allow-Origin": "*",
-                },
-            )
-    except Exception:
-        return Response(status_code=502, content="Failed to fetch image")
+                content_type = resp.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                content_length = resp.headers.get("content-length")
+                if content_length:
+                    try:
+                        if int(content_length) > MAX_PROXY_IMAGE_BYTES:
+                            return Response(status_code=502, content="Upstream image too large")
+                    except ValueError:
+                        return Response(status_code=502, content="Upstream image unavailable")
+                if resp.status_code != 200 or content_type not in ALLOWED_CONTENT_TYPES:
+                    return Response(status_code=502, content="Upstream image unavailable")
+
+                chunks = []
+                total = 0
+                async for chunk in resp.aiter_bytes():
+                    total += len(chunk)
+                    if total > MAX_PROXY_IMAGE_BYTES:
+                        return Response(status_code=502, content="Upstream image too large")
+                    chunks.append(chunk)
+                return Response(
+                    content=b"".join(chunks),
+                    media_type=content_type,
+                    headers={
+                        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+                        "Access-Control-Allow-Origin": "*",
+                    },
+                )
+        except Exception:
+            return Response(status_code=502, content="Failed to fetch image")
+    return Response(status_code=502, content="Upstream image unavailable")
 
 
 @app.get("/feed.xml")
