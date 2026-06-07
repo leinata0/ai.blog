@@ -543,6 +543,41 @@ it('bulk-generates current-page missing covers without requiring manual selectio
   expect(await screen.findByText('已提交 2 篇无封面文章的封面生成任务。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()
 })
 
+it('shows the underlying error when all selected cover submissions fail', async () => {
+  mocks.generateAdminPostCover.mockRejectedValue(new Error('missing provider config'))
+  mocks.fetchAdminPosts.mockResolvedValue({
+    items: [
+      {
+        id: 1,
+        title: 'No provider post',
+        slug: 'no-provider-post',
+        summary: 'summary',
+        cover_image: '',
+        content_type: 'post',
+        published_mode: 'manual',
+        coverage_date: '2026-04-14',
+        is_published: true,
+        is_pinned: false,
+        tags: [],
+      },
+    ],
+    total: 1,
+    page: 1,
+    page_size: 20,
+  })
+
+  render(
+    <MemoryRouter>
+      <AdminDashboardPage />
+    </MemoryRouter>
+  )
+
+  expect(await screen.findByText('No provider post')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '为当前页无封面生成封面 (1)' }))
+
+  expect(await screen.findByText('批量封面生成提交失败：missing provider config')).toBeInTheDocument()
+})
+
 it('opens topic management, topic health, and search insights tabs', async () => {
   render(
     <MemoryRouter>
