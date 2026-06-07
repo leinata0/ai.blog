@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 
 import { clearToken, getToken } from '../api/auth'
-import { adminDeletePost, adminUpdatePost, fetchAdminPosts } from '../api/admin'
+import { adminDeletePost, adminUpdatePost, fetchAdminPosts, generateAdminPostCover } from '../api/admin'
 import AdminPostsList from '../components/admin/AdminPostsList'
 
 const AdminComments = lazy(() => import('../components/admin/AdminComments'))
@@ -68,6 +68,17 @@ function getBulkPatchPayload(action, value) {
   return null
 }
 
+async function runWithConcurrency(items, limit, task) {
+  const queue = [...items]
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift()
+      await task(item)
+    }
+  })
+  await Promise.all(workers)
+}
+
 function AdminPanelLoader() {
   return (
     <div className="rounded-2xl border border-[var(--border-muted)] bg-[var(--bg-surface)] px-5 py-6 text-sm text-[var(--text-faint)]">
@@ -85,6 +96,7 @@ export default function AdminDashboardPage() {
   const [posts, setPosts] = useState([])
   const [editingPost, setEditingPost] = useState(null)
   const [error, setError] = useState('')
+  const [status, setStatus] = useState('')
   const [postFilters, setPostFilters] = useState(defaultPostFilters)
   const [postLoading, setPostLoading] = useState(false)
   const [bulkApplying, setBulkApplying] = useState(false)
@@ -104,6 +116,7 @@ export default function AdminDashboardPage() {
       const result = await fetchAdminPosts(params, requestOptions)
       setPosts(result.items || result || [])
       setError('')
+      setStatus('')
     } catch (err) {
       setError(err.message || '加载文章列表失败')
     } finally {
@@ -143,11 +156,22 @@ export default function AdminDashboardPage() {
     setView('list')
   }
 
-  async function handleBulkAction({ action, postIds, value }) {
-    const patch = getBulkPatchPayload(action, value)
-    if (!patch) return
+  async function handleBulkAction({ action, postIds, value, skippedCount = 0 }) {
     setBulkApplying(true)
+    setStatus('')
     try {
+      if (action === 'generate_missing_covers') {
+        await runWithConcurrency(postIds, 2, (id) =>
+          generateAdminPostCover(id, { mode: 'apply', overwrite: false })
+        )
+        await loadPosts()
+        setError('')
+        setStatus(`已提交 ${postIds.length} 篇文章封面生成任务，跳过 ${skippedCount} 篇已有封面的文章。`)
+        return
+      }
+
+      const patch = getBulkPatchPayload(action, value)
+      if (!patch) return
       await Promise.all(postIds.map((id) => adminUpdatePost(id, patch)))
       await loadPosts()
       setError('')
@@ -228,6 +252,9 @@ export default function AdminDashboardPage() {
       <div className="mx-auto max-w-7xl px-6 py-8 sm:px-10">
         {error ? (
           <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+        ) : null}
+        {status ? (
+          <div className="mb-4 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)]">{status}</div>
         ) : null}
 
         <Suspense fallback={<AdminPanelLoader />}>

@@ -35,6 +35,7 @@ const BULK_ACTION_OPTIONS = [
   { value: 'unpin', label: '批量取消置顶' },
   { value: 'set_content_type', label: '批量修改类型' },
   { value: 'set_series', label: '批量归入系列' },
+  { value: 'generate_missing_covers', label: '为无封面文章生成封面' },
 ]
 
 export default function AdminPostsList({
@@ -54,6 +55,7 @@ export default function AdminPostsList({
   const [bulkAction, setBulkAction] = useState('publish')
   const [bulkValue, setBulkValue] = useState('')
   const [draftFilters, setDraftFilters] = useState(filters)
+  const [bulkNotice, setBulkNotice] = useState('')
 
   useEffect(() => {
     setDraftFilters(filters)
@@ -83,9 +85,21 @@ export default function AdminPostsList({
   }
 
   async function handleBulkApply() {
-    const ids = Array.from(selectedPostIds)
+    let ids = Array.from(selectedPostIds)
     if (!ids.length) return
-    await onRunBulkAction({ action: bulkAction, postIds: ids, value: bulkValue })
+    let skippedCount = 0
+    if (bulkAction === 'generate_missing_covers') {
+      const selectedPosts = posts.filter((post) => selectedPostIds.has(post.id))
+      const eligiblePosts = selectedPosts.filter((post) => !String(post.cover_image || '').trim())
+      skippedCount = selectedPosts.length - eligiblePosts.length
+      ids = eligiblePosts.map((post) => post.id)
+      if (!ids.length) {
+        setBulkNotice('所选文章均已有封面，无需生成。')
+        return
+      }
+    }
+    setBulkNotice('')
+    await onRunBulkAction({ action: bulkAction, postIds: ids, value: bulkValue, skippedCount })
     setSelectedPostIds(new Set())
   }
 
@@ -264,6 +278,11 @@ export default function AdminPostsList({
             {bulkApplying ? '执行中...' : '执行批量操作'}
           </button>
         </div>
+        {bulkNotice ? (
+          <div className="mt-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+            {bulkNotice}
+          </div>
+        ) : null}
       </section>
 
       <div className="overflow-hidden rounded-xl bg-[var(--bg-surface)]" style={{ boxShadow: 'var(--card-shadow)' }}>
