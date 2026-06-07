@@ -229,6 +229,45 @@ def test_admin_posts_filters_support_dashboard_contract(client):
     assert combined_payload["items"][0]["slug"] == "general-published-manual"
 
 
+def test_admin_posts_pagination_returns_total_and_distinct_pages(client):
+    token = _login(client)
+    for index in range(25):
+        response = client.post(
+            "/api/admin/posts",
+            json={
+                "title": f"Pagination Contract {index:02d}",
+                "slug": f"pagination-contract-{index:02d}",
+                "summary": "pagination contract summary",
+                "content_md": "content",
+                "is_published": True,
+            },
+            headers=_auth(token),
+        )
+        assert response.status_code == 200
+
+    page_one = client.get("/api/admin/posts?q=pagination-contract&page=1&page_size=20", headers=_auth(token))
+    assert page_one.status_code == 200
+    page_one_payload = page_one.json()
+    assert page_one_payload["total"] == 25
+    assert page_one_payload["page"] == 1
+    assert page_one_payload["page_size"] == 20
+    assert len(page_one_payload["items"]) == 20
+
+    page_two = client.get("/api/admin/posts?q=pagination-contract&page=2&page_size=20", headers=_auth(token))
+    assert page_two.status_code == 200
+    page_two_payload = page_two.json()
+    assert page_two_payload["total"] == 25
+    assert page_two_payload["page"] == 2
+    assert page_two_payload["page_size"] == 20
+    assert len(page_two_payload["items"]) == 5
+
+    page_one_slugs = [item["slug"] for item in page_one_payload["items"]]
+    page_two_slugs = [item["slug"] for item in page_two_payload["items"]]
+    assert not set(page_one_slugs).intersection(page_two_slugs)
+    assert page_one_slugs[0] == "pagination-contract-24"
+    assert page_two_slugs[-1] == "pagination-contract-00"
+
+
 def test_upsert_and_fetch_publishing_status(client):
     token = _login(client)
     payload = {

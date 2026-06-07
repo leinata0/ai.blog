@@ -41,6 +41,7 @@ const BULK_ACTION_OPTIONS = [
 export default function AdminPostsList({
   posts,
   filters,
+  pagination,
   loading,
   bulkApplying,
   onNew,
@@ -49,6 +50,8 @@ export default function AdminPostsList({
   onRefresh,
   onApplyFilters,
   onResetFilters,
+  onPageChange,
+  onPageSizeChange,
   onRunBulkAction,
 }) {
   const [selectedPostIds, setSelectedPostIds] = useState(new Set())
@@ -62,7 +65,20 @@ export default function AdminPostsList({
   }, [filters])
 
   const postIds = useMemo(() => posts.map((post) => post.id).filter(Boolean), [posts])
+  const postIdSet = useMemo(() => new Set(postIds), [postIds])
   const allSelected = postIds.length > 0 && postIds.every((id) => selectedPostIds.has(id))
+  const selectedCurrentPageCount = Array.from(selectedPostIds).filter((id) => postIdSet.has(id)).length
+  const total = Number(pagination?.total ?? posts.length)
+  const page = Number(pagination?.page ?? 1)
+  const pageSize = Number(pagination?.pageSize ?? (posts.length || 20))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const rangeEnd = Math.min(total, (page - 1) * pageSize + posts.length)
+
+  useEffect(() => {
+    setSelectedPostIds((prev) => new Set(Array.from(prev).filter((id) => postIdSet.has(id))))
+    setBulkNotice('')
+  }, [postIdSet])
 
   function toggleAll() {
     if (allSelected) {
@@ -85,7 +101,7 @@ export default function AdminPostsList({
   }
 
   async function handleBulkApply() {
-    let ids = Array.from(selectedPostIds)
+    let ids = Array.from(selectedPostIds).filter((id) => postIdSet.has(id))
     if (!ids.length) return
     let skippedCount = 0
     if (bulkAction === 'generate_missing_covers') {
@@ -94,7 +110,7 @@ export default function AdminPostsList({
       skippedCount = selectedPosts.length - eligiblePosts.length
       ids = eligiblePosts.map((post) => post.id)
       if (!ids.length) {
-        setBulkNotice('所选文章均已有封面，无需生成。')
+        setBulkNotice('所选当前页文章均已有封面，无需生成。')
         return
       }
     }
@@ -118,6 +134,14 @@ export default function AdminPostsList({
     }
     setDraftFilters(cleared)
     onResetFilters(cleared)
+  }
+
+  function handlePreviousPage() {
+    if (page > 1) onPageChange(page - 1)
+  }
+
+  function handleNextPage() {
+    if (page < totalPages) onPageChange(page + 1)
   }
 
   return (
@@ -237,7 +261,7 @@ export default function AdminPostsList({
 
       <section className="mb-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-sm text-[var(--text-secondary)]">已选择：{selectedPostIds.size}</div>
+          <div className="text-sm text-[var(--text-secondary)]">已选择当前页：{selectedCurrentPageCount}</div>
           <select
             value={bulkAction}
             onChange={(event) => setBulkAction(event.target.value)}
@@ -272,11 +296,14 @@ export default function AdminPostsList({
           <button
             type="button"
             onClick={handleBulkApply}
-            disabled={bulkApplying || selectedPostIds.size === 0}
+            disabled={bulkApplying || selectedCurrentPageCount === 0}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
             {bulkApplying ? '执行中...' : '执行批量操作'}
           </button>
+        </div>
+        <div className="mt-2 text-xs text-[var(--text-faint)]">
+          批量操作仅影响当前页已勾选文章；如需处理更多历史文章，请翻页或使用筛选缩小范围。
         </div>
         {bulkNotice ? (
           <div className="mt-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-secondary)]">
@@ -285,13 +312,54 @@ export default function AdminPostsList({
         ) : null}
       </section>
 
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+        <div>显示 {rangeStart}–{rangeEnd} / 共 {total} 篇</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-[var(--text-faint)]">
+            每页
+            <select
+              value={pageSize}
+              onChange={(event) => onPageSizeChange(Number(event.target.value))}
+              className="rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-2 py-1 text-sm text-[var(--text-primary)]"
+            >
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={handlePreviousPage}
+            disabled={loading || page <= 1}
+            className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          >
+            上一页
+          </button>
+          <span className="text-xs text-[var(--text-faint)]">第 {page} / {totalPages} 页</span>
+          <button
+            type="button"
+            onClick={handleNextPage}
+            disabled={loading || page >= totalPages}
+            className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          >
+            下一页
+          </button>
+        </div>
+      </div>
+
       <div className="overflow-hidden rounded-xl bg-[var(--bg-surface)]" style={{ boxShadow: 'var(--card-shadow)' }}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border-muted)]">
                 <th className="px-4 py-3">
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    disabled={postIds.length === 0}
+                    aria-label="选择当前页文章"
+                    title="选择当前页"
+                  />
                 </th>
                 <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">标题</th>
                 <th className="px-4 py-3 text-left font-medium text-[var(--text-faint)]">类型</th>
@@ -319,6 +387,7 @@ export default function AdminPostsList({
                         type="checkbox"
                         checked={selectedPostIds.has(post.id)}
                         onChange={() => toggleSingle(post.id)}
+                        aria-label={`选择文章 ${post.title}`}
                       />
                     </td>
                     <td className="px-4 py-4 font-medium text-[var(--text-primary)]">
