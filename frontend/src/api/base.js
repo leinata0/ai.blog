@@ -2,10 +2,6 @@ function normalizeBaseUrl(value) {
   return String(value || '').trim().replace(/\/$/, '')
 }
 
-function envEnabled(value) {
-  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase())
-}
-
 function isLocalBrowserHost(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
 }
@@ -26,8 +22,7 @@ export function resolveApiBase(currentLocation = globalThis?.window?.location) {
     }
 
     const crossOrigin = targetOrigin !== currentLocation.origin
-    const allowCrossOrigin = envEnabled(import.meta.env.VITE_ALLOW_CROSS_ORIGIN_API)
-    if (crossOrigin && !isLocalBrowserHost(currentLocation.hostname) && !allowCrossOrigin) {
+    if (crossOrigin && !isLocalBrowserHost(currentLocation.hostname)) {
       return ''
     }
   } catch {
