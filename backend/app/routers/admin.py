@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -352,11 +353,11 @@ class _ImageGenerationExecutor:
 
 
 _IMAGE_GENERATION_EXECUTOR = _ImageGenerationExecutor()
+_IMAGE_GENERATION_JOB_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="admin-image-generation")
 
 
 def _enqueue_image_generation_job(
     db: Session,
-    background_tasks: BackgroundTasks,
     *,
     job_type: str,
     target_id: int | None,
@@ -364,7 +365,7 @@ def _enqueue_image_generation_job(
 ) -> dict:
     image_generation_jobs.mark_stale_running_failed(db)
     job = image_generation_jobs.create_job(db, job_type=job_type, target_id=target_id, body=body)
-    background_tasks.add_task(image_generation_jobs.run_job, job.id, executor=_IMAGE_GENERATION_EXECUTOR)
+    _IMAGE_GENERATION_JOB_POOL.submit(image_generation_jobs.run_job, job.id, executor=_IMAGE_GENERATION_EXECUTOR)
     return image_generation_jobs.job_to_dict(job)
 
 
@@ -1871,7 +1872,6 @@ def get_ai_runtime_plan(
 @router.post("/settings/generate-hero", response_model=AdminImageGenerationJobOut)
 def admin_generate_site_hero(
     body: SiteHeroGenerateRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
@@ -1882,7 +1882,6 @@ def admin_generate_site_hero(
         db.commit()
     return _enqueue_image_generation_job(
         db,
-        background_tasks,
         job_type=image_generation_jobs.JOB_SITE_HERO,
         target_id=settings.id,
         body=body,
@@ -1893,7 +1892,6 @@ def admin_generate_site_hero(
 def admin_generate_series_cover(
     series_id: int,
     body: CoverGenerateRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
@@ -1902,7 +1900,6 @@ def admin_generate_series_cover(
         raise HTTPException(status_code=404, detail="Series not found")
     return _enqueue_image_generation_job(
         db,
-        background_tasks,
         job_type=image_generation_jobs.JOB_SERIES_COVER,
         target_id=series.id,
         body=body,
@@ -1913,7 +1910,6 @@ def admin_generate_series_cover(
 def admin_generate_topic_profile_cover(
     profile_id: int,
     body: CoverGenerateRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
@@ -1922,7 +1918,6 @@ def admin_generate_topic_profile_cover(
         raise HTTPException(status_code=404, detail="Topic profile not found")
     return _enqueue_image_generation_job(
         db,
-        background_tasks,
         job_type=image_generation_jobs.JOB_TOPIC_COVER,
         target_id=profile.id,
         body=body,
@@ -1933,7 +1928,6 @@ def admin_generate_topic_profile_cover(
 def admin_generate_post_cover(
     post_id: int,
     body: CoverGenerateRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
@@ -1942,7 +1936,6 @@ def admin_generate_post_cover(
         raise HTTPException(status_code=404, detail="Post not found")
     return _enqueue_image_generation_job(
         db,
-        background_tasks,
         job_type=image_generation_jobs.JOB_POST_COVER,
         target_id=post.id,
         body=body,
