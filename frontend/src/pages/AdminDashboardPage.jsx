@@ -189,14 +189,26 @@ export default function AdminDashboardPage() {
         })
         const submittedCount = submissions.filter(({ result }) => result?.job_id || result?.id).length
         const maybeRunningCount = submissions.filter(({ result }) => result?.maybe_running).length
-        const failedCount = submissions.filter(({ error }) => error).length
+        const failedSubmissions = submissions.filter(({ error }) => error)
+        const failedCount = failedSubmissions.length
         const countedSubmitted = submittedCount + maybeRunningCount
+        const errorMessages = Array.from(new Set(
+          failedSubmissions
+            .map(({ error }) => String(error?.message || '提交失败'))
+            .filter(Boolean)
+        ))
         await loadPosts(postFilters, {}, { page: postPagination.page })
-        setError(failedCount === submissions.length ? '批量封面生成提交失败，请稍后重试。' : '')
+        if (failedCount === submissions.length) {
+          const detail = errorMessages[0] ? `：${errorMessages[0]}` : '，请稍后重试。'
+          setError(`批量封面生成提交失败${detail}`)
+          setStatus(errorMessages.length > 1 ? `其它错误：${errorMessages.slice(1, 3).join('；')}` : '')
+          return
+        }
+        setError('')
         const parts = [`已提交 ${countedSubmitted} 篇无封面文章的封面生成任务`]
         if (skippedCount) parts.push(`跳过 ${skippedCount} 篇已有封面的文章`)
         if (maybeRunningCount) parts.push(`${maybeRunningCount} 个请求响应较慢但可能仍在后台执行`)
-        if (failedCount) parts.push(`${failedCount} 篇提交失败`)
+        if (failedCount) parts.push(`${failedCount} 篇提交失败：${errorMessages.slice(0, 2).join('；')}`)
         setStatus(`${parts.join('，')}。任务会在后台依次处理，请稍后刷新查看结果。`)
         return
       }
