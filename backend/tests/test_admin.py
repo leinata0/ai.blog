@@ -1285,6 +1285,21 @@ def test_ai_provider_runtime_requires_model_instances(client, db_session, monkey
     assert calls[-1]["url"] == "https://primary.example.com/v1/chat/completions"
     assert calls[-1]["key"] == "Bearer sk-primary-123456"
 
+    text_resp = client.post(
+        "/api/admin/ai-text/generate",
+        json={
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 2048,
+            "temperature": 0.4,
+            "json_mode": True,
+        },
+        headers=_auth(token),
+    )
+    assert text_resp.status_code == 200
+    assert text_resp.json()["content"] == "primary-text"
+    assert text_resp.json()["purpose"] == "text_generation"
+    assert calls[-1]["model"] == "primary-text"
+
 
 def test_admin_generate_site_hero_with_grok(client, monkeypatch):
     from app.routers import admin as admin_mod

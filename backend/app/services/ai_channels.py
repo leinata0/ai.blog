@@ -762,7 +762,14 @@ def _generate_image_from_channel(channel: ResolvedAiChannel, prompt: str, framin
     raise AiChannelError("generation_failed", "生图请求失败，请检查 Base URL。")
 
 
-def _generate_text_openai(channel: ResolvedAiChannel, messages: list[dict[str, str]]) -> str:
+def _generate_text_openai(
+    channel: ResolvedAiChannel,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    json_mode: bool = False,
+) -> str:
     last_error: AiChannelError | None = None
     for endpoint in _openai_endpoints(channel.base_url, "/chat/completions"):
         try:
@@ -773,9 +780,15 @@ def _generate_text_openai(channel: ResolvedAiChannel, messages: list[dict[str, s
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": channel.model,
-                    "messages": messages,
-                    "temperature": 0.2,
+                    key: value
+                    for key, value in {
+                        "model": channel.model,
+                        "messages": messages,
+                        "temperature": 0.2 if temperature is None else temperature,
+                        "max_tokens": max_tokens,
+                        "response_format": {"type": "json_object"} if json_mode else None,
+                    }.items()
+                    if value is not None
                 },
                 timeout=60,
             )
@@ -797,7 +810,14 @@ def _generate_text_openai(channel: ResolvedAiChannel, messages: list[dict[str, s
     raise AiChannelError("generation_failed", "生文字请求失败，请检查 Base URL。")
 
 
-def _generate_text_anthropic(channel: ResolvedAiChannel, messages: list[dict[str, str]]) -> str:
+def _generate_text_anthropic(
+    channel: ResolvedAiChannel,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    json_mode: bool = False,
+) -> str:
     system_text = ""
     chat_messages = []
     for msg in messages:
@@ -810,9 +830,13 @@ def _generate_text_anthropic(channel: ResolvedAiChannel, messages: list[dict[str
 
     body: dict[str, Any] = {
         "model": channel.model,
-        "max_tokens": 1024,
+        "max_tokens": max_tokens or 1024,
         "messages": chat_messages,
     }
+    if temperature is not None:
+        body["temperature"] = temperature
+    if json_mode:
+        system_text = (system_text + "\nReturn only valid JSON." if system_text else "Return only valid JSON.").strip()
     if system_text:
         body["system"] = system_text
 
@@ -845,11 +869,18 @@ def _generate_text_anthropic(channel: ResolvedAiChannel, messages: list[dict[str
     return content
 
 
-def _generate_text_from_channel(channel: ResolvedAiChannel, messages: list[dict[str, str]]) -> str:
+def _generate_text_from_channel(
+    channel: ResolvedAiChannel,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    json_mode: bool = False,
+) -> str:
     ensure_channel_ready(channel)
     if channel.protocol == PROTOCOL_ANTHROPIC:
-        return _generate_text_anthropic(channel, messages)
-    return _generate_text_openai(channel, messages)
+        return _generate_text_anthropic(channel, messages, max_tokens=max_tokens, temperature=temperature, json_mode=json_mode)
+    return _generate_text_openai(channel, messages, max_tokens=max_tokens, temperature=temperature, json_mode=json_mode)
 
 
 def _attempt_result(target: ResolvedAiChannelTarget, *, ok: bool, latency_ms: int, message: str, error_code: str = "") -> dict[str, Any]:
@@ -913,13 +944,26 @@ def generate_image_url(db: Session, prompt: str, framing_hint: str = "") -> str:
     )
 
 
-def generate_text(db: Session, messages: list[dict[str, str]]) -> str:
+def generate_text(
+    db: Session,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    json_mode: bool = False,
+) -> str:
     from app.services import ai_provider_manager
 
     return ai_provider_manager.run_generation(
         db,
         TEXT_PURPOSE,
-        lambda channel: _generate_text_from_channel(channel, messages),
+        lambda channel: _generate_text_from_channel(
+            channel,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            json_mode=json_mode,
+        ),
     )
 
 

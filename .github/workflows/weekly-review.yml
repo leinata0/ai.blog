@@ -55,19 +55,14 @@ jobs:
       # 检查周报生成所需密钥
       - name: 检查必要密钥
         env:
-          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
-          if [ -z "$SILICONFLOW_API_KEY" ]; then echo "::error::Missing SILICONFLOW_API_KEY"; exit 1; fi
           if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
           echo "Secrets look good."
 
       # 执行 AI 周报生成
       - name: 生成 AI 周报
         env:
-          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
-          SILICONFLOW_BASE_URL: ${{ vars.SILICONFLOW_BASE_URL }}
-          SILICONFLOW_MODEL: ${{ vars.SILICONFLOW_MODEL }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}

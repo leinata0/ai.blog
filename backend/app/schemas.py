@@ -712,6 +712,25 @@ class AiRuntimePlanOut(BaseModel):
     text_generation: list[dict] = Field(default_factory=list)
 
 
+class AiTextMessage(BaseModel):
+    role: str = Field(..., pattern=r"^(system|user|assistant)$")
+    content: str = Field(..., min_length=1)
+
+
+class AiTextGenerateRequest(BaseModel):
+    messages: list[AiTextMessage] = Field(..., min_length=1)
+    max_tokens: int | None = Field(default=None, ge=1, le=32768)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    json_mode: bool = False
+
+
+class AiTextGenerateResponse(BaseModel):
+    content: str
+    provider: str = ""
+    model: str = ""
+    purpose: str = "text_generation"
+
+
 class AiChannelTargetUpdateRequest(BaseModel):
     id: str | None = None
     priority: int | None = None

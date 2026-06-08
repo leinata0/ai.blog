@@ -336,12 +336,12 @@ test('workflow contracts remain unchanged for script entry and required secrets'
   const weeklyWorkflowPath = resolve(__dirname, '..', '..', '.github', 'workflows', 'weekly-review.yml')
   const [autoWorkflow, weeklyWorkflow] = await Promise.all([readFile(autoWorkflowPath, 'utf8'), readFile(weeklyWorkflowPath, 'utf8')])
 
-  assert.ok(autoWorkflow.includes('SILICONFLOW_API_KEY'))
+  assert.equal(autoWorkflow.includes('SILICONFLOW_API_KEY'), false)
   assert.ok(autoWorkflow.includes('ADMIN_PASSWORD'))
   assert.ok(autoWorkflow.includes('node scripts/auto-blog.mjs'))
   assert.ok(autoWorkflow.includes('--mode daily-auto'))
 
-  assert.ok(weeklyWorkflow.includes('SILICONFLOW_API_KEY'))
+  assert.equal(weeklyWorkflow.includes('SILICONFLOW_API_KEY'), false)
   assert.ok(weeklyWorkflow.includes('ADMIN_PASSWORD'))
   assert.ok(weeklyWorkflow.includes('node scripts/auto-blog.mjs'))
   assert.ok(weeklyWorkflow.includes('--mode weekly-review'))
