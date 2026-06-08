@@ -49,6 +49,18 @@ describe('admin image generation API', () => {
     expect(result.error).not.toBe('请求超时，请稍后重试')
   })
 
+  it('allows submit timeout overrides for bulk job submission', async () => {
+    const payload = { job_id: 43, status: 'queued', generated: false }
+    apiPostMock.mockResolvedValue(payload)
+
+    await expect(generateAdminPostCover(123, { overwrite: false }, { timeout: 12000 })).resolves.toBe(payload)
+
+    expect(apiPostMock).toHaveBeenCalledWith('/api/admin/posts/123/generate-cover', { overwrite: false }, {
+      auth: true,
+      timeout: 12000,
+    })
+  })
+
   it('continues to throw non-timeout submit errors', async () => {
     apiPostMock.mockRejectedValue(new Error('登录已过期，请重新登录'))
 

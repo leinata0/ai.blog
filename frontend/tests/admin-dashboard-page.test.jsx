@@ -483,7 +483,7 @@ it('bulk-generates covers only for selected current-page posts missing covers', 
   await userEvent.click(screen.getByRole('button', { name: '为已选无封面生成封面 (1)' }))
 
   await waitFor(() => {
-    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(1, { mode: 'apply', overwrite: false })
+    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(1, { mode: 'apply', overwrite: false }, { timeout: 12000 })
   })
   expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(1)
   expect(adminApi.generateAdminPostCover).not.toHaveBeenCalledWith(2, expect.anything())
@@ -536,8 +536,8 @@ it('bulk-generates current-page missing covers without requiring manual selectio
   await userEvent.click(screen.getByRole('button', { name: '为当前页无封面生成封面 (2)' }))
 
   await waitFor(() => {
-    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(1, { mode: 'apply', overwrite: false })
-    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(2, { mode: 'apply', overwrite: false })
+    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(1, { mode: 'apply', overwrite: false }, { timeout: 12000 })
+    expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(2, { mode: 'apply', overwrite: false }, { timeout: 12000 })
   })
   expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(2)
   expect(await screen.findByText('已提交 2 篇无封面文章的封面生成任务。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()

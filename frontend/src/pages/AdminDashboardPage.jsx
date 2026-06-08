@@ -51,6 +51,8 @@ const defaultPostPagination = {
   page: 1,
   pageSize: 20,
 }
+const BULK_COVER_SUBMIT_TIMEOUT_MS = 12000
+const BULK_COVER_SUBMIT_CONCURRENCY = 4
 
 function normalizePostFilters(filters, { page = 1, pageSize = 20 } = {}) {
   const params = { page, page_size: pageSize }
@@ -179,12 +181,19 @@ export default function AdminDashboardPage() {
     try {
       if (action === 'generate_missing_covers') {
         const submissions = []
-        await runWithConcurrency(postIds, 2, async (id) => {
+        setStatus(`正在提交 0 / ${postIds.length} 篇文章的封面生成任务...`)
+        await runWithConcurrency(postIds, BULK_COVER_SUBMIT_CONCURRENCY, async (id) => {
           try {
-            const result = await generateAdminPostCover(id, { mode: 'apply', overwrite: false })
+            const result = await generateAdminPostCover(
+              id,
+              { mode: 'apply', overwrite: false },
+              { timeout: BULK_COVER_SUBMIT_TIMEOUT_MS }
+            )
             submissions.push({ id, result })
           } catch (err) {
             submissions.push({ id, error: err })
+          } finally {
+            setStatus(`正在提交 ${submissions.length} / ${postIds.length} 篇文章的封面生成任务...`)
           }
         })
         const submittedCount = submissions.filter(({ result }) => result?.job_id || result?.id).length
