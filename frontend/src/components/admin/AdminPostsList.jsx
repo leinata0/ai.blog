@@ -123,6 +123,7 @@ export default function AdminPostsList({
     }
     await onRunBulkAction({ action, postIds: ids, value: bulkValue, skippedCount })
     setSelectedPostIds(new Set())
+    setBulkNotice('')
   }
 
   function handleApplyFilters() {

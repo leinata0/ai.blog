@@ -488,6 +488,7 @@ it('bulk-generates covers only for selected current-page posts missing covers', 
   expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(1)
   expect(adminApi.generateAdminPostCover).not.toHaveBeenCalledWith(2, expect.anything())
   expect(await screen.findByText('已提交 1 篇无封面文章的封面生成任务，跳过 1 篇已有封面的文章。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()
+  expect(screen.queryByText(/正在提交 \d+ 篇文章的封面生成任务/)).not.toBeInTheDocument()
 })
 
 it('bulk-generates current-page missing covers without requiring manual selection', async () => {
@@ -541,6 +542,7 @@ it('bulk-generates current-page missing covers without requiring manual selectio
   })
   expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(2)
   expect(await screen.findByText('已提交 2 篇无封面文章的封面生成任务。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()
+  expect(screen.queryByText(/正在提交 \d+ 篇文章的封面生成任务/)).not.toBeInTheDocument()
 })
 
 it('shows the underlying error when all selected cover submissions fail', async () => {
