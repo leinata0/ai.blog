@@ -53,6 +53,68 @@ test('quality gate passes for a sufficiently structured post', () => {
   assert.equal(result.passed, true)
 })
 
+test('quality gate validates inline source grounding when configured', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_md: buildArticle(formatProfile, [
+        'OpenAI 发布说明给出了事实背景。[S1]',
+        '独立博客补充了开发者影响，因此这个变化意味着入口竞争更激烈。[S2]',
+        '不同来源的取舍集中在速度、成本与组织风险。[S1] [S2]',
+        '论文背景说明能力迁移仍有工程落差。[S3]',
+        '我的判断是影响会先落在开发工具链。[S2]',
+      ]),
+    },
+    researchPack: {
+      sources: [
+        { source_id: 'S1', source_type: 'official_blog', url: 'https://openai.com/a' },
+        { source_id: 'S2', source_type: 'industry_media', url: 'https://example.com/b' },
+        { source_id: 'S3', source_type: 'paper', url: 'https://arxiv.org/abs/1' },
+      ],
+    },
+    formatProfile,
+    config: {
+      quality_gate: {
+        min_sources: 3,
+        min_high_quality_sources: 1,
+        high_quality_source_types: ['official_blog', 'paper'],
+        min_chars: 20,
+        max_banned_phrase_hits: 1,
+        min_analysis_signals: 1,
+        min_inline_citations: 4,
+        min_cited_sources: 3,
+        min_cited_domains: 3,
+        require_section_citations: true,
+      },
+    },
+  })
+
+  assert.equal(result.passed, true)
+  assert.equal(result.metrics.cited_source_count, 3)
+  assert.equal(result.metrics.cited_domain_count, 3)
+})
+
+test('quality gate rejects invalid citation markers', () => {
+  const result = evaluateQualityGate({
+    post: { content_md: buildArticle(formatProfile, ['事实来自未知来源。[S99]']) },
+    researchPack: { sources: [{ source_id: 'S1', source_type: 'official_blog', url: 'https://openai.com/a' }] },
+    formatProfile,
+    config: {
+      quality_gate: {
+        min_sources: 1,
+        min_high_quality_sources: 1,
+        high_quality_source_types: ['official_blog'],
+        min_chars: 1,
+        max_banned_phrase_hits: 1,
+        min_analysis_signals: 0,
+        min_inline_citations: 1,
+      },
+    },
+  })
+
+  assert.equal(result.passed, false)
+  assert.ok(result.reasons.some((reason) => reason.startsWith('invalid_citations:')))
+})
+
 test('quality gate rejects post with missing sections', () => {
   const result = evaluateQualityGate({
     post: { content_md: `${formatProfile.required_sections[0]}\n\n让我们拭目以待。` },

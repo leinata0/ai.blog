@@ -36,7 +36,7 @@ const FORMAT_PROFILES = {
       '## 三、不同来源怎么看',
       '## 四、如果结合论文/历史脉络，该怎么理解',
       '## 五、我的判断',
-      ...SHARED_TAIL_SECTIONS.slice(0, 2),
+      ...SHARED_TAIL_SECTIONS,
     ],
     required_sections: [
       '## 一、发生了什么',
@@ -45,7 +45,7 @@ const FORMAT_PROFILES = {
       '## 四、如果结合论文/历史脉络，该怎么理解',
       '## 五、我的判断',
     ],
-    required_tail_sections: [...SHARED_TAIL_SECTIONS.slice(0, 2)],
+    required_tail_sections: [...SHARED_TAIL_SECTIONS],
     title_rules: [
       '标题必须是中文，避免“日报”“速递”“周报”式新闻口吻。',
       '标题要体现核心判断或核心矛盾，不只是复述事件。',
@@ -83,7 +83,7 @@ const FORMAT_PROFILES = {
       '## 三、不同来源怎么看',
       '## 四、如果拉长到产品与行业节奏',
       '## 五、下周还要继续观察什么',
-      ...SHARED_TAIL_SECTIONS.slice(0, 2),
+      ...SHARED_TAIL_SECTIONS,
     ],
     required_sections: [
       '## 一、本周发生了什么',
@@ -92,7 +92,7 @@ const FORMAT_PROFILES = {
       '## 四、如果拉长到产品与行业节奏',
       '## 五、下周还要继续观察什么',
     ],
-    required_tail_sections: [...SHARED_TAIL_SECTIONS.slice(0, 2)],
+    required_tail_sections: [...SHARED_TAIL_SECTIONS],
     title_rules: [
       '标题必须体现一周内最重要的变化或判断，避免直接写成“第X周周报”。',
       '优先突出趋势、节奏变化或战略转向，不写成消息列表标题。',
@@ -139,7 +139,7 @@ FORMAT_PROFILES['weekly-review-v2'] = {
     '## 五、分歧与争议：不同来源最不一致的判断',
     '## 六、长周期视角：把这一周放回更长的产业脉络',
     '## 七、下周与下阶段：哪些变量最值得继续观察',
-    ...SHARED_TAIL_SECTIONS.slice(0, 2),
+    ...SHARED_TAIL_SECTIONS,
   ],
   required_sections: [
     '## 一、本周全景：AI 赛道发生了什么',
@@ -150,7 +150,7 @@ FORMAT_PROFILES['weekly-review-v2'] = {
     '## 六、长周期视角：把这一周放回更长的产业脉络',
     '## 七、下周与下阶段：哪些变量最值得继续观察',
   ],
-  required_tail_sections: [...SHARED_TAIL_SECTIONS.slice(0, 2)],
+  required_tail_sections: [...SHARED_TAIL_SECTIONS],
   title_rules: [
     '标题必须体现这一周最重要的战略变化，而不是日报式的单事件复述。',
     '标题优先突出趋势、转向、竞争格局或产业节奏，不直接写成“第X周周报”。',

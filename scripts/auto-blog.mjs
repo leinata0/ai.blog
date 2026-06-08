@@ -47,7 +47,7 @@ const DEFAULT_DAILY_REQUIRED_SECTIONS = [
   '## 这件事可能带来的影响',
 ]
 
-const DEFAULT_DAILY_TAIL_SECTIONS = ['## 参考来源', '## 图片来源']
+const DEFAULT_DAILY_TAIL_SECTIONS = ['## 参考来源', '## 图片来源', '## 一句话结论']
 
 const DAILY_STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'in', 'into', 'is',
@@ -92,6 +92,36 @@ function trimText(value, max = 800) {
 
 function normalizeWhitespace(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function normalizeUrlForLookup(value) {
+  try {
+    const url = new URL(String(value || '').trim())
+    url.hash = ''
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$|ref$|ref_src$)/i.test(key)) {
+        url.searchParams.delete(key)
+      }
+    }
+    url.hostname = url.hostname.toLowerCase()
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return String(value || '').trim().toLowerCase().replace(/\/$/, '')
+  }
+}
+
+function extractDomain(value) {
+  try {
+    return new URL(String(value || '').trim()).hostname.replace(/^www\./i, '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+function sourceFingerprint(item = {}) {
+  const url = normalizeUrlForLookup(item.url || item.source_url || '')
+  const title = normalizeWhitespace(item.title || '').toLowerCase()
+  return `${url}|${title}`
 }
 
 function removeBoilerplate(text) {
@@ -1027,27 +1057,84 @@ async function collectBaseMaterials(config, options = {}) {
 }
 
 function compactResearchItem(item) {
+  const domain = item.domain || extractDomain(item.url)
   return {
+    source_id: item.source_id || '',
     source_type: item.source_type,
     source_name: item.source_name,
     source_group: item.source_group,
     channel_bucket: item.channel_bucket,
+    domain,
     title: item.title,
     url: item.url,
     published_at: item.published_at,
     lang: item.lang,
     summary: trimText(item.summary || item.full_text, 260),
     score: item.score,
-    evidence_snippets: (item.evidence_snippets || []).slice(0, 2),
+    evidence_snippets: (item.evidence_snippets || []).slice(0, 3),
+    is_primary: Boolean(item.is_primary),
+  }
+}
+
+function buildEvidenceCard(item) {
+  return {
+    id: item.source_id,
+    title: item.title,
+    url: item.url,
+    domain: item.domain || extractDomain(item.url),
+    source_type: item.source_type,
+    source_name: item.source_name,
+    source_group: item.source_group,
+    channel_bucket: item.channel_bucket,
+    published_at: item.published_at,
+    summary: trimText(item.summary || item.full_text, 360),
+    evidence_snippets: (item.evidence_snippets || []).slice(0, 3),
+    reliability_score: Number(item.score || 0),
+    is_primary: Boolean(item.is_primary),
+  }
+}
+
+function attachSourceIds(items = []) {
+  const sources = dedupeResearchItems(items).map((item, index) => ({
+    ...item,
+    source_id: `S${index + 1}`,
+    domain: item.domain || extractDomain(item.url),
+  }))
+  const byFingerprint = new Map(sources.map((item) => [sourceFingerprint(item), item.source_id]))
+  const attach = (item) => ({
+    ...item,
+    source_id: byFingerprint.get(sourceFingerprint(item)) || '',
+    domain: item.domain || extractDomain(item.url),
+  })
+  return { sources, attach }
+}
+
+function buildSourceStats(sources = []) {
+  const uniqueDomains = [...new Set(sources.map((item) => item.domain || extractDomain(item.url)).filter(Boolean))]
+  const sourceTypeCounts = sources.reduce((counts, item) => {
+    const key = item.source_type || 'unknown'
+    counts[key] = (counts[key] || 0) + 1
+    return counts
+  }, {})
+  const sourceGroupCount = new Set(sources.map((item) => item.source_group || item.source_name).filter(Boolean)).size
+  const bucketCount = new Set(sources.map((item) => item.channel_bucket).filter(Boolean)).size
+  return {
+    total_sources: sources.length,
+    unique_domains: uniqueDomains.length,
+    domains: uniqueDomains.slice(0, 20),
+    source_type_counts: sourceTypeCounts,
+    source_group_count: sourceGroupCount,
+    bucket_count: bucketCount,
   }
 }
 
 function buildResearchPack({ baseItems, blogItems, paperItems }) {
-  const sources = dedupeResearchItems([
+  const { sources, attach } = attachSourceIds([
     ...(baseItems || []),
     ...(blogItems || []),
     ...(paperItems || []),
   ])
+  const sourceStats = buildSourceStats(sources)
 
   return {
     summary: {
@@ -1055,10 +1142,13 @@ function buildResearchPack({ baseItems, blogItems, paperItems }) {
       blogwatcher_count: blogItems.length,
       paper_count: paperItems.length,
       total_sources: sources.length,
+      unique_domains: sourceStats.unique_domains,
     },
-    base_items: baseItems.map(compactResearchItem),
-    blog_items: blogItems.map(compactResearchItem),
-    paper_items: paperItems.map(compactResearchItem),
+    source_stats: sourceStats,
+    evidence_cards: sources.map(buildEvidenceCard),
+    base_items: baseItems.map(attach).map(compactResearchItem),
+    blog_items: blogItems.map(attach).map(compactResearchItem),
+    paper_items: paperItems.map(attach).map(compactResearchItem),
     sources: sources.map(compactResearchItem),
   }
 }
@@ -1402,6 +1492,8 @@ async function generateArticle({ outline, researchPack, formatProfile, workflow,
     ...formatProfile.required_sections.map((section) => `- ${section}`),
     '- 暂时不要输出“参考来源”“图片来源”“一句话结论”三个尾部章节，这三部分由程序补齐。',
     '- 正文要区分事实与观点，至少做两处对比、影响或取舍分析。',
+    '- 正文中的关键事实、数据、产品发布、论文观点必须使用 researchPack.evidence_cards 里的来源编号标注，例如 [S1]、[S2]。',
+    '- 每个主要章节至少使用 1 个来源编号，全文至少使用 2 个不同来源编号；不要编造未提供的 [S99] 之类编号。',
     '- 如果 researchPack 中存在论文素材，必须解释论文与现实产品、新闻或工程实践的关系。',
     '- 禁止写成新闻罗列，禁止无来源结论。',
     '- 禁止让正文插图逻辑影响封面图内容。',
@@ -1445,10 +1537,12 @@ export function assessResearchPackSourceSupport({ researchPack, gateProfile }) {
   const sources = dedupeResearchItems(Array.isArray(researchPack?.sources) ? researchPack.sources : [])
   const minSources = Math.max(0, Number(gateProfile?.min_sources || 0))
   const minHighQualitySources = Math.max(0, Number(gateProfile?.min_high_quality_sources || 0))
+  const minDomains = Math.max(0, Number(gateProfile?.min_cited_domains || gateProfile?.min_unique_domains || 0))
   const highQualityTypes = new Set(
     Array.isArray(gateProfile?.high_quality_source_types) ? gateProfile.high_quality_source_types : []
   )
   const highQualitySources = sources.filter((item) => highQualityTypes.has(item?.source_type))
+  const uniqueDomains = new Set(sources.map((item) => item?.domain || extractDomain(item?.url)).filter(Boolean))
   const reasons = []
 
   if (sources.length < minSources) {
@@ -1457,6 +1551,9 @@ export function assessResearchPackSourceSupport({ researchPack, gateProfile }) {
   if (highQualitySources.length < minHighQualitySources) {
     reasons.push(`high_quality_sources:${highQualitySources.length}<${minHighQualitySources}`)
   }
+  if (minDomains > 0 && uniqueDomains.size < minDomains) {
+    reasons.push(`domains:${uniqueDomains.size}<${minDomains}`)
+  }
 
   return {
     passed: reasons.length === 0,
@@ -1464,7 +1561,32 @@ export function assessResearchPackSourceSupport({ researchPack, gateProfile }) {
     metrics: {
       source_count: sources.length,
       high_quality_source_count: highQualitySources.length,
+      unique_domain_count: uniqueDomains.size,
     },
+  }
+}
+
+async function runDailyArxivSupplement({ config, topic, maxPapers = null }) {
+  const keywords = [
+    ...(Array.isArray(topic?.keywords) ? topic.keywords : []),
+    topic?.candidate_title || topic?.title || '',
+    ...(Array.isArray(topic?.source_groups) ? topic.source_groups : []),
+  ].filter(Boolean)
+  if (keywords.length === 0) return []
+  try {
+    const papers = await runArxiv({
+      keywords,
+      maxPapers: maxPapers || Number(config.arxiv_max_papers || 2),
+      config,
+      mode: 'daily',
+    })
+    if (papers.length > 0) {
+      console.log(`Daily arXiv supplement for ${topic?.topic_key || topic?.candidate_title}: ${papers.length} paper(s).`)
+    }
+    return papers
+  } catch (error) {
+    console.warn(`Daily arXiv supplement skipped: ${error.message}`)
+    return []
   }
 }
 
@@ -1515,7 +1637,8 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         '- Provide section_briefs as an array. Each item must have heading, goal, key_points, source_focus, suggested_subheads.',
         '- weekly_axes must contain 3 to 4 major weekly themes.',
         '- Add 8 to 14 third-level subheadings distributed across the middle and later sections.',
-        '- key_sources must identify the sources that are truly central to the weekly argument.',
+        '- key_sources must identify the source IDs or URLs that are truly central to the weekly argument.',
+        '- section_briefs.source_focus should prefer concrete source IDs such as S1/S2 from evidence_cards.',
         '- image_sections can include at most 3 section headings.',
         '- cover_prompt is only for cover-image generation and must not mention inline images.',
       ].join('\n')
@@ -1529,7 +1652,8 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         '- section_briefs is optional but preferred; if present, include heading, goal, key_points, source_focus, suggested_subheads.',
         '- Add 2 to 4 third-level subheadings across the middle and later sections.',
         '- image_sections can include at most 3 section headings.',
-        '- key_sources must identify the sources most worth citing.',
+        '- key_sources must identify the source IDs or URLs most worth citing.',
+        '- section_briefs.source_focus should prefer concrete source IDs such as S1/S2 from evidence_cards.',
         '- cover_prompt is only for cover-image generation and must not mention inline images.',
       ].join('\n')
 
@@ -1594,6 +1718,8 @@ async function generateWeeklyReviewSection({
     'Use at least 4 substantial paragraphs.',
     `Include at least 2 explicit analytical turns, preferably using phrases such as ${markerHints}.`,
     'Where useful, add 1 to 3 third-level subheadings using Markdown ###.',
+    'Use source IDs from the research digest/evidence cards for factual claims, for example [S1] or [S2].',
+    'Use at least 1 source ID in this section, and never invent source IDs that are not present in the research pack.',
     'Do not output references, image sources, or a takeaway block.',
     'Do not repeat the whole article introduction in every section.',
     'Keep facts attributable and make analytical claims explicit.',
@@ -1686,6 +1812,7 @@ async function repairWeeklyReviewSection({
     `Expand this section so it approaches ${targetChars} Chinese characters on its own.`,
     'Preserve the current factual basis and thesis, but make the section deeper, broader, and more analytical.',
     `Use at least 4 substantial paragraphs and at least 2 explicit analytical turns, preferably using phrases such as ${markerHints}.`,
+    'Use provided source IDs such as [S1] for factual claims; do not invent source IDs.',
     'You may add 1 to 2 Markdown ### subheadings if they improve structure.',
     'Do not output references, image sources, or article-level conclusions.',
   ].join('\n')
@@ -1788,6 +1915,12 @@ function canRepairQualityGate(gate) {
     'analysis_signals:',
     'missing_sections:',
     'banned_phrases:',
+    'citations:',
+    'cited_sources:',
+    'cited_domains:',
+    'section_citations:',
+    'thin_sections:',
+    'repeated_lines:',
   ]
 
   return gate.reasons.length > 0
@@ -1840,6 +1973,8 @@ async function repairArticle({
     '- Every required section should contain at least 2 substantial paragraphs, and key sections may use 3-4 paragraphs.',
     `- Include at least ${minAnalysisSignals} explicit analytical turns using phrases such as ${(formatProfile.analysis_markers || []).slice(0, 8).join(' / ')}.`,
     '- Add comparison, impact, trade-off, cost, or implementation discussion instead of repeating facts.',
+    '- Use source IDs from the research pack, such as [S1] and [S2], for factual claims; never invent source IDs.',
+    '- If the gate failure mentions citations, add source-grounded citations to the affected sections instead of just expanding the text.',
     '- If any required section is thin, rewrite and expand it rather than adding filler.',
     sectionGuidance,
     '- Keep the tail sections absent; the program will append them.',
@@ -2041,10 +2176,41 @@ function truncateSummary(summary, max = 50) {
   return chars.length <= max ? chars.join('') : chars.slice(0, max).join('')
 }
 
-function buildReferencesSection(researchPack) {
+function extractSourceCitationIds(contentMd) {
+  const ids = new Set()
+  const regex = /\[(S\d+)\]/g
+  let match = regex.exec(String(contentMd || ''))
+  while (match) {
+    ids.add(match[1])
+    match = regex.exec(String(contentMd || ''))
+  }
+  return ids
+}
+
+function buildSourceMap(researchPack = {}) {
+  return new Map((researchPack.sources || [])
+    .filter((item) => item.source_id)
+    .map((item) => [item.source_id, item]))
+}
+
+function linkSourceCitations(contentMd, researchPack = {}) {
+  const sourceMap = buildSourceMap(researchPack)
+  return String(contentMd || '').replace(/\[(S\d+)\](?!\()/g, (full, id) => {
+    const source = sourceMap.get(id)
+    if (!source?.url) return full
+    return `[${id}](${source.url})`
+  })
+}
+
+function buildReferencesSection(researchPack, citedSourceIds = new Set()) {
   const lines = ['## 参考来源']
-  const sourceLines = (researchPack.sources || []).slice(0, 12).map((item) => {
-    const label = `${item.source_name} / ${item.source_type}`
+  const sourceMap = buildSourceMap(researchPack)
+  const citedSources = [...citedSourceIds]
+    .map((id) => sourceMap.get(id))
+    .filter(Boolean)
+  const sources = citedSources.length > 0 ? citedSources : (researchPack.sources || []).slice(0, 12)
+  const sourceLines = sources.slice(0, 12).map((item) => {
+    const label = `${item.source_id ? `${item.source_id} · ` : ''}${item.source_name} / ${item.source_type}`
     return `- [${item.title}](${item.url}) - ${label}${item.published_at ? ` - ${item.published_at}` : ''}`
   })
   return `${lines.join('\n')}\n\n${sourceLines.join('\n') || '- 无'}`
@@ -2060,7 +2226,7 @@ export function buildImageSourcesSection(imagePlans) {
 
 function buildTakeawaySection(post, outline) {
   const takeaway = normalizeWhitespace(post.takeaway || outline.thesis || post.summary || outline.topic)
-  return `## 一句话结论\n\n${takeaway}`
+  return `## 一句话结论\n\n> ${takeaway}`
 }
 
 function normalizeHeadingLabel(heading) {
@@ -2104,14 +2270,20 @@ export function insertImagesIntoContent(contentMd, imagePlans) {
 
 function finalizeArticle({ post, outline, researchPack, imagePlans, metadata = null }) {
   const mainContent = String(post.content_md || '').trim()
-  const withImages = insertImagesIntoContent(mainContent, imagePlans)
+  const linkedContent = linkSourceCitations(mainContent, researchPack)
+  const withImages = insertImagesIntoContent(linkedContent, imagePlans)
+  const citedSourceIds = extractSourceCitationIds(withImages)
   const sections = [
     withImages,
-    buildReferencesSection(researchPack),
+    buildReferencesSection(researchPack, citedSourceIds),
     buildImageSourcesSection(imagePlans),
-    buildTakeawayQuote(post, outline),
+    buildTakeawaySection(post, outline),
   ]
-  if (metadata) sections.push(buildMetadataComment(metadata))
+  if (metadata) sections.push(buildMetadataComment({
+    ...metadata,
+    cited_source_ids: [...citedSourceIds],
+    source_stats: researchPack.source_stats || null,
+  }))
   return sections.join('\n\n')
 }
 
@@ -2612,8 +2784,16 @@ async function runDailyMode(config, cliOptions) {
         lookbackHours: runtime.lookbackHours,
       })
       : []
-    const researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems: [] })
-    const support = assessResearchPackSourceSupport({ researchPack, gateProfile })
+    let paperItems = []
+    let researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems })
+    let support = assessResearchPackSourceSupport({ researchPack, gateProfile })
+    if (!support.passed && config.arxiv_enabled) {
+      paperItems = await runDailyArxivSupplement({ config, topic })
+      if (paperItems.length > 0) {
+        researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems })
+        support = assessResearchPackSourceSupport({ researchPack, gateProfile })
+      }
+    }
     if (!support.passed) {
       console.log(`Skipping topic ${topic.topic_key}: insufficient source support (${support.reasons.join(', ')})`)
       skippedTopics.push(createTopicSnapshot(topic, {
@@ -2624,6 +2804,8 @@ async function runDailyMode(config, cliOptions) {
       }))
       continue
     }
+
+    console.log(`Topic ${topic.topic_key} source support: sources=${support.metrics.source_count} domains=${support.metrics.unique_domain_count} high_quality=${support.metrics.high_quality_source_count}`)
 
     const outline = await chooseTopicDetailed({
       researchPack,
