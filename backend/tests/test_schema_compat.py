@@ -1,3 +1,6 @@
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import sessionmaker
+
 from app.schema_compat import (
     DEFAULT_SERIES_SEED,
     POST_QUALITY_REVIEW_COLUMNS,
@@ -52,3 +55,17 @@ def test_post_model_declares_public_read_indexes():
     assert "ix_posts_public_published_content_type_created_at" in index_names
     assert "ix_posts_public_published_topic_key_created_at" in index_names
     assert "ix_posts_public_published_series_slug_created_at" in index_names
+
+
+def test_image_generation_stale_cleanup_creates_missing_job_table():
+    from app.services import image_generation_jobs
+
+    engine = create_engine("sqlite:///:memory:")
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        assert "admin_image_generation_jobs" not in inspect(engine).get_table_names()
+        assert image_generation_jobs.mark_stale_running_failed(db) == 0
+        assert "admin_image_generation_jobs" in inspect(engine).get_table_names()
+    finally:
+        db.close()

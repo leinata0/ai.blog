@@ -120,6 +120,7 @@ def create_job(db: Session, *, job_type: str, target_id: int | None, body: Any) 
 
 
 def mark_stale_running_failed(db: Session, *, max_age_minutes: int = 60) -> int:
+    ensure_admin_image_generation_schema_compat(db.get_bind())
     cutoff = _now() - timedelta(minutes=max_age_minutes)
     running_jobs = db.execute(
         select(AdminImageGenerationJob)
