@@ -50,16 +50,13 @@ jobs:
       - name: 检查必要密钥
         env:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
           if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
-          if [ -z "$XAI_API_KEY" ]; then echo "::error::Missing XAI_API_KEY"; exit 1; fi
           echo "Secrets look good."
 
-      # 自动读取文章内容，生成提示词后调用 Grok 生图并回写封面
+      # 自动读取文章内容，生成提示词后调用管理端配置的生图 API 并回写封面
       - name: 生成封面图并更新文章
         env:
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
           SILICONFLOW_BASE_URL: ${{ vars.SILICONFLOW_BASE_URL }}
           SILICONFLOW_MODEL: ${{ vars.SILICONFLOW_MODEL }}
