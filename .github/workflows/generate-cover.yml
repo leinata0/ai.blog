@@ -57,9 +57,6 @@ jobs:
       # 自动读取文章内容，生成提示词后调用管理端配置的生图 API 并回写封面
       - name: 生成封面图并更新文章
         env:
-          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
-          SILICONFLOW_BASE_URL: ${{ vars.SILICONFLOW_BASE_URL }}
-          SILICONFLOW_MODEL: ${{ vars.SILICONFLOW_MODEL }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}

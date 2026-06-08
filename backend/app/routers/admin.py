@@ -47,6 +47,8 @@ from app.schemas import (
     AiProviderSourceOut,
     AiProviderSourceUpdateRequest,
     AiRuntimePlanOut,
+    AiTextGenerateRequest,
+    AiTextGenerateResponse,
     CoverGenerationStatusOut,
     CoverGenerateRequest,
     ContentHealthOut,
@@ -1866,6 +1868,33 @@ def get_ai_runtime_plan(
     _admin: str = Depends(get_current_admin),
 ):
     return ai_provider_manager.runtime_plan_public(db)
+
+
+@router.post("/ai-text/generate", response_model=AiTextGenerateResponse)
+def generate_admin_text(
+    body: AiTextGenerateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    try:
+        messages = [message.model_dump() for message in body.messages]
+        content = ai_channels.generate_text(
+            db,
+            messages,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+            json_mode=body.json_mode,
+        )
+        plan = ai_provider_manager.resolve_runtime_plan(db, ai_channels.TEXT_PURPOSE)
+        selected = plan[0] if plan else None
+        return {
+            "content": content,
+            "provider": selected.provider if selected else "",
+            "model": selected.model if selected else "",
+            "purpose": ai_channels.TEXT_PURPOSE,
+        }
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
 
 
 @router.post("/settings/generate-hero", response_model=AdminImageGenerationJobOut)

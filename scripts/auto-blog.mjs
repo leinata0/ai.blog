@@ -23,16 +23,12 @@ import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from '
 import { buildPostCoverPrompt } from './lib/cover-art.mjs'
 import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
 import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
+import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const SILICONFLOW_API_KEY = process.env.SILICONFLOW_API_KEY?.trim()
-const SILICONFLOW_BASE_URL = (
-  process.env.SILICONFLOW_BASE_URL?.trim() || 'https://api.siliconflow.cn/v1'
-).replace(/\/$/, '')
-const SILICONFLOW_MODEL = process.env.SILICONFLOW_MODEL?.trim() || 'deepseek-ai/DeepSeek-V3'
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
 const BLOG_API_BASE = resolveBlogApiBase()
@@ -42,6 +38,8 @@ const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   : resolve(__dirname, 'config', 'auto-blog.config.json')
 const DEFAULT_SERIES_RULES_PATH = resolve(__dirname, 'config', 'series-assignment.rules.json')
 const DEFAULT_TOPIC_PRESENTATION_RULES_PATH = resolve(__dirname, 'config', 'topic-presentation.rules.json')
+
+let adminTokenCache = ''
 
 const DEFAULT_DAILY_REQUIRED_SECTIONS = [
   '## 发生了什么',
@@ -1243,12 +1241,14 @@ function parseJsonFromLlm(raw) {
   return JSON.parse(text)
 }
 
-async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
-  if (!SILICONFLOW_API_KEY) {
-    throw new Error('Missing SILICONFLOW_API_KEY')
+async function getCachedAdminToken() {
+  if (!adminTokenCache) {
+    adminTokenCache = await getAdminToken()
   }
+  return adminTokenCache
+}
 
-  const url = `${SILICONFLOW_BASE_URL}/chat/completions`
+async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
@@ -1262,52 +1262,26 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
       await sleep(sec * 1000)
     }
 
-    let response = null
-    let errText = ''
     for (const jsonMode of [true, false]) {
-      const body = {
-        model: SILICONFLOW_MODEL,
-        messages,
-        temperature: 0.55,
-        top_p: 0.9,
-        max_tokens: maxTokens,
+      try {
+        const raw = await generateTextViaAdminApi({
+          blogApiBase: BLOG_API_BASE,
+          token: await getCachedAdminToken(),
+          messages,
+          maxTokens,
+          temperature: 0.55,
+          jsonMode,
+          timeoutMs: 180000,
+        })
+        try {
+          return parseJsonFromLlm(raw)
+        } catch {
+          lastError = `JSON parse failed: ${String(raw).slice(0, 200)}`
+        }
+      } catch (error) {
+        lastError = error?.message || 'admin text generation failed'
+        if (/401|403|Authentication/i.test(lastError)) throw error
       }
-      if (jsonMode) body.response_format = { type: 'json_object' }
-
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${SILICONFLOW_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(120000),
-      })
-      errText = await response.clone().text()
-      if (response.ok) break
-      if (jsonMode && response.status === 400) continue
-      break
-    }
-
-    if (!response.ok) {
-      lastError = errText
-      if (response.status === 401 || response.status === 403) {
-        throw new Error(`Authentication failed: ${response.status} ${errText.slice(0, 300)}`)
-      }
-      if (response.status === 429 || response.status >= 500) continue
-      throw new Error(`LLM API error: ${response.status} ${errText.slice(0, 400)}`)
-    }
-
-    const data = await response.json()
-    const raw = data.choices?.[0]?.message?.content
-    if (!raw) {
-      lastError = 'empty llm content'
-      continue
-    }
-    try {
-      return parseJsonFromLlm(raw)
-    } catch {
-      lastError = `JSON parse failed: ${String(raw).slice(0, 200)}`
     }
   }
 
@@ -2591,7 +2565,7 @@ async function runDailyMode(config, cliOptions) {
     publishedTopicKeys,
   })
 
-  const token = runtime.dryRun ? null : await getAdminToken()
+  const token = runtime.dryRun ? null : await getCachedAdminToken()
   const candidateTopics = clusteredTopics.map((topic) => createTopicSnapshot(topic, {
     content_type: workflow.content_type,
   }))
@@ -2854,7 +2828,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
 
   if (!cliOptions.dryRun && !cliOptions.force && (await checkSlugExists(slug))) {
     console.log(`Slug already exists: ${slug}`)
-    const token = await getAdminToken()
+    const token = await getCachedAdminToken()
     await reportPublishingRun(token, {
       workflow_key: 'weekly_review',
       external_run_id: process.env.GITHUB_RUN_ID || '',
@@ -2995,7 +2969,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
     }]
   }
 
-  const token = await getAdminToken()
+  const token = await getCachedAdminToken()
   const result = await publishPost(token, artifact.post)
   metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
   qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
@@ -3070,8 +3044,7 @@ async function main() {
   const cliOptions = parseCliArgs()
   const dryRun = cliOptions.dryRun
 
-  if (!SILICONFLOW_API_KEY) throw new Error('Missing SILICONFLOW_API_KEY')
-  if (!ADMIN_PASSWORD && !dryRun) throw new Error('Missing ADMIN_PASSWORD')
+  if (!ADMIN_PASSWORD) throw new Error('Missing ADMIN_PASSWORD')
 
   const config = await loadConfig()
   const mode = cliOptions.mode || config.default_mode || 'daily-auto'

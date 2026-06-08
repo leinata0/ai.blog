@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
+import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
 import {
   buildPostCoverPrompt,
   buildPromptContext,
@@ -17,9 +18,6 @@ export { buildPromptContext, extractHeadings, sanitizeCoverPrompt } from './lib/
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
-const SILICONFLOW_API_KEY = process.env.SILICONFLOW_API_KEY || ''
-const SILICONFLOW_BASE_URL = (process.env.SILICONFLOW_BASE_URL || 'https://api.siliconflow.cn/v1').replace(/\/$/, '')
-const SILICONFLOW_MODEL = process.env.SILICONFLOW_MODEL || 'deepseek-ai/DeepSeek-V3'
 const POST_ID = Number(process.env.POST_ID || 0)
 const MANUAL_COVER_PROMPT = String(process.env.COVER_PROMPT || '').trim()
 const OVERWRITE_EXISTING_COVER = String(process.env.OVERWRITE_EXISTING_COVER || 'false').toLowerCase() === 'true'
@@ -54,8 +52,7 @@ async function fetchAdminPost(postId, token) {
   return resp.json()
 }
 
-async function generatePromptWithSiliconFlow(post) {
-  if (!SILICONFLOW_API_KEY) return ''
+async function generatePromptWithConfiguredProvider(post, token) {
   const context = buildPromptContext(post)
   const system = [
     'You write one English hero-image prompt for an AI/tech blog article.',
@@ -74,35 +71,26 @@ async function generatePromptWithSiliconFlow(post) {
     'Generate one polished English image prompt that captures the article topic and tone.',
   ].join('\n')
 
-  const resp = await fetch(`${SILICONFLOW_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${SILICONFLOW_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: SILICONFLOW_MODEL,
-      temperature: 0.4,
+  try {
+    const text = await generateTextViaAdminApi({
+      blogApiBase: BLOG_API_BASE,
+      token,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-    }),
-    signal: AbortSignal.timeout(60000),
-  })
-
-  if (!resp.ok) {
-    console.warn(`SiliconFlow prompt generation failed: ${resp.status}`)
+      maxTokens: 512,
+      temperature: 0.4,
+    })
+    return sanitizeCoverPrompt(text)
+  } catch (error) {
+    console.warn(`Configured text prompt generation failed: ${error.message}`)
     return ''
   }
-
-  const data = await resp.json()
-  const text = data?.choices?.[0]?.message?.content || ''
-  return sanitizeCoverPrompt(text)
 }
 
-async function buildAutoCoverPrompt(post) {
-  const aiPrompt = await generatePromptWithSiliconFlow(post)
+async function buildAutoCoverPrompt(post, token) {
+  const aiPrompt = await generatePromptWithConfiguredProvider(post, token)
   if (aiPrompt) {
     return buildPostCoverPrompt(post, { manualPrompt: aiPrompt })
   }
@@ -139,7 +127,7 @@ async function main() {
     return
   }
 
-  const coverPrompt = MANUAL_COVER_PROMPT || await buildAutoCoverPrompt(post)
+  const coverPrompt = MANUAL_COVER_PROMPT || await buildAutoCoverPrompt(post, token)
   if (!coverPrompt) {
     throw new Error('Failed to build cover prompt')
   }
