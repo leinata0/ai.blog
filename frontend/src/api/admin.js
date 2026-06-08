@@ -72,9 +72,9 @@ function imageGenerationStillRunning(jobId, latest, errorCode = 'poll_timeout') 
   }
 }
 
-async function submitAdminImageGeneration(path, data = {}) {
+async function submitAdminImageGeneration(path, data = {}, requestOptions = {}) {
   try {
-    return await apiPost(path, data, { auth: true, timeout: ADMIN_IMAGE_GENERATION_SUBMIT_TIMEOUT_MS })
+    return await apiPost(path, data, { auth: true, timeout: ADMIN_IMAGE_GENERATION_SUBMIT_TIMEOUT_MS, ...requestOptions })
   } catch (error) {
     if (isAdminImageGenerationSubmitTimeout(error)) {
       return imageGenerationSubmitPossiblyRunning()
@@ -120,8 +120,8 @@ export async function waitForAdminImageGenerationJob(jobOrId, { intervalMs = 250
   return latest
 }
 
-export const generateAdminPostCover = (id, data = {}) =>
-  submitAdminImageGeneration(`/api/admin/posts/${id}/generate-cover`, data)
+export const generateAdminPostCover = (id, data = {}, requestOptions = {}) =>
+  submitAdminImageGeneration(`/api/admin/posts/${id}/generate-cover`, data, requestOptions)
 
 export async function adminUploadImage(file) {
   if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
