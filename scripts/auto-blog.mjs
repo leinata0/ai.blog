@@ -20,12 +20,9 @@ import {
   resolveFormatProfileName,
 } from './lib/blog-format.mjs'
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
-import {
-  buildPostCoverPrompt,
-  buildTopicCoverPrompt as buildUnifiedTopicCoverPrompt,
-  presetFramingHint,
-} from './lib/cover-art.mjs'
+import { buildPostCoverPrompt } from './lib/cover-art.mjs'
 import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
+import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -39,7 +36,6 @@ const SILICONFLOW_MODEL = process.env.SILICONFLOW_MODEL?.trim() || 'deepseek-ai/
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
 const BLOG_API_BASE = resolveBlogApiBase()
-const XAI_API_KEY = process.env.XAI_API_KEY?.trim() || ''
 const VERCEL_DEPLOY_HOOK_URL = process.env.VERCEL_DEPLOY_HOOK_URL?.trim() || ''
 const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)
@@ -1403,7 +1399,7 @@ async function chooseTopic({ researchPack, formatProfile, today }) {
     '- image_sections 最多 3 个，只能从 outline 里挑。',
     '- thesis 是一句明确判断，不是摘要。',
     '- key_sources 用标题或 URL 标识真正重要的来源。',
-    '- cover_prompt 只用于 Grok 封面图，不要提及正文插图。',
+    '- cover_prompt 只用于封面图生成，不要提及正文插图。',
   ].join('\n')
 
   const user = [
@@ -1547,7 +1543,7 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         '- Add 8 to 14 third-level subheadings distributed across the middle and later sections.',
         '- key_sources must identify the sources that are truly central to the weekly argument.',
         '- image_sections can include at most 3 section headings.',
-        '- cover_prompt is only for Grok cover-image generation and must not mention inline images.',
+        '- cover_prompt is only for cover-image generation and must not mention inline images.',
       ].join('\n')
     : [
         'You are planning a Chinese AI daily brief with one clear thesis.',
@@ -1560,7 +1556,7 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         '- Add 2 to 4 third-level subheadings across the middle and later sections.',
         '- image_sections can include at most 3 section headings.',
         '- key_sources must identify the sources most worth citing.',
-        '- cover_prompt is only for Grok cover-image generation and must not mention inline images.',
+        '- cover_prompt is only for cover-image generation and must not mention inline images.',
       ].join('\n')
 
   const user = [
@@ -2007,50 +2003,28 @@ async function downloadAndUploadImageResult(imageUrl, token) {
   }
 }
 
-async function generateCoverWithGrok(prompt, token, preset = 'post_cover') {
-  if (!XAI_API_KEY) {
-    return buildCoverGenerationResult({
-      ok: false,
-      errorCode: 'missing_env',
-      error: 'Missing XAI_API_KEY.',
-    })
-  }
+async function generatePostCoverWithAdminApi(postId, prompt, token) {
   try {
-    const resp = await fetch('https://api.x.ai/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${XAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'grok-imagine-image',
-        prompt: `${presetFramingHint(preset)}: ${prompt}`,
-        n: 1,
-      }),
-      signal: AbortSignal.timeout(60000),
+    const job = await generatePostCoverViaAdminJob({
+      blogApiBase: BLOG_API_BASE,
+      token,
+      postId,
+      prompt,
+      overwrite: false,
     })
-    if (!resp.ok) {
-      return buildCoverGenerationResult({
-        ok: false,
-        errorCode: 'generation_failed',
-        error: `Grok generation failed: HTTP ${resp.status}`,
-      })
-    }
-    const data = await resp.json()
-    const grokUrl = data.data?.[0]?.url
-    if (!grokUrl) {
-      return buildCoverGenerationResult({
-        ok: false,
-        errorCode: 'generation_failed',
-        error: 'Grok returned no image URL.',
-      })
-    }
-    return downloadAndUploadImageResult(grokUrl, token)
+    const imageUrl = imageGenerationJobImageUrl(job)
+    return buildCoverGenerationResult({
+      ok: imageGenerationJobSucceeded(job),
+      imageUrl,
+      errorCode: job.error_code || (imageUrl ? '' : 'generation_failed'),
+      error: job.error || (imageUrl ? '' : '生图任务未返回可用图片地址。'),
+      sourceUrl: `admin-image-generation-job:${job.job_id || job.id || ''}`,
+    })
   } catch (error) {
     return buildCoverGenerationResult({
       ok: false,
       errorCode: 'generation_failed',
-      error: error?.message || 'Grok generation failed unexpectedly.',
+      error: error?.message || '管理端生图任务提交失败。',
     })
   }
 }
@@ -2207,7 +2181,7 @@ function normalizeForApi(post, fixedSlug, outline, metadata = {}) {
   }
 }
 
-async function publishPost(token, payload, coverImage = '') {
+async function publishPost(token, payload, coverImage = null) {
   const requestBody = {
     title: payload.title,
     slug: payload.slug,
@@ -2220,7 +2194,9 @@ async function publishPost(token, payload, coverImage = '') {
     tags: payload.tags,
     is_published: true,
     is_pinned: false,
-    cover_image: coverImage,
+  }
+  if (coverImage !== null && coverImage !== undefined) {
+    requestBody.cover_image = coverImage
   }
 
   const existingPost = await fetchExistingPost(payload.slug)
@@ -2457,86 +2433,10 @@ async function upsertTopicMetadata(token, payload) {
   throw new Error(`Topic metadata endpoint unavailable (${failures.join('; ')})`)
 }
 
-async function fetchExistingTopicMetadata(token, postId) {
-  const candidates = [
-    `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-metadata`,
-    `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-profile`,
-  ]
-  for (const url of candidates) {
-    const resp = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-    if (resp.ok) {
-      const data = await resp.json()
-      if (data?.topic_metadata) return data.topic_metadata
-      return data || {}
-    }
-    if (resp.status === 404 || resp.status === 405) continue
-  }
-  return null
-}
-
-function buildTopicCoverPrompt(payload, post = {}) {
-  const topicMetadata = payload?.topic_metadata || {}
-  const zhTitle = String(topicMetadata.topic_zh_title || '').trim()
-  const zhSubtitle = String(topicMetadata.topic_zh_subtitle || '').trim()
-  const thesis = String(topicMetadata.primary_thesis || '').trim()
-  const topicTitle = String(topicMetadata.topic_title || post?.title || '').trim()
-  const family = String(topicMetadata.topic_family || '').trim()
-  return buildUnifiedTopicCoverPrompt(
-    {
-      title: zhTitle || topicTitle,
-      topic_key: String(payload?.topic_metadata?.topic_key || post?.topic_key || topicTitle || '').trim(),
-      description: [zhSubtitle, thesis].filter(Boolean).join(' '),
-    },
-    {
-      title: String(post?.title || '').trim(),
-      summary: String(post?.summary || '').trim(),
-    },
-    {
-      manualPrompt: family ? `Theme family: ${family}.` : '',
-    },
-  )
-}
-
-async function enrichTopicMetadataCoverIfNeeded(token, payload, context = {}) {
-  const postId = Number(payload?.post_id)
-  if (!Number.isFinite(postId) || !XAI_API_KEY) return payload
-  const post = context?.post || {}
-  const postCoverImage = String(post?.cover_image || '').trim()
-  const existingCover = String(payload?.topic_metadata?.topic_cover_image || '').trim()
-  if (existingCover || postCoverImage) return payload
-
-  const existingProfile = await fetchExistingTopicMetadata(token, postId)
-  if (existingProfile) return payload
-
-  try {
-    const prompt = buildTopicCoverPrompt(payload, post)
-    const topicCoverResult = await generateCoverWithGrok(prompt, token, 'topic_cover')
-    if (!topicCoverResult.ok || !topicCoverResult.imageUrl) {
-      logCoverGenerationResult(`Topic cover for post ${postId}`, topicCoverResult)
-      return payload
-    }
-    return {
-      ...payload,
-      topic_metadata: {
-        ...(payload.topic_metadata || {}),
-        topic_cover_image: topicCoverResult.imageUrl,
-      },
-    }
-  } catch (error) {
-    console.warn(`Failed to generate topic cover image: ${error.message}`)
-    return payload
-  }
-}
-
-async function bridgeTopicMetadata(token, payload, context = {}) {
+async function bridgeTopicMetadata(token, payload) {
   if (!token || !payload) return null
   try {
-    const payloadWithCover = await enrichTopicMetadataCoverIfNeeded(token, payload, context)
-    return await upsertTopicMetadata(token, payloadWithCover)
+    return await upsertTopicMetadata(token, payload)
   } catch (error) {
     console.warn(`Failed to bridge topic metadata: ${error.message}`)
     return null
@@ -2806,14 +2706,6 @@ async function runDailyMode(config, cliOptions) {
       continue
     }
 
-    let coverImage = ''
-    if (XAI_API_KEY && token && artifact.outline.cover_prompt) {
-      console.log(`Generating Grok cover image for ${slug}...`)
-      const coverResult = await generateCoverWithGrok(artifact.outline.cover_prompt, token, 'post_cover')
-      logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
-      coverImage = coverResult.ok ? coverResult.imageUrl : ''
-    }
-
     const bridgeWorkflowKey = runtime.mode.replace('-', '_')
     const metadataBridgePayload = buildPublishingMetadataBridgePayload({
       postId: null,
@@ -2861,7 +2753,7 @@ async function runDailyMode(config, cliOptions) {
     if (runtime.dryRun) {
       results.push({
         ...artifact,
-        cover_image: coverImage || null,
+        cover_image: null,
         publishing_metadata: metadataBridgePayload,
         quality_snapshot: qualitySnapshotPayload,
         topic_metadata: topicMetadataPayload,
@@ -2869,17 +2761,28 @@ async function runDailyMode(config, cliOptions) {
       continue
     }
 
-    const result = await publishPost(token, artifact.post, coverImage)
+    const result = await publishPost(token, artifact.post)
     metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
     qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
     topicMetadataPayload.post_id = metadataBridgePayload.post_id
+
+    let coverImage = ''
+    if (metadataBridgePayload.post_id && artifact.outline.cover_prompt) {
+      console.log(`Requesting configured cover generation for ${slug}...`)
+      const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, artifact.outline.cover_prompt, token)
+      logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
+      coverImage = coverResult.ok ? coverResult.imageUrl : ''
+    }
+
     await bridgePublishingMetadata(token, metadataBridgePayload)
     await bridgeQualitySnapshot(token, qualitySnapshotPayload)
-    await bridgeTopicMetadata(token, topicMetadataPayload, { post: artifact.post })
+    await bridgeTopicMetadata(token, topicMetadataPayload)
     console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
     results.push({
       ...artifact,
       result,
+      cover_image: coverImage || null,
+      post: coverImage ? { ...artifact.post, cover_image: coverImage } : artifact.post,
       publishing_metadata: metadataBridgePayload,
       quality_snapshot: qualitySnapshotPayload,
       topic_metadata: topicMetadataPayload,
@@ -3093,20 +2996,22 @@ async function runWeeklyReviewMode(config, cliOptions) {
   }
 
   const token = await getAdminToken()
-  let coverImage = ''
-  if (XAI_API_KEY && token && outline.cover_prompt) {
-    console.log('Generating Grok cover image...')
-    const coverResult = await generateCoverWithGrok(outline.cover_prompt, token, 'post_cover')
-    logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
-    coverImage = coverResult.ok ? coverResult.imageUrl : ''
-  }
-  const result = await publishPost(token, artifact.post, coverImage)
+  const result = await publishPost(token, artifact.post)
   metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
   qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
   topicMetadataPayload.post_id = metadataBridgePayload.post_id
+
+  let coverImage = ''
+  if (metadataBridgePayload.post_id && outline.cover_prompt) {
+    console.log('Requesting configured cover generation...')
+    const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, outline.cover_prompt, token)
+    logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
+    coverImage = coverResult.ok ? coverResult.imageUrl : ''
+  }
+
   await bridgePublishingMetadata(token, metadataBridgePayload)
   await bridgeQualitySnapshot(token, qualitySnapshotPayload)
-  await bridgeTopicMetadata(token, topicMetadataPayload, { post: artifact.post })
+  await bridgeTopicMetadata(token, topicMetadataPayload)
   console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
   await reportPublishingRun(token, {
     workflow_key: 'weekly_review',
@@ -3150,6 +3055,8 @@ async function runWeeklyReviewMode(config, cliOptions) {
   return [{
     ...artifact,
     result,
+    cover_image: coverImage || null,
+    post: coverImage ? { ...artifact.post, cover_image: coverImage } : artifact.post,
     publishing_metadata: metadataBridgePayload,
     quality_snapshot: qualitySnapshotPayload,
     topic_metadata: topicMetadataPayload,

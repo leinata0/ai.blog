@@ -4,11 +4,11 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
 import {
   buildPostCoverPrompt,
   buildPromptContext,
   extractHeadings,
-  presetFramingHint,
   sanitizeCoverPrompt,
 } from './lib/cover-art.mjs'
 
@@ -17,7 +17,6 @@ export { buildPromptContext, extractHeadings, sanitizeCoverPrompt } from './lib/
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
-const XAI_API_KEY = process.env.XAI_API_KEY || ''
 const SILICONFLOW_API_KEY = process.env.SILICONFLOW_API_KEY || ''
 const SILICONFLOW_BASE_URL = (process.env.SILICONFLOW_BASE_URL || 'https://api.siliconflow.cn/v1').replace(/\/$/, '')
 const SILICONFLOW_MODEL = process.env.SILICONFLOW_MODEL || 'deepseek-ai/DeepSeek-V3'
@@ -110,91 +109,18 @@ async function buildAutoCoverPrompt(post) {
   return buildHeuristicCoverPrompt(post)
 }
 
-async function downloadAndUploadImage(imageUrl, token) {
-  const imageResp = await fetch(imageUrl, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CodexCoverBot/1.0)' },
-    signal: AbortSignal.timeout(30000),
+async function generateCoverWithConfiguredProvider(postId, prompt, token) {
+  const job = await generatePostCoverViaAdminJob({
+    blogApiBase: BLOG_API_BASE,
+    token,
+    postId,
+    prompt,
+    overwrite: OVERWRITE_EXISTING_COVER,
   })
-  if (!imageResp.ok) {
-    throw new Error(`Failed to download generated image: ${imageResp.status}`)
+  if (!imageGenerationJobSucceeded(job)) {
+    throw new Error(job.error || `Cover generation job failed: ${job.error_code || job.status || 'unknown_error'}`)
   }
-
-  const contentType = imageResp.headers.get('content-type') || 'image/png'
-  const ext = contentType.includes('png')
-    ? '.png'
-    : contentType.includes('webp')
-      ? '.webp'
-      : '.jpg'
-  const buffer = Buffer.from(await imageResp.arrayBuffer())
-  const filename = `manual-cover-${Date.now()}${ext}`
-  const boundary = `----FormBoundary${Date.now()}`
-  const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`
-  const footer = `\r\n--${boundary}--\r\n`
-  const body = Buffer.concat([Buffer.from(header), buffer, Buffer.from(footer)])
-
-  const uploadResp = await fetch(`${BLOG_API_BASE}/api/admin/upload`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-    },
-    body,
-    signal: AbortSignal.timeout(30000),
-  })
-
-  if (!uploadResp.ok) {
-    throw new Error(`Upload failed: ${uploadResp.status} ${(await uploadResp.text()).slice(0, 300)}`)
-  }
-
-  const uploadData = await uploadResp.json()
-  return uploadData.url?.startsWith('http') ? uploadData.url : `${BLOG_API_BASE}${uploadData.url}`
-}
-
-async function generateCoverWithGrok(prompt, token) {
-  if (!XAI_API_KEY) {
-    throw new Error('Missing XAI_API_KEY')
-  }
-
-  const resp = await fetch('https://api.x.ai/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${XAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'grok-imagine-image',
-      prompt: `${presetFramingHint('post_cover')}: ${prompt}`,
-      n: 1,
-    }),
-    signal: AbortSignal.timeout(60000),
-  })
-
-  if (!resp.ok) {
-    throw new Error(`Grok generation failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-
-  const grokUrl = (await resp.json()).data?.[0]?.url
-  if (!grokUrl) {
-    throw new Error('Grok returned no image URL')
-  }
-
-  return downloadAndUploadImage(grokUrl, token)
-}
-
-async function updatePostCover(postId, coverImage, token) {
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${postId}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ cover_image: coverImage }),
-    signal: AbortSignal.timeout(30000),
-  })
-  if (!resp.ok) {
-    throw new Error(`Update failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-  return resp.json()
+  return imageGenerationJobImageUrl(job)
 }
 
 async function main() {
@@ -219,11 +145,8 @@ async function main() {
   }
   console.log(`Using cover prompt: ${coverPrompt}`)
 
-  const coverImage = await generateCoverWithGrok(coverPrompt, token)
-  console.log(`Cover uploaded: ${coverImage}`)
-
-  const updated = await updatePostCover(POST_ID, coverImage, token)
-  console.log(`Cover updated for post ${updated.id}: ${updated.slug}`)
+  const coverImage = await generateCoverWithConfiguredProvider(POST_ID, coverPrompt, token)
+  console.log(`Cover generated and updated via configured provider: ${coverImage}`)
 }
 
 const isMainModule = process.argv[1] ? resolve(process.argv[1]) === fileURLToPath(import.meta.url) : false
