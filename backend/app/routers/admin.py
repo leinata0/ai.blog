@@ -363,7 +363,6 @@ def _enqueue_image_generation_job(
     target_id: int | None,
     body,
 ) -> dict:
-    image_generation_jobs.mark_stale_running_failed(db)
     job = image_generation_jobs.create_job(db, job_type=job_type, target_id=target_id, body=body)
     _IMAGE_GENERATION_JOB_POOL.submit(image_generation_jobs.run_job, job.id, executor=_IMAGE_GENERATION_EXECUTOR)
     return image_generation_jobs.job_to_dict(job)
