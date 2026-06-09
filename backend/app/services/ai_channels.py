@@ -18,6 +18,8 @@ from app.models import AiChannelConfig
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_TEXT_GENERATION_TIMEOUT_SECONDS = 180
+
 IMAGE_PURPOSE = "image_generation"
 TEXT_PURPOSE = "text_generation"
 VALID_PURPOSES = {IMAGE_PURPOSE, TEXT_PURPOSE}
@@ -790,7 +792,7 @@ def _generate_text_openai(
                     }.items()
                     if value is not None
                 },
-                timeout=60,
+                timeout=DEFAULT_TEXT_GENERATION_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
             data = response.json()
@@ -801,6 +803,8 @@ def _generate_text_openai(
             return str(content)
         except httpx.HTTPStatusError as exc:
             last_error = AiChannelError("generation_failed", f"生文字请求失败，HTTP {exc.response.status_code}。")
+        except httpx.TimeoutException:
+            last_error = AiChannelError("generation_timeout", f"生文字请求超过 {DEFAULT_TEXT_GENERATION_TIMEOUT_SECONDS} 秒未完成。")
         except httpx.HTTPError:
             last_error = AiChannelError("generation_failed", "生文字请求失败，请稍后重试。")
         except ValueError:
@@ -852,12 +856,14 @@ def _generate_text_anthropic(
                 "Content-Type": "application/json",
             },
             json=body,
-            timeout=60,
+            timeout=DEFAULT_TEXT_GENERATION_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         data = response.json()
     except httpx.HTTPStatusError as exc:
         raise AiChannelError("generation_failed", f"生文字请求失败，HTTP {exc.response.status_code}。") from exc
+    except httpx.TimeoutException as exc:
+        raise AiChannelError("generation_timeout", f"生文字请求超过 {DEFAULT_TEXT_GENERATION_TIMEOUT_SECONDS} 秒未完成。") from exc
     except httpx.HTTPError as exc:
         raise AiChannelError("generation_failed", "生文字请求失败，请稍后重试。") from exc
 

@@ -1374,7 +1374,7 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
           maxTokens: maxTokensForAttempt,
           temperature: 0.55,
           jsonMode,
-          timeoutMs: 180000,
+          timeoutMs: 240000,
         })
         try {
           return parseJsonFromLlm(raw)
