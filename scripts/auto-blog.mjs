@@ -1940,6 +1940,80 @@ function canRepairQualityGate(gate) {
     && gate.reasons.every((reason) => repairablePrefixes.some((prefix) => reason.startsWith(prefix)))
 }
 
+export function normalizeArticleCoverPromptResult(result = {}) {
+  const prompt = String(result?.prompt || result?.image_prompt || result?.cover_prompt || '').trim()
+  if (prompt.length < 40) return ''
+
+  const avoidItems = Array.isArray(result?.avoid)
+    ? result.avoid.map((item) => String(item || '').trim()).filter(Boolean)
+    : String(result?.avoid || '').split(/[,;，；]/).map((item) => item.trim()).filter(Boolean)
+  const avoidClause = avoidItems.length > 0 ? ` Avoid ${avoidItems.slice(0, 8).join(', ')}.` : ''
+  return `${prompt.replace(/\s+/g, ' ')}${avoidClause}`.trim()
+}
+
+async function generateArticleCoverPrompt({ post, outline, researchPack, workflow, today }) {
+  const system = [
+    'You are an art director for a Chinese AI/technology editorial blog.',
+    'Your job is to create one differentiated image-generation prompt for the article cover.',
+    'Return only JSON with keys: visual_metaphor, scene, style, palette, composition, avoid, prompt.',
+    'The prompt field must be a complete English-first image prompt suitable for an image generation API.',
+    'Choose a visual language that fits this specific article, not a generic AI poster.',
+    'Vary the medium when appropriate: documentary editorial photography, minimal infographic, paper-cut editorial illustration, isometric product metaphor, archival newsroom collage, lab still life, architectural metaphor, or restrained 3D object study.',
+    'Do not request readable text, title typography, logos, UI screenshots, code editors, human faces, hands, robot mascots, or clutter.',
+    'Avoid generic glowing AI brain, blue-purple cyberpunk, humanoid robot, floating holographic dashboard, and circuit-board clichés unless the article specifically requires them.',
+    'Respect a wide landscape website cover composition with a calmer lower area for overlay text.',
+  ].join('\n')
+
+  const user = [
+    `Date: ${today}`,
+    `Workflow: ${workflow?.slug || ''}`,
+    '',
+    'Article:',
+    stringifyPromptPayload({
+      title: post?.title,
+      summary: post?.summary,
+      tags: post?.tags,
+      topic_key: post?.topic_key,
+      content_type: post?.content_type,
+      content_preview: smartTruncate(post?.content_md || '', 4000),
+    }, 6000),
+    '',
+    'Outline cover idea:',
+    String(outline?.cover_prompt || '').trim(),
+    '',
+    'Research/evidence context:',
+    stringifyPromptPayload({
+      topic: outline?.topic,
+      thesis: outline?.thesis,
+      key_sources: outline?.key_sources,
+      evidence_cards: Array.isArray(researchPack?.evidence_cards) ? researchPack.evidence_cards.slice(0, 8) : [],
+      sources: Array.isArray(researchPack?.sources) ? researchPack.sources.slice(0, 8).map((item) => ({
+        title: item.title,
+        source_name: item.source_name,
+        source_type: item.source_type,
+        summary: item.summary,
+      })) : [],
+    }, 10000),
+  ].join('\n')
+
+  return callLLM(system, user, 2048)
+}
+
+async function generateArticleCoverPromptSafe(args) {
+  try {
+    const result = await generateArticleCoverPrompt(args)
+    const prompt = normalizeArticleCoverPromptResult(result)
+    if (prompt) {
+      console.log(`Generated refined cover prompt: ${prompt.slice(0, 180)}`)
+      return prompt
+    }
+    console.warn('Refined cover prompt was empty; falling back to outline cover prompt.')
+  } catch (error) {
+    console.warn(`Refined cover prompt generation skipped: ${error.message}`)
+  }
+  return ''
+}
+
 async function repairArticle({
   post,
   outline,
@@ -2709,10 +2783,17 @@ async function buildPublishablePost({
   }
 
   const normalizedPost = normalizeForApi(postForGate, fixedSlug, outline, metadata)
+  const refinedCoverPrompt = await generateArticleCoverPromptSafe({
+    post: normalizedPost,
+    outline,
+    researchPack,
+    workflow: workflowProfile,
+    today,
+  })
   const normalizedOutline = {
     ...outline,
     cover_prompt: buildPostCoverPrompt(normalizedPost, {
-      manualPrompt: String(outline?.cover_prompt || '').trim(),
+      manualPrompt: refinedCoverPrompt || String(outline?.cover_prompt || '').trim(),
     }),
   }
 

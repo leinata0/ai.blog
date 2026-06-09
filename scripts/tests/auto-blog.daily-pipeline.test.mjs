@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildLLMMaxTokenAttempts,
+  normalizeArticleCoverPromptResult,
   assessResearchPackSourceSupport,
   buildTopicKey,
   clusterResearchItemsByTopic,
@@ -12,6 +13,16 @@ import {
   pickPostCountForRun,
   selectTopicsForPublishing,
 } from '../auto-blog.mjs'
+
+test('normalizeArticleCoverPromptResult appends avoid guidance', () => {
+  const prompt = normalizeArticleCoverPromptResult({
+    prompt: 'Documentary editorial photograph of a quiet insurance operations room, paper claims folders and a single illuminated risk map, warm neutral palette, wide website cover composition.',
+    avoid: ['generic glowing AI brain', 'blue-purple cyberpunk', 'humanoid robot'],
+  })
+
+  assert.match(prompt, /Documentary editorial photograph/)
+  assert.match(prompt, /Avoid generic glowing AI brain, blue-purple cyberpunk, humanoid robot\./)
+})
 
 test('callLLM max token attempts fall back under common provider limits', () => {
   assert.deepEqual(buildLLMMaxTokenAttempts(16384), [16384, 8192, 4096, 3072])
