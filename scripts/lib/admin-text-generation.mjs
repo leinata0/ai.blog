@@ -1,4 +1,4 @@
-const DEFAULT_TEXT_GENERATION_TIMEOUT_MS = 180000
+const DEFAULT_TEXT_GENERATION_TIMEOUT_MS = 240000
 
 function trimBaseUrl(value) {
   return String(value || '').trim().replace(/\/$/, '')
