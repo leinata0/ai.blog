@@ -72,6 +72,25 @@ const FORMAT_PROFILES = {
       '避免新闻罗列和套话总结。',
       '段落要饱满，每段保持完整论述而不是短句拼接。',
     ],
+    section_rules: [
+      '每个主章节都必须承担不同编辑任务：事实说明、重要性判断、来源分歧、历史/论文脉络、个人判断不能互相重复。',
+      '至少 2-3 个正文章节应包含 Markdown 三级标题（###），用来拆分关键论点，而不是机械罗列新闻。',
+      '每个章节至少包含 2 个饱满段落；短句列表只能辅助说明，不能替代论证。',
+    ],
+    evidence_rules: [
+      '正文中的关键事实必须能回到来源编号，例如 [S1]、[S2]，不要编造未提供的来源编号。',
+      '官方来源优先用于产品事实，独立博客/媒体优先用于解释外部视角，论文只在能解释机制或长期脉络时使用。',
+      '引用来源时要说明它支撑了什么判断，避免只在文末堆链接。',
+    ],
+    analysis_rules: [
+      '至少包含一个技术或商业取舍、一个利益相关方影响、一个二阶后果。',
+      '必须写出一个反方观点、不确定性，或“如果这个判断错了，可能错在哪里”。',
+      '分析词不能集中在单个章节；多个章节都要有明确的因果、比较或边界判断。',
+    ],
+    repair_rules: [
+      '如果某节过短，优先补充证据、反例、取舍和影响链，而不是重复摘要。',
+      '如果引用不足，补正文中的来源支撑，不要只在参考来源区增加链接。',
+    ],
     banned_phrases: [...SHARED_BANNED_PHRASES],
     analysis_markers: [...SHARED_ANALYSIS_MARKERS],
   },
@@ -177,6 +196,26 @@ FORMAT_PROFILES['weekly-review-v2'] = {
     '必须显式写出竞争格局、资源投入、技术取舍、产品节奏或政策影响中的多项分析。',
     '结尾要落到下周和下一阶段的观察变量，而不是空泛总结。',
   ],
+  section_rules: [
+    '七个正文章节必须按顺序服务于全景、三条主线、分歧、长周期和观察变量，不能写成来源摘要拼接。',
+    '每个主线章节至少要连接另外一条主线，说明模型、基础设施、资本/组织/政策之间的相互作用。',
+    '“分歧与争议”必须解释不同来源为什么判断不一致，而不是只写“有人支持、有人反对”。',
+    '“长周期视角”必须连接产业节奏、工程约束、商业模式或政策周期。',
+  ],
+  evidence_rules: [
+    '周报必须交叉使用官方博客、独立技术博客、行业媒体和必要论文，避免单一来源叙事。',
+    '每条主线都要绑定多个来源编号，并说明这些来源提供事实、解释还是反方视角。',
+    '论文和研究材料只在能解释现实产品、工程或产业变化时使用。',
+  ],
+  analysis_rules: [
+    '必须写出三条主线之间的共同驱动力、互相牵制和潜在冲突。',
+    '至少包含竞争格局、资源投入、技术取舍、产品节奏、政策影响中的三类分析。',
+    '最后一节必须给出可观察变量，例如发布时间、成本曲线、开源许可证、监管动作、用户迁移或开发者采用。',
+  ],
+  repair_rules: [
+    '如果周报退化成新闻列表，优先重建主线之间的因果关系。',
+    '如果某节过短，补充跨来源比较、分歧原因和下阶段变量，而不是重复事实。',
+  ],
   banned_phrases: [...SHARED_BANNED_PHRASES],
   analysis_markers: [
     ...SHARED_ANALYSIS_MARKERS,
@@ -222,6 +261,18 @@ export function getBlogFormatProfile(profileName = 'tech-editorial-v1') {
 }
 
 export function buildFormatPrompt(profile) {
+  const optionalGroups = [
+    ['## 章节结构规则', profile.section_rules],
+    ['## 证据使用规则', profile.evidence_rules],
+    ['## 分析深度规则', profile.analysis_rules],
+    ['## 修订规则', profile.repair_rules],
+  ]
+  const optionalLines = optionalGroups.flatMap(([title, rules]) => (
+    Array.isArray(rules) && rules.length > 0
+      ? ['', title, ...rules.map((rule) => `- ${rule}`)]
+      : []
+  ))
+
   return [
     '# 博客格式规范',
     `格式模板：${profile.name}`,
@@ -244,6 +295,7 @@ export function buildFormatPrompt(profile) {
     '',
     '## 文风规则',
     ...profile.style_rules.map((rule) => `- ${rule}`),
+    ...optionalLines,
     '',
     '## 禁用套话',
     ...profile.banned_phrases.map((phrase) => `- ${phrase}`),
