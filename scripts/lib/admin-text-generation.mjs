@@ -6,7 +6,34 @@ function trimBaseUrl(value) {
 
 async function parseErrorBody(response) {
   try {
-    return (await response.text()).slice(0, 500)
+    const raw = (await response.text()).slice(0, 2000)
+    try {
+      const data = JSON.parse(raw)
+      const detail = data?.detail
+      if (detail && typeof detail === 'object') {
+        const message = String(detail.message || '').trim()
+        const code = String(detail.error_code || data?.code || '').trim()
+        const attempts = Array.isArray(detail.attempts) ? detail.attempts : []
+        const attemptSummary = attempts
+          .map((attempt) => {
+            const model = String(attempt?.model || '').trim()
+            const source = String(attempt?.api_key_source || attempt?.provider || '').trim()
+            const attemptMessage = String(attempt?.message || attempt?.error_code || '').trim()
+            return [model, source, attemptMessage].filter(Boolean).join(': ')
+          })
+          .filter(Boolean)
+          .slice(0, 5)
+          .join(' | ')
+        return [message, code && `code=${code}`, attemptSummary && `attempts=${attemptSummary}`]
+          .filter(Boolean)
+          .join('; ')
+          .slice(0, 1000)
+      }
+      if (typeof detail === 'string') return detail.slice(0, 1000)
+    } catch {
+      // Fall through to returning the raw response body.
+    }
+    return raw.slice(0, 1000)
   } catch {
     return ''
   }

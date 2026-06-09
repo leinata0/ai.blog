@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  buildLLMMaxTokenAttempts,
   assessResearchPackSourceSupport,
   buildTopicKey,
   clusterResearchItemsByTopic,
@@ -11,6 +12,12 @@ import {
   pickPostCountForRun,
   selectTopicsForPublishing,
 } from '../auto-blog.mjs'
+
+test('callLLM max token attempts fall back under common provider limits', () => {
+  assert.deepEqual(buildLLMMaxTokenAttempts(16384), [16384, 8192, 4096, 3072])
+  assert.deepEqual(buildLLMMaxTokenAttempts(6144), [6144, 4096, 3072])
+  assert.deepEqual(buildLLMMaxTokenAttempts(3072), [3072])
+})
 
 test('parseCliArgs understands mode, max-posts and coverage date', () => {
   const result = parseCliArgs([

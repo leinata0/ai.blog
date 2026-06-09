@@ -42,6 +42,8 @@ export function parseArxivFeed(xml) {
       return {
         source_type: 'paper',
         source_name: 'arXiv',
+        source_group: 'arxiv',
+        channel_bucket: 'research_media',
         title: normalizeText(entry.title),
         url: normalizeText(link || entry.id),
         published_at: normalizeText(entry.published),
