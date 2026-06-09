@@ -36,6 +36,7 @@ const BULK_ACTION_OPTIONS = [
   { value: 'set_content_type', label: '批量修改类型' },
   { value: 'set_series', label: '批量归入系列' },
   { value: 'generate_missing_covers', label: '为无封面文章生成封面' },
+  { value: 'replace_covers', label: '一键替换封面' },
 ]
 
 export default function AdminPostsList({
@@ -116,6 +117,11 @@ export default function AdminPostsList({
         return
       }
       setBulkNotice(`正在提交 ${ids.length} 篇文章的封面生成任务，请稍候...`)
+    } else if (action === 'replace_covers') {
+      if (!ids.length) return
+      const selectedWithCoverCount = posts.filter((post) => selectedPostIds.has(post.id) && String(post.cover_image || '').trim()).length
+      if (!window.confirm(`确定为当前选中的 ${ids.length} 篇文章重新生成并覆盖封面吗？其中 ${selectedWithCoverCount} 篇已有封面会被替换。`)) return
+      setBulkNotice(`正在提交 ${ids.length} 篇文章的封面替换任务，请稍候...`)
     } else if (!ids.length) {
       return
     } else {
@@ -303,10 +309,16 @@ export default function AdminPostsList({
           <button
             type="button"
             onClick={() => handleBulkApply()}
-            disabled={bulkApplying || (bulkAction === 'generate_missing_covers' ? posts.length === 0 : selectedCurrentPageCount === 0)}
+            disabled={bulkApplying || ((bulkAction === 'generate_missing_covers' ? posts.length === 0 : selectedCurrentPageCount === 0))}
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            {bulkApplying ? '执行中...' : bulkAction === 'generate_missing_covers' ? '提交封面生成任务' : '执行批量操作'}
+            {bulkApplying
+              ? '执行中...'
+              : bulkAction === 'generate_missing_covers'
+                ? '提交封面生成任务'
+                : bulkAction === 'replace_covers'
+                  ? '提交封面替换任务'
+                  : '执行批量操作'}
           </button>
           <button
             type="button"
@@ -322,7 +334,7 @@ export default function AdminPostsList({
           </button>
         </div>
         <div className="mt-2 text-xs text-[var(--text-faint)]">
-          批量操作仅影响当前页；未勾选时，“为无封面文章生成封面”会处理当前页所有无封面文章。如需处理更多历史文章，请翻页或使用筛选缩小范围。
+          批量操作仅影响当前页；未勾选时，“为无封面文章生成封面”会处理当前页所有无封面文章；“一键替换封面”会覆盖所有已选文章的当前封面。
         </div>
         {bulkNotice ? (
           <div className="mt-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-secondary)]">

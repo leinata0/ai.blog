@@ -104,6 +104,57 @@ def extract_post_headings(content_md: str, limit: int = 4) -> list[str]:
     return headings
 
 
+def sanitize_refined_cover_prompt(prompt: str, max_chars: int = 700) -> str:
+    sanitized = sanitize_cover_prompt(prompt)
+    sanitized = re.sub(r"^```(?:json|text)?\s*", "", sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r"\s*```$", "", sanitized)
+    sanitized = re.sub(r"^(?:prompt|image prompt|cover prompt)\s*[:：]\s*", "", sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    if len(sanitized) > max_chars:
+        sanitized = sanitized[:max_chars].rstrip()
+    return sanitized if len(sanitized) >= 30 else ""
+
+
+def build_post_cover_refinement_messages(post: Post, artifact_prompt: str = "", manual_prompt: str = "") -> list[dict[str, str]]:
+    headings = extract_post_headings(post.content_md or "", limit=5)
+    summary = _strip_markdown(post.summary or "", 260)
+    body_preview = _strip_markdown(post.content_md or "", 900)
+    system = "\n".join([
+        "You are an art director for a Chinese AI/technology editorial blog.",
+        "Create one content-specific image-generation prompt for a post cover.",
+        "Return only the final prompt text, no JSON, no markdown, no explanation.",
+        "Write English-first, 45-90 words.",
+        "Choose a concrete visual metaphor and medium that fits this article, not a generic AI poster.",
+        "Vary the visual language when appropriate: documentary editorial photo, minimal infographic, paper-cut illustration, isometric product metaphor, archival newsroom collage, lab still life, architectural metaphor, or restrained 3D object study.",
+        "Do not include readable text, title typography, logos, UI screenshots, code editors, human faces, hands, robot mascots, or clutter.",
+        "Avoid generic glowing AI brain, blue-purple cyberpunk, humanoid robot, floating holographic dashboard, and circuit-board clichés unless specifically required by the article.",
+        "Do not specify dimensions; the downstream cover builder handles website banner framing.",
+    ])
+    user_payload = {
+        "title": post.title or "",
+        "summary": summary,
+        "topic_key": post.topic_key or "",
+        "content_type": post.content_type or "post",
+        "headings": headings,
+        "artifact_cover_idea": sanitize_cover_prompt(artifact_prompt),
+        "manual_cover_idea": sanitize_cover_prompt(manual_prompt),
+        "body_preview": body_preview,
+    }
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+    ]
+
+
+    palette = ", ".join(config.get("brand_palette", []))
+    motifs = ", ".join(config.get("brand_motifs", []))
+    layout = ", ".join(config.get("layout_rules", []))
+    return (
+        "Use a restrained premium AI editorial visual system with "
+        f"{palette}. Include {motifs}. Composition rules: {layout}."
+    )
+
+
 def _build_brand_clause(config: dict) -> str:
     palette = ", ".join(config.get("brand_palette", []))
     motifs = ", ".join(config.get("brand_motifs", []))

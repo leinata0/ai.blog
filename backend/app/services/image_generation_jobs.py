@@ -202,7 +202,10 @@ def _execute_post_cover(db: Session, job: AdminImageGenerationJob, payload: dict
         _finish_failure(job, "cover_exists", "当前文章已经有封面，如需覆盖请使用重生成。", prompt or None, preset)
         return
     artifact_prompt = executor.extract_post_cover_prompt_from_artifact(post.id, db)
-    prompt = cover_art_service.build_post_cover_prompt(post, artifact_prompt=artifact_prompt, manual_prompt=prompt)
+    refined_prompt = ""
+    if hasattr(executor, "refine_post_cover_prompt"):
+        refined_prompt = executor.refine_post_cover_prompt(db, post, artifact_prompt=artifact_prompt, manual_prompt=prompt)
+    prompt = cover_art_service.build_post_cover_prompt(post, artifact_prompt=artifact_prompt, manual_prompt=refined_prompt or prompt)
     if not prompt:
         _finish_failure(job, "prompt_unavailable", "当前文章缺少可用提示词，暂时无法生成封面。", prompt or None, preset)
         return

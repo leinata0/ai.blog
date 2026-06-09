@@ -3,6 +3,7 @@ import MDEditor from '@uiw/react-md-editor'
 import { ArrowLeft, Eye, EyeOff, Pin } from 'lucide-react'
 
 import { fetchPostDetail } from '../../api/posts'
+import { proxyImageUrl } from '../../utils/proxyImage'
 import {
   adminCreatePost,
   adminUpdatePost,
@@ -367,6 +368,27 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
               style={inputStyle}
               placeholder="https://... 或留空"
             />
+            {form.cover_image ? (
+              <div className="mt-3 overflow-hidden rounded-xl border border-[var(--border-muted)] bg-[var(--bg-canvas)]">
+                <div className="flex items-center justify-between gap-3 border-b border-[var(--border-muted)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                  <span className="font-medium">当前封面预览</span>
+                  <a
+                    href={form.cover_image}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[var(--accent)] hover:underline"
+                  >
+                    打开原图
+                  </a>
+                </div>
+                <img
+                  src={proxyImageUrl(form.cover_image)}
+                  alt="文章封面预览"
+                  className="h-44 w-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            ) : null}
             {editingId && (
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <button
