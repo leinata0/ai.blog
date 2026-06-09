@@ -54,7 +54,7 @@
       "label": "Article cover banner",
       "orientation": "landscape",
       "framing_hint": "Wide landscape editorial banner, website cover image, high quality",
-      "prompt_clause": "A horizontal editorial cover banner for a Chinese AI article, abstract but readable, shaped for a website story card.",
+      "prompt_clause": "A horizontal editorial cover banner for a Chinese AI article, abstract but readable, shaped for a website story card. Let the article-specific prompt determine the medium and visual metaphor, allowing varied editorial photography, illustration, still life, infographic, architectural, or restrained 3D styles rather than one fixed sci-fi look.",
       "safe_area_clause": "Reserve the lower 30 percent as a calm text-safe area with fewer sharp details."
     },
     "series_cover": {
