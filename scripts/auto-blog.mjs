@@ -1383,7 +1383,7 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
         }
       } catch (error) {
         lastError = error?.message || 'admin text generation failed'
-        if (/401|403|Authentication/i.test(lastError)) throw error
+        if (/^Admin text generation failed:\s*(401|403)\b/i.test(lastError)) throw error
       }
     }
   }
