@@ -61,3 +61,13 @@ test('buildFormatPrompt contains formatting rules', () => {
   assert.match(prompt, /## 禁用套话/)
   assert.match(prompt, /本周发生了什么/)
 })
+
+test('buildFormatPrompt includes deeper editorial quality rule groups', () => {
+  const prompt = buildFormatPrompt(getBlogFormatProfile())
+
+  assert.match(prompt, /## 章节结构规则/)
+  assert.match(prompt, /## 证据使用规则/)
+  assert.match(prompt, /## 分析深度规则/)
+  assert.match(prompt, /事实说明、重要性判断/)
+  assert.match(prompt, /如果这个判断错了/)
+})

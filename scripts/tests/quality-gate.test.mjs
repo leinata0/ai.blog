@@ -220,3 +220,83 @@ test('quality gate counts repeated analysis markers by occurrences', () => {
   assert.equal(result.passed, true)
   assert.ok(result.metrics.analysis_signal_count >= 8)
 })
+
+test('quality gate rejects thin sections and insufficient paragraphs', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_md: buildArticle(formatProfile, [
+        '短段。[S1]',
+        '只有一段虽然带有来源，但没有展开足够论证。[S2]',
+        '这段也很短。[S3]',
+        '历史脉络不足。[S1]',
+        '判断不足。[S2]',
+      ]),
+    },
+    researchPack: {
+      sources: [
+        { source_id: 'S1', source_type: 'official_blog', url: 'https://openai.com/a' },
+        { source_id: 'S2', source_type: 'independent_blog', url: 'https://example.com/b' },
+        { source_id: 'S3', source_type: 'paper', url: 'https://arxiv.org/abs/1' },
+      ],
+    },
+    formatProfile,
+    config: {
+      quality_gate: {
+        min_sources: 3,
+        min_high_quality_sources: 2,
+        high_quality_source_types: ['official_blog', 'independent_blog', 'paper'],
+        min_chars: 10,
+        min_section_chars: 80,
+        min_section_paragraphs: 2,
+        max_banned_phrase_hits: 1,
+        min_analysis_signals: 0,
+      },
+    },
+  })
+
+  assert.equal(result.passed, false)
+  assert.ok(result.reasons.some((reason) => reason.startsWith('thin_sections:')))
+  assert.ok(result.reasons.some((reason) => reason.startsWith('section_paragraphs:')))
+})
+
+test('quality gate rejects missing subheadings, weak analysis distribution and source mentions', () => {
+  const body = buildArticle(formatProfile, [
+    'OpenAI Blog 给出了事实背景。[S1]\n\n这件事意味着入口竞争出现变化，影响会先落到开发团队。',
+    '独立博客补充了外部视角。[S2]\n\n这里继续分析成本和取舍，但没有新的小标题。',
+    '论文材料说明历史脉络。[S3]\n\n这里讨论不确定性和二阶后果。',
+    '行业媒体提供补充事实。[S2]\n\n这里给出历史对照。',
+    '最后判断仍然围绕开发者入口。[S1]\n\n如果这个判断错了，可能错在用户迁移速度。',
+  ])
+  const result = evaluateQualityGate({
+    post: { content_md: body },
+    researchPack: {
+      evidence_cards: [{ id: 'E1' }],
+      sources: [
+        { source_id: 'S1', source_type: 'official_blog', source_name: 'OpenAI Blog', title: 'OpenAI update', url: 'https://openai.com/a' },
+        { source_id: 'S2', source_type: 'independent_blog', source_name: 'Independent AI Notes', title: 'Developer view', url: 'https://example.com/b' },
+        { source_id: 'S3', source_type: 'paper', source_name: 'arXiv', title: 'Agent paper', url: 'https://arxiv.org/abs/1' },
+      ],
+    },
+    formatProfile,
+    config: {
+      quality_gate: {
+        min_sources: 3,
+        min_high_quality_sources: 2,
+        high_quality_source_types: ['official_blog', 'independent_blog', 'paper'],
+        min_chars: 10,
+        max_banned_phrase_hits: 1,
+        min_analysis_signals: 3,
+        min_analysis_sections: 3,
+        min_subheadings: 2,
+        min_body_source_mentions: 5,
+        min_evidence_cards: 2,
+      },
+    },
+  })
+
+  assert.equal(result.passed, false)
+  assert.ok(result.reasons.some((reason) => reason.startsWith('subheadings:')))
+  assert.ok(result.reasons.some((reason) => reason.startsWith('body_source_mentions:')))
+  assert.ok(result.reasons.some((reason) => reason.startsWith('evidence_cards:')))
+  assert.equal(result.metrics.subheading_count, 0)
+})

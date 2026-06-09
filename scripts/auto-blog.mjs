@@ -1611,9 +1611,15 @@ function normalizeSectionBriefs(outline, formatProfile) {
     byHeading.set(heading, {
       heading,
       goal: String(brief.goal || '').trim(),
-      key_points: Array.isArray(brief.key_points) ? brief.key_points.filter(Boolean).slice(0, 6) : [],
-      source_focus: Array.isArray(brief.source_focus) ? brief.source_focus.filter(Boolean).slice(0, 6) : [],
-      suggested_subheads: Array.isArray(brief.suggested_subheads) ? brief.suggested_subheads.filter(Boolean).slice(0, 4) : [],
+      angle: String(brief.angle || '').trim(),
+      key_points: Array.isArray(brief.key_points) ? brief.key_points.filter(Boolean).slice(0, 8) : [],
+      must_use_sources: Array.isArray(brief.must_use_sources) ? brief.must_use_sources.filter(Boolean).slice(0, 8) : [],
+      evidence_cards: Array.isArray(brief.evidence_cards) ? brief.evidence_cards.filter(Boolean).slice(0, 8) : [],
+      source_focus: Array.isArray(brief.source_focus) ? brief.source_focus.filter(Boolean).slice(0, 8) : [],
+      suggested_subheads: Array.isArray(brief.suggested_subheads) ? brief.suggested_subheads.filter(Boolean).slice(0, 5) : [],
+      counterpoint: String(brief.counterpoint || '').trim(),
+      style_constraints: Array.isArray(brief.style_constraints) ? brief.style_constraints.filter(Boolean).slice(0, 6) : [],
+      avoid: Array.isArray(brief.avoid) ? brief.avoid.filter(Boolean).slice(0, 6) : [],
     })
   }
 
@@ -1622,9 +1628,15 @@ function normalizeSectionBriefs(outline, formatProfile) {
     goal: index === 0
       ? 'Open the article with a weekly overview and identify the main strategic shift.'
       : 'Develop this section into a substantive analytical chapter tied to the week.',
+    angle: '',
     key_points: [],
+    must_use_sources: [],
+    evidence_cards: [],
     source_focus: [],
     suggested_subheads: [],
+    counterpoint: '',
+    style_constraints: [],
+    avoid: [],
   })
 }
 
@@ -1632,7 +1644,18 @@ function buildWeeklyResearchDigest(researchPack, maxSources = 18) {
   return {
     summary: researchPack.summary,
     sources: (researchPack.sources || []).slice(0, maxSources).map(compactResearchItem),
+    evidence_cards: (researchPack.evidence_cards || []).slice(0, maxSources),
     paper_items: (researchPack.paper_items || []).slice(0, 4),
+  }
+}
+
+function buildDailyResearchDigest(researchPack, maxSources = 14) {
+  return {
+    summary: researchPack.summary,
+    source_stats: researchPack.source_stats,
+    sources: (researchPack.sources || []).slice(0, maxSources).map(compactResearchItem),
+    evidence_cards: (researchPack.evidence_cards || []).slice(0, maxSources),
+    paper_items: (researchPack.paper_items || []).slice(0, 3),
   }
 }
 
@@ -1643,30 +1666,33 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         'You are planning a premium Chinese weekly AI review.',
         'This is not a single-news article. It must synthesize the most important changes across the full week.',
         'Return JSON with keys:',
-        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, weekly_axes, image_sections, key_sources, tags, cover_prompt, watchlist',
+        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, image_sections, key_sources, tags, cover_prompt, watchlist',
         'Requirements:',
         '- Cover the week as a whole, not one company announcement.',
         '- The outline must use the exact required section headings provided by the format profile.',
-        '- Provide section_briefs as an array. Each item must have heading, goal, key_points, source_focus, suggested_subheads.',
+        '- Provide section_briefs as an array. Each item must have heading, goal, angle, key_points, must_use_sources, evidence_cards, source_focus, suggested_subheads, counterpoint, style_constraints, avoid.',
         '- weekly_axes must contain 3 to 4 major weekly themes.',
         '- Add 8 to 14 third-level subheadings distributed across the middle and later sections.',
         '- key_sources must identify the source IDs or URLs that are truly central to the weekly argument.',
-        '- section_briefs.source_focus should prefer concrete source IDs such as S1/S2 from evidence_cards.',
+        '- section_briefs.source_focus and must_use_sources should prefer concrete source IDs such as S1/S2 from evidence_cards.',
         '- image_sections can include at most 3 section headings.',
         '- cover_prompt is only for cover-image generation and must not mention inline images.',
       ].join('\n')
     : [
         'You are planning a Chinese AI daily brief with one clear thesis.',
         'Return JSON with keys:',
-        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, image_sections, key_sources, tags, cover_prompt',
+        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, evidence_cards, counterpoints, reader_question, image_sections, key_sources, tags, cover_prompt',
         'Requirements:',
         '- Focus on one topic rather than a loose news digest.',
         '- The outline must use the exact required section headings provided by the format profile.',
-        '- section_briefs is optional but preferred; if present, include heading, goal, key_points, source_focus, suggested_subheads.',
-        '- Add 2 to 4 third-level subheadings across the middle and later sections.',
+        '- section_briefs is required. Each item must have heading, goal, angle, key_points, must_use_sources, evidence_cards, source_focus, suggested_subheads, counterpoint, style_constraints, avoid.',
+        '- evidence_cards should select the strongest available source IDs and explain what each card supports, its caveat, and which sections should use it.',
+        '- counterpoints must list 1 to 3 plausible objections, uncertainty points, or ways the thesis could be wrong.',
+        '- reader_question should state the concrete question this article answers for readers.',
+        '- Add 3 to 6 third-level subheadings across the middle and later sections.',
         '- image_sections can include at most 3 section headings.',
         '- key_sources must identify the source IDs or URLs most worth citing.',
-        '- section_briefs.source_focus should prefer concrete source IDs such as S1/S2 from evidence_cards.',
+        '- section_briefs.source_focus and must_use_sources should prefer concrete source IDs such as S1/S2 from evidence_cards.',
         '- cover_prompt is only for cover-image generation and must not mention inline images.',
       ].join('\n')
 
@@ -1765,9 +1791,132 @@ async function generateWeeklyReviewSection({
   return callLLM(system, user, 6144)
 }
 
+async function generateDailyArticlePackage({ outline, researchPack, formatProfile, workflow, today }) {
+  const system = [
+    'You are preparing the metadata package for a Chinese single-topic AI editorial brief.',
+    'Return only JSON with keys: title, slug, summary, tags, takeaway.',
+    `slug must be exactly ${workflow.slug}.`,
+    'The title must express a judgment, tension, or meaningful change rather than repeat a news headline.',
+    'The summary must be one concise paragraph in Simplified Chinese and must not start with 本文将 or 这篇文章.',
+    'The takeaway must be one concrete judgment-led sentence, not a generic conclusion.',
+  ].join('\n')
+
+  const user = [
+    `Date: ${today}`,
+    '',
+    'Format profile:',
+    buildFormatPrompt(formatProfile),
+    '',
+    'Outline and editorial plan:',
+    stringifyPromptPayload(outline, 9000),
+    '',
+    'Research digest:',
+    stringifyPromptPayload(buildDailyResearchDigest(researchPack, 14), 14000),
+  ].join('\n')
+
+  return callLLM(system, user, 2048)
+}
+
+async function generateDailyArticleSection({
+  heading,
+  brief,
+  outline,
+  researchPack,
+  formatProfile,
+  workflow,
+  today,
+  targetChars,
+}) {
+  const markerHints = (formatProfile.analysis_markers || []).slice(0, 8).join(' / ')
+  const system = [
+    'You are writing one section of a Chinese AI/technology editorial brief.',
+    'Return only JSON with one key: markdown.',
+    `The section must start with the exact heading: ${heading}`,
+    `Target length for this section: about ${targetChars} Chinese characters.`,
+    'Write in Simplified Chinese.',
+    'Use at least 2 substantial paragraphs; important sections may use 3 to 4 paragraphs.',
+    'Where useful, add 1 Markdown ### subheading, especially for analysis-heavy sections.',
+    `Include explicit analytical turns using phrases such as ${markerHints}, but do not force them mechanically.`,
+    'Use source IDs from the research digest/evidence cards for factual claims, for example [S1] or [S2].',
+    'Use the section brief as an editorial contract: goal, angle, key points, counterpoint, and avoid rules matter.',
+    'Clearly separate facts, inference, and author judgment.',
+    'Include trade-off, stakeholder impact, uncertainty, or second-order consequence when relevant.',
+    'Do not output references, image sources, a takeaway block, frontmatter, MDX, cover prompts, or custom components.',
+    'Do not repeat the whole article introduction in every section.',
+  ].join('\n')
+
+  const user = [
+    `Date: ${today}`,
+    `Topic: ${outline.topic || ''}`,
+    `Thesis: ${outline.thesis || ''}`,
+    `Reader question: ${outline.reader_question || ''}`,
+    `Workflow slug: ${workflow.slug}`,
+    '',
+    'Section brief:',
+    stringifyPromptPayload({
+      heading,
+      goal: brief.goal,
+      angle: brief.angle,
+      key_points: brief.key_points,
+      must_use_sources: brief.must_use_sources,
+      evidence_cards: brief.evidence_cards,
+      source_focus: brief.source_focus,
+      suggested_subheads: brief.suggested_subheads,
+      counterpoint: brief.counterpoint,
+      style_constraints: brief.style_constraints,
+      avoid: brief.avoid,
+      article_counterpoints: outline.counterpoints || [],
+    }, 8000),
+    '',
+    'Research digest:',
+    stringifyPromptPayload(buildDailyResearchDigest(researchPack, 16), 18000),
+    '',
+    'Format profile:',
+    buildFormatPrompt(formatProfile),
+  ].join('\n')
+
+  const result = await callLLM(system, user, 6144)
+  return ensureSectionHeading(result.markdown || result.section_md || result.content_md || '', heading)
+}
+
+async function generateDailyArticleFromSections({ outline, researchPack, formatProfile, workflow, today }) {
+  const packageData = await generateDailyArticlePackage({
+    outline,
+    researchPack,
+    formatProfile,
+    workflow,
+    today,
+  })
+  const sectionBriefs = normalizeSectionBriefs(outline, formatProfile)
+  const sectionTargetChars = Number(workflow.section_target_chars || 850)
+  const renderedSections = []
+
+  for (const brief of sectionBriefs) {
+    renderedSections.push(await generateDailyArticleSection({
+      heading: brief.heading,
+      brief,
+      outline,
+      researchPack,
+      formatProfile,
+      workflow,
+      today,
+      targetChars: sectionTargetChars,
+    }))
+  }
+
+  return {
+    title: packageData.title,
+    slug: workflow.slug,
+    summary: packageData.summary,
+    tags: packageData.tags,
+    takeaway: packageData.takeaway,
+    content_md: renderedSections.filter(Boolean).join('\n\n'),
+  }
+}
+
 async function generateArticleForWorkflow({ outline, researchPack, formatProfile, workflow, today }) {
   if (!isWeeklyReviewWorkflow(workflow, formatProfile)) {
-    return generateArticle({ outline, researchPack, formatProfile, workflow, today })
+    return generateDailyArticleFromSections({ outline, researchPack, formatProfile, workflow, today })
   }
 
   const packageData = await generateWeeklyReviewPackage({
@@ -1923,6 +2072,12 @@ async function repairWeeklyReviewArticle({
 }
 
 function canRepairQualityGate(gate) {
+  const nonRepairablePrefixes = [
+    'sources:',
+    'high_quality_sources:',
+    'cited_domains:',
+    'invalid_citations:',
+  ]
   const repairablePrefixes = [
     'chars:',
     'analysis_signals:',
@@ -1930,13 +2085,20 @@ function canRepairQualityGate(gate) {
     'banned_phrases:',
     'citations:',
     'cited_sources:',
-    'cited_domains:',
     'section_citations:',
     'thin_sections:',
+    'section_paragraphs:',
+    'subheadings:',
+    'body_source_mentions:',
+    'analysis_sections:',
+    'short_paragraph_ratio:',
+    'section_char_ratio:',
+    'list_only_sections:',
     'repeated_lines:',
   ]
 
   return gate.reasons.length > 0
+    && gate.reasons.every((reason) => !nonRepairablePrefixes.some((prefix) => reason.startsWith(prefix)))
     && gate.reasons.every((reason) => repairablePrefixes.some((prefix) => reason.startsWith(prefix)))
 }
 
@@ -2014,6 +2176,148 @@ async function generateArticleCoverPromptSafe(args) {
   return ''
 }
 
+function headingsFromGateReasons(reasons = [], requiredSections = []) {
+  const matched = new Set()
+  for (const reason of reasons) {
+    for (const heading of requiredSections) {
+      if (String(reason || '').includes(heading)) matched.add(heading)
+    }
+  }
+  return matched
+}
+
+async function repairDailyArticleSection({
+  heading,
+  brief,
+  currentMarkdown,
+  outline,
+  researchPack,
+  formatProfile,
+  workflow,
+  today,
+  targetChars,
+  attempt,
+  failures = [],
+}) {
+  const markerHints = (formatProfile.analysis_markers || []).slice(0, 8).join(' / ')
+  const system = [
+    'You are repairing one section of a Chinese AI/technology editorial brief after a quality-gate failure.',
+    'Return only JSON with one key: markdown.',
+    `The section must start with the exact heading: ${heading}`,
+    `Repair this section so it approaches ${targetChars} Chinese characters on its own.`,
+    'Keep the same topic and thesis, but make the section more grounded, analytical, and complete.',
+    'Use at least 2 substantial paragraphs; add a Markdown ### subheading if it improves structure.',
+    `Add explicit analytical turns using phrases such as ${markerHints}, but keep the writing natural.`,
+    'Use provided source IDs such as [S1] for factual claims; do not invent source IDs.',
+    'If the failure mentions citations or source mentions, add source-grounded claims inside the section body.',
+    'If the failure mentions short paragraphs or thin sections, add evidence, caveats, trade-offs, and second-order consequences instead of filler.',
+    'Do not output references, image sources, article-level conclusion, frontmatter, MDX, or cover prompts.',
+  ].join('\n')
+
+  const user = [
+    `Repair attempt: ${attempt}`,
+    `Date: ${today}`,
+    '',
+    'Quality gate failures relevant to this repair:',
+    ...failures.map((reason) => `- ${reason}`),
+    '',
+    'Current section markdown:',
+    smartTruncate(String(currentMarkdown || ''), 8000),
+    '',
+    'Section brief:',
+    stringifyPromptPayload({
+      heading,
+      goal: brief.goal,
+      angle: brief.angle,
+      key_points: brief.key_points,
+      must_use_sources: brief.must_use_sources,
+      evidence_cards: brief.evidence_cards,
+      source_focus: brief.source_focus,
+      suggested_subheads: brief.suggested_subheads,
+      counterpoint: brief.counterpoint,
+      style_constraints: brief.style_constraints,
+      avoid: brief.avoid,
+      article_counterpoints: outline.counterpoints || [],
+    }, 8000),
+    '',
+    'Research digest:',
+    stringifyPromptPayload(buildDailyResearchDigest(researchPack, 16), 18000),
+    '',
+    'Format profile:',
+    buildFormatPrompt(formatProfile),
+  ].join('\n')
+
+  const result = await callLLM(system, user, 6144)
+  return ensureSectionHeading(result.markdown || result.section_md || result.content_md || '', heading)
+}
+
+async function repairDailyArticle({
+  post,
+  outline,
+  researchPack,
+  formatProfile,
+  workflow,
+  config,
+  today,
+  gate,
+  attempt,
+}) {
+  const gateProfile = resolveGateProfile(config, workflow?.content_type)
+  const requiredSections = formatProfile.required_sections || []
+  const currentSections = extractArticleSections(post.content_md, requiredSections)
+  const sectionBriefs = normalizeSectionBriefs(outline, formatProfile)
+  const reasonHeadings = headingsFromGateReasons(gate.reasons, requiredSections)
+  const minSectionChars = Math.max(550, Number(gateProfile.min_section_chars || 0))
+  const targetSectionChars = Math.max(Number(workflow.section_target_chars || 850), minSectionChars + 250)
+  const needsGlobalBoost = gate.reasons.some((reason) => (
+    reason.startsWith('chars:')
+    || reason.startsWith('analysis_signals:')
+    || reason.startsWith('subheadings:')
+    || reason.startsWith('body_source_mentions:')
+    || reason.startsWith('analysis_sections:')
+    || reason.startsWith('short_paragraph_ratio:')
+  ))
+  const candidates = sectionBriefs.map((brief) => {
+    const markdown = currentSections.get(brief.heading) || `${brief.heading}\n\n`
+    const charCount = stripMarkdownForLength(markdown).length
+    const targeted = reasonHeadings.has(brief.heading)
+    return { brief, markdown, charCount, targeted }
+  })
+
+  let sectionsToRepair = candidates.filter((candidate) => candidate.targeted || candidate.charCount < minSectionChars)
+  if (sectionsToRepair.length === 0 && needsGlobalBoost) {
+    sectionsToRepair = [...candidates].sort((left, right) => left.charCount - right.charCount).slice(0, 3)
+  } else {
+    sectionsToRepair = [...sectionsToRepair].sort((left, right) => left.charCount - right.charCount).slice(0, 3)
+  }
+
+  const repairedSections = new Map(currentSections)
+  for (const candidate of sectionsToRepair) {
+    const repairedMarkdown = await repairDailyArticleSection({
+      heading: candidate.brief.heading,
+      brief: candidate.brief,
+      currentMarkdown: candidate.markdown,
+      outline,
+      researchPack,
+      formatProfile,
+      workflow,
+      today,
+      targetChars: targetSectionChars,
+      attempt,
+      failures: gate.reasons,
+    })
+    repairedSections.set(candidate.brief.heading, repairedMarkdown)
+  }
+
+  return {
+    ...post,
+    slug: workflow.slug,
+    content_md: requiredSections
+      .map((heading) => ensureSectionHeading(repairedSections.get(heading) || '', heading))
+      .join('\n\n'),
+  }
+}
+
 async function repairArticle({
   post,
   outline,
@@ -2039,57 +2343,17 @@ async function repairArticle({
     })
   }
 
-  const gateProfile = resolveGateProfile(config, workflow?.content_type)
-  const minChars = Math.max((gateProfile.min_chars || 2200) + 400, workflow?.content_type === 'weekly_review' ? 9000 : 2600)
-  const minAnalysisSignals = Math.max(gateProfile.min_analysis_signals || 2, workflow?.content_type === 'weekly_review' ? 8 : 2)
-  const sectionGuidance = workflow?.content_type === 'weekly_review'
-    ? '- Rebuild the article as a true weekly review with broad weekly coverage, stronger section hierarchy, and deeper synthesis across multiple themes.'
-    : '- Keep the article focused as a single-topic daily brief.'
-
-  const system = [
-    '# Role',
-    'You are revising a Chinese tech blog post that failed an automated quality gate.',
-    '',
-    '# Output format',
-    'Return only one JSON object with keys: title, slug, summary, content_md, tags, takeaway.',
-    '',
-    '# Revision goals',
-    '- Keep the article in Simplified Chinese.',
-    '- Keep the same topic, core thesis, and source grounding.',
-    `- Expand content_md so the article body is likely above ${minChars} Chinese characters before references are appended.`,
-    '- Every required section should contain at least 2 substantial paragraphs, and key sections may use 3-4 paragraphs.',
-    `- Include at least ${minAnalysisSignals} explicit analytical turns using phrases such as ${(formatProfile.analysis_markers || []).slice(0, 8).join(' / ')}.`,
-    '- Add comparison, impact, trade-off, cost, or implementation discussion instead of repeating facts.',
-    '- Use source IDs from the research pack, such as [S1] and [S2], for factual claims; never invent source IDs.',
-    '- If the gate failure mentions citations, add source-grounded citations to the affected sections instead of just expanding the text.',
-    '- If any required section is thin, rewrite and expand it rather than adding filler.',
-    sectionGuidance,
-    '- Keep the tail sections absent; the program will append them.',
-    `- slug must remain ${workflow.slug}.`,
-  ].join('\n')
-
-  const user = [
-    `Repair attempt: ${attempt}`,
-    '',
-    'Quality gate failures:',
-    ...gate.reasons.map((reason) => `- ${reason}`),
-    '',
-    'Format profile:',
-    buildFormatPrompt(formatProfile),
-    '',
-    'Outline:',
-    stringifyPromptPayload(outline, 4000),
-    '',
-    'Research pack:',
-    stringifyPromptPayload(researchPack, 14000),
-    '',
-    'Current article JSON:',
-    stringifyPromptPayload(post, 14000),
-    '',
-    'Revise the article so it becomes longer, more analytical, and more publishable while preserving the topic and evidence.',
-  ].join('\n')
-
-  return callLLM(system, user, 16384)
+  return repairDailyArticle({
+    post,
+    outline,
+    researchPack,
+    formatProfile,
+    workflow,
+    config,
+    today,
+    gate,
+    attempt,
+  })
 }
 
 async function downloadAndUploadImage(imageUrl, token) {
