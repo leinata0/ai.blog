@@ -1713,7 +1713,11 @@ def get_cover_generation_status(
 
 def _raise_ai_provider_http_error(exc: AiChannelError) -> None:
     status_code = 404 if exc.code == "not_found" else 400
-    raise HTTPException(status_code=status_code, detail=exc.message)
+    detail = {"message": exc.message, "error_code": exc.code}
+    attempts = getattr(exc, "attempts", None)
+    if attempts:
+        detail["attempts"] = attempts
+    raise HTTPException(status_code=status_code, detail=detail)
 
 
 @router.get("/ai-provider-sources", response_model=list[AiProviderSourceOut])

@@ -1338,12 +1338,20 @@ async function getCachedAdminToken() {
   return adminTokenCache
 }
 
+export function buildLLMMaxTokenAttempts(maxTokens = 16384) {
+  const requested = Math.max(1, Math.floor(Number(maxTokens) || 16384))
+  return [requested, 8192, 4096, 3072]
+    .map((value) => Math.min(requested, value))
+    .filter((value, index, values) => values.indexOf(value) === index)
+}
+
 async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
   ]
 
+  const maxTokenAttempts = buildLLMMaxTokenAttempts(maxTokens)
   let lastError = ''
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     if (attempt > 1) {
@@ -1352,13 +1360,18 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
       await sleep(sec * 1000)
     }
 
+    const maxTokensForAttempt = maxTokenAttempts[Math.min(attempt - 1, maxTokenAttempts.length - 1)]
+    if (maxTokensForAttempt !== maxTokens) {
+      console.log(`Retrying LLM call with reduced max_tokens=${maxTokensForAttempt} (requested ${maxTokens})...`)
+    }
+
     for (const jsonMode of [true, false]) {
       try {
         const raw = await generateTextViaAdminApi({
           blogApiBase: BLOG_API_BASE,
           token: await getCachedAdminToken(),
           messages,
-          maxTokens,
+          maxTokens: maxTokensForAttempt,
           temperature: 0.55,
           jsonMode,
           timeoutMs: 180000,

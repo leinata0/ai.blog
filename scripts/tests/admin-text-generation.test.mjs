@@ -53,3 +53,41 @@ test('generateTextViaAdminApi sends messages to admin text endpoint', async () =
     globalThis.fetch = originalFetch
   }
 })
+
+test('generateTextViaAdminApi formats provider attempts from admin errors', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 400,
+    async text() {
+      return JSON.stringify({
+        detail: {
+          message: '所有 AI 模型实例均调用失败，请检查服务源、模型和 API Key。',
+          error_code: 'all_models_failed',
+          attempts: [
+            {
+              model: 'deepseek-ai/DeepSeek-V3',
+              api_key_source: 'stored',
+              message: '生文字请求失败，HTTP 401。',
+            },
+          ],
+        },
+        code: 'http_400',
+        request_id: 'req-test',
+      })
+    },
+  })
+
+  try {
+    await assert.rejects(
+      generateTextViaAdminApi({
+        blogApiBase: 'https://blog.example.com/',
+        token: 'admin-token',
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+      /Admin text generation failed: 400 .*code=all_models_failed.*deepseek-ai\/DeepSeek-V3: stored: 生文字请求失败，HTTP 401。/,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

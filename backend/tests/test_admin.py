@@ -1,5 +1,6 @@
 import time
 
+import httpx
 import pytest
 
 def _login(client):
@@ -1299,6 +1300,60 @@ def test_ai_provider_runtime_requires_model_instances(client, db_session, monkey
     assert text_resp.json()["content"] == "primary-text"
     assert text_resp.json()["purpose"] == "text_generation"
     assert calls[-1]["model"] == "primary-text"
+
+
+def test_admin_text_generation_failure_includes_attempts(client, monkeypatch):
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+
+    source_resp = client.post(
+        "/api/admin/ai-provider-sources",
+        json={
+            "name": "Broken Gateway",
+            "provider": "openai_compatible",
+            "base_url": "https://broken.example.com/v1",
+            "api_key_value": "sk-broken-123456",
+        },
+        headers=_auth(token),
+    )
+    assert source_resp.status_code == 201
+    instance_resp = client.post(
+        "/api/admin/ai-model-instances",
+        json={
+            "source_id": source_resp.json()["id"],
+            "name": "Broken Text",
+            "model": "broken-text",
+            "purpose": "text_generation",
+            "priority": 1,
+            "is_default": True,
+        },
+        headers=_auth(token),
+    )
+    assert instance_resp.status_code == 201
+
+    class FakeResponse:
+        status_code = 401
+
+        def raise_for_status(self):
+            request = httpx.Request("POST", "https://broken.example.com/v1/chat/completions")
+            response = httpx.Response(self.status_code, request=request)
+            raise httpx.HTTPStatusError("Unauthorized", request=request, response=response)
+
+    monkeypatch.setattr(channel_mod.httpx, "post", lambda *args, **kwargs: FakeResponse())
+
+    text_resp = client.post(
+        "/api/admin/ai-text/generate",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+        headers=_auth(token),
+    )
+    assert text_resp.status_code == 400
+    detail = text_resp.json()["detail"]
+    assert detail["error_code"] == "all_models_failed"
+    assert detail["message"] == "所有 AI 模型实例均调用失败，请检查服务源、模型和 API Key。"
+    assert detail["attempts"][0]["model"] == "broken-text"
+    assert detail["attempts"][0]["message"] == "生文字请求失败，HTTP 401。"
+    assert detail["attempts"][0]["error_code"] == "generation_failed"
 
 
 def test_admin_generate_site_hero_with_grok(client, monkeypatch):
