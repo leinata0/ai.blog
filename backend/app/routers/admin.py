@@ -350,6 +350,23 @@ class _ImageGenerationExecutor:
         return _extract_post_cover_prompt_from_artifact(post_id, db)
 
     @staticmethod
+    def refine_post_cover_prompt(db, post, artifact_prompt="", manual_prompt=""):
+        messages = cover_art_service.build_post_cover_refinement_messages(
+            post,
+            artifact_prompt=artifact_prompt,
+            manual_prompt=manual_prompt,
+        )
+        try:
+            refined = ai_channels.generate_text(db, messages, max_tokens=512, temperature=0.45, json_mode=False)
+        except AiChannelError as exc:
+            logger.warning("post_cover_prompt_refinement_failed post_id=%s error=%s", getattr(post, "id", None), exc.code)
+            return ""
+        except Exception:
+            logger.exception("post_cover_prompt_refinement_unhandled post_id=%s", getattr(post, "id", None))
+            return ""
+        return cover_art_service.sanitize_refined_cover_prompt(refined)
+
+    @staticmethod
     def trigger_frontend_refresh_safe(**kwargs):
         return trigger_frontend_refresh_safe(**kwargs)
 

@@ -925,6 +925,54 @@ def test_admin_post_generate_cover_uses_artifact_prompt(client, monkeypatch):
     assert "website cover image" in captured["framing_hint"]
 
 
+def test_admin_post_generate_cover_refines_prompt_with_text_channel(client, monkeypatch):
+    from app.routers import admin as admin_mod
+
+    token = _login(client)
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "AI Safety Capital Split",
+            "slug": "ai-safety-capital-split",
+            "summary": "AI security incidents and startup funding diverge in one week.",
+            "content_md": "## Security pressure\n\nBody\n\n## Capital signals\n\nMore",
+            "content_type": "weekly_review",
+            "topic_key": "ai-safety-capital",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+    post_id = create_post.json()["id"]
+
+    captured = {}
+
+    def fake_generate_text(db, messages, **kwargs):
+        captured["messages"] = messages
+        captured["text_kwargs"] = kwargs
+        return "archival newsroom collage of a cracked security seal beside a calm venture-capital ledger, muted paper texture, restrained editorial lighting"
+
+    def fake_generate_cover_asset(db, prompt, filename_hint, framing_hint=""):
+        captured["prompt"] = prompt
+        return "https://img.example.com/refined-cover.png"
+
+    monkeypatch.setattr(admin_mod.ai_channels, "generate_text", fake_generate_text)
+    monkeypatch.setattr(admin_mod, "_generate_cover_asset", fake_generate_cover_asset)
+
+    response = client.post(
+        f"/api/admin/posts/{post_id}/generate-cover",
+        json={"prompt": "security and funding tension"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = _resolve_image_job(client, token, response.json())
+    assert payload["generated"] is True
+    assert payload["cover_image"] == "https://img.example.com/refined-cover.png"
+    assert "archival newsroom collage" in captured["prompt"]
+    assert "security and funding tension" in captured["messages"][1]["content"]
+    assert captured["text_kwargs"]["max_tokens"] == 512
+
+
 def test_admin_post_generate_cover_reports_cover_exists(client):
     token = _login(client)
     create_post = client.post(

@@ -179,21 +179,23 @@ export default function AdminDashboardPage() {
     setBulkApplying(true)
     setStatus('')
     try {
-      if (action === 'generate_missing_covers') {
+      if (action === 'generate_missing_covers' || action === 'replace_covers') {
+        const isReplace = action === 'replace_covers'
         const submissions = []
-        setStatus(`正在提交 0 / ${postIds.length} 篇文章的封面生成任务...`)
-        await runWithConcurrency(postIds, BULK_COVER_SUBMIT_CONCURRENCY, async (id) => {
+        const actionLabel = isReplace ? '封面替换' : '封面生成'
+        setStatus(`正在提交 0 / ${postIds.length} 篇文章的${actionLabel}任务...`)
+        await runWithConcurrency(postIds, isReplace ? 1 : BULK_COVER_SUBMIT_CONCURRENCY, async (id) => {
           try {
             const result = await generateAdminPostCover(
               id,
-              { mode: 'apply', overwrite: false },
+              { mode: 'apply', overwrite: isReplace },
               { timeout: BULK_COVER_SUBMIT_TIMEOUT_MS }
             )
             submissions.push({ id, result })
           } catch (err) {
             submissions.push({ id, error: err })
           } finally {
-            setStatus(`正在提交 ${submissions.length} / ${postIds.length} 篇文章的封面生成任务...`)
+            setStatus(`正在提交 ${submissions.length} / ${postIds.length} 篇文章的${actionLabel}任务...`)
           }
         })
         const submittedCount = submissions.filter(({ result }) => result?.job_id || result?.id).length
@@ -209,12 +211,12 @@ export default function AdminDashboardPage() {
         await loadPosts(postFilters, {}, { page: postPagination.page })
         if (failedCount === submissions.length) {
           const detail = errorMessages[0] ? `：${errorMessages[0]}` : '，请稍后重试。'
-          setError(`批量封面生成提交失败${detail}`)
+          setError(`批量${actionLabel}提交失败${detail}`)
           setStatus(errorMessages.length > 1 ? `其它错误：${errorMessages.slice(1, 3).join('；')}` : '')
           return
         }
         setError('')
-        const parts = [`已提交 ${countedSubmitted} 篇无封面文章的封面生成任务`]
+        const parts = [isReplace ? `已提交 ${countedSubmitted} 篇文章的封面替换任务` : `已提交 ${countedSubmitted} 篇无封面文章的封面生成任务`]
         if (skippedCount) parts.push(`跳过 ${skippedCount} 篇已有封面的文章`)
         if (maybeRunningCount) parts.push(`${maybeRunningCount} 个请求响应较慢但可能仍在后台执行`)
         if (failedCount) parts.push(`${failedCount} 篇提交失败：${errorMessages.slice(0, 2).join('；')}`)
