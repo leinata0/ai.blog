@@ -1323,12 +1323,61 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function parseJsonFromLlm(raw) {
+function findJsonPayload(text) {
+  const source = String(text || '').trim()
+  const start = source.search(/[\[{]/)
+  if (start < 0) return source
+
+  const stack = []
+  let inString = false
+  let escaped = false
+
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === '{' || char === '[') {
+      stack.push(char)
+      continue
+    }
+
+    if (char === '}' || char === ']') {
+      const opener = stack.pop()
+      if ((char === '}' && opener !== '{') || (char === ']' && opener !== '[')) {
+        throw new Error(`JSON has mismatched closing ${char}`)
+      }
+      if (stack.length === 0) return source.slice(start, index + 1)
+    }
+  }
+
+  if (stack.length > 0) {
+    throw new Error('JSON appears truncated: top-level braces are not balanced')
+  }
+
+  return source.slice(start)
+}
+
+export function parseJsonFromLlm(raw) {
   let text = String(raw || '').trim()
   if (text.startsWith('```')) {
-    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/m, '')
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/m, '').trim()
   }
-  return JSON.parse(text)
+  return JSON.parse(findJsonPayload(text))
 }
 
 async function getCachedAdminToken() {
@@ -1378,8 +1427,11 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
         })
         try {
           return parseJsonFromLlm(raw)
-        } catch {
-          lastError = `JSON parse failed: ${String(raw).slice(0, 200)}`
+        } catch (error) {
+          const rawText = String(raw)
+          const preview = rawText.slice(0, 220)
+          const tail = rawText.length > 220 ? rawText.slice(-220) : ''
+          lastError = `JSON parse failed (${error?.message || 'unknown parse error'}): preview=${preview}${tail ? ` tail=${tail}` : ''}`
         }
       } catch (error) {
         lastError = error?.message || 'admin text generation failed'
@@ -1707,7 +1759,7 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
     stringifyPromptPayload(researchPack, isWeeklyReview ? 22000 : 14000),
   ].join('\n')
 
-  return callLLM(system, user, isWeeklyReview ? 4096 : 3072)
+  return callLLM(system, user, isWeeklyReview ? 4096 : 4096)
 }
 
 async function generateWeeklyReviewPackage({ outline, researchPack, formatProfile, workflow, today }) {

@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildLLMMaxTokenAttempts,
+  parseJsonFromLlm,
   normalizeArticleCoverPromptResult,
   assessResearchPackSourceSupport,
   buildTopicKey,
@@ -13,6 +14,34 @@ import {
   pickPostCountForRun,
   selectTopicsForPublishing,
 } from '../auto-blog.mjs'
+
+test('parseJsonFromLlm accepts fenced JSON with a closing fence', () => {
+  assert.deepEqual(parseJsonFromLlm('```json\n{"topic":"AI agents","keywords":["agent"]}\n```'), {
+    topic: 'AI agents',
+    keywords: ['agent'],
+  })
+})
+
+test('parseJsonFromLlm accepts fenced JSON without a closing fence', () => {
+  assert.deepEqual(parseJsonFromLlm('```json\n{"topic":"AI agents","keywords":["agent"]}'), {
+    topic: 'AI agents',
+    keywords: ['agent'],
+  })
+})
+
+test('parseJsonFromLlm extracts JSON embedded in prose', () => {
+  assert.deepEqual(parseJsonFromLlm('Here is the JSON:\n{"topic":"AI agents","keywords":["agent"]}\nDone.'), {
+    topic: 'AI agents',
+    keywords: ['agent'],
+  })
+})
+
+test('parseJsonFromLlm reports truncated top-level JSON clearly', () => {
+  assert.throws(
+    () => parseJsonFromLlm('```json\n{"topic":"AI agents","keywords":["agent"],'),
+    /JSON appears truncated/
+  )
+})
 
 test('normalizeArticleCoverPromptResult appends avoid guidance', () => {
   const prompt = normalizeArticleCoverPromptResult({
