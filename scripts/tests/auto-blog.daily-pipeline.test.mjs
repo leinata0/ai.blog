@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildLLMMaxTokenAttempts,
+  loginAdminWithRetry,
   parseJsonFromLlm,
   normalizeArticleCoverPromptResult,
   assessResearchPackSourceSupport,
@@ -41,6 +42,61 @@ test('parseJsonFromLlm reports truncated top-level JSON clearly', () => {
     () => parseJsonFromLlm('```json\n{"topic":"AI agents","keywords":["agent"],'),
     /JSON appears truncated/
   )
+})
+
+test('loginAdminWithRetry retries transient admin login failures', async () => {
+  const calls = []
+  const sleeps = []
+  const token = await loginAdminWithRetry({
+    blogApiBase: 'https://blog.example.com',
+    username: 'admin',
+    password: 'secret',
+    retryDelaysMs: [10, 20],
+    sleepImpl: async (ms) => sleeps.push(ms),
+    logger: null,
+    fetchImpl: async (url, options = {}) => {
+      calls.push({ url: String(url), options })
+      if (calls.length === 1) {
+        return { ok: false, status: 503 }
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { access_token: 'admin-token' }
+        },
+      }
+    },
+  })
+
+  assert.equal(token, 'admin-token')
+  assert.equal(calls.length, 2)
+  assert.deepEqual(sleeps, [10])
+  assert.equal(calls[0].url, 'https://blog.example.com/api/admin/login')
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    username: 'admin',
+    password: 'secret',
+  })
+})
+
+test('loginAdminWithRetry does not retry auth failures', async () => {
+  let calls = 0
+  await assert.rejects(
+    loginAdminWithRetry({
+      blogApiBase: 'https://blog.example.com',
+      username: 'admin',
+      password: 'wrong',
+      retryDelaysMs: [10, 20],
+      sleepImpl: async () => {},
+      logger: null,
+      fetchImpl: async () => {
+        calls += 1
+        return { ok: false, status: 401 }
+      },
+    }),
+    /Admin login failed: 401/
+  )
+  assert.equal(calls, 1)
 })
 
 test('normalizeArticleCoverPromptResult appends avoid guidance', () => {
