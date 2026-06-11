@@ -2541,15 +2541,65 @@ async function generatePostCoverWithAdminApi(postId, prompt, token) {
   }
 }
 
+function createAdminLoginError(status) {
+  const error = new Error(`Admin login failed: ${status}`)
+  error.status = status
+  return error
+}
+
+function isRetryableAdminLoginError(error) {
+  const status = Number(error?.status || 0)
+  if (status) return status === 408 || status >= 500
+
+  const code = String(error?.code || '')
+  const message = String(error?.message || '')
+  return error?.name === 'AbortError'
+    || error?.name === 'TimeoutError'
+    || /timeout|aborted|network|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNREFUSED/i.test(`${code} ${message}`)
+}
+
+export async function loginAdminWithRetry({
+  blogApiBase = BLOG_API_BASE,
+  username = ADMIN_USERNAME,
+  password = ADMIN_PASSWORD,
+  fetchImpl = fetch,
+  timeoutMs = 30000,
+  retryDelaysMs = [10000, 30000, 60000],
+  sleepImpl = sleep,
+  logger = console,
+} = {}) {
+  const attempts = retryDelaysMs.length + 1
+  let lastError = null
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const resp = await fetchImpl(`${blogApiBase}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (!resp.ok) throw createAdminLoginError(resp.status)
+
+      const payload = await resp.json()
+      const token = String(payload?.access_token || '').trim()
+      if (!token) throw new Error('Admin login failed: missing access_token')
+      return token
+    } catch (error) {
+      lastError = error
+      if (!isRetryableAdminLoginError(error) || attempt >= attempts) break
+
+      const delayMs = retryDelaysMs[attempt - 1]
+      logger?.warn?.(`Admin login attempt ${attempt}/${attempts} failed (${error?.message || 'unknown error'}); retrying in ${Math.round(delayMs / 1000)}s...`)
+      await sleepImpl(delayMs)
+    }
+  }
+
+  throw lastError || new Error('Admin login failed')
+}
+
 async function getAdminToken() {
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-    signal: AbortSignal.timeout(15000),
-  })
-  if (!resp.ok) throw new Error(`Admin login failed: ${resp.status}`)
-  return (await resp.json()).access_token
+  return loginAdminWithRetry()
 }
 
 async function checkSlugExists(slug) {
