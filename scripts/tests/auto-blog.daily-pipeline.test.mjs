@@ -15,6 +15,7 @@ import {
   parseCliArgs,
   pickPostCountForRun,
   selectTopicsForPublishing,
+  sendPublishRequest,
 } from '../auto-blog.mjs'
 
 test('parseJsonFromLlm accepts fenced JSON with a closing fence', () => {
@@ -84,20 +85,113 @@ test('callLLM steps the token ladder down only when the provider rejects', async
   assert.equal(usedMaxTokens.at(-1), 8192)
 })
 
-test('callLLM throws auth failures immediately without retrying', async () => {
+test('callLLM recovers from a stale token by clearing the cache and re-authenticating', async () => {
   let calls = 0
+  let cleared = 0
+  const tokens = []
+  const result = await callLLM('system', 'user', 4096, {
+    getToken: async () => (cleared === 0 ? 'stale-token' : 'fresh-token'),
+    clearToken: () => { cleared += 1 },
+    sleepImpl: async () => {},
+    logger: null,
+    generateText: async ({ token }) => {
+      calls += 1
+      tokens.push(token)
+      // The cached token has expired: the first call 401s, then the loop clears the
+      // cache, re-logs in, and the retry with the fresh token succeeds.
+      if (token === 'stale-token') throw new Error('Admin text generation failed: 401 unauthorized')
+      return '{"topic":"AI agents"}'
+    },
+  })
+
+  assert.deepEqual(result, { topic: 'AI agents' })
+  assert.equal(cleared, 1)
+  assert.deepEqual(tokens, ['stale-token', 'fresh-token'])
+})
+
+test('callLLM re-raises auth failures that persist after re-authentication', async () => {
+  let calls = 0
+  let cleared = 0
   await assert.rejects(
     callLLM('system', 'user', 4096, {
       getToken: async () => 'token',
+      clearToken: () => { cleared += 1 },
       sleepImpl: async () => {},
       logger: null,
       generateText: async () => {
         calls += 1
+        // A genuine credentials problem: re-login does not help, so the second 401 throws.
         throw new Error('Admin text generation failed: 401 unauthorized')
       },
     }),
     /401/
   )
+  // One reauth attempt: first 401 clears + retries, second 401 re-raises.
+  assert.equal(calls, 2)
+  assert.equal(cleared, 1)
+})
+
+test('sendPublishRequest retries transient 5xx and returns the eventual success body', async () => {
+  let calls = 0
+  const sleeps = []
+  const result = await sendPublishRequest({
+    url: 'https://blog.example.com/api/admin/posts',
+    method: 'POST',
+    requestBody: { title: 'x' },
+    token: 'token',
+    retryDelaysMs: [10, 20, 30],
+    sleepImpl: async (ms) => sleeps.push(ms),
+    logger: null,
+    fetchImpl: async () => {
+      calls += 1
+      if (calls < 3) return { ok: false, status: 503, async text() { return 'busy' } }
+      return { ok: true, status: 200, async json() { return { id: 42 } } }
+    },
+  })
+
+  assert.deepEqual(result, { ok: true, status: 200, json: { id: 42 } })
+  assert.equal(calls, 3)
+  assert.deepEqual(sleeps, [10, 20])
+})
+
+test('sendPublishRequest does not retry deterministic 4xx errors', async () => {
+  let calls = 0
+  await assert.rejects(
+    sendPublishRequest({
+      url: 'https://blog.example.com/api/admin/posts',
+      method: 'POST',
+      requestBody: { title: 'x' },
+      token: 'token',
+      retryDelaysMs: [10, 20],
+      sleepImpl: async () => {},
+      logger: null,
+      fetchImpl: async () => {
+        calls += 1
+        return { ok: false, status: 422, async text() { return 'invalid' } }
+      },
+    }),
+    /422/
+  )
+  assert.equal(calls, 1)
+})
+
+test('sendPublishRequest surfaces 409 to the caller without retrying', async () => {
+  let calls = 0
+  const result = await sendPublishRequest({
+    url: 'https://blog.example.com/api/admin/posts',
+    method: 'POST',
+    requestBody: { title: 'x' },
+    token: 'token',
+    retryDelaysMs: [10, 20],
+    sleepImpl: async () => {},
+    logger: null,
+    fetchImpl: async () => {
+      calls += 1
+      return { ok: false, status: 409, async text() { return 'conflict' } }
+    },
+  })
+
+  assert.deepEqual(result, { ok: false, status: 409, json: null })
   assert.equal(calls, 1)
 })
 

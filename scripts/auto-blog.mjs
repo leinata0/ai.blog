@@ -25,6 +25,7 @@ import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate
 import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
 import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
+import { isPublicHttpUrl } from './lib/url-guard.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -936,7 +937,11 @@ async function fetchAllFeeds(config, maxItems = 30) {
 
 async function jinaRead(url, maxLen = 5000) {
   try {
-    const resp = await fetch(`https://r.jina.ai/${url}`, {
+    // The URL comes from third-party feed content; refuse private/loopback/non-http
+    // targets before handing it to the jina proxy, and encode it so it can't break
+    // out of the proxy path.
+    if (!isPublicHttpUrl(url)) return ''
+    const resp = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
       headers: { Accept: 'text/markdown', 'X-No-Cache': 'true' },
       signal: AbortSignal.timeout(20000),
     })
@@ -1387,6 +1392,10 @@ async function getCachedAdminToken() {
   return adminTokenCache
 }
 
+function clearAdminTokenCache() {
+  adminTokenCache = ''
+}
+
 export function buildLLMMaxTokenAttempts(maxTokens = 16384) {
   const requested = Math.max(1, Math.floor(Number(maxTokens) || 16384))
   return [requested, 8192, 4096, 3072]
@@ -1397,6 +1406,7 @@ export function buildLLMMaxTokenAttempts(maxTokens = 16384) {
 export async function callLLM(systemPrompt, userPrompt, maxTokens = 16384, {
   generateText = generateTextViaAdminApi,
   getToken = getCachedAdminToken,
+  clearToken = clearAdminTokenCache,
   sleepImpl = sleep,
   blogApiBase = BLOG_API_BASE,
   retryDelaysSec = [0, 10, 30, 60],
@@ -1414,6 +1424,11 @@ export async function callLLM(systemPrompt, userPrompt, maxTokens = 16384, {
   // request succeeded but the output was cut off, so reducing the budget would only
   // make truncation worse — those retries keep the full budget.
   let tokenLadderIndex = 0
+  // A cached admin token can expire mid-run (a weekly review makes many sequential
+  // LLM calls, each up to 240s). The first 401/403 is treated as a stale token: clear
+  // the cache so the next getToken re-logs in, then retry once. A second auth failure
+  // after a fresh login is a genuine credentials problem and is re-raised.
+  let reauthAttempted = false
   let lastError = ''
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (attempt > 1) {
@@ -1449,7 +1464,13 @@ export async function callLLM(systemPrompt, userPrompt, maxTokens = 16384, {
         }
       } catch (error) {
         lastError = error?.message || 'admin text generation failed'
-        if (/^Admin text generation failed:\s*(401|403)\b/i.test(lastError)) throw error
+        if (/^Admin text generation failed:\s*(401|403)\b/i.test(lastError)) {
+          if (reauthAttempted) throw error
+          reauthAttempted = true
+          clearToken?.()
+          logger?.log?.('Admin token rejected (401/403); clearing cache and re-authenticating...')
+          continue
+        }
         providerRejected = true
       }
     }
@@ -2797,6 +2818,62 @@ function normalizeForApi(post, fixedSlug, outline, metadata = {}) {
   }
 }
 
+// A full article is the most expensive artifact in the run (all LLM cost is already
+// sunk by the time we publish). A transient 5xx/timeout/network blip on the final
+// publish call must not discard it, so the request is retried with backoff. Client
+// errors (4xx) are deterministic — retrying them only wastes time — so they throw
+// immediately. 409 is handled by the caller as an existing-slug conflict, not here.
+export async function sendPublishRequest({
+  url,
+  method,
+  requestBody,
+  token,
+  label = 'Publish',
+  fetchImpl = fetch,
+  sleepImpl = sleep,
+  retryDelaysMs = [2000, 8000, 20000],
+  logger = console,
+  timeoutMs = 30000,
+} = {}) {
+  const attempts = retryDelaysMs.length + 1
+  let lastError = null
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const resp = await fetchImpl(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (resp.ok) return { ok: true, status: resp.status, json: await resp.json() }
+
+      // 409 is a meaningful signal for the caller; surface it without retrying.
+      if (resp.status === 409) return { ok: false, status: 409, json: null }
+
+      const detail = (await resp.text()).slice(0, 300)
+      // 5xx is transient and worth retrying; 4xx is deterministic and is not.
+      if (resp.status < 500 || attempt >= attempts) {
+        throw new Error(`${label} failed: ${resp.status} ${detail}`)
+      }
+      lastError = new Error(`${label} failed: ${resp.status} ${detail}`)
+    } catch (error) {
+      lastError = error
+      const retryable = isRetryableAdminLoginError(error) || /^.*failed: 5\d\d\b/.test(String(error?.message || ''))
+      if (!retryable || attempt >= attempts) throw error
+    }
+
+    const delayMs = retryDelaysMs[attempt - 1]
+    logger?.warn?.(`${label} attempt ${attempt}/${attempts} failed (${lastError?.message || 'unknown error'}); retrying in ${Math.round(delayMs / 1000)}s...`)
+    await sleepImpl(delayMs)
+  }
+
+  throw lastError || new Error(`${label} failed`)
+}
+
 async function publishPost(token, payload, coverImage = null) {
   const requestBody = {
     title: payload.title,
@@ -2817,54 +2894,40 @@ async function publishPost(token, payload, coverImage = null) {
 
   const existingPost = await fetchExistingPost(payload.slug)
   if (existingPost?.id) {
-    const updateResp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${existingPost.id}`, {
+    const result = await sendPublishRequest({
+      url: `${BLOG_API_BASE}/api/admin/posts/${existingPost.id}`,
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(30000),
+      requestBody,
+      token,
+      label: 'Publish update',
     })
-    if (!updateResp.ok) {
-      throw new Error(`Publish update failed: ${updateResp.status} ${(await updateResp.text()).slice(0, 300)}`)
-    }
-    return updateResp.json()
+    return result.json
   }
 
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts`, {
+  const result = await sendPublishRequest({
+    url: `${BLOG_API_BASE}/api/admin/posts`,
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(requestBody),
-    signal: AbortSignal.timeout(30000),
+    requestBody,
+    token,
+    label: 'Publish',
   })
 
-  if (resp.status === 409) {
+  if (result.status === 409) {
     const conflictPost = await fetchExistingPost(payload.slug)
     if (conflictPost?.id) {
-      const retryResp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${conflictPost.id}`, {
+      const retryResult = await sendPublishRequest({
+        url: `${BLOG_API_BASE}/api/admin/posts/${conflictPost.id}`,
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(30000),
+        requestBody,
+        token,
+        label: 'Publish conflict-retry',
       })
-      if (!retryResp.ok) {
-        throw new Error(`Publish conflict-retry failed: ${retryResp.status} ${(await retryResp.text()).slice(0, 300)}`)
-      }
-      return retryResp.json()
+      return retryResult.json
     }
+    throw new Error('Publish failed: 409 conflict but existing post could not be resolved')
   }
 
-  if (!resp.ok) {
-    throw new Error(`Publish failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-  return resp.json()
+  return result.json
 }
 
 function createTopicSnapshot(topic, overrides = {}) {
@@ -3635,9 +3698,9 @@ async function runWeeklyReviewMode(config, cliOptions) {
   topicMetadataPayload.post_id = metadataBridgePayload.post_id
 
   let coverImage = ''
-  if (metadataBridgePayload.post_id && outline.cover_prompt) {
+  if (metadataBridgePayload.post_id && artifact.outline.cover_prompt) {
     console.log('Requesting configured cover generation...')
-    const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, outline.cover_prompt, token)
+    const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, artifact.outline.cover_prompt, token)
     logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
     coverImage = coverResult.ok ? coverResult.imageUrl : ''
   }
