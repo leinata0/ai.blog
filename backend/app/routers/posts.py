@@ -7,8 +7,10 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, Response
 from sqlalchemy.orm import Session, load_only, selectinload
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
+from app.client_ip import client_ip_from_request
 from app.db import get_db
 from app.feed_meta import (
     RSS_ALL_DESCRIPTION,
@@ -48,16 +50,13 @@ _TOPIC_PRESENTATION_RULES_PATH = (
 
 
 def _get_client_ip(request: Request) -> str:
-    """从请求头获取客户端真实 IP"""
-    ip = request.headers.get("CF-Connecting-IP")
-    if ip:
-        return ip
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "unknown"
+    """Resolve the caller's IP for anti-abuse keying.
+
+    Forwarded headers (X-Forwarded-For / CF-Connecting-IP) are only honored when
+    TRUST_PROXY_HEADERS is enabled; otherwise they are ignored and the socket peer
+    is used, so a client cannot forge them to bypass the like/comment/view limits.
+    """
+    return client_ip_from_request(request)
 
 
 def _post_list_item(post: Post) -> dict:
@@ -294,29 +293,50 @@ def _normalize_query(value: str | None) -> str:
     return " ".join(value.strip().split()).lower()
 
 
+def _bump_existing_search_insight(
+    db: Session, normalized_query: str, result_count: int, now: datetime
+) -> bool:
+    """Increment an existing insight row in place. Returns False if none exists."""
+    insight = db.execute(
+        select(SearchInsight).where(SearchInsight.query == normalized_query)
+    ).scalar_one_or_none()
+    if insight is None:
+        return False
+    insight.search_count = (insight.search_count or 0) + 1
+    insight.last_result_count = result_count
+    insight.last_searched_at = now
+    insight.updated_at = now
+    db.commit()
+    return True
+
+
 def _record_search_insight(db: Session, query: str, result_count: int) -> None:
     normalized_query = _normalize_query(query)
     if len(normalized_query) < 2:
         return
     now = datetime.now(timezone.utc)
-    insight = db.execute(
-        select(SearchInsight).where(SearchInsight.query == normalized_query)
-    ).scalar_one_or_none()
-    if insight is None:
-        insight = SearchInsight(
-            query=normalized_query,
-            search_count=1,
-            last_result_count=result_count,
-            first_searched_at=now,
-            last_searched_at=now,
-        )
-        db.add(insight)
-    else:
-        insight.search_count = (insight.search_count or 0) + 1
-        insight.last_result_count = result_count
-        insight.last_searched_at = now
-        insight.updated_at = now
-    db.commit()
+
+    if _bump_existing_search_insight(db, normalized_query, result_count, now):
+        return
+
+    # No row yet: try to insert. `query` is UNIQUE, so two concurrent searches for
+    # the same new term can both reach here and the second insert will violate the
+    # constraint. /api/search is a public GET — surfacing that as a 500 would fail
+    # exactly when a term first trends. Catch it, roll back, and fall back to the
+    # in-place bump of the row the other request just created.
+    insight = SearchInsight(
+        query=normalized_query,
+        search_count=1,
+        last_result_count=result_count,
+        first_searched_at=now,
+        last_searched_at=now,
+    )
+    db.add(insight)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        _bump_existing_search_insight(db, normalized_query, result_count, now)
 
 
 def _series_match_score(series: Series, query_terms: list[str]) -> int:
@@ -943,7 +963,11 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
         ViewLog.created_at > cutoff,
     ).first()
     if not recent_view:
-        post.view_count += 1
+        # Atomic increment so concurrent views don't read-modify-write the same
+        # stale value and lose counts (invisible on SQLite, real on Postgres).
+        db.execute(
+            update(Post).where(Post.id == post.id).values(view_count=Post.view_count + 1)
+        )
         db.add(ViewLog(post_id=post.id, ip_address=client_ip))
         db.commit()
 
@@ -1051,11 +1075,29 @@ def like_post(slug: str, request: Request, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="已经点过赞了")
 
-    post.like_count += 1
+    # Record the like first. PostLike has UNIQUE(post_id, ip_address), so two
+    # concurrent requests from the same IP can both pass the check above and race
+    # here — the loser hits the constraint. Treat that as "already liked" (the
+    # idempotent outcome) instead of a 500, and only bump the counter when this
+    # request is the one that actually inserted the like.
     db.add(PostLike(post_id=post.id, ip_address=client_ip))
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="已经点过赞了")
+
+    # Atomic increment so concurrent likes on different IPs don't lose updates via
+    # a read-modify-write on a stale count.
+    db.execute(
+        update(Post).where(Post.id == post.id).values(like_count=Post.like_count + 1)
+    )
     db.commit()
-    db.refresh(post)
-    return {"like_count": post.like_count}
+
+    refreshed = db.execute(
+        select(Post.like_count).where(Post.id == post.id)
+    ).scalar_one_or_none()
+    return {"like_count": refreshed or 0}
 
 
 # ── 相关文章接口 ──
