@@ -246,6 +246,15 @@ ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "
 MAX_PROXY_IMAGE_BYTES = 5 * 1024 * 1024
 
 
+def _ip_is_blocked(ip_value: str) -> bool:
+    """Whether a resolved/connected IP must not be reached by the proxy."""
+    try:
+        ip = ipaddress.ip_address(ip_value)
+    except ValueError:
+        return True
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified
+
+
 def _is_private_hostname(hostname: str) -> bool:
     try:
         addresses = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
@@ -253,14 +262,31 @@ def _is_private_hostname(hostname: str) -> bool:
         return True
 
     for address in addresses:
-        ip_value = address[4][0]
-        try:
-            ip = ipaddress.ip_address(ip_value)
-        except ValueError:
-            return True
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+        if _ip_is_blocked(address[4][0]):
             return True
     return False
+
+
+def _connected_peer_ip(resp) -> str | None:
+    """Best-effort: the IP the connection was actually established to.
+
+    The pre-fetch hostname check resolves DNS, then httpx resolves again when it
+    connects — a TOCTOU window an attacker can exploit via DNS rebinding (e.g.
+    flipping a public name to 169.254.169.254 to hit cloud metadata). Reading the
+    real peer off the live connection lets us reject the address we truly reached,
+    closing that window. Returns None when the stream info is unavailable (e.g.
+    mocked transport), in which case the pre-fetch check remains the safety net.
+    """
+    try:
+        stream = resp.extensions.get("network_stream")
+        if stream is None:
+            return None
+        addr = stream.get_extra_info("server_addr")
+        if not addr:
+            return None
+        return addr[0]
+    except Exception:
+        return None
 
 
 PROXY_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
@@ -288,6 +314,13 @@ async def proxy_image(url: str = Query(..., min_length=8)):
                         return Response(status_code=502, content="Upstream image unavailable")
                     current_url = urljoin(current_url, location)
                     continue
+
+                # DNS rebinding guard: the pre-fetch check resolved the hostname,
+                # but httpx resolved again to connect. Reject if the IP we actually
+                # reached is private/loopback/etc.
+                peer_ip = _connected_peer_ip(resp)
+                if peer_ip is not None and _ip_is_blocked(peer_ip):
+                    return Response(status_code=400, content="Invalid URL")
 
                 content_type = resp.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                 content_length = resp.headers.get("content-length")
