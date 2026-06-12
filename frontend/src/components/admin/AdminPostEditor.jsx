@@ -61,14 +61,29 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     }
   }, [editingPost])
 
+  // Keep the latest form in a ref so the autosave interval can read it without
+  // being a dependency. Depending on `form` directly would tear down and rebuild
+  // the interval on every keystroke, so a user who keeps typing (gaps < 30s) would
+  // never actually trigger an autosave — the opposite of the intent.
+  const formRef = useRef(form)
+  const editingIdRef = useRef(editingId)
+  useEffect(() => {
+    formRef.current = form
+    editingIdRef.current = editingId
+  }, [form, editingId])
+
   useEffect(() => {
     const timer = setInterval(() => {
-      localStorage.setItem('admin_draft', JSON.stringify(form))
+      // Only the "new post" flow uses the draft. Editing an existing post must not
+      // write admin_draft, or its content would later be offered as a restorable
+      // draft on top of an unrelated new post.
+      if (editingIdRef.current) return
+      localStorage.setItem('admin_draft', JSON.stringify(formRef.current))
       setAutoSaveMsg('已自动保存')
       setTimeout(() => setAutoSaveMsg(''), 2000)
     }, 30000)
     return () => clearInterval(timer)
-  }, [form])
+  }, [])
 
   async function loadPostDetail(post) {
     setEditingId(post.id)

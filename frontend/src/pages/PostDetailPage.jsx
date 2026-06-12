@@ -361,24 +361,37 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   }, [post, siteUrl])
 
   async function handleCopy(code) {
-    await navigator.clipboard.writeText(code)
-    setCopiedCode(code)
-    window.setTimeout(() => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopiedCode(code)
+      window.setTimeout(() => {
+        setCopiedCode((current) => (current === code ? '' : current))
+      }, 1500)
+    } catch {
+      // Clipboard access can be denied (insecure context or rejected permission).
+      // Swallow it so it doesn't surface as an unhandled rejection; the button simply
+      // stays in its default "复制" state rather than falsely showing "已复制".
       setCopiedCode((current) => (current === code ? '' : current))
-    }, 1500)
+    }
   }
 
   async function handleLike() {
     if (liked) return
+    // Optimistic update: bump immediately, then roll back if the request fails.
+    // Previously a failure was swallowed and treated as success, which left the UI
+    // showing a like that the backend never recorded (and permanently disabled the
+    // button via localStorage).
+    setLiked(true)
+    setLikeCount((c) => c + 1)
     try {
       const result = await likePost(slug)
-      setLikeCount(result?.like_count ?? likeCount + 1)
-      setLiked(true)
+      if (typeof result?.like_count === 'number') {
+        setLikeCount(result.like_count)
+      }
       localStorage.setItem(`liked_${slug}`, '1')
     } catch {
-      setLikeCount((c) => c + 1)
-      setLiked(true)
-      localStorage.setItem(`liked_${slug}`, '1')
+      setLiked(false)
+      setLikeCount((c) => Math.max(0, c - 1))
     }
   }
 

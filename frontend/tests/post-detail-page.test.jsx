@@ -1,9 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import { ThemeProvider } from '../src/contexts/ThemeContext'
 import { proxyImageUrl } from '../src/utils/proxyImage'
+import { likePost } from '../src/api/posts'
 import PostDetailPage from '../src/pages/PostDetailPage'
 
 vi.mock('../src/api/posts', () => ({
@@ -160,4 +161,50 @@ it('degrades gracefully when legacy posts have no quality insight data', async (
 
   expect(await screen.findByText('Legacy article')).toBeInTheDocument()
   expect(screen.queryAllByText(/质量洞察/i)).toHaveLength(0)
+})
+
+it('rolls back the like when the request fails instead of faking success', async () => {
+  localStorage.removeItem('liked_python-automation-selenium-pandas')
+  likePost.mockRejectedValueOnce(new Error('network down'))
+
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <PostDetailPage slug="python-automation-selenium-pandas" />
+      </ThemeProvider>
+    </MemoryRouter>,
+  )
+
+  const likeButton = await screen.findByRole('button', { name: /点赞 · 0/ })
+  fireEvent.click(likeButton)
+
+  // After the failed request the optimistic +1 must be rolled back: the button
+  // returns to its un-liked label and count, and the like is NOT persisted (which
+  // would otherwise permanently disable the button for a like the backend never saw).
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /点赞 · 0/ })).toBeInTheDocument()
+  })
+  expect(screen.queryByRole('button', { name: /已点赞/ })).toBeNull()
+  expect(localStorage.getItem('liked_python-automation-selenium-pandas')).toBeNull()
+})
+
+it('persists and reflects a successful like', async () => {
+  localStorage.removeItem('liked_python-automation-selenium-pandas')
+  likePost.mockResolvedValueOnce({ like_count: 42 })
+
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <PostDetailPage slug="python-automation-selenium-pandas" />
+      </ThemeProvider>
+    </MemoryRouter>,
+  )
+
+  const likeButton = await screen.findByRole('button', { name: /点赞 · 0/ })
+  fireEvent.click(likeButton)
+
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /已点赞 · 42/ })).toBeInTheDocument()
+  })
+  expect(localStorage.getItem('liked_python-automation-selenium-pandas')).toBe('1')
 })
