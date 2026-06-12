@@ -1394,31 +1394,45 @@ export function buildLLMMaxTokenAttempts(maxTokens = 16384) {
     .filter((value, index, values) => values.indexOf(value) === index)
 }
 
-async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
+export async function callLLM(systemPrompt, userPrompt, maxTokens = 16384, {
+  generateText = generateTextViaAdminApi,
+  getToken = getCachedAdminToken,
+  sleepImpl = sleep,
+  blogApiBase = BLOG_API_BASE,
+  retryDelaysSec = [0, 10, 30, 60],
+  logger = console,
+} = {}) {
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
   ]
 
   const maxTokenAttempts = buildLLMMaxTokenAttempts(maxTokens)
+  const attempts = retryDelaysSec.length
+  // The token ladder only steps down when the provider itself rejects the request
+  // (e.g. max_tokens above a model limit). A truncated/unparseable body means the
+  // request succeeded but the output was cut off, so reducing the budget would only
+  // make truncation worse — those retries keep the full budget.
+  let tokenLadderIndex = 0
   let lastError = ''
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (attempt > 1) {
-      const sec = [0, 10, 30, 60][attempt - 1]
-      console.log(`Retrying LLM call in ${sec}s...`)
-      await sleep(sec * 1000)
+      const sec = retryDelaysSec[attempt - 1]
+      logger?.log?.(`Retrying LLM call in ${sec}s...`)
+      await sleepImpl(sec * 1000)
     }
 
-    const maxTokensForAttempt = maxTokenAttempts[Math.min(attempt - 1, maxTokenAttempts.length - 1)]
+    const maxTokensForAttempt = maxTokenAttempts[Math.min(tokenLadderIndex, maxTokenAttempts.length - 1)]
     if (maxTokensForAttempt !== maxTokens) {
-      console.log(`Retrying LLM call with reduced max_tokens=${maxTokensForAttempt} (requested ${maxTokens})...`)
+      logger?.log?.(`Retrying LLM call with reduced max_tokens=${maxTokensForAttempt} (requested ${maxTokens})...`)
     }
 
+    let providerRejected = false
     for (const jsonMode of [true, false]) {
       try {
-        const raw = await generateTextViaAdminApi({
-          blogApiBase: BLOG_API_BASE,
-          token: await getCachedAdminToken(),
+        const raw = await generateText({
+          blogApiBase,
+          token: await getToken(),
           messages,
           maxTokens: maxTokensForAttempt,
           temperature: 0.55,
@@ -1436,8 +1450,11 @@ async function callLLM(systemPrompt, userPrompt, maxTokens = 16384) {
       } catch (error) {
         lastError = error?.message || 'admin text generation failed'
         if (/^Admin text generation failed:\s*(401|403)\b/i.test(lastError)) throw error
+        providerRejected = true
       }
     }
+
+    if (providerRejected) tokenLadderIndex += 1
   }
 
   throw new Error(`LLM failed after retries: ${lastError.slice(0, 500)}`)
@@ -1759,7 +1776,7 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
     stringifyPromptPayload(researchPack, isWeeklyReview ? 22000 : 14000),
   ].join('\n')
 
-  return callLLM(system, user, isWeeklyReview ? 4096 : 4096)
+  return callLLM(system, user, 8192)
 }
 
 async function generateWeeklyReviewPackage({ outline, researchPack, formatProfile, workflow, today }) {

@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildLLMMaxTokenAttempts,
+  callLLM,
   loginAdminWithRetry,
   parseJsonFromLlm,
   normalizeArticleCoverPromptResult,
@@ -42,6 +43,62 @@ test('parseJsonFromLlm reports truncated top-level JSON clearly', () => {
     () => parseJsonFromLlm('```json\n{"topic":"AI agents","keywords":["agent"],'),
     /JSON appears truncated/
   )
+})
+
+test('callLLM keeps the full token budget when the output is truncated', async () => {
+  const usedMaxTokens = []
+  const result = await callLLM('system', 'user', 8192, {
+    getToken: async () => 'token',
+    sleepImpl: async () => {},
+    logger: null,
+    generateText: async ({ maxTokens }) => {
+      usedMaxTokens.push(maxTokens)
+      // First call returns truncated JSON; second call returns valid JSON.
+      if (usedMaxTokens.length === 1) return '```json\n{"topic":"AI",'
+      return '{"topic":"AI agents"}'
+    },
+  })
+
+  assert.deepEqual(result, { topic: 'AI agents' })
+  // Truncation must NOT shrink the budget — both attempts keep the requested 8192.
+  assert.ok(usedMaxTokens.every((value) => value === 8192), `expected all 8192, got ${usedMaxTokens}`)
+})
+
+test('callLLM steps the token ladder down only when the provider rejects', async () => {
+  const usedMaxTokens = []
+  const result = await callLLM('system', 'user', 16384, {
+    getToken: async () => 'token',
+    sleepImpl: async () => {},
+    logger: null,
+    generateText: async ({ maxTokens }) => {
+      usedMaxTokens.push(maxTokens)
+      // Provider rejects the first full-budget attempt (both jsonMode passes), then accepts.
+      if (maxTokens === 16384) throw new Error('Admin text generation failed: 400 max_tokens too high')
+      return '{"topic":"AI agents"}'
+    },
+  })
+
+  assert.deepEqual(result, { topic: 'AI agents' })
+  // First attempt rejected at 16384 (twice), retry steps down to 8192.
+  assert.equal(usedMaxTokens[0], 16384)
+  assert.equal(usedMaxTokens.at(-1), 8192)
+})
+
+test('callLLM throws auth failures immediately without retrying', async () => {
+  let calls = 0
+  await assert.rejects(
+    callLLM('system', 'user', 4096, {
+      getToken: async () => 'token',
+      sleepImpl: async () => {},
+      logger: null,
+      generateText: async () => {
+        calls += 1
+        throw new Error('Admin text generation failed: 401 unauthorized')
+      },
+    }),
+    /401/
+  )
+  assert.equal(calls, 1)
 })
 
 test('loginAdminWithRetry retries transient admin login failures', async () => {
