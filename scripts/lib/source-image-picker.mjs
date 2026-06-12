@@ -1,3 +1,5 @@
+import { assertPublicHttpUrl, isPublicHttpUrl } from './url-guard.mjs'
+
 function absoluteUrl(baseUrl, candidate) {
   try {
     return new URL(candidate, baseUrl).toString()
@@ -109,9 +111,12 @@ function scoreCandidate(candidate, sectionHeading, topic, sourceItem = {}) {
 }
 
 async function fetchPageHtml(url) {
+  // url comes from third-party feed content; fail closed on non-public hosts (SSRF).
+  assertPublicHttpUrl(url)
   const resp = await fetch(url, {
     headers: { 'User-Agent': 'AutoBlogImagePicker/1.0' },
     signal: AbortSignal.timeout(15000),
+    redirect: 'manual',
   })
   if (!resp.ok) {
     throw new Error(`image-page:${resp.status}`)
@@ -140,6 +145,9 @@ export async function pickSourceImages({
       const html = await fetchPageHtml(item.url)
       const candidates = extractImageCandidatesFromHtml(html, item.url)
         .filter((candidate) => !shouldDropCandidate(candidate, rules))
+        // The chosen image_url is fetched again later (download/upload), so a candidate
+        // pointing at a private/internal host is the same SSRF vector as the page itself.
+        .filter((candidate) => isPublicHttpUrl(candidate.url))
       candidatesBySource.push({ item, candidates })
     } catch {
       continue

@@ -132,6 +132,13 @@ function capabilityList(value, purpose) {
   return values.length ? values : [purpose].filter(Boolean)
 }
 
+function makeFriendLinkKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `fl-${Math.random().toString(36).slice(2)}-${Date.now()}`
+}
+
 function parseFriendLinks(rawLinks) {
   let links = rawLinks || []
   if (typeof links === 'string') {
@@ -141,7 +148,11 @@ function parseFriendLinks(rawLinks) {
       links = []
     }
   }
-  return Array.isArray(links) ? links : []
+  if (!Array.isArray(links)) return []
+  // Attach a stable per-row key so React can track edits/removals correctly in the
+  // controlled friend-link list. Without it (index-as-key), removing a middle row
+  // shifts every later row's identity and the input values/focus jump around.
+  return links.map((link) => ({ ...link, _key: makeFriendLinkKey() }))
 }
 
 export default function AdminSettings() {
@@ -428,7 +439,9 @@ export default function AdminSettings() {
     try {
       const payload = {
         ...siteSettings,
-        friend_links: JSON.stringify(siteSettings.friend_links || []),
+        // Strip the client-only _key before persisting; it exists purely to give
+        // React a stable list key across add/remove of editable rows.
+        friend_links: JSON.stringify((siteSettings.friend_links || []).map(({ _key, ...rest }) => rest)),
       }
       const updated = await updateSettings(payload)
       setSiteSettings({
@@ -501,7 +514,7 @@ export default function AdminSettings() {
   function addFriendLink() {
     setSiteSettings((prev) => ({
       ...prev,
-      friend_links: [...(prev.friend_links || []), { name: '', url: '', description: '', avatar: '' }],
+      friend_links: [...(prev.friend_links || []), { name: '', url: '', description: '', avatar: '', _key: makeFriendLinkKey() }],
     }))
   }
 
@@ -1110,7 +1123,7 @@ export default function AdminSettings() {
         </div>
 
         {(siteSettings.friend_links || []).map((link, index) => (
-          <div key={index} className="relative rounded-lg border border-[var(--border-muted)] p-4">
+          <div key={link._key ?? index} className="relative rounded-lg border border-[var(--border-muted)] p-4">
             <button
               type="button"
               onClick={() => removeFriendLink(index)}

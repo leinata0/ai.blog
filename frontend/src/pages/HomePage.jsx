@@ -228,7 +228,7 @@ function PostCard({ post, onTagSelect, onPrefetch }) {
               <Calendar size={13} /> {post.coverage_date || formatDate(post.created_at)}
             </span>
 
-            {post.tags.map((item) => (
+            {(post.tags || []).map((item) => (
               <button
                 key={item.slug}
                 onClick={(event) => {
@@ -449,7 +449,7 @@ export default function HomePage() {
   const tags = useMemo(() => {
     const map = new Map()
     posts.forEach((post) => {
-      post.tags.forEach((item) => map.set(item.slug, item))
+      (post.tags || []).forEach((item) => map.set(item.slug, item))
     })
     return Array.from(map.values())
   }, [posts])
