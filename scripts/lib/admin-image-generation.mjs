@@ -1,7 +1,7 @@
 const TERMINAL_IMAGE_JOB_STATUSES = new Set(['succeeded', 'failed', 'canceled'])
 
 const DEFAULT_SUBMIT_TIMEOUT_MS = 60000
-const DEFAULT_POLL_TIMEOUT_MS = 180000
+const DEFAULT_POLL_TIMEOUT_MS = 300000
 const DEFAULT_POLL_INTERVAL_MS = 2500
 
 function trimBaseUrl(value) {
