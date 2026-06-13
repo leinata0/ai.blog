@@ -170,6 +170,126 @@
       "quality_weight": 0.56,
       "channel_bucket": "community",
       "source_group": "github-trending"
+    },
+    {
+      "url": "https://aws.amazon.com/blogs/machine-learning/feed/",
+      "name": "AWS Machine Learning Blog",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.88,
+      "channel_bucket": "official_vendor",
+      "source_group": "aws"
+    },
+    {
+      "url": "https://blogs.nvidia.com/feed/",
+      "name": "NVIDIA Blog",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.87,
+      "channel_bucket": "official_vendor",
+      "source_group": "nvidia"
+    },
+    {
+      "url": "https://ai.meta.com/blog/rss/",
+      "name": "Meta AI Blog",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.91,
+      "channel_bucket": "official_vendor",
+      "source_group": "meta"
+    },
+    {
+      "url": "https://www.deepmind.com/blog/rss.xml",
+      "name": "Google DeepMind",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.94,
+      "channel_bucket": "official_vendor",
+      "source_group": "deepmind"
+    },
+    {
+      "url": "https://lilianweng.github.io/index.xml",
+      "name": "Lil'Log",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "independent_blog",
+      "quality_weight": 0.82,
+      "channel_bucket": "independent",
+      "source_group": "lilianweng"
+    },
+    {
+      "url": "https://stratechery.com/feed/",
+      "name": "Stratechery",
+      "tag": "Tech",
+      "lang": "en",
+      "source_type": "independent_blog",
+      "quality_weight": 0.79,
+      "channel_bucket": "independent",
+      "source_group": "stratechery"
+    },
+    {
+      "url": "https://www.theverge.com/ai-artificial-intelligence/rss/index.xml",
+      "name": "The Verge AI",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.72,
+      "channel_bucket": "media",
+      "source_group": "theverge"
+    },
+    {
+      "url": "https://venturebeat.com/category/ai/feed/",
+      "name": "VentureBeat AI",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.68,
+      "channel_bucket": "media",
+      "source_group": "venturebeat"
+    },
+    {
+      "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed",
+      "name": "MIT Technology Review AI",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "industry_media",
+      "quality_weight": 0.76,
+      "channel_bucket": "media",
+      "source_group": "mittr"
+    },
+    {
+      "url": "https://simonwillison.net/atom/everything/",
+      "name": "Simon Willison's Weblog",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "independent_blog",
+      "quality_weight": 0.75,
+      "channel_bucket": "independent",
+      "source_group": "simonwillison"
+    },
+    {
+      "url": "https://www.ben-evans.com/benedictevans?format=rss",
+      "name": "Benedict Evans",
+      "tag": "Tech",
+      "lang": "en",
+      "source_type": "independent_blog",
+      "quality_weight": 0.77,
+      "channel_bucket": "independent",
+      "source_group": "benedictevans"
+    },
+    {
+      "url": "https://blog.langchain.dev/feed/",
+      "name": "LangChain Blog",
+      "tag": "AI",
+      "lang": "en",
+      "source_type": "official_blog",
+      "quality_weight": 0.81,
+      "channel_bucket": "official_vendor",
+      "source_group": "langchain"
     }
   ],
   "fallback_urls": [
