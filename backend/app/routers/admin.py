@@ -52,6 +52,8 @@ from app.schemas import (
     CoverGenerationStatusOut,
     CoverGenerateRequest,
     ContentHealthOut,
+    IllustrationGenerateRequest,
+    IllustrationGenerateResponse,
     LoginRequest,
     LoginResponse,
     PostQualityDetailOut,
@@ -1989,6 +1991,44 @@ def admin_generate_post_cover(
         target_id=post.id,
         body=body,
     )
+
+
+@router.post("/illustrations/generate", response_model=IllustrationGenerateResponse)
+def admin_generate_illustration(
+    body: IllustrationGenerateRequest,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    # Inline illustrations are inserted into content_md *before* the post is published, so
+    # unlike cover generation (which is async and keyed on an existing post_id) this must be
+    # synchronous and post-independent: take a prompt, return a self-hosted image URL. The
+    # prompt comes from the trusted admin pipeline; the generated image is downloaded and
+    # re-uploaded to our own storage (R2/local) so the article never references a third-party
+    # hotlink.
+    prompt = str(body.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    framing_hint = (
+        "Square editorial explanatory illustration, clean and minimal, high quality"
+        if body.aspect == "square"
+        else "Wide landscape editorial explanatory illustration, clean and minimal, high quality"
+    )
+    try:
+        image_url = _generate_cover_asset(
+            db,
+            prompt,
+            f"auto-illust-{uuid4().hex[:12]}",
+            framing_hint=framing_hint,
+        )
+    except CoverGenerationError as exc:
+        return IllustrationGenerateResponse(
+            image_url="",
+            generated=False,
+            error=exc.message,
+            error_code=exc.code,
+        )
+    return IllustrationGenerateResponse(image_url=image_url, generated=True)
 
 
 @router.get("/image-generation-jobs/{job_id}", response_model=AdminImageGenerationJobOut)

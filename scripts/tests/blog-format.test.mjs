@@ -71,3 +71,50 @@ test('buildFormatPrompt includes deeper editorial quality rule groups', () => {
   assert.match(prompt, /事实说明、重要性判断/)
   assert.match(prompt, /如果这个判断错了/)
 })
+
+test('getBlogFormatProfile returns the free-form profile with dimensions', () => {
+  const profile = getBlogFormatProfile('free-form-v1')
+
+  assert.equal(profile.name, 'free-form-v1')
+  assert.equal(profile.structure_mode, 'free')
+  assert.deepEqual(profile.required_sections, [])
+  assert.ok(profile.required_dimensions.includes('facts'))
+  assert.ok(profile.required_dimensions.includes('judgment'))
+  assert.ok(profile.required_tail_sections.includes('## 图片来源'))
+})
+
+test('buildFormatPrompt renders self-authoring + dimension guidance in free mode', () => {
+  const prompt = buildFormatPrompt(getBlogFormatProfile('free-form-v1'))
+
+  assert.match(prompt, /## 章节自拟规则/)
+  assert.match(prompt, /## 必须覆盖的维度/)
+  // It must NOT hand the model a fixed required-section list to fill.
+  assert.doesNotMatch(prompt, /## 必备章节/)
+  // Tail blocks are still declared as program-appended so the model won't write them.
+  assert.match(prompt, /程序补齐的固定尾部/)
+  assert.match(prompt, /禁用套话/)
+})
+
+test('free-form-v1 is a free-structure profile with no fixed sections', () => {
+  const profile = getBlogFormatProfile('free-form-v1')
+
+  assert.equal(profile.name, 'free-form-v1')
+  assert.equal(profile.structure_mode, 'free')
+  assert.deepEqual(profile.required_sections, [])
+  assert.ok(profile.required_dimensions.includes('facts'))
+  assert.ok(profile.required_dimensions.includes('judgment'))
+  // Tail blocks are still program-appended, so they remain declared.
+  assert.ok(profile.required_tail_sections.includes('## 图片来源'))
+})
+
+test('buildFormatPrompt for free mode asks the LLM to author its own chapters', () => {
+  const prompt = buildFormatPrompt(getBlogFormatProfile('free-form-v1'))
+
+  assert.match(prompt, /## 章节自拟规则/)
+  assert.match(prompt, /## 必须覆盖的维度/)
+  // Free mode must NOT present a fixed required-section list.
+  assert.doesNotMatch(prompt, /## 必备章节/)
+  // The fixed tail blocks are still declared as program-managed.
+  assert.match(prompt, /程序补齐的固定尾部/)
+  assert.match(prompt, /facts（事实层）/)
+})

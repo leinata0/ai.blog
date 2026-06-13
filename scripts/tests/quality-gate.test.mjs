@@ -128,30 +128,22 @@ test('quality gate rejects post with missing sections', () => {
 })
 
 test('quality gate resolves nested daily brief rules from content type', () => {
+  // createDailyBriefFormatProfile() is now free-structure, so author chapters with
+  // self-chosen headings. The point of this test is that the nested daily_brief gate
+  // config is resolved by content_type/gate_profile, not the structure mode.
   const dailyProfile = createDailyBriefFormatProfile()
-  const dailyMarkers = dailyProfile.analysis_markers.slice(0, 3)
+  const markers = dailyProfile.analysis_markers.slice(0, 3)
   const result = evaluateQualityGate({
     post: {
       content_type: 'daily_brief',
       gate_profile: 'daily_brief',
-      content_md: buildArticle(
-        dailyProfile,
-        [
-          `OpenAI 发布了新的开发者代理能力，${dailyMarkers[0]}工具开始从演示走向真实工作流。`,
-          `值得关注的不只是速度提升，${dailyMarkers[1]}也落在团队权限边界与稳定性上。`,
-          `官方博客强调集成效率，行业媒体则更关心价格与组织替代，这就是${dailyMarkers[2]}。`,
-          '如果把它放回更长的历史脉络，代理能力正在把代码补全工具推向主动执行。',
-          '我的判断是，真正的竞争会从模型参数转向谁能占住开发入口。',
-        ],
-        ['- a', '- 无正文插图']
-      ),
+      content_md: buildFreeArticle([
+        ['## 开发者代理的真实落地', `OpenAI 发布了新的开发者代理能力，${markers[0]}工具开始从演示走向真实工作流。[S1]`],
+        ['## 成本与边界的取舍', `值得关注的不只是速度提升，${markers[1]}也落在团队权限边界与稳定性上。[S2]`],
+        ['## 我的判断', `官方博客强调集成效率，行业媒体更关心价格与组织替代，这就是${markers[2]}；我判断竞争会转向开发入口。[S3]`],
+      ]),
     },
-    researchPack: {
-      sources: [
-        { source_type: 'official_blog' },
-        { source_type: 'industry_media' },
-      ],
-    },
+    researchPack: freeResearchPack,
     formatProfile: dailyProfile,
     config: {
       quality_gate: {
@@ -162,12 +154,18 @@ test('quality gate resolves nested daily brief rules from content type', () => {
           min_chars: 30,
           max_banned_phrase_hits: 0,
           min_analysis_signals: 2,
+          min_inline_citations: 3,
+          min_cited_domains: 2,
+          min_analysis_sections: 1,
+          required_dimensions: ['facts', 'significance', 'multi_source', 'analysis', 'judgment'],
+          min_sections: 3,
+          max_sections: 6,
         },
       },
     },
   })
 
-  assert.equal(result.passed, true)
+  assert.equal(result.passed, true, `unexpected reasons: ${result.reasons.join(', ')}`)
 })
 
 test('quality gate counts repeated analysis markers by occurrences', () => {
@@ -299,4 +297,183 @@ test('quality gate rejects missing subheadings, weak analysis distribution and s
   assert.ok(result.reasons.some((reason) => reason.startsWith('body_source_mentions:')))
   assert.ok(result.reasons.some((reason) => reason.startsWith('evidence_cards:')))
   assert.equal(result.metrics.subheading_count, 0)
+})
+
+// ── Free-structure mode (LLM authors its own chapter titles) ──
+
+const freeProfile = {
+  name: 'free-form-v1',
+  structure_mode: 'free',
+  required_sections: [],
+  required_dimensions: ['facts', 'significance', 'multi_source', 'analysis', 'judgment'],
+  required_tail_sections: ['## 参考来源', '## 图片来源', '## 一句话结论'],
+  banned_phrases: ['让我们拭目以待'],
+  analysis_markers: ['意味着', '取舍', '更关键的是'],
+}
+
+const freeGateConfig = {
+  quality_gate: {
+    daily_brief: {
+      min_sources: 3,
+      min_high_quality_sources: 1,
+      high_quality_source_types: ['official_blog', 'paper'],
+      min_chars: 20,
+      max_banned_phrase_hits: 0,
+      min_analysis_signals: 1,
+      min_inline_citations: 3,
+      min_cited_domains: 2,
+      min_analysis_sections: 1,
+      required_dimensions: ['facts', 'significance', 'multi_source', 'analysis', 'judgment'],
+      min_sections: 3,
+      max_sections: 6,
+    },
+  },
+}
+
+// Build a free-structure article from arbitrary (heading, body) chapters the "LLM" chose,
+// plus the program-appended tail blocks.
+function buildFreeArticle(chapters, { takeaway = '这是文章的核心判断。' } = {}) {
+  const lines = []
+  for (const [heading, body] of chapters) {
+    lines.push(heading, body)
+  }
+  lines.push('## 参考来源', '- [A](https://openai.com/a)')
+  lines.push('## 图片来源', '- 无正文插图')
+  lines.push('## 一句话结论', `> ${takeaway}`)
+  return lines.join('\n\n')
+}
+
+const freeResearchPack = {
+  sources: [
+    { source_id: 'S1', source_type: 'official_blog', source_name: 'OpenAI Blog', url: 'https://openai.com/a' },
+    { source_id: 'S2', source_type: 'independent_blog', source_name: 'Dev Notes', url: 'https://example.com/b' },
+    { source_id: 'S3', source_type: 'paper', source_name: 'arXiv', url: 'https://arxiv.org/abs/1' },
+  ],
+}
+
+test('free mode passes when authored chapters cover all required dimensions', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: buildFreeArticle([
+        ['## 模型发布的真实变化', 'OpenAI 公布了新的推理模型，事实层面给出了明确的发布范围。[S1]'],
+        ['## 为什么这次值得关注', '这件事意味着开发者入口正在被重新定义，更关键的是成本结构发生了取舍。[S2]'],
+        ['## 我的判断', '不同来源在定价上的分歧意味着竞争重心转移，我判断真正的影响在生态绑定。[S3]'],
+      ]),
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  assert.equal(result.passed, true, `unexpected reasons: ${result.reasons.join(', ')}`)
+  assert.equal(result.metrics.section_count, 3)
+  assert.deepEqual(result.metrics.missing_dimensions, [])
+})
+
+test('free mode does not require any fixed section headings', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: buildFreeArticle([
+        ['## 完全自定义的标题甲', 'OpenAI 给出事实背景。[S1] 这意味着入口竞争出现取舍。'],
+        ['## 完全自定义的标题乙', '独立博客补充开发者视角。[S2] 更关键的是组织协作被改变。'],
+        ['## 完全自定义的标题丙', '论文说明长期脉络。[S3] 我的判断是影响落在工具链。'],
+      ]),
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  // No missing_sections reason should ever appear in free mode (only tail blocks matter).
+  assert.ok(!result.reasons.some((reason) => reason.startsWith('missing_sections:')))
+})
+
+test('free mode fails when a dimension is uncovered (no citations → missing facts)', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: buildFreeArticle([
+        ['## 标题甲', '完全没有任何来源编号的空泛描述。'],
+        ['## 标题乙', '继续没有引用，只是泛泛而谈意味着什么。'],
+        ['## 标题丙', '依旧没有来源支撑的判断。'],
+      ]),
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  assert.equal(result.passed, false)
+  assert.ok(result.reasons.some((reason) => reason.startsWith('missing_dimensions:')))
+  assert.ok(result.metrics.missing_dimensions.includes('facts'))
+})
+
+test('free mode rejects too few chapters (collapsed into one block)', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: buildFreeArticle([
+        ['## 唯一的一章', 'OpenAI 发布说明。[S1] 这意味着取舍。独立视角补充。[S2] 更关键的是论文脉络。[S3] 我的判断在生态。'],
+      ]),
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  assert.equal(result.passed, false)
+  assert.ok(result.reasons.some((reason) => reason === 'section_count:1<3'))
+})
+
+test('free mode rejects too many chapters (fragmented into a list)', () => {
+  const chapters = Array.from({ length: 8 }, (_, index) => [
+    `## 碎片标题${index + 1}`,
+    `第 ${index + 1} 条新闻。[S${(index % 3) + 1}] 这意味着取舍，更关键的是影响。`,
+  ])
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: buildFreeArticle(chapters),
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  assert.equal(result.passed, false)
+  assert.ok(result.reasons.some((reason) => reason === 'section_count:8>6'))
+})
+
+test('free mode still enforces per-section checks on authored chapters', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: buildFreeArticle([
+        ['## 标题甲', '短。[S1]'],
+        ['## 标题乙', '也很短意味着取舍。[S2]'],
+        ['## 标题丙', '依旧短，更关键的是判断。[S3]'],
+      ]),
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: {
+      quality_gate: {
+        daily_brief: {
+          ...freeGateConfig.quality_gate.daily_brief,
+          min_section_chars: 80,
+        },
+      },
+    },
+  })
+
+  assert.equal(result.passed, false)
+  assert.ok(result.reasons.some((reason) => reason.startsWith('thin_sections:')))
 })

@@ -227,6 +227,72 @@ FORMAT_PROFILES['weekly-review-v2'] = {
   ],
 }
 
+FORMAT_PROFILES['free-form-v1'] = {
+  name: 'free-form-v1',
+  // Free-structure mode: the article author (LLM) designs its own H2 chapters instead of
+  // filling a fixed template. Quality is enforced by dimension coverage, not heading match.
+  structure_mode: 'free',
+  sections: [],
+  required_sections: [],
+  required_tail_sections: [...SHARED_TAIL_SECTIONS],
+  // Editorial responsibilities every article must fulfill, regardless of how chapters are named.
+  // quality-gate maps each to an objective signal (citations, cited domains, analysis sections...).
+  required_dimensions: ['facts', 'significance', 'multi_source', 'analysis', 'judgment'],
+  title_rules: [
+    '标题必须是中文，体现核心判断或核心矛盾，而不是复述事件。',
+    '标题避免“日报”“快讯”“周报”式新闻口吻。',
+    '标题长度控制在 12-30 个中文字符。',
+  ],
+  summary_rules: [
+    '摘要只用一段话，直接给出文章主判断。',
+    '摘要不要以“本文将”或“这篇文章”开头。',
+    '摘要不超过 80 个中文字符。',
+  ],
+  outline_rules: [
+    '你必须自己设计 3 到 6 个二级标题（## 开头）来组织文章，不要套用固定模板章节名。',
+    '每个章节标题要具体、贴合这篇文章的实际内容，避免“发生了什么”“为什么值得关注”这类通用模板标题。',
+    '章节顺序和数量由内容决定，但整篇文章合起来必须覆盖下列全部维度。',
+    '不要在正文里自行编写“参考来源”“图片来源”“一句话结论”这三个收尾区块，它们由系统统一补齐。',
+  ],
+  dimension_rules: [
+    'facts（事实层）：讲清楚发生了什么，关键事实要能回到来源编号，例如 [S1]。',
+    'significance（重要性）：解释这件事为什么值得关注，而不仅是复述。',
+    'multi_source（多源对比）：呈现不同来源的共识或分歧，引用要覆盖多个不同域名的来源。',
+    'analysis（分析层）：至少给出取舍、影响、二阶后果或反方观点中的多项，分析要分布在多个章节。',
+    'judgment（判断层）：给出作者明确的结论或判断，而不是空泛收束。',
+  ],
+  citation_rules: [
+    '事实陈述优先对应官方博客、原始新闻源、论文摘要或高质量技术博客。',
+    '引用来源时要说明它支撑了什么判断，避免只在文末堆链接。',
+    '不要编造研究包里不存在的来源编号。',
+  ],
+  image_rules: [
+    '正文插图只服务于解释，不要让图片取代论证。',
+    '图片来源统一放在文末的“图片来源”区块。',
+  ],
+  style_rules: [
+    '区分事实与观点，给出明确的主判断。',
+    '至少做两处对比、影响或取舍分析，并分布在不同章节。',
+    '避免新闻罗列和套话总结，段落要饱满。',
+  ],
+  evidence_rules: [
+    '正文中的关键事实必须能回到来源编号，例如 [S1]、[S2]。',
+    '官方来源优先用于产品事实，独立博客/媒体优先用于解释外部视角。',
+    '引用来源时要说明它支撑了什么判断。',
+  ],
+  analysis_rules: [
+    '至少包含一个技术或商业取舍、一个利益相关方影响、一个二阶后果。',
+    '必须写出一个反方观点、不确定性，或“如果这个判断错了，可能错在哪里”。',
+    '分析不能集中在单个章节；多个章节都要有明确的因果、比较或边界判断。',
+  ],
+  repair_rules: [
+    '如果某节过短，优先补充证据、反例、取舍和影响链，而不是重复摘要。',
+    '如果某个维度未覆盖，补写承担该维度的章节内容，而不是新增模板标题。',
+  ],
+  banned_phrases: [...SHARED_BANNED_PHRASES],
+  analysis_markers: [...SHARED_ANALYSIS_MARKERS],
+}
+
 function cloneProfile(profile) {
   return JSON.parse(JSON.stringify(profile))
 }
@@ -273,6 +339,36 @@ export function buildFormatPrompt(profile) {
       : []
   ))
 
+  // Free mode: the LLM authors its own chapter titles, so instead of listing fixed
+  // required sections we hand it the self-authoring rules plus the editorial dimensions
+  // every article must cover. The program-appended tail blocks are still declared so the
+  // model knows not to write them itself.
+  const isFreeStructure = profile.structure_mode === 'free'
+  const dimensionLabels = {
+    facts: 'facts（事实层）：发生了什么，关键事实必须有来源支撑',
+    significance: 'significance（重要性）：为什么这件事值得关注',
+    multi_source: 'multi_source（多源对比）：不同来源的共识与分歧',
+    analysis: 'analysis（分析层）：取舍、影响、二阶后果、反方观点',
+    judgment: 'judgment（判断层）：作者明确的结论或判断',
+  }
+  const structureLines = isFreeStructure
+    ? [
+        '## 章节自拟规则',
+        ...(Array.isArray(profile.outline_rules) ? profile.outline_rules.map((rule) => `- ${rule}`) : []),
+        '',
+        '## 必须覆盖的维度',
+        ...(Array.isArray(profile.required_dimensions) ? profile.required_dimensions : [])
+          .map((dimension) => `- ${dimensionLabels[dimension] || dimension}`),
+        '',
+        '## 程序补齐的固定尾部（请勿自行撰写）',
+        ...profile.required_tail_sections.map((section) => `- ${section}`),
+      ]
+    : [
+        '## 必备章节',
+        ...profile.required_sections.map((section) => `- ${section}`),
+        ...profile.required_tail_sections.map((section) => `- ${section}`),
+      ]
+
   return [
     '# 博客格式规范',
     `格式模板：${profile.name}`,
@@ -283,9 +379,7 @@ export function buildFormatPrompt(profile) {
     '## 摘要规则',
     ...profile.summary_rules.map((rule) => `- ${rule}`),
     '',
-    '## 必备章节',
-    ...profile.required_sections.map((section) => `- ${section}`),
-    ...profile.required_tail_sections.map((section) => `- ${section}`),
+    ...structureLines,
     '',
     '## 来源规范',
     ...profile.citation_rules.map((rule) => `- ${rule}`),

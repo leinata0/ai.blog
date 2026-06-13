@@ -348,6 +348,7 @@
   "arxiv_max_papers": 2,
   "format_profile": "tech-editorial-v1",
   "source_image_picker_enabled": true,
+  "ai_illustration_enabled": false,
   "image_selection_rules": {
     "min_width": 240,
     "min_height": 140,
@@ -360,6 +361,9 @@
       "min_sources": 3,
       "min_high_quality_sources": 2,
       "high_quality_source_types": ["official_blog", "independent_blog", "paper"],
+      "required_dimensions": ["facts", "significance", "multi_source", "analysis", "judgment"],
+      "min_sections": 3,
+      "max_sections": 6,
       "min_chars": 4200,
       "min_unique_domains": 3,
       "min_inline_citations": 6,
