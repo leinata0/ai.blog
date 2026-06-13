@@ -1482,11 +1482,15 @@ export async function callLLM(systemPrompt, userPrompt, maxTokens = 16384, {
 }
 
 export function createDailyBriefFormatProfile() {
-  const baseProfile = getBlogFormatProfile('tech-editorial-v1')
+  // Daily briefs now use free structure: the LLM authors its own chapter titles and the
+  // quality gate enforces dimension coverage instead of a fixed 5-section template. We keep
+  // the daily-specific title/summary/style overrides but inherit structure_mode/required_
+  // dimensions/outline_rules from free-form-v1.
+  const baseProfile = getBlogFormatProfile('free-form-v1')
   return {
     ...baseProfile,
     name: 'daily_brief',
-    required_sections: [...baseProfile.required_sections],
+    required_sections: [],
     required_tail_sections: [...DEFAULT_DAILY_TAIL_SECTIONS],
     title_rules: [
       '标题必须是中文，避免“日报”“快讯”式口吻。',
@@ -1693,13 +1697,41 @@ async function runDailyArxivSupplement({ config, topic, maxPapers = null }) {
   }
 }
 
-function normalizeSectionBriefs(outline, formatProfile) {
+export function normalizeOutlineHeadings(outline) {
+  // Free mode: the LLM authors its own H2 chapter titles, returned either as outline.outline
+  // (array of headings) or implied by section_briefs[].heading. Normalize both to a clean,
+  // deduped, "## "-prefixed list of body headings (tail blocks are appended by the program).
+  const raw = []
+  if (Array.isArray(outline?.outline)) {
+    raw.push(...outline.outline)
+  }
+  if (raw.length === 0 && Array.isArray(outline?.section_briefs)) {
+    raw.push(...outline.section_briefs.map((brief) => brief?.heading))
+  }
+  const seen = new Set()
+  const headings = []
+  for (const item of raw) {
+    let heading = String(item || '').trim()
+    if (!heading) continue
+    if (!heading.startsWith('#')) heading = `## ${heading}`
+    heading = heading.replace(/^#{1,6}\s*/, '## ')
+    if (seen.has(heading)) continue
+    seen.add(heading)
+    headings.push(heading)
+  }
+  return headings
+}
+
+export function normalizeSectionBriefs(outline, formatProfile) {
   const byHeading = new Map()
   for (const brief of Array.isArray(outline?.section_briefs) ? outline.section_briefs : []) {
-    const heading = String(brief?.heading || '').trim()
+    let heading = String(brief?.heading || '').trim()
     if (!heading) continue
+    if (!heading.startsWith('#')) heading = `## ${heading}`
+    heading = heading.replace(/^#{1,6}\s*/, '## ')
     byHeading.set(heading, {
       heading,
+      dimension: String(brief.dimension || '').trim(),
       goal: String(brief.goal || '').trim(),
       angle: String(brief.angle || '').trim(),
       key_points: Array.isArray(brief.key_points) ? brief.key_points.filter(Boolean).slice(0, 8) : [],
@@ -1713,11 +1745,12 @@ function normalizeSectionBriefs(outline, formatProfile) {
     })
   }
 
-  return formatProfile.required_sections.map((heading, index) => byHeading.get(heading) || {
+  const makeFallbackBrief = (heading, index, opener) => ({
     heading,
+    dimension: '',
     goal: index === 0
-      ? 'Open the article with a weekly overview and identify the main strategic shift.'
-      : 'Develop this section into a substantive analytical chapter tied to the week.',
+      ? opener
+      : 'Develop this section into a substantive analytical chapter tied to the topic.',
     angle: '',
     key_points: [],
     must_use_sources: [],
@@ -1728,6 +1761,18 @@ function normalizeSectionBriefs(outline, formatProfile) {
     style_constraints: [],
     avoid: [],
   })
+
+  // Free mode: chapters come from the LLM-authored outline, not a fixed template. Fall back to
+  // the brief headings themselves if outline.outline is absent.
+  if (formatProfile?.structure_mode === 'free') {
+    let headings = normalizeOutlineHeadings(outline)
+    if (headings.length === 0) headings = [...byHeading.keys()]
+    return headings.map((heading, index) => byHeading.get(heading)
+      || makeFallbackBrief(heading, index, 'Open the article by establishing what happened and why it matters.'))
+  }
+
+  return formatProfile.required_sections.map((heading, index) => byHeading.get(heading)
+    || makeFallbackBrief(heading, index, 'Open the article with a weekly overview and identify the main strategic shift.'))
 }
 
 function buildWeeklyResearchDigest(researchPack, maxSources = 18) {
@@ -1751,6 +1796,10 @@ function buildDailyResearchDigest(researchPack, maxSources = 14) {
 
 async function chooseTopicDetailed({ researchPack, formatProfile, today, workflow }) {
   const isWeeklyReview = isWeeklyReviewWorkflow(workflow, formatProfile)
+  const isFreeStructure = formatProfile?.structure_mode === 'free'
+  const requiredDimensions = Array.isArray(formatProfile?.required_dimensions)
+    ? formatProfile.required_dimensions
+    : []
   const system = isWeeklyReview
     ? [
         'You are planning a premium Chinese weekly AI review.',
@@ -1766,6 +1815,29 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         '- key_sources must identify the source IDs or URLs that are truly central to the weekly argument.',
         '- section_briefs.source_focus and must_use_sources should prefer concrete source IDs such as S1/S2 from evidence_cards.',
         '- image_sections can include at most 3 section headings.',
+        '- cover_prompt is only for cover-image generation and must not mention inline images.',
+      ].join('\n')
+    : isFreeStructure
+    ? [
+        'You are planning a Chinese AI editorial article with one clear thesis.',
+        'Return JSON with keys:',
+        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, evidence_cards, counterpoints, reader_question, image_sections, key_sources, tags, cover_prompt',
+        'Requirements:',
+        '- Focus on one topic rather than a loose news digest.',
+        '- You design the article structure yourself. Do NOT reuse fixed template chapter names.',
+        '- outline must be an array of 3 to 6 concrete level-2 headings (each starting with "## ") that you invent for THIS article. Headings must be specific to the content, not generic template titles.',
+        '- The chapters together must cover every required editorial dimension listed in the format profile.',
+        `- Required dimensions to cover across the article: ${requiredDimensions.join(', ') || 'facts, significance, multi_source, analysis, judgment'}.`,
+        '- section_briefs is required and must be one item per outline heading, in the same order. Each item must have: heading (exactly matching the outline heading), dimension (which required dimension this chapter primarily serves), goal, angle, key_points, must_use_sources, evidence_cards, source_focus, suggested_subheads, counterpoint, style_constraints, avoid.',
+        '- Distribute the dimensions across chapters so the whole article covers all of them; a chapter may serve more than one dimension.',
+        '- evidence_cards should select the strongest available source IDs and explain what each card supports, its caveat, and which sections should use it.',
+        '- counterpoints must list 1 to 3 plausible objections, uncertainty points, or ways the thesis could be wrong.',
+        '- reader_question should state the concrete question this article answers for readers.',
+        '- Add 3 to 6 third-level subheadings across the middle and later chapters.',
+        '- image_sections can include at most 3 headings, and must be chosen from your own outline headings.',
+        '- key_sources must identify the source IDs or URLs most worth citing.',
+        '- section_briefs.source_focus and must_use_sources should prefer concrete source IDs such as S1/S2 from evidence_cards.',
+        '- Do not author the 参考来源 / 图片来源 / 一句话结论 tail blocks; the program appends them.',
         '- cover_prompt is only for cover-image generation and must not mention inline images.',
       ].join('\n')
     : [
@@ -1918,6 +1990,7 @@ async function generateDailyArticleSection({
   targetChars,
 }) {
   const markerHints = (formatProfile.analysis_markers || []).slice(0, 8).join(' / ')
+  const dimensionHint = String(brief?.dimension || '').trim()
   const system = [
     'You are writing one section of a Chinese AI/technology editorial brief.',
     'Return only JSON with one key: markdown.',
@@ -1929,6 +2002,9 @@ async function generateDailyArticleSection({
     `Include explicit analytical turns using phrases such as ${markerHints}, but do not force them mechanically.`,
     'Use source IDs from the research digest/evidence cards for factual claims, for example [S1] or [S2].',
     'Use the section brief as an editorial contract: goal, angle, key points, counterpoint, and avoid rules matter.',
+    ...(dimensionHint
+      ? [`This section primarily carries the "${dimensionHint}" editorial dimension; make sure that responsibility is clearly fulfilled here.`]
+      : []),
     'Clearly separate facts, inference, and author judgment.',
     'Include trade-off, stakeholder impact, uncertainty, or second-order consequence when relevant.',
     'Do not output references, image sources, a takeaway block, frontmatter, MDX, cover prompts, or custom components.',
@@ -1945,6 +2021,7 @@ async function generateDailyArticleSection({
     'Section brief:',
     stringifyPromptPayload({
       heading,
+      dimension: brief.dimension,
       goal: brief.goal,
       angle: brief.angle,
       key_points: brief.key_points,
@@ -2185,6 +2262,8 @@ function canRepairQualityGate(gate) {
     'section_char_ratio:',
     'list_only_sections:',
     'repeated_lines:',
+    'missing_dimensions:',
+    'section_count:',
   ]
 
   return gate.reasons.length > 0
@@ -2353,10 +2432,31 @@ async function repairDailyArticle({
   attempt,
 }) {
   const gateProfile = resolveGateProfile(config, workflow?.content_type)
-  const requiredSections = formatProfile.required_sections || []
-  const currentSections = extractArticleSections(post.content_md, requiredSections)
+  const isFreeStructure = formatProfile.structure_mode === 'free'
   const sectionBriefs = normalizeSectionBriefs(outline, formatProfile)
-  const reasonHeadings = headingsFromGateReasons(gate.reasons, requiredSections)
+  // Free mode: the canonical heading list is whatever the LLM authored (carried by the
+  // briefs), not a fixed template. Fixed mode: the required template headings, unchanged.
+  const sectionHeadings = isFreeStructure
+    ? sectionBriefs.map((brief) => brief.heading).filter(Boolean)
+    : (formatProfile.required_sections || [])
+  const currentSections = extractArticleSections(post.content_md, sectionHeadings)
+  const reasonHeadings = headingsFromGateReasons(gate.reasons, sectionHeadings)
+  // Free mode: map an uncovered dimension back to the chapters that were supposed to carry
+  // it (via brief.dimension), so a missing_dimensions failure repairs the right sections.
+  const missingDimensions = isFreeStructure
+    ? (gate.reasons
+        .find((reason) => reason.startsWith('missing_dimensions:')) || '')
+      .replace('missing_dimensions:', '')
+      .split('|')
+      .filter(Boolean)
+    : []
+  const dimensionHeadings = new Set(
+    isFreeStructure && missingDimensions.length > 0
+      ? sectionBriefs
+        .filter((brief) => missingDimensions.includes(String(brief.dimension || '')))
+        .map((brief) => brief.heading)
+      : []
+  )
   const minSectionChars = Math.max(550, Number(gateProfile.min_section_chars || 0))
   const targetSectionChars = Math.max(Number(workflow.section_target_chars || 850), minSectionChars + 250)
   const needsGlobalBoost = gate.reasons.some((reason) => (
@@ -2366,11 +2466,12 @@ async function repairDailyArticle({
     || reason.startsWith('body_source_mentions:')
     || reason.startsWith('analysis_sections:')
     || reason.startsWith('short_paragraph_ratio:')
+    || reason.startsWith('missing_dimensions:')
   ))
   const candidates = sectionBriefs.map((brief) => {
     const markdown = currentSections.get(brief.heading) || `${brief.heading}\n\n`
     const charCount = stripMarkdownForLength(markdown).length
-    const targeted = reasonHeadings.has(brief.heading)
+    const targeted = reasonHeadings.has(brief.heading) || dimensionHeadings.has(brief.heading)
     return { brief, markdown, charCount, targeted }
   })
 
@@ -2402,7 +2503,7 @@ async function repairDailyArticle({
   return {
     ...post,
     slug: workflow.slug,
-    content_md: requiredSections
+    content_md: sectionHeadings
       .map((heading) => ensureSectionHeading(repairedSections.get(heading) || '', heading))
       .join('\n\n'),
   }
@@ -3137,6 +3238,69 @@ async function localizeImagePlans(imagePlans, token) {
   return localizedPlans
 }
 
+async function fillMissingIllustrations({
+  desiredSections,
+  existingPlans,
+  outline,
+  config,
+}) {
+  // For every section in desiredSections that has no plan in existingPlans, generate an AI
+  // illustration via the admin endpoint and append it to the plans. This is the "缺图才 AI 补"
+  // strategy: source images are preferred (they're free and tied to evidence), but when the
+  // picker finds nothing suitable we fall back to synthetic illustrations so the article isn't
+  // left with blank spots.
+  if (!config.ai_illustration_enabled) return existingPlans
+
+  const coveredSections = new Set(existingPlans.map((plan) => plan.section_heading))
+  const missingSections = desiredSections.filter((heading) => !coveredSections.has(heading))
+  if (missingSections.length === 0) return existingPlans
+
+  const token = await getCachedAdminToken()
+  const blogApiBase = clean_env('BLOG_API_BASE') || 'https://blog.example.com'
+  const generatedPlans = []
+
+  for (const sectionHeading of missingSections) {
+    // Build a basic illustration prompt from the section heading and article topic. In a future
+    // iteration this could be enriched with section_briefs or outline context, but for now we
+    // keep it simple: the heading itself often names the concept the section explains.
+    const prompt = `Editorial explanatory illustration for article section: ${sectionHeading}. Topic: ${outline.topic || 'AI technology'}. Style: clean, minimal, modern editorial illustration.`
+
+    try {
+      const response = await fetch(`${blogApiBase}/api/admin/illustrations/generate`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt, aspect: 'landscape' }),
+      })
+      if (!response.ok) {
+        console.warn(`Illustration generation failed for ${sectionHeading}: HTTP ${response.status}`)
+        continue
+      }
+      const result = await response.json()
+      if (result.generated && result.image_url) {
+        generatedPlans.push({
+          section_heading: sectionHeading,
+          image_url: result.image_url,
+          source_page_url: '',
+          source_name: 'AI Generated',
+          reason: 'ai_fallback',
+          alt_text: `Illustration for ${sectionHeading}`,
+          score: 0,
+        })
+        console.log(`Generated AI illustration for ${sectionHeading}: ${result.image_url}`)
+      } else {
+        console.warn(`Illustration generation returned no image for ${sectionHeading}: ${result.error || result.error_code}`)
+      }
+    } catch (error) {
+      console.warn(`Illustration generation request failed for ${sectionHeading}: ${error.message}`)
+    }
+  }
+
+  return [...existingPlans, ...generatedPlans]
+}
+
 async function buildPublishablePost({
   outline,
   researchPack,
@@ -3151,8 +3315,20 @@ async function buildPublishablePost({
     slug: fixedSlug || `ai-brief-${today}`,
     content_type: metadata?.content_type || 'daily_brief',
   }
+  // Image-target sections must be real headings in the article. Fixed mode validates against
+  // the template's required_sections; free mode validates against the LLM-authored outline.
+  const validImageHeadings = formatProfile.structure_mode === 'free'
+    ? normalizeOutlineHeadings(outline)
+    : (formatProfile.required_sections || [])
+  const normalizeImageHeading = (heading) => {
+    let value = String(heading || '').trim()
+    if (!value) return ''
+    if (!value.startsWith('#')) value = `## ${value}`
+    return value.replace(/^#{1,6}\s*/, '## ')
+  }
   const desiredImageSections = (Array.isArray(outline.image_sections) ? outline.image_sections : [])
-    .filter((heading) => formatProfile.required_sections.includes(heading))
+    .map(normalizeImageHeading)
+    .filter((heading) => validImageHeadings.includes(heading))
     .slice(0, config.image_selection_rules?.max_images || 0)
 
   let imagePlans = []
@@ -3169,6 +3345,15 @@ async function buildPublishablePost({
       config,
     })
   }
+
+  // Fill gaps with AI-generated illustrations when source images aren't available. This runs
+  // after pickSourceImages so it only generates for sections that have no suitable source match.
+  imagePlans = await fillMissingIllustrations({
+    desiredSections: desiredImageSections,
+    existingPlans: imagePlans,
+    outline,
+    config,
+  })
 
   let generatedPost = await generateArticleForWorkflow({
     outline,

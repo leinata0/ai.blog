@@ -12,6 +12,8 @@ import {
   clusterResearchItemsByTopic,
   createDailyBriefFormatProfile,
   filterItemsForCoverageWindow,
+  normalizeOutlineHeadings,
+  normalizeSectionBriefs,
   parseCliArgs,
   pickPostCountForRun,
   selectTopicsForPublishing,
@@ -303,11 +305,16 @@ test('pickPostCountForRun randomizes daily auto count between min and max', () =
   assert.equal(pickPostCountForRun({ mode: 'daily-manual', minPosts: 1, maxPosts: 3, randomValue: 0.1 }), 3)
 })
 
-test('createDailyBriefFormatProfile keeps the full long-form section structure', () => {
+test('createDailyBriefFormatProfile is now a free-structure profile', () => {
   const profile = createDailyBriefFormatProfile()
 
-  assert.equal(profile.required_sections.length, 5)
-  assert.ok(profile.required_sections.every((section) => section.startsWith('## ')))
+  // Daily briefs no longer fill a fixed 5-section template; the LLM authors its own
+  // chapters and quality is enforced by dimension coverage instead of heading match.
+  assert.equal(profile.structure_mode, 'free')
+  assert.deepEqual(profile.required_sections, [])
+  assert.ok(Array.isArray(profile.required_dimensions) && profile.required_dimensions.length > 0)
+  // Tail blocks are still program-appended.
+  assert.ok(profile.required_tail_sections.includes('## 图片来源'))
 })
 
 test('filterItemsForCoverageWindow respects lookback_hours and keeps undated fallback behind fresh items', () => {
@@ -464,4 +471,49 @@ test('assessResearchPackSourceSupport accepts packs with enough curated support'
 
   assert.equal(support.passed, true)
   assert.deepEqual(support.reasons, [])
+})
+
+test('normalizeOutlineHeadings normalizes and dedupes LLM-authored headings', () => {
+  const headings = normalizeOutlineHeadings({
+    outline: ['模型发布的真实变化', '## 已带前缀的标题', '### 三级会被降为二级', '模型发布的真实变化'],
+  })
+
+  assert.deepEqual(headings, ['## 模型发布的真实变化', '## 已带前缀的标题', '## 三级会被降为二级'])
+})
+
+test('normalizeOutlineHeadings falls back to section_briefs headings when outline array is absent', () => {
+  const headings = normalizeOutlineHeadings({
+    section_briefs: [{ heading: '甲章节' }, { heading: '## 乙章节' }],
+  })
+
+  assert.deepEqual(headings, ['## 甲章节', '## 乙章节'])
+})
+
+test('normalizeSectionBriefs (free mode) follows the authored outline order and carries dimension', () => {
+  const briefs = normalizeSectionBriefs(
+    {
+      outline: ['## 甲', '## 乙', '## 丙'],
+      section_briefs: [
+        { heading: '## 乙', dimension: 'analysis', goal: '分析章节' },
+        { heading: '## 甲', dimension: 'facts', goal: '事实章节' },
+      ],
+    },
+    { structure_mode: 'free' },
+  )
+
+  assert.deepEqual(briefs.map((brief) => brief.heading), ['## 甲', '## 乙', '## 丙'])
+  assert.equal(briefs[0].dimension, 'facts')
+  assert.equal(briefs[1].dimension, 'analysis')
+  // 丙 has no matching brief -> fallback brief with empty dimension.
+  assert.equal(briefs[2].dimension, '')
+  assert.ok(briefs[2].goal.length > 0)
+})
+
+test('normalizeSectionBriefs (fixed mode) still maps onto required_sections', () => {
+  const briefs = normalizeSectionBriefs(
+    { section_briefs: [{ heading: '## 一、发生了什么', goal: 'x' }] },
+    { required_sections: ['## 一、发生了什么', '## 二、为什么值得关注'] },
+  )
+
+  assert.deepEqual(briefs.map((brief) => brief.heading), ['## 一、发生了什么', '## 二、为什么值得关注'])
 })

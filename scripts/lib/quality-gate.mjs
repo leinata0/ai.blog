@@ -77,6 +77,30 @@ function extractSections(text, headings) {
   })
 }
 
+// Slice an article into sections by its ACTUAL level-2 headings, without needing a
+// predefined heading list. Used by free-structure mode where the LLM authors its own
+// chapter titles. `excludeHeadings` drops program-appended tail blocks (参考来源/图片来源/
+// 一句话结论) so body-section counts and per-section checks only see authored chapters.
+function extractAllSections(text, excludeHeadings = []) {
+  const lines = String(text || '').split('\n')
+  const exclude = new Set((excludeHeadings || []).map((heading) => String(heading || '').trim()))
+  const headingIndexes = []
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^##\s+/.test(lines[index].trim())) {
+      headingIndexes.push(index)
+    }
+  }
+
+  return headingIndexes
+    .map((startIndex, order) => {
+      const end = order + 1 < headingIndexes.length ? headingIndexes[order + 1] : lines.length
+      const heading = lines[startIndex].trim()
+      const markdown = lines.slice(startIndex, end).join('\n')
+      return { heading, markdown, plain: stripMarkdown(markdown) }
+    })
+    .filter((section) => !exclude.has(section.heading))
+}
+
 function countDuplicateHeadings(text, headings = null) {
   const required = headings ? new Set(headings.map((heading) => String(heading || '').trim())) : null
   const counts = new Map()
@@ -177,18 +201,27 @@ export function evaluateQualityGate({
   const highQualitySources = allSources.filter((item) => highQualityTypes.has(item.source_type))
   const bannedPhraseHits = countPhraseHits(content, formatProfile.banned_phrases || [])
   const analysisSignals = countAnalysisSignals(content, formatProfile.analysis_markers || [])
+  const isFreeStructure = formatProfile.structure_mode === 'free'
+  const tailSections = formatProfile.required_tail_sections || []
   const requiredSections = formatProfile.required_sections || []
-  const missingSections = [
-    ...requiredSections,
-    ...(formatProfile.required_tail_sections || []),
-  ].filter((heading) => !hasSection(content, heading))
+  // Free mode: the LLM authors its own chapter titles, so there is no fixed list to
+  // diff against. Body sections are everything except the program-appended tail blocks.
+  // Fixed mode: byte-for-byte unchanged — slice by the predefined required headings.
+  const sections = isFreeStructure
+    ? extractAllSections(content, tailSections)
+    : extractSections(content, requiredSections)
+  const missingSections = isFreeStructure
+    ? tailSections.filter((heading) => !hasSection(content, heading))
+    : [
+        ...requiredSections,
+        ...tailSections,
+      ].filter((heading) => !hasSection(content, heading))
   const sourceMap = sourceIdMap(researchPack)
   const citationIds = extractCitationIds(content)
   const uniqueCitationIds = [...new Set(citationIds)]
   const invalidCitationIds = uniqueCitationIds.filter((id) => !sourceMap.has(id))
   const citedSources = uniqueCitationIds.map((id) => sourceMap.get(id)).filter(Boolean)
   const citedDomains = [...new Set(citedSources.map((item) => item.domain || domainFromUrl(item.url)).filter(Boolean))]
-  const sections = extractSections(content, requiredSections)
   const sectionsWithoutCitations = sections
     .filter((section) => extractCitationIds(section.markdown).length === 0)
     .map((section) => section.heading)
@@ -218,11 +251,40 @@ export function evaluateQualityGate({
     ? Math.max(...sectionCharCounts) / Math.max(1, Math.min(...sectionCharCounts))
     : 1
   const maxSectionCharRatio = Number(gate.max_section_char_ratio || 0)
-  const duplicateHeadings = countDuplicateHeadings(content, [
-    ...requiredSections,
-    ...(formatProfile.required_tail_sections || []),
-  ])
+  // Fixed mode: only required/tail headings can legitimately repeat, so scope the check
+  // to them. Free mode: the LLM authors titles, so any duplicated H2 is a real defect.
+  const duplicateHeadings = isFreeStructure
+    ? countDuplicateHeadings(content)
+    : countDuplicateHeadings(content, [
+        ...requiredSections,
+        ...tailSections,
+      ])
   const repeated_long_line_count = countRepeatedLongLines(content)
+
+  // Free-structure dimension coverage: instead of diffing against fixed headings, verify
+  // the article fulfills the editorial dimensions it must cover, using signals already
+  // computed above. Each dimension maps to an objective, machine-checkable proxy.
+  const requiredDimensions = isFreeStructure
+    ? (Array.isArray(formatProfile.required_dimensions) && formatProfile.required_dimensions.length > 0
+        ? formatProfile.required_dimensions
+        : (Array.isArray(gate.required_dimensions) ? gate.required_dimensions : []))
+    : []
+  const judgmentMarkerHit = /##\s*一句话结论/.test(content) || analysisSignals > 0
+  const dimensionSatisfied = {
+    facts: citationIds.length >= Math.max(1, Number(gate.min_inline_citations || 1)),
+    significance: analysisSectionCount >= 1 || analysisSignals >= Math.max(1, Number(gate.min_analysis_signals || 1)),
+    multi_source: citedDomains.length >= Math.max(1, Number(gate.min_cited_domains || 1)),
+    analysis: analysisSectionCount >= Math.max(1, Number(gate.min_analysis_sections || 1)),
+    judgment: judgmentMarkerHit,
+  }
+  const missingDimensions = requiredDimensions.filter((dimension) => !dimensionSatisfied[dimension])
+  // Body section count guard (free mode only): too few means it collapsed into one block,
+  // too many means it fragmented into a news list. Tail blocks are excluded from `sections`.
+  const bodySectionCount = isFreeStructure ? sections.length : null
+  const minSections = Math.max(0, Number(gate.min_sections || 0))
+  const maxSections = Number.isFinite(Number(gate.max_sections)) && Number(gate.max_sections) > 0
+    ? Number(gate.max_sections)
+    : 0
 
   const reasons = []
 
@@ -243,6 +305,15 @@ export function evaluateQualityGate({
   }
   if (missingSections.length > 0) {
     reasons.push(`missing_sections:${missingSections.join('|')}`)
+  }
+  if (isFreeStructure && missingDimensions.length > 0) {
+    reasons.push(`missing_dimensions:${missingDimensions.join('|')}`)
+  }
+  if (isFreeStructure && minSections > 0 && bodySectionCount < minSections) {
+    reasons.push(`section_count:${bodySectionCount}<${minSections}`)
+  }
+  if (isFreeStructure && maxSections > 0 && bodySectionCount > maxSections) {
+    reasons.push(`section_count:${bodySectionCount}>${maxSections}`)
   }
   if (duplicateHeadings.length > 0) {
     reasons.push(`duplicate_headings:${duplicateHeadings.join('|')}`)
@@ -320,6 +391,11 @@ export function evaluateQualityGate({
       short_paragraph_ratio: Number(shortParagraphRatio.toFixed(3)),
       section_char_ratio: Number(sectionCharRatio.toFixed(3)),
       list_only_sections: listOnlySectionHeadings,
+      dimension_coverage: isFreeStructure
+        ? Object.fromEntries(requiredDimensions.map((dimension) => [dimension, Boolean(dimensionSatisfied[dimension])]))
+        : null,
+      missing_dimensions: isFreeStructure ? missingDimensions : [],
+      section_count: bodySectionCount,
     },
   }
 }

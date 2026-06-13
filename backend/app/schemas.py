@@ -618,6 +618,21 @@ class CoverGenerateResponse(BaseModel):
     result_image_url: str = ""
 
 
+class IllustrationGenerateRequest(BaseModel):
+    # Caller passes an already-built English image prompt. Unlike cover generation this is
+    # not bound to a post_id: inline illustrations are produced before the post is published,
+    # so the endpoint generates synchronously and returns a hosted URL the pipeline can embed.
+    prompt: str = Field(min_length=8)
+    aspect: str = Field(default="landscape", pattern=r"^(landscape|square)$")
+
+
+class IllustrationGenerateResponse(BaseModel):
+    image_url: str = ""
+    generated: bool = False
+    error: str = ""
+    error_code: str = ""
+
+
 class AdminImageGenerationJobOut(BaseModel):
     id: int
     job_id: int
