@@ -944,6 +944,7 @@ async function jinaRead(url, maxLen = 5000) {
     const resp = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
       headers: { Accept: 'text/markdown', 'X-No-Cache': 'true' },
       signal: AbortSignal.timeout(20000),
+      redirect: 'manual',
     })
     if (!resp.ok) return ''
     const text = await resp.text()
@@ -2584,6 +2585,7 @@ async function downloadAndUploadImageResult(imageUrl, token) {
     const resp = await fetch(imageUrl, {
       signal: AbortSignal.timeout(15000),
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AutoBlogBot/3.0)' },
+      redirect: 'manual',
     })
     if (!resp.ok) {
       return buildCoverGenerationResult({
@@ -3058,6 +3060,7 @@ async function upsertPublishingStatus(token, payload) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
   })
   if (!resp.ok) {
     throw new Error(`Publishing status update failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
@@ -3083,6 +3086,7 @@ async function upsertPublishingMetadata(token, payload) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
   })
   if (!resp.ok) {
     throw new Error(`Publishing metadata bridge failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
@@ -3133,6 +3137,7 @@ async function upsertQualitySnapshot(token, payload) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(endpoint.body),
+      signal: AbortSignal.timeout(15000),
     })
     if (resp.ok) {
       const text = await resp.text()
@@ -3193,6 +3198,7 @@ async function upsertTopicMetadata(token, payload) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(endpoint.body),
+      signal: AbortSignal.timeout(15000),
     })
     if (resp.ok) {
       const text = await resp.text()
@@ -3256,7 +3262,7 @@ async function fillMissingIllustrations({
   if (missingSections.length === 0) return existingPlans
 
   const token = await getCachedAdminToken()
-  const blogApiBase = clean_env('BLOG_API_BASE') || 'https://blog.example.com'
+  const blogApiBase = BLOG_API_BASE
   const generatedPlans = []
 
   for (const sectionHeading of missingSections) {
@@ -3273,6 +3279,7 @@ async function fillMissingIllustrations({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ prompt, aspect: 'landscape' }),
+        signal: AbortSignal.timeout(30000),
       })
       if (!response.ok) {
         console.warn(`Illustration generation failed for ${sectionHeading}: HTTP ${response.status}`)

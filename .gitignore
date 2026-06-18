@@ -22,3 +22,4 @@ frontend/.vite/
 .codex-skill-build/
 .npm-cache/
 .playwright-cli/
+ref_article.json

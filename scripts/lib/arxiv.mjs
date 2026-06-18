@@ -62,7 +62,7 @@ export function parseArxivFeed(xml) {
 function buildQuery(keywords) {
   const terms = normalizeKeywords(keywords).slice(0, 4)
   if (terms.length === 0) return ''
-  return terms.map((term) => `all:${term.replace(/\s+/g, '+')}`).join('+AND+')
+  return terms.map((term) => `all:${encodeURIComponent(term).replace(/%20/g, '+')}`).join('+AND+')
 }
 
 function scorePaper(item, keywords) {

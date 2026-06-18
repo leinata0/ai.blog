@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
@@ -183,23 +184,6 @@ def _extract_post_headings(content_md: str, limit: int = 4) -> list[str]:
 
 def _build_post_cover_prompt(post: Post) -> str:
     return cover_art_service.build_post_cover_prompt(post)
-
-
-def _get_cover_generation_status_payload() -> dict:
-    has_xai_api_key = bool(clean_env("XAI_API_KEY"))
-    if has_xai_api_key:
-        message = "后端已检测到 XAI_API_KEY，可直接在后台为主题和系列生成封面。"
-    else:
-        message = (
-            "后端未检测到 XAI_API_KEY。系列/主题封面生成依赖 Render 后端运行环境中的该变量，"
-            "仅配置 GitHub Secret 不会让后台实时生图生效。"
-        )
-    return {
-        "provider": "grok",
-        "has_xai_api_key": has_xai_api_key,
-        "can_generate": has_xai_api_key,
-        "message": message,
-    }
 
 
 def _cover_response(

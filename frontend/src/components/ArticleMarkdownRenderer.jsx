@@ -4,6 +4,14 @@ import remarkGfm from 'remark-gfm'
 
 import { proxyImageUrl } from '../utils/proxyImage'
 
+function flattenToText(children) {
+  if (children == null || typeof children === 'boolean') return ''
+  if (typeof children === 'string' || typeof children === 'number') return String(children)
+  if (Array.isArray(children)) return children.map(flattenToText).join('')
+  if (typeof children === 'object' && children.props) return flattenToText(children.props.children)
+  return ''
+}
+
 function slugifyHeading(text) {
   return text.toLowerCase().replace(/[^\w\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '')
 }
@@ -115,15 +123,15 @@ export default function ArticleMarkdownRenderer({ markdown = '', copiedCode = ''
             )
           },
           h1: ({ children }) => {
-            const text = String(children)
+            const text = flattenToText(children)
             return <h1 id={slugifyHeading(text)} className="font-display text-4xl font-semibold tracking-[-0.03em]" style={{ color: 'var(--text-primary)' }}>{children}</h1>
           },
           h2: ({ children }) => {
-            const text = String(children)
+            const text = flattenToText(children)
             return <h2 id={slugifyHeading(text)} className="mt-10 font-display text-[2rem] font-semibold tracking-[-0.03em]" style={{ color: 'var(--text-primary)' }}>{children}</h2>
           },
           h3: ({ children }) => {
-            const text = String(children)
+            const text = flattenToText(children)
             return <h3 id={slugifyHeading(text)} className="mt-8 font-display text-[1.45rem] font-semibold tracking-[-0.02em]" style={{ color: 'var(--text-primary)' }}>{children}</h3>
           },
           p: ({ children }) => <p className="my-5 text-base leading-8">{children}</p>,
