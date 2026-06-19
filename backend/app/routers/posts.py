@@ -956,7 +956,7 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
 
     # 浏览量防刷：同一 IP 对同一文章 10 分钟内不重复计数
     client_ip = _get_client_ip(request)
-    cutoff = datetime.utcnow() - timedelta(seconds=600)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=600)
     recent_view = db.query(ViewLog).filter(
         ViewLog.post_id == post.id,
         ViewLog.ip_address == client_ip,
@@ -1164,7 +1164,7 @@ def create_comment(slug: str, body: CommentCreate, request: Request, db: Session
 
     # 评论频率限制：同 IP 每分钟最多 3 条
     client_ip = _get_client_ip(request)
-    one_min_ago = datetime.utcnow() - timedelta(seconds=60)
+    one_min_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=60)
     recent_count = db.query(func.count(Comment.id)).filter(
         Comment.ip_address == client_ip,
         Comment.created_at > one_min_ago,
@@ -1225,7 +1225,7 @@ def get_archive(request: Request, db: Session = Depends(get_db)):
     ).scalars().all()
     groups: dict[int, list] = {}
     for p in posts:
-        year = p.created_at.year if p.created_at else datetime.utcnow().year
+        year = p.created_at.year if p.created_at else datetime.now(timezone.utc).year
         groups.setdefault(year, []).append({
             "title": p.title,
             "slug": p.slug,

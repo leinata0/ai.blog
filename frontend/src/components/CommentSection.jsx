@@ -14,8 +14,15 @@ export default function CommentSection({ slug }) {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (slug) {
-      fetchComments(slug).then(setComments).catch(() => {})
+    if (!slug) return undefined
+    let ignore = false
+    fetchComments(slug)
+      .then((d) => {
+        if (!ignore) setComments(d)
+      })
+      .catch(() => {})
+    return () => {
+      ignore = true
     }
   }, [slug])
 

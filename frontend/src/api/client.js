@@ -259,7 +259,11 @@ export function apiGet(path, opts = {}) {
     return inflightGet.get(cacheKey)
   }
 
-  const requestPromise = requestGetNetwork(path, opts, cacheKey, cacheConfig).finally(() => {
+  // When the promise will be shared via dedupe, strip the caller's signal so one
+  // consumer unmounting/aborting can't reject the shared promise for everyone.
+  // When dedupe is off the promise isn't shared, so keep the caller's signal.
+  const networkOpts = dedupeEnabled ? { ...opts, signal: undefined } : opts
+  const requestPromise = requestGetNetwork(path, networkOpts, cacheKey, cacheConfig).finally(() => {
     inflightGet.delete(cacheKey)
   })
 

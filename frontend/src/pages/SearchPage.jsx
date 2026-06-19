@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, CalendarRange, Compass, Search } from 'lucide-react'
@@ -110,6 +110,10 @@ export default function SearchPage() {
   const [seriesSuggestions, setSeriesSuggestions] = useState([])
   const [popularQueries, setPopularQueries] = useState([])
   const [topics, setTopics] = useState([])
+  const topicsRef = useRef(topics)
+  useEffect(() => {
+    topicsRef.current = topics
+  }, [topics])
   const [seriesList, setSeriesList] = useState([])
   const [loading, setLoading] = useState(false)
   const hasActiveQuery = Boolean(query.trim())
@@ -184,7 +188,7 @@ export default function SearchPage() {
   useEffect(() => {
     if (!query.trim()) {
       setResults([])
-      setTopicSuggestions(topics.slice(0, 4))
+      setTopicSuggestions(topicsRef.current.slice(0, 4))
       setSeriesSuggestions([])
       setPopularQueries([])
       setLoading(false)
@@ -229,7 +233,7 @@ export default function SearchPage() {
       })
 
     return () => controller.abort()
-  }, [filters, query, topics])
+  }, [filters, query])
 
   const emptyMessage = useMemo(() => {
     if (!hasActiveQuery) return '输入关键词后，可以按主题、系列、日期和内容类型检索整站内容。'

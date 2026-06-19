@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import ipaddress
+import json
 import logging
 import socket
 from time import perf_counter
@@ -7,8 +8,11 @@ from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 from xml.etree.ElementTree import Element, SubElement, tostring
 
+import anyio
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
@@ -21,6 +25,7 @@ from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
 from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.http_cache import build_public_cache_control, public_json_response, public_text_response
 from app.models import Post, Series, SiteSettings, Tag
+from app.rate_limit import limiter
 from app.routers.admin import router as admin_router
 from app.routers.home import build_home_modules_payload, router as home_router
 from app.routers.posts import build_posts_list_payload, router as posts_router
@@ -39,9 +44,14 @@ REQUEST_ID_HEADER = "X-Request-ID"
 async def lifespan(app):
     initialize_runtime(seed_on_empty=AUTO_SEED_ON_EMPTY)
     yield
+    aclose = getattr(_http_client, "aclose", None)
+    if aclose is not None:
+        await aclose()
 
 
 app = FastAPI(title="AI Dev Blog API", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 def _resolve_request_id(request: Request) -> str:
@@ -55,7 +65,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     headers = dict(exc.headers or {})
     headers[REQUEST_ID_HEADER] = request_id
     return Response(
-        content=httpx._content.json_dumps({"detail": exc.detail, "code": f"http_{exc.status_code}", "request_id": request_id}),
+        content=json.dumps({"detail": exc.detail, "code": f"http_{exc.status_code}", "request_id": request_id}).encode(),
         status_code=exc.status_code,
         media_type="application/json",
         headers=headers,
@@ -67,7 +77,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     request_id = _resolve_request_id(request)
     logger.exception("Unhandled exception request_id=%s path=%s method=%s", request_id, request.url.path, request.method)
     return Response(
-        content=httpx._content.json_dumps({"detail": "Internal server error", "code": "internal_error", "request_id": request_id}),
+        content=json.dumps({"detail": "Internal server error", "code": "internal_error", "request_id": request_id}).encode(),
         status_code=500,
         media_type="application/json",
         headers={REQUEST_ID_HEADER: request_id},
@@ -302,7 +312,7 @@ def _is_proxy_url_allowed(url: str) -> bool:
 async def proxy_image(url: str = Query(..., min_length=8)):
     current_url = url
     for redirect_count in range(MAX_PROXY_REDIRECTS + 1):
-        if not _is_proxy_url_allowed(current_url):
+        if not await anyio.to_thread.run_sync(_is_proxy_url_allowed, current_url):
             return Response(status_code=400, content="Invalid URL")
         try:
             async with _http_client.stream("GET", current_url) as resp:
