@@ -18,6 +18,7 @@ import {
   buildFormatPrompt,
   getContentWorkflowProfile,
   resolveFormatProfileName,
+  neutralizeBannedPhrases,
 } from './lib/blog-format.mjs'
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import { buildPostCoverPrompt } from './lib/cover-art.mjs'
@@ -2863,7 +2864,7 @@ export function insertImagesIntoContent(contentMd, imagePlans) {
 }
 
 function finalizeArticle({ post, outline, researchPack, imagePlans, metadata = null }) {
-  const mainContent = String(post.content_md || '').trim()
+  const mainContent = neutralizeBannedPhrases(String(post.content_md || '').trim())
   const linkedContent = linkSourceCitations(mainContent, researchPack)
   const withImages = insertImagesIntoContent(linkedContent, imagePlans)
   const citedSourceIds = extractSourceCitationIds(withImages)

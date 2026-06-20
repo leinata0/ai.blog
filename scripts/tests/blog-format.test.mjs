@@ -6,6 +6,7 @@ import {
   getBlogFormatProfile,
   getContentWorkflowProfile,
   resolveFormatProfileName,
+  neutralizeBannedPhrases,
 } from '../lib/blog-format.mjs'
 
 test('getBlogFormatProfile returns the required sections', () => {
@@ -15,6 +16,23 @@ test('getBlogFormatProfile returns the required sections', () => {
   assert.ok(profile.required_sections.includes('## 一、发生了什么'))
   assert.ok(profile.required_tail_sections.includes('## 图片来源'))
   assert.ok(profile.banned_phrases.length > 0)
+})
+
+test('neutralizeBannedPhrases removes every banned phrase with natural replacements', () => {
+  const profile = getBlogFormatProfile()
+  const input = '综上所述，这次发布很重要。值得关注的是模型的成本，让我们拭目以待。毋庸置疑，它引发广泛关注。'
+  const output = neutralizeBannedPhrases(input)
+
+  for (const phrase of profile.banned_phrases) {
+    assert.ok(!output.includes(phrase), `expected banned phrase removed: ${phrase}`)
+  }
+  assert.ok(output.length > 0)
+  assert.ok(output.includes('整体来看'))
+})
+
+test('neutralizeBannedPhrases leaves clean text unchanged', () => {
+  const input = '这次发布把成本压到了新低，影响波及整个推理市场。'
+  assert.equal(neutralizeBannedPhrases(input), input)
 })
 
 test('getBlogFormatProfile returns weekly review sections', () => {
