@@ -130,6 +130,12 @@ function countParagraphs(markdown) {
   return String(markdown || '')
     .split(/\n{2,}/)
     .map((part) => part.trim())
+    // A block may lead with a ### subheading on its own line followed by prose in the
+    // same block (single newline). The subheading is not itself a paragraph, but the prose
+    // beneath it is — strip a leading heading line so that prose still counts instead of
+    // discarding the whole block. Without this, sections that use subheadings (which the
+    // format profile encourages) undercount paragraphs and loop forever in repair.
+    .map((part) => (part.startsWith('#') ? part.replace(/^#{1,6}\s+[^\n]*(?:\n|$)/, '').trim() : part))
     .filter((part) => part && !part.startsWith('#') && !part.startsWith('- ') && !part.startsWith('!['))
     .length
 }

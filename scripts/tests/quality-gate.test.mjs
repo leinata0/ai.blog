@@ -257,6 +257,45 @@ test('quality gate rejects thin sections and insufficient paragraphs', () => {
   assert.ok(result.reasons.some((reason) => reason.startsWith('section_paragraphs:')))
 })
 
+test('quality gate counts prose under a ### subheading as a paragraph', () => {
+  // A section whose 4th block leads with a ### subheading followed by prose must count
+  // that prose, otherwise sections that use subheadings undercount and loop in repair.
+  const bodyWithSubhead = [
+    '第一段在这里展开了足够的分析，意味着事情的走向。[S1]',
+    '第二段继续补充不同来源的视角与取舍。[S2]',
+    '第三段讨论历史脉络与二阶影响。[S3]',
+    '### 小标题\n第四段在子标题下展开了实质论证，影响波及开发者。[S1]',
+  ].join('\n\n')
+  const bodies = [bodyWithSubhead, bodyWithSubhead, bodyWithSubhead, bodyWithSubhead, bodyWithSubhead]
+  const result = evaluateQualityGate({
+    post: { content_md: buildArticle(formatProfile, bodies) },
+    researchPack: {
+      sources: [
+        { source_id: 'S1', source_type: 'official_blog', url: 'https://openai.com/a' },
+        { source_id: 'S2', source_type: 'independent_blog', url: 'https://example.com/b' },
+        { source_id: 'S3', source_type: 'paper', url: 'https://arxiv.org/abs/1' },
+      ],
+    },
+    formatProfile,
+    config: {
+      quality_gate: {
+        min_sources: 3,
+        min_high_quality_sources: 2,
+        high_quality_source_types: ['official_blog', 'independent_blog', 'paper'],
+        min_chars: 10,
+        min_section_paragraphs: 4,
+        max_banned_phrase_hits: 1,
+        min_analysis_signals: 0,
+      },
+    },
+  })
+
+  assert.ok(
+    !result.reasons.some((reason) => reason.startsWith('section_paragraphs:')),
+    `expected no section_paragraphs failure, got: ${result.reasons.join(', ')}`
+  )
+})
+
 test('quality gate rejects missing subheadings, weak analysis distribution and source mentions', () => {
   const body = buildArticle(formatProfile, [
     'OpenAI Blog 给出了事实背景。[S1]\n\n这件事意味着入口竞争出现变化，影响会先落到开发团队。',

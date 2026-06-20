@@ -2133,24 +2133,32 @@ async function repairWeeklyReviewSection({
   workflow,
   today,
   targetChars,
+  minParagraphs = 4,
   attempt,
+  failures = [],
 }) {
   const markerHints = (formatProfile.analysis_markers || []).slice(0, 8).join(' / ')
+  const paragraphFloor = Math.max(4, Number(minParagraphs) || 0)
   const system = [
     'You are expanding one section of a Chinese weekly AI review after a quality-gate failure.',
     'Return only JSON with one key: markdown.',
     `The section must start with the exact heading: ${heading}`,
     `Expand this section so it approaches ${targetChars} Chinese characters on its own.`,
     'Preserve the current factual basis and thesis, but make the section deeper, broader, and more analytical.',
-    `Use at least 4 substantial paragraphs and at least 2 explicit analytical turns, preferably using phrases such as ${markerHints}.`,
+    `Write at least ${paragraphFloor} substantial body paragraphs. Each paragraph must be plain prose separated from the next by a blank line.`,
+    'A bullet list, numbered list, or single long block does NOT count as multiple paragraphs — use real prose paragraphs separated by blank lines.',
+    `Include at least 2 explicit analytical turns, preferably using phrases such as ${markerHints}.`,
     'Use provided source IDs such as [S1] for factual claims; do not invent source IDs.',
-    'You may add 1 to 2 Markdown ### subheadings if they improve structure.',
+    'You may add 1 to 2 Markdown ### subheadings if they improve structure, but they do not replace the paragraph requirement.',
     'Do not output references, image sources, or article-level conclusions.',
   ].join('\n')
 
   const user = [
     `Repair attempt: ${attempt}`,
     `Date: ${today}`,
+    '',
+    'Quality gate failures relevant to this repair:',
+    ...failures.map((reason) => `- ${reason}`),
     '',
     'Current section markdown:',
     smartTruncate(String(currentMarkdown || ''), 8000),
@@ -2201,17 +2209,27 @@ async function repairWeeklyReviewArticle({
     minSectionChars + 250
   )
   const needsAnalysisBoost = gate.reasons.some((reason) => reason.startsWith('analysis_signals:'))
+  // Sections the gate named explicitly (thin_sections / section_paragraphs / section_citations /
+  // missing_sections all embed the offending heading). These must be repaired even when their
+  // char count already clears minSectionChars — otherwise a paragraph-count or citation failure
+  // loops forever because char-based selection never picks them.
+  const reasonHeadings = headingsFromGateReasons(gate.reasons, requiredSections)
+  const minSectionParagraphs = Math.max(0, Number(gateProfile.min_section_paragraphs || 0))
   const candidates = sectionBriefs.map((brief) => {
     const markdown = currentSections.get(brief.heading) || `${brief.heading}\n\n`
     const charCount = stripMarkdownForLength(markdown).length
-    return { brief, markdown, charCount }
+    const targeted = reasonHeadings.has(brief.heading)
+    return { brief, markdown, charCount, targeted }
   })
 
-  let sectionsToRepair = candidates.filter((candidate) => candidate.charCount < minSectionChars)
+  let sectionsToRepair = candidates.filter((candidate) => candidate.targeted || candidate.charCount < minSectionChars)
   if (sectionsToRepair.length === 0 && (needsAnalysisBoost || gate.reasons.some((reason) => reason.startsWith('chars:')))) {
     sectionsToRepair = [...candidates].sort((left, right) => left.charCount - right.charCount).slice(0, 4)
   } else {
-    sectionsToRepair = [...sectionsToRepair].sort((left, right) => left.charCount - right.charCount).slice(0, 4)
+    // Keep targeted sections first, then fill remaining slots with the shortest sections.
+    sectionsToRepair = [...sectionsToRepair]
+      .sort((left, right) => (Number(right.targeted) - Number(left.targeted)) || (left.charCount - right.charCount))
+      .slice(0, 4)
   }
 
   const repairedSections = new Map(currentSections)
@@ -2226,7 +2244,9 @@ async function repairWeeklyReviewArticle({
       workflow,
       today,
       targetChars: targetSectionChars,
+      minParagraphs: minSectionParagraphs,
       attempt,
+      failures: gate.reasons,
     })
     repairedSections.set(candidate.brief.heading, repairedMarkdown)
   }
