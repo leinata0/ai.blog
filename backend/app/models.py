@@ -93,6 +93,9 @@ class Comment(Base):
     __table_args__ = (Index("ix_comments_ip_created_at", "ip_address", "created_at"),)
     id = Column(Integer, primary_key=True, index=True)
     post_id = Column(Integer, ForeignKey("posts.id"), nullable=False, index=True)
+    # nullable user_id: registered commenters link here; anonymous comments keep it NULL.
+    # ondelete=SET NULL so deleting an account anonymizes its comments instead of erasing them.
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     nickname = Column(String(50), nullable=False)
     content = Column(Text, nullable=False)
     ip_address = Column(String(50), nullable=False, default="")
@@ -187,9 +190,18 @@ class PostLike(Base):
     __tablename__ = "post_likes"
     id = Column(Integer, primary_key=True, index=True)
     post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
+    # nullable user_id: registered likes link here; anonymous likes keep it NULL.
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    # ip_address stays NOT NULL to satisfy the legacy uq_post_like(post_id, ip_address).
+    # For logged-in likes we store a sentinel f"user:{user_id}" so two accounts behind one
+    # NAT IP never collide on that constraint; logged-in dedup is enforced in code via
+    # (post_id, user_id). DO NOT drop uq_post_like — the sentinel scheme depends on it.
     ip_address = Column(String, nullable=False)
     created_at = Column(DateTime, default=func.now())
-    __table_args__ = (UniqueConstraint("post_id", "ip_address", name="uq_post_like"),)
+    __table_args__ = (
+        UniqueConstraint("post_id", "ip_address", name="uq_post_like"),
+        Index("ix_post_likes_post_user", "post_id", "user_id"),
+    )
 
 
 class ViewLog(Base):
@@ -360,3 +372,45 @@ class PostNotificationDispatch(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     post = relationship("Post", back_populates="notification_dispatch")
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    password_hash = Column(String(255), nullable=False)
+    nickname = Column(String(50), nullable=False, default="")
+    avatar_url = Column(String(500), nullable=False, default="")
+    status = Column(String(20), nullable=False, default="active")  # active | banned
+    email_verified = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    last_login_at = Column(DateTime, nullable=True)
+    followed_topics = relationship("FollowedTopic", back_populates="user", cascade="all, delete-orphan")
+    reading_history = relationship("ReadingHistory", back_populates="user", cascade="all, delete-orphan")
+
+
+class FollowedTopic(Base):
+    __tablename__ = "followed_topics"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    topic_key = Column(String(200), nullable=False)
+    display_title = Column(String(200), nullable=False, default="")
+    followed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    __table_args__ = (UniqueConstraint("user_id", "topic_key", name="uq_user_topic"),)
+    user = relationship("User", back_populates="followed_topics")
+
+
+class ReadingHistory(Base):
+    __tablename__ = "reading_history"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    slug = Column(String(200), nullable=False)
+    title = Column(String(300), nullable=False, default="")
+    topic_key = Column(String(200), nullable=False, default="")
+    topic_display_title = Column(String(200), nullable=False, default="")
+    content_type = Column(String(50), nullable=False, default="")
+    coverage_date = Column(String(20), nullable=False, default="")
+    visited_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    __table_args__ = (UniqueConstraint("user_id", "slug", name="uq_user_slug"),)
+    user = relationship("User", back_populates="reading_history")

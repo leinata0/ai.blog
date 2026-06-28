@@ -59,12 +59,17 @@ def test_comment_on_nonexistent_post(client, seeded_db):
 
 def test_comment_validation(client, seeded_db):
     slug = "python-automation-selenium-pandas"
-    # empty nickname
+    # empty nickname (anonymous comment): rejected by route logic with 400
     resp = client.post(f"/api/posts/{slug}/comments", json={
         "nickname": "",
         "content": "Hello",
     })
-    assert resp.status_code == 422
+    assert resp.status_code == 400
+    # missing nickname entirely (anonymous): also rejected with 400
+    resp = client.post(f"/api/posts/{slug}/comments", json={
+        "content": "Hello",
+    })
+    assert resp.status_code == 400
 
 
 def test_admin_approve_and_delete_comment(client, seeded_db):

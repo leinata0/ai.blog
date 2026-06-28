@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { BellPlus, BellRing } from 'lucide-react'
 
-import { isTopicFollowed, toggleFollowedTopic } from '../utils/topicRetention'
+import { isFollowed as isTopicFollowed, toggleFollow } from '../utils/topicSync'
+import { useUser } from '../contexts/UserContext'
 
 export default function FollowTopicButton({ topic, onChange }) {
   const topicKey = String(topic?.topic_key || '').trim()
+  const { user } = useUser()
   const [followed, setFollowed] = useState(() => isTopicFollowed(topicKey))
 
   useEffect(() => {
@@ -13,11 +15,10 @@ export default function FollowTopicButton({ topic, onChange }) {
 
   if (!topicKey) return null
 
-  function handleClick() {
-    const next = toggleFollowedTopic(topic)
-    const nextFollowed = next.some((item) => item.topic_key === topicKey)
+  async function handleClick() {
+    const { topics, followed: nextFollowed } = await toggleFollow(user, topic)
     setFollowed(nextFollowed)
-    onChange?.(next, nextFollowed)
+    onChange?.(topics, nextFollowed)
   }
 
   return (

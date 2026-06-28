@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,17 +25,21 @@ from app.models import (
     AiModelInstance,
     AiProviderSource,
     Comment,
+    FollowedTopic,
     Post,
+    PostLike,
     PostQualityReview,
     PostQualitySnapshot,
     PostSource,
     PublishingArtifact,
     PublishingRun,
+    ReadingHistory,
     SearchInsight,
     Series,
     SiteSettings,
     Tag,
     TopicProfile,
+    User,
 )
 from app.notifications import dispatch_post_notifications_for_post, subscription_health_payload
 from app.schemas import (
@@ -2483,6 +2487,102 @@ def delete_comment(
     if comment is None:
         raise HTTPException(status_code=404, detail="Comment not found")
     db.delete(comment)
+    db.commit()
+    return {"detail": "deleted"}
+
+
+# ── 访客用户管理 ──
+
+def _user_admin_dict(user: User) -> dict:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "nickname": user.nickname,
+        "status": user.status,
+        "email_verified": user.email_verified,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+    }
+
+
+@router.get("/users")
+def admin_list_users(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    q: str = Query(default=""),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    base = select(User)
+    count_query = select(func.count(User.id))
+    keyword = (q or "").strip()
+    if keyword:
+        like = f"%{keyword.lower()}%"
+        condition = or_(func.lower(User.email).like(like), func.lower(User.nickname).like(like))
+        base = base.where(condition)
+        count_query = count_query.where(condition)
+
+    total = db.execute(count_query).scalar() or 0
+    users = db.execute(
+        base.order_by(User.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).scalars().all()
+    return {
+        "items": [_user_admin_dict(u) for u in users],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.post("/users/{user_id}/ban")
+def admin_ban_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.status = "banned"
+    db.commit()
+    return {"detail": "banned"}
+
+
+@router.post("/users/{user_id}/unban")
+def admin_unban_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.status = "active"
+    db.commit()
+    return {"detail": "unbanned"}
+
+
+@router.delete("/users/{user_id}")
+def admin_delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    # FK cascade/SET NULL is unreliable here: SQLite doesn't enforce FKs by default,
+    # and in production schema_compat adds comments/post_likes.user_id as bare columns
+    # with no DB-level FK. So clean up explicitly:
+    #  - comments: anonymize (keep the row, drop the account link)
+    #  - post_likes / followed_topics / reading_history: remove the user's rows
+    db.execute(update(Comment).where(Comment.user_id == user_id).values(user_id=None))
+    db.execute(delete(PostLike).where(PostLike.user_id == user_id))
+    db.execute(delete(FollowedTopic).where(FollowedTopic.user_id == user_id))
+    db.execute(delete(ReadingHistory).where(ReadingHistory.user_id == user_id))
+    db.delete(user)
     db.commit()
     return {"detail": "deleted"}
 

@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY pyproject.toml .
-RUN pip install --no-cache-dir fastapi uvicorn sqlalchemy pydantic python-jose[cryptography] python-multipart httpx psycopg[binary] boto3 pywebpush slowapi bleach cryptography
+RUN pip install --no-cache-dir fastapi uvicorn sqlalchemy pydantic python-jose[cryptography] bcrypt python-multipart httpx psycopg[binary] boto3 pywebpush slowapi bleach cryptography
 
 # Copy application code
 COPY app/ ./app/

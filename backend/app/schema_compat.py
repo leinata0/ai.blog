@@ -239,6 +239,39 @@ POST_NOTIFICATION_DISPATCH_COLUMNS = {
     "updated_at": "DATETIME",
 }
 
+USER_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "email": "VARCHAR(255) NOT NULL UNIQUE",
+    "password_hash": "VARCHAR(255) NOT NULL",
+    "nickname": "VARCHAR(50) NOT NULL DEFAULT ''",
+    "avatar_url": "VARCHAR(500) NOT NULL DEFAULT ''",
+    "status": "VARCHAR(20) NOT NULL DEFAULT 'active'",
+    "email_verified": "BOOLEAN NOT NULL DEFAULT FALSE",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
+    "last_login_at": "DATETIME",
+}
+
+FOLLOWED_TOPIC_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "user_id": "INTEGER NOT NULL",
+    "topic_key": "VARCHAR(200) NOT NULL",
+    "display_title": "VARCHAR(200) NOT NULL DEFAULT ''",
+    "followed_at": "DATETIME",
+}
+
+READING_HISTORY_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "user_id": "INTEGER NOT NULL",
+    "slug": "VARCHAR(200) NOT NULL",
+    "title": "VARCHAR(300) NOT NULL DEFAULT ''",
+    "topic_key": "VARCHAR(200) NOT NULL DEFAULT ''",
+    "topic_display_title": "VARCHAR(200) NOT NULL DEFAULT ''",
+    "content_type": "VARCHAR(50) NOT NULL DEFAULT ''",
+    "coverage_date": "VARCHAR(20) NOT NULL DEFAULT ''",
+    "visited_at": "DATETIME",
+}
+
 DEFAULT_SERIES_SEED = [
     {
         "slug": "ai-daily-brief",
@@ -556,6 +589,62 @@ def ensure_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_post_notification_dispatches_post_id ON post_notification_dispatches (post_id)",
         ],
     )
+
+    _create_table_if_missing(
+        engine,
+        "users",
+        USER_COLUMNS,
+        indexes=[
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email)",
+            "CREATE INDEX IF NOT EXISTS ix_users_status ON users (status)",
+        ],
+    )
+    _ensure_postgres_id_default(engine, "users")
+
+    _create_table_if_missing(
+        engine,
+        "followed_topics",
+        FOLLOWED_TOPIC_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_followed_topics_user_id ON followed_topics (user_id)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_topic ON followed_topics (user_id, topic_key)",
+        ],
+    )
+    _ensure_postgres_id_default(engine, "followed_topics")
+
+    _create_table_if_missing(
+        engine,
+        "reading_history",
+        READING_HISTORY_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_reading_history_user_id ON reading_history (user_id)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_slug ON reading_history (user_id, slug)",
+        ],
+    )
+    _ensure_postgres_id_default(engine, "reading_history")
+
+    # Backfill user_id on the pre-existing comments / post_likes tables (added with the
+    # visitor user system). SQLite cannot add a column with an inline FK, so we add a bare
+    # INTEGER column here; the FK relationship lives only at the ORM layer, consistent with
+    # every other compat column above.
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "comments" in table_names:
+        existing_columns = {column["name"] for column in inspector.get_columns("comments")}
+        with engine.begin() as connection:
+            if "user_id" not in existing_columns:
+                connection.execute(text("ALTER TABLE comments ADD COLUMN user_id INTEGER"))
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_comments_user_id ON comments (user_id)")
+            )
+    if "post_likes" in table_names:
+        existing_columns = {column["name"] for column in inspector.get_columns("post_likes")}
+        with engine.begin() as connection:
+            if "user_id" not in existing_columns:
+                connection.execute(text("ALTER TABLE post_likes ADD COLUMN user_id INTEGER"))
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_post_likes_post_user ON post_likes (post_id, user_id)")
+            )
 
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())

@@ -3,7 +3,7 @@ import { useParams, Link, useLocation } from 'react-router-dom'
 import { ArrowLeft, Heart, Pin } from 'lucide-react'
 import { motion, useScroll, useSpring } from 'framer-motion'
 
-import { fetchPostDetail, likePost, fetchRelatedPosts, prefetchPostDetail } from '../api/posts'
+import { fetchPostDetail, likePost, fetchLikeState, fetchRelatedPosts, prefetchPostDetail } from '../api/posts'
 import { formatDate } from '../utils/date'
 import Navbar from '../components/Navbar'
 import TableOfContents from '../components/TableOfContents'
@@ -17,7 +17,8 @@ import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
-import { recordReadingHistory } from '../utils/topicRetention'
+import { recordHistory as recordHistorySync } from '../utils/topicSync'
+import { useUser } from '../contexts/UserContext'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import {
@@ -237,6 +238,7 @@ function TopicTrackingSection({ post }) {
 
 export default function PostDetailPage({ slug: overrideSlug }) {
   const { settings } = useSite()
+  const { user } = useUser()
   const params = useParams()
   const location = useLocation()
   const slug = overrideSlug ?? params.slug
@@ -280,11 +282,23 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         if (controller.signal.aborted) return
         setPost(data)
         setLikeCount(data.like_count || 0)
-        setLiked(localStorage.getItem(`liked_${slug}`) === '1')
+        // Logged-in users get account-based liked state from the server;
+        // anonymous users fall back to the per-browser localStorage marker.
+        if (user) {
+          fetchLikeState(slug)
+            .then((state) => {
+              if (controller.signal.aborted) return
+              setLiked(Boolean(state?.liked))
+              if (typeof state?.like_count === 'number') setLikeCount(state.like_count)
+            })
+            .catch(() => {})
+        } else {
+          setLiked(localStorage.getItem(`liked_${slug}`) === '1')
+        }
         setSameSeriesPosts(Array.isArray(data.same_series_posts) ? data.same_series_posts : [])
         setSameTopicPosts(Array.isArray(data.same_topic_posts) ? data.same_topic_posts : [])
         setSameWeekPosts(Array.isArray(data.same_week_posts) ? data.same_week_posts : [])
-        recordReadingHistory({
+        recordHistorySync(user, {
           slug: data.slug,
           title: data.title,
           summary: data.summary,
@@ -301,7 +315,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       })
 
     return () => controller.abort()
-  }, [slug])
+  }, [slug, user])
 
   useEffect(() => {
     if (!post?.slug) return
@@ -376,6 +390,25 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   }
 
   async function handleLike() {
+    // Logged-in users can toggle (like / unlike); the server returns the
+    // authoritative count and liked flag.
+    if (user) {
+      const prevLiked = liked
+      const optimistic = !prevLiked
+      setLiked(optimistic)
+      setLikeCount((c) => Math.max(0, c + (optimistic ? 1 : -1)))
+      try {
+        const result = await likePost(slug, { auth: 'user' })
+        if (typeof result?.like_count === 'number') setLikeCount(result.like_count)
+        if (typeof result?.liked === 'boolean') setLiked(result.liked)
+      } catch {
+        setLiked(prevLiked)
+        setLikeCount((c) => Math.max(0, c + (optimistic ? -1 : 1)))
+      }
+      return
+    }
+
+    // Anonymous: one-shot like, not cancellable.
     if (liked) return
     // Optimistic update: bump immediately, then roll back if the request fails.
     // Previously a failure was swallowed and treated as success, which left the UI
@@ -503,7 +536,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
               <motion.button
                 whileTap={{ scale: 0.95 }}
                 onClick={handleLike}
-                disabled={liked}
+                disabled={liked && !user}
                 className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-all duration-200 disabled:cursor-default"
                 style={{
                   backgroundColor: liked ? 'var(--danger-soft)' : 'var(--bg-surface)',

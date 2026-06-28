@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { MessageCircle, Send } from 'lucide-react'
+import { MessageCircle, Send, BadgeCheck } from 'lucide-react'
 import { fetchComments, postComment } from '../api/posts'
 import { timeAgo } from '../utils/date'
+import { useUser } from '../contexts/UserContext'
 
 const MAX_CONTENT_LENGTH = 500
 
 export default function CommentSection({ slug }) {
+  const { user } = useUser()
   const [comments, setComments] = useState([])
   const [nickname, setNickname] = useState(() => localStorage.getItem('comment_nickname') || '')
   const [content, setContent] = useState('')
@@ -28,12 +30,18 @@ export default function CommentSection({ slug }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!nickname.trim() || !content.trim()) return
+    // Logged-in users comment under their account nickname (no nickname field).
+    if (!content.trim() || (!user && !nickname.trim())) return
     setSubmitting(true)
     setError('')
     try {
-      localStorage.setItem('comment_nickname', nickname.trim())
-      const newComment = await postComment(slug, nickname.trim(), content.trim())
+      let newComment
+      if (user) {
+        newComment = await postComment(slug, undefined, content.trim(), { auth: 'user' })
+      } else {
+        localStorage.setItem('comment_nickname', nickname.trim())
+        newComment = await postComment(slug, nickname.trim(), content.trim())
+      }
       setComments((prev) => [newComment, ...prev])
       setContent('')
     } catch {
@@ -59,15 +67,25 @@ export default function CommentSection({ slug }) {
       {/* 评论表单 */}
       <form onSubmit={handleSubmit} className="mb-8 space-y-4">
         <div className="flex flex-col sm:flex-row gap-4">
-          <input
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            className="sm:flex-shrink-0 sm:w-40 w-full px-4 py-2.5 rounded-lg text-sm outline-none"
-            style={inputStyle}
-            placeholder="你的昵称"
-            maxLength={50}
-            required
-          />
+          {user ? (
+            <div
+              className="sm:flex-shrink-0 sm:w-40 w-full flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm"
+              style={{ ...inputStyle, color: 'var(--text-secondary)' }}
+            >
+              <BadgeCheck size={14} style={{ color: 'var(--accent)' }} />
+              <span className="truncate">{user.nickname || user.email}</span>
+            </div>
+          ) : (
+            <input
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              className="sm:flex-shrink-0 sm:w-40 w-full px-4 py-2.5 rounded-lg text-sm outline-none"
+              style={inputStyle}
+              placeholder="你的昵称"
+              maxLength={50}
+              required
+            />
+          )}
           <div className="flex-1 relative">
             <textarea
               value={content}
@@ -114,8 +132,9 @@ export default function CommentSection({ slug }) {
               className="comment-card"
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                <span className="inline-flex items-center gap-1 text-sm font-medium" style={{ color: 'var(--accent)' }}>
                   {c.nickname}
+                  {c.is_registered ? <BadgeCheck size={13} aria-label="注册用户" /> : null}
                 </span>
                 <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
                   {timeAgo(c.created_at)}
