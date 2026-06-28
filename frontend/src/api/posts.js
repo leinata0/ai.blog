@@ -363,6 +363,8 @@ export const likePost = (slug, requestOptions = {}) => apiPost(`/api/posts/${slu
   ...requestOptions,
   invalidatePaths: requestOptions.invalidatePaths ?? [`/api/posts/${slug}`],
 })
+export const fetchLikeState = (slug, requestOptions = {}) =>
+  apiGet(`/api/posts/${slug}/like-state`, { cache: false, ...requestOptions })
 export const fetchRelatedPosts = async (slug, requestOptions = {}) => {
   const posts = await apiGet(`/api/posts/${slug}/related`, requestOptions)
   return Array.isArray(posts) ? posts.map((post) => normalizePost(post)) : []

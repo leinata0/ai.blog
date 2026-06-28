@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
+import UserProtectedRoute from './components/UserProtectedRoute'
 
 import HomePage from './pages/HomePage'
 import PostDetailPage from './pages/PostDetailPage'
@@ -21,6 +22,9 @@ const TagsPage = lazy(() => import('./pages/TagsPage'))
 const FriendsPage = lazy(() => import('./pages/FriendsPage'))
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage'))
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const RegisterPage = lazy(() => import('./pages/RegisterPage'))
+const AccountPage = lazy(() => import('./pages/AccountPage'))
 
 function PageLoader() {
   return (
@@ -54,6 +58,16 @@ export default function App() {
           <Route path="/feeds" element={<FeedsPage />} />
           <Route path="/tags" element={<TagsPage />} />
           <Route path="/friends" element={<FriendsPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route
+            path="/account"
+            element={
+              <UserProtectedRoute>
+                <AccountPage />
+              </UserProtectedRoute>
+            }
+          />
           <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route
             path="/admin/dashboard"

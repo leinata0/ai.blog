@@ -1162,7 +1162,9 @@ class StatsOut(BaseModel):
 # ── Comment schemas ───────────────────────────────
 
 class CommentCreate(BaseModel):
-    nickname: str = Field(..., min_length=1, max_length=50)
+    # nickname is optional: ignored for logged-in users (account nickname is used),
+    # required for anonymous comments (enforced in the router).
+    nickname: str | None = Field(default=None, max_length=50)
     content: str = Field(..., min_length=1, max_length=2000)
 
 
@@ -1171,6 +1173,8 @@ class CommentOut(BaseModel):
     id: int
     nickname: str
     content: str
+    user_id: int | None = None
+    is_registered: bool = False
     created_at: datetime
 
 
@@ -1222,3 +1226,83 @@ class FriendLink(BaseModel):
     name: str = ""
     description: str = ""
     avatar: str = ""
+
+
+# ── Visitor user system schemas ───────────────────
+
+class UserRegisterRequest(BaseModel):
+    email: str = Field(..., max_length=255)
+    password: str = Field(..., min_length=8, max_length=72)  # 72 = bcrypt byte limit
+    nickname: str | None = Field(default=None, max_length=50)
+
+
+class UserLoginRequest(BaseModel):
+    email: str = Field(..., max_length=255)
+    password: str = Field(..., min_length=1, max_length=72)
+
+
+class UserOut(BaseModel):
+    model_config = {"from_attributes": True}
+    id: int
+    email: str
+    nickname: str
+    avatar_url: str
+    email_verified: bool
+    created_at: datetime
+
+
+class UserAuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+class UserProfileUpdate(BaseModel):
+    nickname: str | None = Field(default=None, max_length=50)
+    avatar_url: str | None = Field(default=None, max_length=500)
+
+
+class PasswordChangeRequest(BaseModel):
+    old_password: str = Field(..., min_length=1, max_length=72)
+    new_password: str = Field(..., min_length=8, max_length=72)
+
+
+class FollowTopicInput(BaseModel):
+    topic_key: str = Field(..., min_length=1, max_length=200)
+    display_title: str = Field(default="", max_length=200)
+
+
+class FollowedTopicOut(BaseModel):
+    model_config = {"from_attributes": True}
+    topic_key: str
+    display_title: str
+    followed_at: datetime
+
+
+class FollowTopicsMergeInput(BaseModel):
+    topics: list[FollowTopicInput] = Field(default_factory=list)
+
+
+class ReadingHistoryInput(BaseModel):
+    slug: str = Field(..., min_length=1, max_length=200)
+    title: str = Field(default="", max_length=300)
+    topic_key: str = Field(default="", max_length=200)
+    topic_display_title: str = Field(default="", max_length=200)
+    content_type: str = Field(default="", max_length=50)
+    coverage_date: str = Field(default="", max_length=20)
+    visited_at: datetime | None = None
+
+
+class ReadingHistoryOut(BaseModel):
+    model_config = {"from_attributes": True}
+    slug: str
+    title: str
+    topic_key: str
+    topic_display_title: str
+    content_type: str
+    coverage_date: str
+    visited_at: datetime
+
+
+class ReadingHistoryMergeInput(BaseModel):
+    items: list[ReadingHistoryInput] = Field(default_factory=list)

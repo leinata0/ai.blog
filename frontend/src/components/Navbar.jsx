@@ -9,11 +9,13 @@ import {
   Moon,
   PanelsTopLeft,
   Sun,
+  User as UserIcon,
   X,
 } from 'lucide-react'
 
 import GlassPopover from './GlassPopover'
 import { useTheme } from '../contexts/ThemeContext'
+import { useUser } from '../contexts/UserContext'
 import {
   getContinueReadingItems,
   getFollowedTopics,
@@ -180,6 +182,7 @@ export default function Navbar() {
   const panelRef = useRef(null)
   const closeTimerRef = useRef(null)
   const { dark, toggleTheme } = useTheme()
+  const { user } = useUser()
 
   useEffect(() => {
     setMobileOpen(false)
@@ -346,6 +349,19 @@ export default function Navbar() {
               </div>
             ) : null}
           </div>
+
+          <Link
+            to={user ? '/account' : '/login'}
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 transition-colors duration-200"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
+            aria-label={user ? '个人中心' : '登录'}
+            title={user ? '个人中心' : '登录'}
+          >
+            <UserIcon size={18} />
+            <span className="max-w-[8rem] truncate text-sm font-medium">
+              {user ? (user.nickname || '个人中心') : '登录'}
+            </span>
+          </Link>
 
           <button
             onClick={toggleTheme}

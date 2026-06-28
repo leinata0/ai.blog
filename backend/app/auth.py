@@ -17,6 +17,7 @@ ALGORITHM = "HS256"
 DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 120
 DEFAULT_TOKEN_ISSUER = "ai-dev-blog"
 DEFAULT_TOKEN_AUDIENCE = "admin"
+USER_TOKEN_AUDIENCE = "user"
 
 
 def _resolve_auth_env_value(name: str, *, dev_name: str, dev_default: str) -> str:
@@ -71,7 +72,7 @@ def verify_admin(username: str, password: str) -> bool:
     return compare_digest(username, ADMIN_USERNAME) and compare_digest(password, ADMIN_PASSWORD)
 
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None, audience: str | None = None) -> str:
     to_encode = data.copy()
     issued_at = datetime.now(timezone.utc)
     expire = issued_at + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
@@ -79,7 +80,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
         "exp": expire,
         "iat": issued_at,
         "iss": TOKEN_ISSUER,
-        "aud": TOKEN_AUDIENCE,
+        "aud": audience or TOKEN_AUDIENCE,
     })
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 

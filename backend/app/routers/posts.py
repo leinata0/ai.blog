@@ -36,11 +36,13 @@ from app.models import (
     SearchInsight,
     Tag,
     TopicProfile,
+    User,
     ViewLog,
     post_tags,
 )
 from app.schemas import CommentCreate
 from app.site_config import resolve_public_site_url
+from app.user_auth import get_optional_user
 
 router = APIRouter(prefix="/api", tags=["posts"])
 
@@ -1060,12 +1062,69 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
 
 # ── 点赞接口 ──
 
+@router.get("/posts/{slug}/like-state")
+def get_like_state(
+    slug: str,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
+):
+    """Return whether the current viewer has liked the post, plus the total count.
+
+    For logged-in users the `liked` flag is account-based (replaces the frontend's
+    localStorage `liked_${slug}` marker). For anonymous viewers it is always false
+    here — the client falls back to its localStorage marker.
+    """
+    post = db.execute(
+        select(Post).options(load_only(Post.id, Post.like_count)).where(Post.slug == slug)
+    ).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="文章不存在")
+
+    liked = False
+    if current_user is not None:
+        liked = db.query(PostLike).filter(
+            PostLike.post_id == post.id,
+            PostLike.user_id == current_user.id,
+        ).first() is not None
+    return {"like_count": post.like_count or 0, "liked": liked}
+
+
 @router.post("/posts/{slug}/like")
-def like_post(slug: str, request: Request, db: Session = Depends(get_db)):
+def like_post(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
+):
     post = db.execute(select(Post).where(Post.slug == slug)).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
 
+    # Logged-in users: account-based toggle (like / unlike), deduped on (post_id, user_id).
+    if current_user is not None:
+        existing = db.query(PostLike).filter(
+            PostLike.post_id == post.id,
+            PostLike.user_id == current_user.id,
+        ).first()
+        if existing:
+            db.delete(existing)
+            db.execute(
+                update(Post).where(Post.id == post.id).values(like_count=Post.like_count - 1)
+            )
+            db.commit()
+            refreshed = db.execute(select(Post.like_count).where(Post.id == post.id)).scalar_one_or_none()
+            return {"like_count": max(refreshed or 0, 0), "liked": False}
+        # ip_address is NOT NULL and carries uq_post_like(post_id, ip_address); store a
+        # per-user sentinel so two accounts behind one NAT IP never collide there.
+        db.add(PostLike(post_id=post.id, user_id=current_user.id, ip_address=f"user:{current_user.id}"))
+        db.execute(
+            update(Post).where(Post.id == post.id).values(like_count=Post.like_count + 1)
+        )
+        db.commit()
+        refreshed = db.execute(select(Post.like_count).where(Post.id == post.id)).scalar_one_or_none()
+        return {"like_count": refreshed or 0, "liked": True}
+
+    # Anonymous users: legacy IP-based, one-shot like (not cancellable).
     client_ip = _get_client_ip(request)
 
     existing = db.query(PostLike).filter(
@@ -1097,7 +1156,7 @@ def like_post(slug: str, request: Request, db: Session = Depends(get_db)):
     refreshed = db.execute(
         select(Post.like_count).where(Post.id == post.id)
     ).scalar_one_or_none()
-    return {"like_count": refreshed or 0}
+    return {"like_count": refreshed or 0, "liked": True}
 
 
 # ── 相关文章接口 ──
@@ -1148,6 +1207,8 @@ def list_comments(slug: str, db: Session = Depends(get_db)):
             "id": c.id,
             "nickname": c.nickname,
             "content": c.content,
+            "user_id": c.user_id,
+            "is_registered": c.user_id is not None,
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }
         for c in comments
@@ -1155,12 +1216,29 @@ def list_comments(slug: str, db: Session = Depends(get_db)):
 
 
 @router.post("/posts/{slug}/comments")
-def create_comment(slug: str, body: CommentCreate, request: Request, db: Session = Depends(get_db)):
+def create_comment(
+    slug: str,
+    body: CommentCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
+):
     post = db.execute(select(Post).where(Post.slug == slug)).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
-    if not body.nickname.strip() or not body.content.strip():
+    if not body.content.strip():
         raise HTTPException(status_code=400, detail="昵称和内容不能为空")
+
+    # Logged-in users comment under their account nickname (body.nickname ignored to
+    # prevent impersonation); anonymous users must supply a nickname.
+    if current_user is not None:
+        nickname = (current_user.nickname or "").strip() or current_user.email.split("@", 1)[0]
+        user_id = current_user.id
+    else:
+        nickname = (body.nickname or "").strip()
+        if not nickname:
+            raise HTTPException(status_code=400, detail="昵称和内容不能为空")
+        user_id = None
 
     # 评论频率限制：同 IP 每分钟最多 3 条
     client_ip = _get_client_ip(request)
@@ -1174,7 +1252,8 @@ def create_comment(slug: str, body: CommentCreate, request: Request, db: Session
 
     comment = Comment(
         post_id=post.id,
-        nickname=body.nickname.strip(),
+        user_id=user_id,
+        nickname=nickname,
         content=body.content.strip(),
         ip_address=client_ip,
     )
@@ -1185,6 +1264,8 @@ def create_comment(slug: str, body: CommentCreate, request: Request, db: Session
         "id": comment.id,
         "nickname": comment.nickname,
         "content": comment.content,
+        "user_id": comment.user_id,
+        "is_registered": comment.user_id is not None,
         "created_at": comment.created_at.isoformat() if comment.created_at else None,
     }
 

@@ -30,6 +30,7 @@ from app.routers.admin import router as admin_router
 from app.routers.home import build_home_modules_payload, router as home_router
 from app.routers.posts import build_posts_list_payload, router as posts_router
 from app.routers.subscriptions import router as subscriptions_router
+from app.routers.users import router as users_router
 from app.schemas import HomeBootstrapOut, SiteSettingsOut, SiteSettingsUpdate, StatsOut
 from app.site_config import resolve_public_site_url
 from app.storage import get_uploaded_image_bytes
@@ -96,6 +97,7 @@ app.include_router(posts_router)
 app.include_router(admin_router)
 app.include_router(home_router)
 app.include_router(subscriptions_router)
+app.include_router(users_router)
 
 
 def build_settings_payload(db: Session) -> dict:

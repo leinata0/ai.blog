@@ -12,19 +12,52 @@ import {
   getFollowedTopics,
   getRecentTopics,
 } from '../utils/topicRetention'
+import { fetchCloudTopics, fetchCloudHistory } from '../api/user'
+import { useUser } from '../contexts/UserContext'
 import { motionContainerVariants, motionItemVariants } from '../utils/contentPresentation'
 
 export default function FollowingPage() {
+  const { user } = useUser()
   const [followedTopics, setFollowedTopics] = useState([])
   const [recentTopics, setRecentTopics] = useState([])
   const [historyItems, setHistoryItems] = useState([])
 
   useEffect(() => {
     document.title = '关注主题 - 极客开发日志'
-    setFollowedTopics(getFollowedTopics())
-    setRecentTopics(getRecentTopics())
-    setHistoryItems(getContinueReadingItems())
   }, [])
+
+  useEffect(() => {
+    if (user) {
+      // Logged in: read the cloud-synced data (cross-device).
+      fetchCloudTopics().then(setFollowedTopics).catch(() => setFollowedTopics(getFollowedTopics()))
+      fetchCloudHistory()
+        .then((items) => {
+          setHistoryItems(items)
+          // derive recent topics from history order
+          const seen = new Set()
+          const topics = []
+          for (const item of items) {
+            if (!item.topic_key || seen.has(item.topic_key)) continue
+            seen.add(item.topic_key)
+            topics.push({
+              topic_key: item.topic_key,
+              display_title: item.topic_display_title || item.topic_key,
+              latest_post_at: item.visited_at,
+            })
+          }
+          setRecentTopics(topics.slice(0, 6))
+        })
+        .catch(() => {
+          setHistoryItems(getContinueReadingItems())
+          setRecentTopics(getRecentTopics())
+        })
+    } else {
+      // Anonymous: browser-local data.
+      setFollowedTopics(getFollowedTopics())
+      setRecentTopics(getRecentTopics())
+      setHistoryItems(getContinueReadingItems())
+    }
+  }, [user])
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
@@ -39,7 +72,9 @@ export default function FollowingPage() {
         >
           <h1 className="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>关注与继续阅读</h1>
           <p className="mt-3 max-w-3xl text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-            这里保存你在当前浏览器里关注过的主题和最近阅读过的文章，不需要登录，也不会影响现有自动发文链路。
+            {user
+              ? '这里保存你关注过的主题和最近阅读过的文章，已同步到云端，登录后在任意设备都能看到。'
+              : '这里保存你在当前浏览器里关注过的主题和最近阅读过的文章，不需要登录。登录后可同步到云端、跨设备可见。'}
           </p>
         </motion.section>
 

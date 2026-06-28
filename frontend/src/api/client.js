@@ -1,4 +1,5 @@
 import { getToken, clearToken } from './auth'
+import { getUserToken, clearUserToken } from './userAuth'
 import { buildApiUrl as buildResolvedApiUrl, resolveApiBase } from './base'
 const TIMEOUT = 30000
 const GET_CACHE_TTL = 15000
@@ -134,10 +135,26 @@ function writeCacheEntry(cacheKey, data, cacheTtl, staleTtl) {
   writeSessionCacheEntry(cacheKey, entry)
 }
 
-function requestGetKey(path, auth) {
-  if (!auth) return `public:${path}`
-  const token = getToken() || 'anonymous'
-  return `auth:${token}:${path}`
+// Auth modes: false (none), 'admin' (legacy `true` maps here), or 'user'.
+// Admin and visitor tokens live under different localStorage keys and must never
+// be mixed — a 401 on an admin call hard-redirects to /admin/login, while a 401
+// on a user call just clears the visitor token and lets the caller decide.
+function normalizeAuth(auth) {
+  if (auth === true || auth === 'admin') return 'admin'
+  if (auth === 'user') return 'user'
+  return false
+}
+
+function tokenForAuth(authMode) {
+  if (authMode === 'admin') return getToken()
+  if (authMode === 'user') return getUserToken()
+  return null
+}
+
+function requestGetKey(path, authMode) {
+  if (!authMode) return `public:${path}`
+  const token = tokenForAuth(authMode) || 'anonymous'
+  return `${authMode}:${token}:${path}`
 }
 
 export function buildApiUrl(path = '') {
@@ -169,12 +186,13 @@ async function readErrorMessage(resp) {
 
 async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal } = {}) {
   const base = resolveApiBase()
+  const authMode = normalizeAuth(auth)
   const headers = {}
   if (body && !(body instanceof FormData)) {
     headers['Content-Type'] = 'application/json'
   }
-  if (auth) {
-    const token = getToken()
+  if (authMode) {
+    const token = tokenForAuth(authMode)
     if (token) headers.Authorization = `Bearer ${token}`
   }
 
@@ -194,9 +212,15 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
     merged.cleanup()
 
     if (!resp.ok) {
-      if (resp.status === 401 && auth) {
+      if (resp.status === 401 && authMode === 'admin') {
         clearToken()
         window.location.href = '/admin/login'
+        throw new Error('登录已过期，请重新登录')
+      }
+      if (resp.status === 401 && authMode === 'user') {
+        // Clear the stale visitor token but do NOT hard-redirect — the calling
+        // page/UserContext decides whether to route to /login.
+        clearUserToken()
         throw new Error('登录已过期，请重新登录')
       }
       throw new Error(await readErrorMessage(resp))
@@ -228,14 +252,14 @@ async function requestGetNetwork(path, options, cacheKey, cacheConfig) {
 }
 
 export function apiGet(path, opts = {}) {
-  const auth = Boolean(opts.auth)
-  const cacheEnabled = opts.cache === true || (opts.cache !== false && !auth)
+  const authMode = normalizeAuth(opts.auth)
+  const cacheEnabled = opts.cache === true || (opts.cache !== false && !authMode)
   const dedupeEnabled = opts.dedupe !== false
   const cacheTtl = Number.isFinite(opts.cacheTtl) ? Math.max(0, opts.cacheTtl) : GET_CACHE_TTL
   const staleTtl = Number.isFinite(opts.staleTtl) ? Math.max(cacheTtl, opts.staleTtl) : GET_STALE_TTL
   const staleWhileRevalidate = Boolean(opts.staleWhileRevalidate)
   const forceRefresh = Boolean(opts.forceRefresh)
-  const cacheKey = requestGetKey(path, auth)
+  const cacheKey = requestGetKey(path, authMode)
   const now = Date.now()
   const cacheConfig = { enabled: cacheEnabled, cacheTtl, staleTtl }
 
