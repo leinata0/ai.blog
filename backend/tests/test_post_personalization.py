@@ -1,13 +1,20 @@
 """Tests for account-bound likes and comments on posts."""
 import pytest
+from sqlalchemy import select
+
+from app.models import User
 
 
-def _register(client, email="liker@example.com", password="secret123", nickname="Liker"):
+def _register(client, db_session, email="liker@example.com", password="secret123", nickname="Liker"):
     resp = client.post(
         "/api/users/register",
         json={"email": email, "password": password, "nickname": nickname},
     )
     assert resp.status_code == 200, resp.text
+    # Verify the email so account-bound writes (comment/like) aren't soft-blocked.
+    user = db_session.execute(select(User).where(User.email == email)).scalar_one()
+    user.email_verified = True
+    db_session.commit()
     return resp.json()["access_token"]
 
 
@@ -20,8 +27,8 @@ def published_slug(client, db_session):
     return items[0]["slug"]
 
 
-def test_logged_in_like_toggles(client, published_slug):
-    token = _register(client)
+def test_logged_in_like_toggles(client, db_session, published_slug):
+    token = _register(client, db_session)
     headers = {"Authorization": f"Bearer {token}"}
 
     # initial state: not liked
@@ -53,8 +60,8 @@ def test_anonymous_like_not_cancellable(client, published_slug):
     assert r2.status_code == 400
 
 
-def test_logged_in_comment_uses_account_nickname(client, published_slug):
-    token = _register(client, nickname="RealName")
+def test_logged_in_comment_uses_account_nickname(client, db_session, published_slug):
+    token = _register(client, db_session, nickname="RealName")
     headers = {"Authorization": f"Bearer {token}"}
     # body nickname is ignored for logged-in users
     resp = client.post(

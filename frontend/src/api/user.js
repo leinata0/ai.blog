@@ -4,24 +4,52 @@ import { apiGet, apiPost, apiPut, apiDelete } from './client'
 // visitor token and handles 401 without redirecting to the admin login.
 
 // ── Authentication ──
-export function registerUser({ email, password, nickname }) {
-  return apiPost('/api/users/register', { email, password, nickname })
+export function registerUser({ email, password, nickname, turnstile_token }) {
+  return apiPost('/api/users/register', { email, password, nickname, turnstile_token })
 }
 
-export function loginUser({ email, password }) {
-  return apiPost('/api/users/login', { email, password })
+export function loginUser({ email, password, turnstile_token }) {
+  return apiPost('/api/users/login', { email, password, turnstile_token })
 }
 
 export function fetchMe() {
   return apiGet('/api/users/me', { auth: 'user', cache: false })
 }
 
-export function updateMe({ nickname, avatar_url }) {
-  return apiPut('/api/users/me', { nickname, avatar_url }, { auth: 'user' })
+export function updateMe({ nickname, avatar_url, bio }) {
+  return apiPut('/api/users/me', { nickname, avatar_url, bio }, { auth: 'user' })
 }
 
 export function changePassword({ old_password, new_password }) {
   return apiPost('/api/users/me/password', { old_password, new_password }, { auth: 'user' })
+}
+
+// ── Email verification ──
+export function verifyEmail(token) {
+  return apiPost('/api/users/verify-email', { token })
+}
+
+export function resendVerification() {
+  return apiPost('/api/users/resend-verification', undefined, { auth: 'user' })
+}
+
+// ── Avatar / account management ──
+export function uploadAvatar(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiPost('/api/users/me/avatar', formData, { auth: 'user' })
+}
+
+export function fetchMyComments() {
+  return apiGet('/api/users/me/comments', { auth: 'user', cache: false })
+}
+
+export function fetchMyLikes() {
+  return apiGet('/api/users/me/likes', { auth: 'user', cache: false })
+}
+
+export function deleteAccount() {
+  return apiDelete('/api/users/me', { auth: 'user' })
 }
 
 // ── Followed topics (cloud) ──

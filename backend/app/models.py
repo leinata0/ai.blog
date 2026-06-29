@@ -381,6 +381,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     nickname = Column(String(50), nullable=False, default="")
     avatar_url = Column(String(500), nullable=False, default="")
+    bio = Column(String(300), nullable=False, default="")
     status = Column(String(20), nullable=False, default="active")  # active | banned
     email_verified = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))

@@ -90,7 +90,15 @@ from app.schemas import (
     TopicProfileUpdateRequest,
     UploadOut,
 )
-from app.storage import delete_uploaded_image, list_uploaded_images, save_upload
+from app.storage import (
+    ImageValidationError,
+    MAX_UPLOAD_SIZE,
+    delete_uploaded_image,
+    list_uploaded_images,
+    save_upload,
+    validate_image_upload,
+)
+from app.services.user_account import purge_user
 from app.services import ai_channels, ai_provider_manager, image_generation_jobs
 from app.services import cover_art as cover_art_service
 from app.services.ai_channels import AiChannelError
@@ -98,26 +106,7 @@ from app.services.admin_posts import AdminPostFilters, list_admin_posts
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_UPLOAD_TYPES = {
-    "image/jpeg": (".jpg", ".jpeg"),
-    "image/png": (".png",),
-    "image/gif": (".gif",),
-    "image/webp": (".webp",),
-}
 XAI_IMAGE_MODEL = "grok-imagine-image"
-
-
-def _detect_image_content_type(contents: bytes) -> str | None:
-    if contents.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if contents.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if contents.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if len(contents) >= 12 and contents[:4] == b"RIFF" and contents[8:12] == b"WEBP":
-        return "image/webp"
-    return None
 
 
 class CoverGenerationError(RuntimeError):
@@ -2573,16 +2562,7 @@ def admin_delete_user(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    # FK cascade/SET NULL is unreliable here: SQLite doesn't enforce FKs by default,
-    # and in production schema_compat adds comments/post_likes.user_id as bare columns
-    # with no DB-level FK. So clean up explicitly:
-    #  - comments: anonymize (keep the row, drop the account link)
-    #  - post_likes / followed_topics / reading_history: remove the user's rows
-    db.execute(update(Comment).where(Comment.user_id == user_id).values(user_id=None))
-    db.execute(delete(PostLike).where(PostLike.user_id == user_id))
-    db.execute(delete(FollowedTopic).where(FollowedTopic.user_id == user_id))
-    db.execute(delete(ReadingHistory).where(ReadingHistory.user_id == user_id))
-    db.delete(user)
+    purge_user(db, user)
     db.commit()
     return {"detail": "deleted"}
 
@@ -2592,22 +2572,13 @@ def upload_image(
     file: UploadFile = File(...),
     _admin: str = Depends(get_current_admin),
 ):
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Missing filename")
-    declared_content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
-    if declared_content_type not in ALLOWED_UPLOAD_TYPES:
-        raise HTTPException(status_code=400, detail="Only image uploads are allowed")
-
     contents = file.file.read(MAX_UPLOAD_SIZE + 1)
-    if len(contents) > MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=400, detail="File size must be 10MB or less")
-
-    detected_content_type = _detect_image_content_type(contents)
-    if detected_content_type not in ALLOWED_UPLOAD_TYPES:
-        raise HTTPException(status_code=400, detail="Unsupported image file")
-    filename_lower = file.filename.lower()
-    if not filename_lower.endswith(ALLOWED_UPLOAD_TYPES[detected_content_type]):
-        raise HTTPException(status_code=400, detail="Image extension does not match file content")
+    try:
+        detected_content_type = validate_image_upload(
+            file.filename, file.content_type or "", contents
+        )
+    except ImageValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     stored_image = save_upload(file.filename, contents, detected_content_type)
     return {"url": stored_image.url}

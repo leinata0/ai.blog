@@ -25,6 +25,7 @@ const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const AccountPage = lazy(() => import('./pages/AccountPage'))
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
 
 function PageLoader() {
   return (
@@ -60,6 +61,7 @@ export default function App() {
           <Route path="/friends" element={<FriendsPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route
             path="/account"
             element={
