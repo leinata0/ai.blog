@@ -69,3 +69,24 @@ def test_image_generation_stale_cleanup_creates_missing_job_table():
         assert "admin_image_generation_jobs" in inspect(engine).get_table_names()
     finally:
         db.close()
+
+
+def test_users_bio_column_backfilled_on_existing_table():
+    from sqlalchemy import text
+    from app.schema_compat import ensure_schema_compat
+
+    engine = create_engine("sqlite://")
+    # Simulate a pre-bio users table (first-phase schema).
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, "
+            "password_hash VARCHAR(255) NOT NULL, nickname VARCHAR(50) NOT NULL DEFAULT '', "
+            "avatar_url VARCHAR(500) NOT NULL DEFAULT '', status VARCHAR(20) NOT NULL DEFAULT 'active', "
+            "email_verified BOOLEAN NOT NULL DEFAULT 0, created_at DATETIME, updated_at DATETIME, "
+            "last_login_at DATETIME)"
+        ))
+    ensure_schema_compat(engine)
+    ensure_schema_compat(engine)  # idempotent
+    cols = {c["name"] for c in inspect(engine).get_columns("users")}
+    assert "bio" in cols
+

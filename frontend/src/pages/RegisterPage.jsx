@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react'
 
 import { useUser } from '../contexts/UserContext'
+import TurnstileWidget, { TURNSTILE_ENABLED } from '../components/TurnstileWidget'
 
 const inputStyle = {
   backgroundColor: 'var(--bg-canvas)',
@@ -19,6 +20,9 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState('')
+
+  const handleVerify = useCallback((token) => setTurnstileToken(token), [])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -27,9 +31,13 @@ export default function RegisterPage() {
       setError('密码至少 8 位')
       return
     }
+    if (TURNSTILE_ENABLED && !turnstileToken) {
+      setError('请先完成人机验证')
+      return
+    }
     setLoading(true)
     try {
-      await register({ email, password, nickname: nickname || undefined })
+      await register({ email, password, nickname: nickname || undefined, turnstile_token: turnstileToken })
       navigate('/account')
     } catch (submitError) {
       setError(String(submitError?.message || '注册失败，请稍后重试。'))
@@ -125,6 +133,8 @@ export default function RegisterPage() {
             </button>
           </div>
         </div>
+
+        <TurnstileWidget onVerify={handleVerify} />
 
         <button
           type="submit"

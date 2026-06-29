@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { MessageCircle, Send, BadgeCheck } from 'lucide-react'
 import { fetchComments, postComment } from '../api/posts'
@@ -63,6 +64,17 @@ export default function CommentSection({ slug }) {
         <MessageCircle size={20} />
         评论 ({comments.length})
       </h3>
+
+      {user && user.email_verified === false ? (
+        <div
+          className="mb-6 rounded-lg px-4 py-3 text-sm"
+          style={{ backgroundColor: 'var(--danger-soft)', color: 'var(--text-secondary)', border: '1px solid var(--danger-border)' }}
+        >
+          请先在
+          <Link to="/account" className="mx-1 font-medium" style={{ color: 'var(--accent)' }}>个人中心</Link>
+          验证邮箱后再评论。
+        </div>
+      ) : null}
 
       {/* 评论表单 */}
       <form onSubmit={handleSubmit} className="mb-8 space-y-4">
@@ -132,7 +144,10 @@ export default function CommentSection({ slug }) {
               className="comment-card"
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="inline-flex items-center gap-1 text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                  {c.avatar_url ? (
+                    <img src={c.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover" />
+                  ) : null}
                   {c.nickname}
                   {c.is_registered ? <BadgeCheck size={13} aria-label="注册用户" /> : null}
                 </span>

@@ -245,6 +245,7 @@ USER_COLUMNS = {
     "password_hash": "VARCHAR(255) NOT NULL",
     "nickname": "VARCHAR(50) NOT NULL DEFAULT ''",
     "avatar_url": "VARCHAR(500) NOT NULL DEFAULT ''",
+    "bio": "VARCHAR(300) NOT NULL DEFAULT ''",
     "status": "VARCHAR(20) NOT NULL DEFAULT 'active'",
     "email_verified": "BOOLEAN NOT NULL DEFAULT FALSE",
     "created_at": "DATETIME",
@@ -652,6 +653,7 @@ def ensure_schema_compat(engine) -> None:
         ("ai_channel_configs", AI_CHANNEL_CONFIG_COLUMNS),
         ("email_subscriptions", EMAIL_SUBSCRIPTION_COLUMNS),
         ("web_push_subscriptions", WEB_PUSH_SUBSCRIPTION_COLUMNS),
+        ("users", USER_COLUMNS),
     ):
         if table_name not in table_names:
             continue

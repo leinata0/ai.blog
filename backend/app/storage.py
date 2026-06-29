@@ -20,6 +20,58 @@ from app.env import clean_env
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"}
 
+# Shared image-upload validation (used by admin uploads and visitor avatars).
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+ALLOWED_UPLOAD_TYPES = {
+    "image/jpeg": (".jpg", ".jpeg"),
+    "image/png": (".png",),
+    "image/gif": (".gif",),
+    "image/webp": (".webp",),
+}
+
+
+class ImageValidationError(ValueError):
+    """Raised when an uploaded file fails image validation."""
+
+
+def detect_image_content_type(contents: bytes) -> str | None:
+    if contents.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if contents.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if contents.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(contents) >= 12 and contents[:4] == b"RIFF" and contents[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def validate_image_upload(
+    filename: str,
+    declared_content_type: str,
+    contents: bytes,
+    *,
+    max_size: int = MAX_UPLOAD_SIZE,
+) -> str:
+    """Validate filename/declared type/magic-bytes/size; return the detected type.
+
+    Raises ImageValidationError with a human-readable message on any failure.
+    """
+    if not filename:
+        raise ImageValidationError("Missing filename")
+    declared = (declared_content_type or "").split(";", 1)[0].strip().lower()
+    if declared not in ALLOWED_UPLOAD_TYPES:
+        raise ImageValidationError("Only image uploads are allowed")
+    if len(contents) > max_size:
+        mb = max_size // (1024 * 1024)
+        raise ImageValidationError(f"File size must be {mb}MB or less")
+    detected = detect_image_content_type(contents)
+    if detected not in ALLOWED_UPLOAD_TYPES:
+        raise ImageValidationError("Unsupported image file")
+    if not filename.lower().endswith(ALLOWED_UPLOAD_TYPES[detected]):
+        raise ImageValidationError("Image extension does not match file content")
+    return detected
+
 
 @dataclass
 class StoredImage:

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react'
 
 import { useUser } from '../contexts/UserContext'
+import TurnstileWidget, { TURNSTILE_ENABLED } from '../components/TurnstileWidget'
 
 const inputStyle = {
   backgroundColor: 'var(--bg-canvas)',
@@ -18,13 +19,20 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState('')
+
+  const handleVerify = useCallback((token) => setTurnstileToken(token), [])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
+    if (TURNSTILE_ENABLED && !turnstileToken) {
+      setError('请先完成人机验证')
+      return
+    }
     setLoading(true)
     try {
-      await login({ email, password })
+      await login({ email, password, turnstile_token: turnstileToken })
       navigate('/account')
     } catch (submitError) {
       setError(String(submitError?.message || '登录失败，请稍后重试。'))
@@ -103,6 +111,8 @@ export default function LoginPage() {
             </button>
           </div>
         </div>
+
+        <TurnstileWidget onVerify={handleVerify} />
 
         <button
           type="submit"

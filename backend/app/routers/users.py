@@ -6,16 +6,22 @@ keeping them isolated from admin tokens (``aud="admin"``).
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import USER_TOKEN_AUDIENCE, create_access_token
+from app.client_ip import client_ip_from_request
 from app.db import get_db
-from app.models import FollowedTopic, ReadingHistory, User
+from app.email_verification import decode_verify_token, send_verification_email
+from app.models import Comment, FollowedTopic, Post, PostLike, ReadingHistory, SiteSettings, User
 from app.notifications import is_valid_email
 from app.passwords import hash_password, verify_password
 from app.rate_limit import limiter
+from app.services.user_account import purge_user
+from app.site_config import resolve_public_site_url
+from app.storage import ImageValidationError, save_upload, validate_image_upload
+from app.turnstile import turnstile_ready, verify_turnstile
 from app.schemas import (
     FollowTopicInput,
     FollowTopicsMergeInput,
@@ -29,12 +35,14 @@ from app.schemas import (
     UserOut,
     UserProfileUpdate,
     UserRegisterRequest,
+    VerifyEmailRequest,
 )
 from app.user_auth import get_current_user
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 MAX_READING_HISTORY = 100  # mirror frontend utils/topicRetention.js cap
+MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB
 
 
 def _default_nickname(email: str) -> str:
@@ -45,11 +53,25 @@ def _issue_token(user: User) -> str:
     return create_access_token(data={"sub": str(user.id)}, audience=USER_TOKEN_AUDIENCE)
 
 
+def _site_url(db: Session) -> str:
+    settings = db.execute(select(SiteSettings)).scalar_one_or_none()
+    return resolve_public_site_url(db, settings=settings)
+
+
+def _check_turnstile(request: Request, token: str | None) -> None:
+    """Verify the Turnstile token when protection is configured; no-op otherwise."""
+    if not turnstile_ready():
+        return
+    if not verify_turnstile(token, client_ip_from_request(request)):
+        raise HTTPException(status_code=400, detail="人机验证未通过，请重试")
+
+
 # ── Authentication ────────────────────────────────
 
 @router.post("/register", response_model=UserAuthResponse)
 @limiter.limit("5/minute")
 def register(request: Request, body: UserRegisterRequest, db: Session = Depends(get_db)):
+    _check_turnstile(request, body.turnstile_token)
     email = (body.email or "").strip().lower()
     if not is_valid_email(email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
@@ -67,12 +89,18 @@ def register(request: Request, body: UserRegisterRequest, db: Session = Depends(
     db.add(user)
     db.commit()
     db.refresh(user)
+    # Best-effort verification email (no-op when email delivery isn't configured).
+    try:
+        send_verification_email(user, _site_url(db))
+    except Exception:
+        pass
     return {"access_token": _issue_token(user), "token_type": "bearer", "user": user}
 
 
 @router.post("/login", response_model=UserAuthResponse)
 @limiter.limit("5/minute")
 def login(request: Request, body: UserLoginRequest, db: Session = Depends(get_db)):
+    _check_turnstile(request, body.turnstile_token)
     email = (body.email or "").strip().lower()
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if user is None or not verify_password(body.password, user.password_hash):
@@ -105,6 +133,8 @@ def update_me(
             current_user.nickname = nickname
     if body.avatar_url is not None:
         current_user.avatar_url = body.avatar_url.strip()
+    if body.bio is not None:
+        current_user.bio = body.bio.strip()
     current_user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(current_user)
@@ -123,6 +153,39 @@ def change_password(
     current_user.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {"message": "密码已更新"}
+
+
+# ── Email verification ────────────────────────────
+
+@router.post("/verify-email", response_model=UserOut)
+def verify_email(body: VerifyEmailRequest, db: Session = Depends(get_db)):
+    user_id = decode_verify_token(body.token)
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="验证链接无效或已过期")
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if not user.email_verified:
+        user.email_verified = True
+        user.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+@router.post("/resend-verification")
+@limiter.limit("3/minute")
+def resend_verification(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.email_verified:
+        return {"message": "邮箱已验证"}
+    sent = send_verification_email(current_user, _site_url(db))
+    if not sent:
+        raise HTTPException(status_code=503, detail="邮件服务未配置，暂时无法发送验证邮件")
+    return {"message": "验证邮件已发送，请查收"}
 
 
 # ── Followed topics (cloud sync) ──────────────────
@@ -292,3 +355,88 @@ def merge_history(
     _trim_history(db, current_user.id)
     db.commit()
     return _list_history(db, current_user.id)
+
+
+# ── Avatar upload ─────────────────────────────────
+
+@router.post("/me/avatar", response_model=UserOut)
+@limiter.limit("10/minute")
+def upload_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    contents = file.file.read(MAX_AVATAR_SIZE + 1)
+    try:
+        detected = validate_image_upload(
+            file.filename, file.content_type or "", contents, max_size=MAX_AVATAR_SIZE
+        )
+    except ImageValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    stored = save_upload(file.filename, contents, detected)
+    current_user.avatar_url = stored.url
+    current_user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+# ── My comments / likes ───────────────────────────
+
+@router.get("/me/comments")
+def list_my_comments(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = db.execute(
+        select(Comment, Post.slug, Post.title)
+        .join(Post, Comment.post_id == Post.id)
+        .where(Comment.user_id == current_user.id)
+        .order_by(Comment.created_at.desc())
+        .limit(100)
+    ).all()
+    return [
+        {
+            "id": comment.id,
+            "content": comment.content,
+            "post_slug": slug,
+            "post_title": title,
+            "created_at": comment.created_at.isoformat() if comment.created_at else None,
+        }
+        for comment, slug, title in rows
+    ]
+
+
+@router.get("/me/likes")
+def list_my_likes(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = db.execute(
+        select(PostLike, Post.slug, Post.title)
+        .join(Post, PostLike.post_id == Post.id)
+        .where(PostLike.user_id == current_user.id)
+        .order_by(PostLike.created_at.desc())
+        .limit(100)
+    ).all()
+    return [
+        {
+            "post_slug": slug,
+            "post_title": title,
+            "created_at": like.created_at.isoformat() if like.created_at else None,
+        }
+        for like, slug, title in rows
+    ]
+
+
+# ── Delete account ────────────────────────────────
+
+@router.delete("/me")
+def delete_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    purge_user(db, current_user)
+    db.commit()
+    return {"detail": "deleted"}

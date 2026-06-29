@@ -1102,6 +1102,8 @@ def like_post(
 
     # Logged-in users: account-based toggle (like / unlike), deduped on (post_id, user_id).
     if current_user is not None:
+        if not current_user.email_verified:
+            raise HTTPException(status_code=403, detail="请先验证邮箱后再点赞")
         existing = db.query(PostLike).filter(
             PostLike.post_id == post.id,
             PostLike.user_id == current_user.id,
@@ -1198,10 +1200,11 @@ def list_comments(slug: str, db: Session = Depends(get_db)):
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
     comments = db.execute(
-        select(Comment)
+        select(Comment, User.avatar_url)
+        .outerjoin(User, Comment.user_id == User.id)
         .where(Comment.post_id == post.id, Comment.is_approved == True)
         .order_by(Comment.created_at.desc())
-    ).scalars().all()
+    ).all()
     return [
         {
             "id": c.id,
@@ -1209,9 +1212,10 @@ def list_comments(slug: str, db: Session = Depends(get_db)):
             "content": c.content,
             "user_id": c.user_id,
             "is_registered": c.user_id is not None,
+            "avatar_url": avatar_url or "",
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }
-        for c in comments
+        for c, avatar_url in comments
     ]
 
 
@@ -1232,6 +1236,8 @@ def create_comment(
     # Logged-in users comment under their account nickname (body.nickname ignored to
     # prevent impersonation); anonymous users must supply a nickname.
     if current_user is not None:
+        if not current_user.email_verified:
+            raise HTTPException(status_code=403, detail="请先验证邮箱后再评论")
         nickname = (current_user.nickname or "").strip() or current_user.email.split("@", 1)[0]
         user_id = current_user.id
     else:

@@ -1234,11 +1234,17 @@ class UserRegisterRequest(BaseModel):
     email: str = Field(..., max_length=255)
     password: str = Field(..., min_length=8, max_length=72)  # 72 = bcrypt byte limit
     nickname: str | None = Field(default=None, max_length=50)
+    turnstile_token: str | None = None
 
 
 class UserLoginRequest(BaseModel):
     email: str = Field(..., max_length=255)
     password: str = Field(..., min_length=1, max_length=72)
+    turnstile_token: str | None = None
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(..., min_length=1)
 
 
 class UserOut(BaseModel):
@@ -1247,6 +1253,7 @@ class UserOut(BaseModel):
     email: str
     nickname: str
     avatar_url: str
+    bio: str = ""
     email_verified: bool
     created_at: datetime
 
@@ -1260,6 +1267,7 @@ class UserAuthResponse(BaseModel):
 class UserProfileUpdate(BaseModel):
     nickname: str | None = Field(default=None, max_length=50)
     avatar_url: str | None = Field(default=None, max_length=500)
+    bio: str | None = Field(default=None, max_length=300)
 
 
 class PasswordChangeRequest(BaseModel):

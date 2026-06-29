@@ -18,6 +18,7 @@ DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 120
 DEFAULT_TOKEN_ISSUER = "ai-dev-blog"
 DEFAULT_TOKEN_AUDIENCE = "admin"
 USER_TOKEN_AUDIENCE = "user"
+EMAIL_VERIFY_AUDIENCE = "email_verify"
 
 
 def _resolve_auth_env_value(name: str, *, dev_name: str, dev_default: str) -> str:

@@ -6,7 +6,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.db import SessionLocal  # noqa: F401  (kept for backwards-compat imports)
 from app.env import clean_env
 from app.models import (
     EmailSubscription,
@@ -251,10 +251,25 @@ def _build_email_text(post: Post, site_url: str) -> str:
 
 
 def _send_email_notification(email: str, post: Post, site_url: str) -> None:
+    send_email(
+        email,
+        _build_email_subject(post),
+        _build_email_html(post, site_url),
+        _build_email_text(post, site_url),
+    )
+
+
+def send_email(to: str, subject: str, html: str, text: str) -> bool:
+    """Send a single transactional email via Resend.
+
+    Returns False (without raising) when delivery isn't configured, so callers
+    can treat email as best-effort. Network/API failures still raise, matching
+    the original notification behavior.
+    """
     api_key = clean_env("RESEND_API_KEY")
     sender = clean_env("EMAIL_FROM")
     if not api_key or not sender:
-        return
+        return False
     response = httpx.post(
         "https://api.resend.com/emails",
         headers={
@@ -263,14 +278,15 @@ def _send_email_notification(email: str, post: Post, site_url: str) -> None:
         },
         json={
             "from": sender,
-            "to": [email],
-            "subject": _build_email_subject(post),
-            "html": _build_email_html(post, site_url),
-            "text": _build_email_text(post, site_url),
+            "to": [to],
+            "subject": subject,
+            "html": html,
+            "text": text,
         },
         timeout=30,
     )
     response.raise_for_status()
+    return True
 
 
 def _send_wecom_notification(url: str, post: Post, site_url: str) -> None:
@@ -327,7 +343,11 @@ def _send_web_push_notification(subscription: WebPushSubscription, post: Post, s
 
 
 def dispatch_post_notifications_for_post(post_id: int) -> None:
-    db = SessionLocal()
+    # Reference SessionLocal via the db module (not a bound import) so test
+    # fixtures that monkeypatch app.db.SessionLocal reach this background path.
+    import app.db as db_mod
+
+    db = db_mod.SessionLocal()
     try:
         _dispatch_post_notifications(db, post_id)
     finally:

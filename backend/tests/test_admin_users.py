@@ -66,10 +66,15 @@ def test_unban_restores_login(client):
     ).status_code == 200
 
 
-def test_delete_user_anonymizes_comments(client):
+def test_delete_user_anonymizes_comments(client, db_session):
     reg = _register_user(client)
     user_token = reg["access_token"]
     user_id = reg["user"]["id"]
+    # verify email so the account-bound comment isn't soft-blocked
+    from app.models import User
+    user = db_session.get(User, user_id)
+    user.email_verified = True
+    db_session.commit()
     # comment on a seeded post
     slug = client.get("/api/posts").json()["items"][0]["slug"]
     client.post(
