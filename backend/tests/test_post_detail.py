@@ -70,3 +70,34 @@ def test_get_post_detail_includes_quality_payload(client, seeded_db):
 def test_get_post_detail_not_found(client, seeded_db):
     resp = client.get("/api/posts/not-exist")
     assert resp.status_code == 404
+
+
+def test_unpublished_draft_is_hidden_from_public_slug_endpoints(client, db_session):
+    """Drafts must not be readable via public slug routes (detail/like/related/comments)."""
+    draft = Post(
+        title="Secret draft",
+        slug="secret-draft-p0",
+        summary="should not leak",
+        content_md="# Draft body that must stay private",
+        cover_image="",
+        content_type="post",
+        topic_key="draft-topic",
+        is_published=False,
+        is_pinned=False,
+    )
+    db_session.add(draft)
+    db_session.commit()
+
+    slug = "secret-draft-p0"
+    assert client.get(f"/api/posts/{slug}").status_code == 404
+    assert client.get(f"/api/posts/{slug}/like-state").status_code == 404
+    assert client.post(f"/api/posts/{slug}/like").status_code == 404
+    assert client.get(f"/api/posts/{slug}/related").status_code == 404
+    assert client.get(f"/api/posts/{slug}/comments").status_code == 404
+    assert client.post(
+        f"/api/posts/{slug}/comments",
+        json={"nickname": "guest", "content": "should fail"},
+    ).status_code == 404
+
+    # Confirm the draft still exists in the DB (404 is intentional, not missing row).
+    assert db_session.execute(select(Post).where(Post.slug == slug)).scalar_one_or_none() is not None

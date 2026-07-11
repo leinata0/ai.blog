@@ -186,6 +186,30 @@ class AdminImageGenerationJob(Base):
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class AdminTextGenerationJob(Base):
+    """Async admin text-generation jobs (pipeline / long LLM calls).
+
+    Mirrors image jobs so HTTP workers return immediately while the LLM call
+    runs on a background thread pool. Clients poll GET /text-generation-jobs/{id}.
+    """
+    __tablename__ = "admin_text_generation_jobs"
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    request_json = Column(Text, nullable=False, default="{}")
+    result_content = Column(Text, nullable=False, default="")
+    provider = Column(String(80), nullable=False, default="")
+    model = Column(String(240), nullable=False, default="")
+    purpose = Column(String(80), nullable=False, default="text_generation")
+    error_code = Column(String(80), nullable=False, default="")
+    error = Column(Text, nullable=False, default="")
+    attempt_count = Column(Integer, nullable=False, default=0)
+    locked_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class PostLike(Base):
     __tablename__ = "post_likes"
     id = Column(Integer, primary_key=True, index=True)

@@ -635,6 +635,8 @@ it('opens settings and manages AI provider sources and model instances', async (
 
   await screen.findByText('OpenAI released a new model')
   await userEvent.click(screen.getByRole('button', { name: /站点设置/ }))
+  expect(await screen.findByRole('tab', { name: /AI Provider/ })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('tab', { name: /AI Provider/ }))
 
   expect(await screen.findByText('AI Provider 配置')).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: /AI API 渠道配置/ })).not.toBeInTheDocument()

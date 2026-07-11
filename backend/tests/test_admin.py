@@ -29,6 +29,22 @@ def _resolve_image_job(client, token, payload):
     return latest
 
 
+def _resolve_text_job(client, token, payload):
+    job_id = payload.get("job_id") or payload.get("id")
+    terminal = {"succeeded", "failed", "canceled"}
+    if not job_id or payload.get("status") in terminal:
+        return payload
+    latest = payload
+    for _ in range(40):
+        resp = client.get(f"/api/admin/text-generation-jobs/{job_id}", headers=_auth(token))
+        assert resp.status_code == 200
+        latest = resp.json()
+        if latest.get("status") in terminal:
+            return latest
+        time.sleep(0.05)
+    return latest
+
+
 def test_login_success(client):
     resp = client.post("/api/admin/login", json={"username": "admin", "password": "admin123"})
     assert resp.status_code == 200
@@ -1345,8 +1361,13 @@ def test_ai_provider_runtime_requires_model_instances(client, db_session, monkey
         headers=_auth(token),
     )
     assert text_resp.status_code == 200
-    assert text_resp.json()["content"] == "primary-text"
-    assert text_resp.json()["purpose"] == "text_generation"
+    job_payload = text_resp.json()
+    assert job_payload["status"] in {"queued", "running", "succeeded"}
+    resolved = _resolve_text_job(client, token, job_payload)
+    assert resolved["status"] == "succeeded"
+    assert resolved["generated"] is True
+    assert resolved["content"] == "primary-text"
+    assert resolved["purpose"] == "text_generation"
     assert calls[-1]["model"] == "primary-text"
 
 
@@ -1395,13 +1416,12 @@ def test_admin_text_generation_failure_includes_attempts(client, monkeypatch):
         json={"messages": [{"role": "user", "content": "hello"}]},
         headers=_auth(token),
     )
-    assert text_resp.status_code == 400
-    detail = text_resp.json()["detail"]
-    assert detail["error_code"] == "all_models_failed"
-    assert detail["message"] == "所有 AI 模型实例均调用失败，请检查服务源、模型和 API Key。"
-    assert detail["attempts"][0]["model"] == "broken-text"
-    assert detail["attempts"][0]["message"] == "生文字请求失败，HTTP 401。"
-    assert detail["attempts"][0]["error_code"] == "generation_failed"
+    assert text_resp.status_code == 200
+    resolved = _resolve_text_job(client, token, text_resp.json())
+    assert resolved["status"] == "failed"
+    assert resolved["generated"] is False
+    assert resolved["error_code"] == "all_models_failed"
+    assert "模型实例" in resolved["error"]
 
 
 def test_admin_generate_site_hero_with_grok(client, monkeypatch):

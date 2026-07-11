@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react'
 import {
   fetchMe,
   loginUser,
@@ -104,8 +104,13 @@ export function UserProvider({ children }) {
     setUser(null)
   }, [])
 
+  const value = useMemo(
+    () => ({ user, loading, login, register, logout, refresh, setUser }),
+    [user, loading, login, register, logout, refresh],
+  )
+
   return (
-    <UserContext.Provider value={{ user, loading, login, register, logout, refresh, setUser }}>
+    <UserContext.Provider value={value}>
       {children}
     </UserContext.Provider>
   )

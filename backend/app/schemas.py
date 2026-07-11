@@ -654,6 +654,23 @@ class AdminImageGenerationJobOut(BaseModel):
     finished_at: datetime | None = None
 
 
+class AdminTextGenerationJobOut(BaseModel):
+    id: int
+    job_id: int
+    status: str
+    generated: bool = False
+    content: str = ""
+    provider: str = ""
+    model: str = ""
+    purpose: str = "text_generation"
+    error: str = ""
+    error_code: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
 class AiProviderSourceUpdateRequest(BaseModel):
     name: str | None = None
     provider: str | None = None

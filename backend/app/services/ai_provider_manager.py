@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.encryption import decrypt_value, encrypt_value
 from app.env import clean_env
@@ -275,7 +275,14 @@ def delete_instance(db: Session, instance_id: int) -> None:
 def update_order(db: Session, purpose: str, items: list[dict[str, Any]]) -> list[AiModelInstance]:
     normalized = ai_channels.normalize_purpose(purpose)
     ids = [int(item.get("id")) for item in items if item.get("id")]
-    instances = db.query(AiModelInstance).filter(AiModelInstance.id.in_(ids), AiModelInstance.purpose == normalized).all() if ids else []
+    instances = (
+        db.query(AiModelInstance)
+        .options(selectinload(AiModelInstance.source))
+        .filter(AiModelInstance.id.in_(ids), AiModelInstance.purpose == normalized)
+        .all()
+        if ids
+        else []
+    )
     by_id = {item.id: item for item in instances}
     default_id = None
     for index, item in enumerate(items):
@@ -289,7 +296,13 @@ def update_order(db: Session, purpose: str, items: list[dict[str, Any]]) -> list
         for inst in db.query(AiModelInstance).filter(AiModelInstance.purpose == normalized).all():
             inst.is_default = inst.id == default_id
     db.commit()
-    return db.query(AiModelInstance).options().filter(AiModelInstance.purpose == normalized).order_by(AiModelInstance.priority.asc(), AiModelInstance.id.asc()).all()
+    return (
+        db.query(AiModelInstance)
+        .options(selectinload(AiModelInstance.source))
+        .filter(AiModelInstance.purpose == normalized)
+        .order_by(AiModelInstance.priority.asc(), AiModelInstance.id.asc())
+        .all()
+    )
 
 
 def _next_priority(db: Session, purpose: str) -> int:
@@ -330,7 +343,17 @@ def resolve_instance(instance: AiModelInstance) -> ResolvedModelProvider:
 
 def resolve_runtime_plan(db: Session, purpose: str) -> list[ResolvedModelProvider]:
     normalized = ai_channels.normalize_purpose(purpose)
-    instances = db.query(AiModelInstance).filter(AiModelInstance.purpose == normalized, AiModelInstance.enabled == True).order_by(AiModelInstance.is_default.desc(), AiModelInstance.priority.asc(), AiModelInstance.id.asc()).all()
+    instances = (
+        db.query(AiModelInstance)
+        .options(selectinload(AiModelInstance.source))
+        .filter(AiModelInstance.purpose == normalized, AiModelInstance.enabled == True)
+        .order_by(
+            AiModelInstance.is_default.desc(),
+            AiModelInstance.priority.asc(),
+            AiModelInstance.id.asc(),
+        )
+        .all()
+    )
     plan = [resolve_instance(instance) for instance in instances if instance.source and instance.source.enabled]
     return [item for item in plan if item.is_configured]
 
@@ -428,7 +451,12 @@ def run_generation(
 
 
 def test_instance(db: Session, instance_id: int) -> dict[str, Any]:
-    instance = db.get(AiModelInstance, instance_id)
+    instance = (
+        db.query(AiModelInstance)
+        .options(selectinload(AiModelInstance.source))
+        .filter(AiModelInstance.id == instance_id)
+        .first()
+    )
     if instance is None:
         raise ai_channels.AiChannelError("not_found", "AI 模型实例不存在。")
     item = resolve_instance(instance)

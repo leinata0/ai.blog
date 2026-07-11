@@ -951,6 +951,7 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
             selectinload(Post.quality_review),
         )
         .where(Post.slug == slug)
+        .where(Post.is_published == True)
     )
     post = db.execute(stmt).scalar_one_or_none()
     if post is None:
@@ -1075,7 +1076,10 @@ def get_like_state(
     here — the client falls back to its localStorage marker.
     """
     post = db.execute(
-        select(Post).options(load_only(Post.id, Post.like_count)).where(Post.slug == slug)
+        select(Post)
+        .options(load_only(Post.id, Post.like_count))
+        .where(Post.slug == slug)
+        .where(Post.is_published == True)
     ).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
@@ -1096,7 +1100,11 @@ def like_post(
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_optional_user),
 ):
-    post = db.execute(select(Post).where(Post.slug == slug)).scalar_one_or_none()
+    post = db.execute(
+        select(Post)
+        .where(Post.slug == slug)
+        .where(Post.is_published == True)
+    ).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
 
@@ -1184,6 +1192,7 @@ def get_related_posts(slug: str, db: Session = Depends(get_db)):
         select(Post)
         .options(load_only(Post.id, Post.slug), selectinload(Post.tags).load_only(Tag.id, Tag.name, Tag.slug))
         .where(Post.slug == slug)
+        .where(Post.is_published == True)
     ).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
@@ -1211,7 +1220,11 @@ def get_related_posts(slug: str, db: Session = Depends(get_db)):
 
 @router.get("/posts/{slug}/comments")
 def list_comments(slug: str, db: Session = Depends(get_db)):
-    post = db.execute(select(Post).where(Post.slug == slug)).scalar_one_or_none()
+    post = db.execute(
+        select(Post)
+        .where(Post.slug == slug)
+        .where(Post.is_published == True)
+    ).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
     comments = db.execute(
@@ -1242,7 +1255,11 @@ def create_comment(
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_optional_user),
 ):
-    post = db.execute(select(Post).where(Post.slug == slug)).scalar_one_or_none()
+    post = db.execute(
+        select(Post)
+        .where(Post.slug == slug)
+        .where(Post.is_published == True)
+    ).scalar_one_or_none()
     if post is None:
         raise HTTPException(status_code=404, detail="文章不存在")
     if not body.content.strip():

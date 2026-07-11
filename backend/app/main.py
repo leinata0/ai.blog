@@ -295,7 +295,8 @@ def _is_proxy_url_allowed(url: str) -> bool:
 
 
 @app.get("/proxy-image")
-async def proxy_image(url: str = Query(..., min_length=8)):
+@limiter.limit("30/minute")
+async def proxy_image(request: Request, url: str = Query(..., min_length=8)):
     current_url = url
     for redirect_count in range(MAX_PROXY_REDIRECTS + 1):
         if not await anyio.to_thread.run_sync(_is_proxy_url_allowed, current_url):

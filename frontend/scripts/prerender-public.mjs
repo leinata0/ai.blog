@@ -9,6 +9,12 @@ const __dirname = dirname(__filename)
 const distDir = resolve(__dirname, '..', 'dist')
 const templatePath = join(distDir, 'index.html')
 
+// Cap concurrent detail fetches so large archives do not stampede the API.
+const PRERENDER_FETCH_CONCURRENCY = Math.max(
+  1,
+  Number.parseInt(process.env.PRERENDER_FETCH_CONCURRENCY || '8', 10) || 8,
+)
+
 const SITE_TITLE = 'AI 资讯观察'
 const HOME_TITLE = '持续更新 AI 最新动态与关键变化的中文博客'
 const HOME_DESCRIPTION = '聚焦值得持续追踪的消息、产品更新与产业线索，用更清晰的结构整理每一天和每一周的重要变化。'
@@ -94,6 +100,32 @@ function bootstrapScript(payload) {
   if (!payload) return ''
   const serialized = JSON.stringify(payload).replace(/</g, '\\u003c')
   return `<script>window.__BLOG_BOOTSTRAP__=${serialized};</script>`
+}
+
+/**
+ * Map over items with a fixed concurrency cap (order-preserving).
+ * Used for prerender detail fetches so large archives do not open
+ * hundreds of simultaneous connections against the API.
+ */
+export async function mapWithConcurrency(items, concurrency, mapper) {
+  const list = Array.isArray(items) ? items : []
+  const limit = Math.max(1, Number(concurrency) || 1)
+  if (list.length === 0) return []
+
+  const results = new Array(list.length)
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < list.length) {
+      const current = nextIndex
+      nextIndex += 1
+      results[current] = await mapper(list[current], current)
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, list.length) }, () => worker())
+  await Promise.all(workers)
+  return results
 }
 
 async function fetchJson(apiBase, path) {
@@ -518,7 +550,7 @@ function renderPostDetailPage(template, post, siteUrl) {
 export async function main() {
   const template = await readFile(templatePath, 'utf8')
   const apiBase = normalizeUrl(process.env.PRERENDER_API_BASE || process.env.VITE_API_BASE || '')
-  const siteUrl = normalizeUrl(process.env.PUBLIC_SITE_URL || 'https://563118077.xyz')
+  const siteUrl = normalizeUrl(process.env.PUBLIC_SITE_URL || 'https://www.563118077.xyz')
 
   if (!apiBase) {
     console.warn('[prerender] skipped because PRERENDER_API_BASE or VITE_API_BASE is not configured.')
@@ -526,6 +558,7 @@ export async function main() {
   }
 
   console.log(`[prerender] using api base ${apiBase}`)
+  console.log(`[prerender] detail fetch concurrency ${PRERENDER_FETCH_CONCURRENCY}`)
 
   const homeBootstrap = await loadHomeBootstrap(apiBase)
   await writeRouteHtml('/', renderHomePage(template, homeBootstrap, siteUrl))
@@ -569,20 +602,14 @@ export async function main() {
   const seriesItems = Array.isArray(seriesList) ? seriesList : []
 
   const [topicDetails, seriesDetails, postDetails] = await Promise.all([
-    Promise.all(
-      topicItems.map((topic) =>
-        fetchJson(apiBase, `/api/topics/${encodeURIComponent(topic.topic_key)}`).catch(() => null),
-      ),
+    mapWithConcurrency(topicItems, PRERENDER_FETCH_CONCURRENCY, (topic) =>
+      fetchJson(apiBase, `/api/topics/${encodeURIComponent(topic.topic_key)}`).catch(() => null),
     ),
-    Promise.all(
-      seriesItems.map((series) =>
-        fetchJson(apiBase, `/api/series/${encodeURIComponent(series.slug)}`).catch(() => null),
-      ),
+    mapWithConcurrency(seriesItems, PRERENDER_FETCH_CONCURRENCY, (series) =>
+      fetchJson(apiBase, `/api/series/${encodeURIComponent(series.slug)}`).catch(() => null),
     ),
-    Promise.all(
-      archivePosts.map((post) =>
-        fetchJson(apiBase, `/api/posts/${encodeURIComponent(post.slug)}`).catch(() => null),
-      ),
+    mapWithConcurrency(archivePosts, PRERENDER_FETCH_CONCURRENCY, (post) =>
+      fetchJson(apiBase, `/api/posts/${encodeURIComponent(post.slug)}`).catch(() => null),
     ),
   ])
 

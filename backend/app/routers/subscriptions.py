@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from app.notifications import (
     subscription_status_payload,
     web_push_delivery_ready,
 )
+from app.rate_limit import limiter
 from app.schemas import (
     EmailSubscriptionRequest,
     EmailSubscriptionResponse,
@@ -36,7 +37,9 @@ def get_subscription_status():
 
 
 @router.post("/email", response_model=EmailSubscriptionResponse)
+@limiter.limit("5/minute")
 def subscribe_email(
+    request: Request,
     body: EmailSubscriptionRequest,
     db: Session = Depends(get_db),
 ):
@@ -82,7 +85,9 @@ def subscribe_email(
 
 
 @router.post("/email/unsubscribe", response_model=EmailSubscriptionResponse)
+@limiter.limit("10/minute")
 def unsubscribe_email(
+    request: Request,
     body: EmailUnsubscribeRequest,
     db: Session = Depends(get_db),
 ):
@@ -116,7 +121,9 @@ def get_web_push_public_key():
 
 
 @router.post("/web-push", response_model=WebPushSubscriptionResponse)
+@limiter.limit("5/minute")
 def subscribe_web_push(
+    request: Request,
     body: WebPushSubscriptionInput,
     db: Session = Depends(get_db),
 ):
@@ -171,7 +178,9 @@ def subscribe_web_push(
 
 
 @router.post("/web-push/unsubscribe", response_model=WebPushSubscriptionResponse)
+@limiter.limit("10/minute")
 def unsubscribe_web_push(
+    request: Request,
     body: WebPushEndpointRequest,
     db: Session = Depends(get_db),
 ):

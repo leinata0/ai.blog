@@ -44,6 +44,7 @@ from app.models import (
 from app.notifications import dispatch_post_notifications_for_post, subscription_health_payload
 from app.schemas import (
     AdminImageGenerationJobOut,
+    AdminTextGenerationJobOut,
     AiChannelModelsResponse,
     AiChannelTestResponse,
     AiModelInstanceOut,
@@ -53,7 +54,6 @@ from app.schemas import (
     AiProviderSourceUpdateRequest,
     AiRuntimePlanOut,
     AiTextGenerateRequest,
-    AiTextGenerateResponse,
     CoverGenerationStatusOut,
     CoverGenerateRequest,
     ContentHealthOut,
@@ -99,7 +99,7 @@ from app.storage import (
     validate_image_upload,
 )
 from app.services.user_account import purge_user
-from app.services import ai_channels, ai_provider_manager, image_generation_jobs
+from app.services import ai_channels, ai_provider_manager, image_generation_jobs, text_generation_jobs
 from app.services import cover_art as cover_art_service
 from app.services.ai_channels import AiChannelError
 from app.services.admin_posts import AdminPostFilters, list_admin_posts
@@ -365,6 +365,7 @@ class _ImageGenerationExecutor:
 
 _IMAGE_GENERATION_EXECUTOR = _ImageGenerationExecutor()
 _IMAGE_GENERATION_JOB_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="admin-image-generation")
+_TEXT_GENERATION_JOB_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="admin-text-generation")
 
 
 def _enqueue_image_generation_job(
@@ -377,6 +378,12 @@ def _enqueue_image_generation_job(
     job = image_generation_jobs.create_job(db, job_type=job_type, target_id=target_id, body=body)
     _IMAGE_GENERATION_JOB_POOL.submit(image_generation_jobs.run_job, job.id, executor=_IMAGE_GENERATION_EXECUTOR)
     return image_generation_jobs.job_to_dict(job)
+
+
+def _enqueue_text_generation_job(db: Session, body) -> dict:
+    job = text_generation_jobs.create_job(db, body)
+    _TEXT_GENERATION_JOB_POOL.submit(text_generation_jobs.run_job, job.id)
+    return text_generation_jobs.job_to_dict(job)
 
 
 def _post_to_dict(post: Post) -> dict:
@@ -1897,30 +1904,29 @@ def get_ai_runtime_plan(
     return ai_provider_manager.runtime_plan_public(db)
 
 
-@router.post("/ai-text/generate", response_model=AiTextGenerateResponse)
+@router.post("/ai-text/generate", response_model=AdminTextGenerationJobOut)
 def generate_admin_text(
     body: AiTextGenerateRequest,
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
-    try:
-        messages = [message.model_dump() for message in body.messages]
-        content, selected = ai_channels.generate_text(
-            db,
-            messages,
-            max_tokens=body.max_tokens,
-            temperature=body.temperature,
-            json_mode=body.json_mode,
-            return_selected=True,
-        )
-        return {
-            "content": content,
-            "provider": selected.provider if selected else "",
-            "model": selected.model if selected else "",
-            "purpose": ai_channels.TEXT_PURPOSE,
-        }
-    except AiChannelError as exc:
-        _raise_ai_provider_http_error(exc)
+    # Long LLM calls (pipeline outlines/articles) must not hold the HTTP worker.
+    # Enqueue and return a job id; clients poll /text-generation-jobs/{id}.
+    return _enqueue_text_generation_job(db, body)
+
+
+@router.get("/text-generation-jobs/{job_id}", response_model=AdminTextGenerationJobOut)
+def get_text_generation_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    from app.models import AdminTextGenerationJob
+
+    job = db.get(AdminTextGenerationJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Text generation job not found")
+    return text_generation_jobs.job_to_dict(job)
 
 
 @router.post("/settings/generate-hero", response_model=AdminImageGenerationJobOut)
