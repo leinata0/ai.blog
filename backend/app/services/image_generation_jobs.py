@@ -117,6 +117,50 @@ def job_to_dict(job: AdminImageGenerationJob) -> dict[str, Any]:
     }
 
 
+def list_recent(
+    db: Session,
+    *,
+    limit: int = 30,
+    status: str | None = None,
+) -> list[AdminImageGenerationJob]:
+    """Recent image jobs for admin history dock (cross-device)."""
+    ensure_admin_image_generation_schema_compat(db.get_bind())
+    limit = max(1, min(int(limit or 30), 100))
+    stmt = select(AdminImageGenerationJob).order_by(AdminImageGenerationJob.created_at.desc()).limit(limit)
+    if status:
+        stmt = stmt.where(AdminImageGenerationJob.status == status)
+    return list(db.execute(stmt).scalars().all())
+
+
+def history_item(job: AdminImageGenerationJob) -> dict[str, Any]:
+    data = job_to_dict(job)
+    type_labels = {
+        JOB_POST_COVER: "文章封面",
+        JOB_SITE_HERO: "站点 Hero",
+        JOB_SERIES_COVER: "系列封面",
+        JOB_TOPIC_COVER: "主题封面",
+    }
+    label = type_labels.get(job.job_type or "", "图片生成")
+    if job.target_id:
+        label = f"{label} #{job.target_id}"
+    return {
+        "kind": "image_generation",
+        "job_id": data["job_id"],
+        "status": data["status"],
+        "label": label,
+        "detail": (job.job_type or "") + (f" · {job.error_code}" if job.error_code else ""),
+        "error": data.get("error") or "",
+        "result_url": data.get("result_image_url") or data.get("cover_image") or data.get("hero_image") or "",
+        "result_preview": "",
+        "target_type": job.job_type or "",
+        "target_id": job.target_id,
+        "created_at": data.get("created_at"),
+        "updated_at": data.get("updated_at"),
+        "finished_at": data.get("finished_at"),
+        "source": "server",
+    }
+
+
 def create_job(db: Session, *, job_type: str, target_id: int | None, body: Any) -> AdminImageGenerationJob:
     ensure_admin_image_generation_schema_compat(db.get_bind())
     payload = _request_payload(body)

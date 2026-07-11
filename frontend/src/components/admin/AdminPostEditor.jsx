@@ -11,6 +11,7 @@ import {
   generateAdminPostCover,
   waitForAdminImageGenerationJob,
 } from '../../api/admin'
+import { trackAdminImageJob } from './adminJobsStore'
 
 const emptyForm = {
   title: '',
@@ -189,11 +190,17 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     setCoverCandidate(null)
     setError('')
     try {
-      const response = await generateAdminPostCover(editingId, hasExistingCover
-        ? { mode: 'preview' }
-        : { mode: 'apply', overwrite: false })
-      setCoverMessage('封面生成任务已提交，正在后台生成...')
-      const result = await waitForAdminImageGenerationJob(response)
+      setCoverMessage('封面生成任务已提交，可在右上角「任务」面板查看进度。')
+      const result = await trackAdminImageJob({
+        label: form.title ? `封面 · ${form.title}` : `文章封面 #${editingId}`,
+        detail: hasExistingCover ? '预览重生成' : '首次生成',
+        targetType: 'post_cover',
+        targetId: editingId,
+        submit: () => generateAdminPostCover(editingId, hasExistingCover
+          ? { mode: 'preview' }
+          : { mode: 'apply', overwrite: false }),
+        wait: waitForAdminImageGenerationJob,
+      })
       const generatedUrl = result.cover_image || result.result_image_url
       if (result.generated && generatedUrl) {
         if (hasExistingCover) {
@@ -223,9 +230,15 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     setCoverCandidate(null)
     setError('')
     try {
-      const response = await generateAdminPostCover(editingId, { mode: 'apply', overwrite: true })
-      setCoverMessage('封面覆盖任务已提交，正在后台生成...')
-      const result = await waitForAdminImageGenerationJob(response)
+      setCoverMessage('封面覆盖任务已提交，可在右上角「任务」面板查看进度。')
+      const result = await trackAdminImageJob({
+        label: form.title ? `封面覆盖 · ${form.title}` : `文章封面覆盖 #${editingId}`,
+        detail: '直接覆盖',
+        targetType: 'post_cover',
+        targetId: editingId,
+        submit: () => generateAdminPostCover(editingId, { mode: 'apply', overwrite: true }),
+        wait: waitForAdminImageGenerationJob,
+      })
       const generatedUrl = result.cover_image || result.result_image_url
       if (result.generated && generatedUrl) {
         setForm((prev) => ({ ...prev, cover_image: generatedUrl }))

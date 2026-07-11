@@ -91,6 +91,50 @@ def job_to_dict(job: AdminTextGenerationJob) -> dict[str, Any]:
     }
 
 
+def list_recent(
+    db: Session,
+    *,
+    limit: int = 30,
+    status: str | None = None,
+) -> list[AdminTextGenerationJob]:
+    """Recent text jobs for admin history dock (cross-device)."""
+    ensure_admin_text_generation_schema_compat(db.get_bind())
+    limit = max(1, min(int(limit or 30), 100))
+    stmt = select(AdminTextGenerationJob).order_by(AdminTextGenerationJob.created_at.desc()).limit(limit)
+    if status:
+        stmt = stmt.where(AdminTextGenerationJob.status == status)
+    return list(db.execute(stmt).scalars().all())
+
+
+def history_item(job: AdminTextGenerationJob) -> dict[str, Any]:
+    data = job_to_dict(job)
+    model = (job.model or "").strip()
+    provider = (job.provider or "").strip()
+    detail_parts = [p for p in [provider, model] if p]
+    preview = (job.result_content or "").strip().replace("\n", " ")
+    if len(preview) > 80:
+        preview = preview[:80] + "…"
+    label = "文本生成"
+    if model:
+        label = f"文本 · {model}"
+    return {
+        "kind": "text_generation",
+        "job_id": data["job_id"],
+        "status": data["status"],
+        "label": label,
+        "detail": " · ".join(detail_parts) or (job.purpose or "text_generation"),
+        "error": data.get("error") or "",
+        "result_url": "",
+        "result_preview": preview if data.get("generated") else "",
+        "target_type": "text",
+        "target_id": None,
+        "created_at": data.get("created_at"),
+        "updated_at": data.get("updated_at"),
+        "finished_at": data.get("finished_at"),
+        "source": "server",
+    }
+
+
 def create_job(db: Session, body: Any) -> AdminTextGenerationJob:
     ensure_admin_text_generation_schema_compat(db.get_bind())
     payload = _request_payload(body)

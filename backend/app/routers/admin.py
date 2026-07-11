@@ -43,6 +43,7 @@ from app.models import (
 )
 from app.notifications import dispatch_post_notifications_for_post, subscription_health_payload
 from app.schemas import (
+    AdminGenerationHistoryOut,
     AdminImageGenerationJobOut,
     AdminTextGenerationJobOut,
     AiChannelModelsResponse,
@@ -1927,6 +1928,33 @@ def get_text_generation_job(
     if job is None:
         raise HTTPException(status_code=404, detail="Text generation job not found")
     return text_generation_jobs.job_to_dict(job)
+
+
+@router.get("/generation-jobs", response_model=AdminGenerationHistoryOut)
+def list_generation_jobs(
+    kind: str | None = Query(default=None, description="image | text | all"),
+    limit: int = Query(default=40, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    """Cross-device history for admin Jobs dock (image + text generation)."""
+    kind_key = (kind or "all").strip().lower()
+    per_kind = max(1, min(limit, 100))
+    items: list[dict] = []
+
+    if kind_key in ("", "all", "image", "image_generation"):
+        for job in image_generation_jobs.list_recent(db, limit=per_kind):
+            items.append(image_generation_jobs.history_item(job))
+    if kind_key in ("", "all", "text", "text_generation"):
+        for job in text_generation_jobs.list_recent(db, limit=per_kind):
+            items.append(text_generation_jobs.history_item(job))
+
+    def _sort_key(row: dict):
+        return row.get("created_at") or row.get("updated_at") or datetime.min.replace(tzinfo=timezone.utc)
+
+    items.sort(key=_sort_key, reverse=True)
+    items = items[:limit]
+    return {"items": items, "total": len(items)}
 
 
 @router.post("/settings/generate-hero", response_model=AdminImageGenerationJobOut)

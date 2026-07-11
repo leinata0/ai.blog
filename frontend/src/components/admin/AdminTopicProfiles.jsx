@@ -9,6 +9,7 @@ import {
   waitForAdminImageGenerationJob,
   updateAdminTopicProfile,
 } from '../../api/admin'
+import { trackAdminImageJob } from './adminJobsStore'
 import { proxyImageUrl } from '../../utils/proxyImage'
 
 const emptyForm = {
@@ -271,9 +272,15 @@ export default function AdminTopicProfiles() {
     setNotice('')
 
     try {
-      const response = await generateAdminTopicProfileCover(item.id, { overwrite })
-      setNotice('主题封面生成任务已提交，正在后台生成...')
-      const result = await waitForAdminImageGenerationJob(response)
+      setNotice('主题封面生成任务已提交，可在右上角「任务」面板查看进度。')
+      const result = await trackAdminImageJob({
+        label: item.display_title ? `主题封面 · ${item.display_title}` : `主题封面 · ${item.topic_key || item.id}`,
+        detail: overwrite ? '重生成' : '生成',
+        targetType: 'topic_cover',
+        targetId: item.id,
+        submit: () => generateAdminTopicProfileCover(item.id, { overwrite }),
+        wait: waitForAdminImageGenerationJob,
+      })
       await Promise.all([loadTopics({ forceRefresh: true }), loadCoverStatus({ forceRefresh: true })])
 
       if (editing?.id === item.id) {

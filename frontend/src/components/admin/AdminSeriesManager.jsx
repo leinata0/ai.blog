@@ -9,6 +9,7 @@ import {
   waitForAdminImageGenerationJob,
   updateAdminSeries,
 } from '../../api/admin'
+import { trackAdminImageJob } from './adminJobsStore'
 import { proxyImageUrl } from '../../utils/proxyImage'
 
 const emptyForm = {
@@ -243,9 +244,15 @@ export default function AdminSeriesManager() {
     setNotice('')
 
     try {
-      const response = await generateAdminSeriesCover(item.id, { overwrite })
-      setNotice('系列封面生成任务已提交，正在后台生成...')
-      const result = await waitForAdminImageGenerationJob(response)
+      setNotice('系列封面生成任务已提交，可在右上角「任务」面板查看进度。')
+      const result = await trackAdminImageJob({
+        label: item.title ? `系列封面 · ${item.title}` : `系列封面 #${item.id}`,
+        detail: overwrite ? '重生成' : '生成',
+        targetType: 'series_cover',
+        targetId: item.id,
+        submit: () => generateAdminSeriesCover(item.id, { overwrite }),
+        wait: waitForAdminImageGenerationJob,
+      })
       await Promise.all([loadSeries({ forceRefresh: true }), loadCoverStatus({ forceRefresh: true })])
 
       if (editing?.id === item.id) {

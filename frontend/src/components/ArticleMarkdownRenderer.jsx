@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { proxyImageUrl } from '../utils/proxyImage'
+import { createHeadingIdAllocator, slugifyHeading } from '../utils/headingIds'
 
 function flattenToText(children) {
   if (children == null || typeof children === 'boolean') return ''
@@ -10,10 +11,6 @@ function flattenToText(children) {
   if (Array.isArray(children)) return children.map(flattenToText).join('')
   if (typeof children === 'object' && children.props) return flattenToText(children.props.children)
   return ''
-}
-
-function slugifyHeading(text) {
-  return text.toLowerCase().replace(/[^\w\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '')
 }
 
 function MarkdownImage({ src, alt, title }) {
@@ -43,6 +40,8 @@ function MarkdownImage({ src, alt, title }) {
 export default function ArticleMarkdownRenderer({ markdown = '', copiedCode = '', onCopy }) {
   const [syntaxState, setSyntaxState] = useState(null)
   const hasCodeFence = useMemo(() => /```[\s\S]*?```/.test(markdown), [markdown])
+  // Only h2/h3 share the TOC allocator (TOC ignores h1). Recreate per markdown for stable ids.
+  const allocateHeadingId = useMemo(() => createHeadingIdAllocator(), [markdown])
 
   useEffect(() => {
     if (!hasCodeFence) {
@@ -124,15 +123,17 @@ export default function ArticleMarkdownRenderer({ markdown = '', copiedCode = ''
           },
           h1: ({ children }) => {
             const text = flattenToText(children)
-            return <h1 id={slugifyHeading(text)} className="font-display text-4xl font-semibold tracking-[-0.03em]" style={{ color: 'var(--text-primary)' }}>{children}</h1>
+            // h1 is not in TOC — do not consume the shared h2/h3 id counter
+            const id = slugifyHeading(text) || 'title'
+            return <h1 id={id} className="font-display text-4xl font-semibold tracking-[-0.03em]" style={{ color: 'var(--text-primary)' }}>{children}</h1>
           },
           h2: ({ children }) => {
             const text = flattenToText(children)
-            return <h2 id={slugifyHeading(text)} className="mt-10 font-display text-[2rem] font-semibold tracking-[-0.03em]" style={{ color: 'var(--text-primary)' }}>{children}</h2>
+            return <h2 id={allocateHeadingId(text)} className="mt-10 font-display text-[2rem] font-semibold tracking-[-0.03em]" style={{ color: 'var(--text-primary)' }}>{children}</h2>
           },
           h3: ({ children }) => {
             const text = flattenToText(children)
-            return <h3 id={slugifyHeading(text)} className="mt-8 font-display text-[1.45rem] font-semibold tracking-[-0.02em]" style={{ color: 'var(--text-primary)' }}>{children}</h3>
+            return <h3 id={allocateHeadingId(text)} className="mt-8 font-display text-[1.45rem] font-semibold tracking-[-0.02em]" style={{ color: 'var(--text-primary)' }}>{children}</h3>
           },
           p: ({ children }) => <p className="my-5 text-base leading-8">{children}</p>,
           blockquote: ({ children }) => (

@@ -1,65 +1,116 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { List, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 
+import {
+  parseMarkdownHeadings,
+  READING_SCROLL_OFFSET_PX,
+} from '../utils/headingIds'
+
+function findActiveHeadingId(headings, offsetPx) {
+  if (!headings.length || typeof document === 'undefined') return ''
+
+  let activeId = ''
+  for (const heading of headings) {
+    const el = document.getElementById(heading.id)
+    if (!el) continue
+    const top = el.getBoundingClientRect().top
+    if (top - offsetPx <= 1) {
+      activeId = heading.id
+    } else {
+      break
+    }
+  }
+
+  if (activeId) return activeId
+
+  // Before any heading reaches the offset (top of article), highlight the first one that exists.
+  for (const heading of headings) {
+    if (document.getElementById(heading.id)) return heading.id
+  }
+  return ''
+}
+
 export default function TableOfContents({ markdown, mobile = false }) {
-  const [headings, setHeadings] = useState([])
+  const headings = useMemo(() => parseMarkdownHeadings(markdown), [markdown])
   const [activeId, setActiveId] = useState('')
   const [mobileOpen, setMobileOpen] = useState(false)
+  const activeIdRef = useRef('')
+  const tickingRef = useRef(false)
 
   useEffect(() => {
-    if (!markdown) return
-    const lines = markdown.split('\n')
-    const parsed = []
-    lines.forEach((line) => {
-      const m = line.match(/^(#{1,3})\s+(.+)$/)
-      if (m) {
-        const level = m[1].length
-        const text = m[2].replace(/[`*_~]/g, '').trim()
-        const id = text.toLowerCase().replace(/[^\w\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '')
-        if (level >= 2) {
-          parsed.push({ level, text, id })
-        }
+    if (headings.length === 0) {
+      setActiveId('')
+      activeIdRef.current = ''
+      return undefined
+    }
+
+    const update = () => {
+      tickingRef.current = false
+      const next = findActiveHeadingId(headings, READING_SCROLL_OFFSET_PX)
+      if (next && next !== activeIdRef.current) {
+        activeIdRef.current = next
+        setActiveId(next)
+      } else if (!next && activeIdRef.current) {
+        activeIdRef.current = ''
+        setActiveId('')
       }
-    })
-    setHeadings(parsed)
-  }, [markdown])
+    }
 
-  useEffect(() => {
-    if (headings.length === 0) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.filter((e) => e.isIntersecting)
-        if (visible.length > 0) {
-          setActiveId(visible[0].target.id)
-        }
-      },
-      { rootMargin: '-80px 0px -70% 0px', threshold: 0 }
-    )
-    headings.forEach((h) => {
-      const el = document.getElementById(h.id)
-      if (el) observer.observe(el)
-    })
-    return () => observer.disconnect()
+    const onScrollOrResize = () => {
+      if (tickingRef.current) return
+      tickingRef.current = true
+      window.requestAnimationFrame(update)
+    }
+
+    update()
+    window.addEventListener('scroll', onScrollOrResize, { passive: true })
+    window.addEventListener('resize', onScrollOrResize)
+
+    // Markdown is lazy-loaded; re-check when heading nodes appear in the DOM.
+    const observer = typeof MutationObserver !== 'undefined'
+      ? new MutationObserver(onScrollOrResize)
+      : null
+    const root = document.querySelector('[data-ui="detail-article"]') || document.body
+    observer?.observe(root, { childList: true, subtree: true })
+
+    const retryTimers = [120, 400, 1000].map((ms) => window.setTimeout(update, ms))
+
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize)
+      window.removeEventListener('resize', onScrollOrResize)
+      observer?.disconnect()
+      retryTimers.forEach((id) => window.clearTimeout(id))
+    }
   }, [headings])
 
   if (headings.length === 0) return null
 
-  function handleClick(e, id) {
-    e.preventDefault()
+  function handleClick(event, id) {
+    event.preventDefault()
     const el = document.getElementById(id)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (!el) return
+
+    const top = window.scrollY + el.getBoundingClientRect().top - READING_SCROLL_OFFSET_PX
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    activeIdRef.current = id
+    setActiveId(id)
+
+    if (typeof window !== 'undefined' && window.history?.replaceState) {
+      window.history.replaceState(null, '', `#${id}`)
+    }
     if (mobile) setMobileOpen(false)
   }
 
   const tocNav = (
-    <nav className="space-y-0.5">
+    <nav className="space-y-0.5" aria-label="文章目录">
       {headings.map((h) => (
         <a
           key={h.id}
           href={`#${h.id}`}
           onClick={(e) => handleClick(e, h.id)}
           className={`toc-link ${h.level === 3 ? 'toc-link--h3' : ''} ${activeId === h.id ? 'toc-link--active' : ''}`}
+          aria-current={activeId === h.id ? 'true' : undefined}
         >
           {h.text}
         </a>
@@ -67,11 +118,11 @@ export default function TableOfContents({ markdown, mobile = false }) {
     </nav>
   )
 
-  // 移动端：浮动按钮 + 滑入面板
   if (mobile) {
     return (
       <>
         <button
+          type="button"
           onClick={() => setMobileOpen(true)}
           className="fixed z-40 right-4 bottom-24 w-11 h-11 rounded-full flex items-center justify-center shadow-lg transition-all duration-200"
           style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
@@ -100,7 +151,7 @@ export default function TableOfContents({ markdown, mobile = false }) {
               >
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>目录</h4>
-                  <button onClick={() => setMobileOpen(false)} className="p-1 rounded" style={{ color: 'var(--text-faint)' }}>
+                  <button type="button" onClick={() => setMobileOpen(false)} className="p-1 rounded" style={{ color: 'var(--text-faint)' }} aria-label="关闭目录">
                     <X size={18} />
                   </button>
                 </div>
@@ -113,10 +164,10 @@ export default function TableOfContents({ markdown, mobile = false }) {
     )
   }
 
-  // 桌面端：正常侧边栏 TOC
   return (
     <div
       className="rounded-xl p-5"
+      data-ui="article-toc"
       style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
     >
       <h4 className="font-semibold text-sm mb-3" style={{ color: 'var(--text-primary)' }}>

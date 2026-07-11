@@ -476,7 +476,11 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       <motion.div
         className="fixed left-0 right-0 top-0 z-[70] h-1 origin-left"
         style={{ scaleX: progressScaleX, backgroundColor: 'var(--accent)' }}
+        aria-hidden="true"
       />
+      <div className="sr-only" aria-live="polite">
+        文章阅读进度条
+      </div>
       <Navbar />
 
       <div className="mx-auto max-w-7xl px-6 py-12 sm:px-10 lg:px-20">
