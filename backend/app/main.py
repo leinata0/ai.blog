@@ -1,10 +1,8 @@
 from contextlib import asynccontextmanager
-import ipaddress
 import json
 import logging
-import socket
 from time import perf_counter
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 from uuid import uuid4
 from xml.etree.ElementTree import Element, SubElement, tostring
 
@@ -35,6 +33,16 @@ from app.schemas import HomeBootstrapOut, SiteSettingsOut, SiteSettingsUpdate, S
 from app.site_config import resolve_public_site_url
 from app.storage import get_uploaded_image_bytes
 from app.uploads import UPLOADS_URL_PREFIX
+from app.url_safety import (
+    ALLOWED_IMAGE_CONTENT_TYPES,
+    MAX_IMAGE_DOWNLOAD_BYTES,
+    MAX_REDIRECTS,
+    REDIRECT_STATUSES,
+    connected_peer_ip,
+    is_blocked_ip,
+    is_private_hostname,
+    is_public_http_url,
+)
 
 AUTO_SEED_ON_EMPTY = clean_env("AUTO_SEED_ON_EMPTY", "1") != "0"
 logger = logging.getLogger("blog.public")
@@ -254,60 +262,36 @@ _http_client = httpx.AsyncClient(
     headers={"User-Agent": "BlogImageProxy/1.0"},
 )
 
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"}
-MAX_PROXY_IMAGE_BYTES = 5 * 1024 * 1024
+# Raster only — SVG can carry active content when navigated directly.
+ALLOWED_CONTENT_TYPES = set(ALLOWED_IMAGE_CONTENT_TYPES)
+MAX_PROXY_IMAGE_BYTES = MAX_IMAGE_DOWNLOAD_BYTES
+PROXY_REDIRECT_STATUSES = set(REDIRECT_STATUSES)
+MAX_PROXY_REDIRECTS = MAX_REDIRECTS
 
 
+# Thin wrappers kept for tests that monkeypatch these names.
 def _ip_is_blocked(ip_value: str) -> bool:
-    """Whether a resolved/connected IP must not be reached by the proxy."""
-    try:
-        ip = ipaddress.ip_address(ip_value)
-    except ValueError:
-        return True
-    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified
+    return is_blocked_ip(ip_value)
 
 
 def _is_private_hostname(hostname: str) -> bool:
-    try:
-        addresses = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        return True
-
-    for address in addresses:
-        if _ip_is_blocked(address[4][0]):
-            return True
-    return False
+    return is_private_hostname(hostname)
 
 
 def _connected_peer_ip(resp) -> str | None:
-    """Best-effort: the IP the connection was actually established to.
-
-    The pre-fetch hostname check resolves DNS, then httpx resolves again when it
-    connects — a TOCTOU window an attacker can exploit via DNS rebinding (e.g.
-    flipping a public name to 169.254.169.254 to hit cloud metadata). Reading the
-    real peer off the live connection lets us reject the address we truly reached,
-    closing that window. Returns None when the stream info is unavailable (e.g.
-    mocked transport), in which case the pre-fetch check remains the safety net.
-    """
-    try:
-        stream = resp.extensions.get("network_stream")
-        if stream is None:
-            return None
-        addr = stream.get_extra_info("server_addr")
-        if not addr:
-            return None
-        return addr[0]
-    except Exception:
-        return None
-
-
-PROXY_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
-MAX_PROXY_REDIRECTS = 3
+    return connected_peer_ip(resp)
 
 
 def _is_proxy_url_allowed(url: str) -> bool:
+    # Use the local _is_private_hostname wrapper so tests can monkeypatch it.
+    from urllib.parse import urlparse
+
     parsed = urlparse(url)
-    return bool(parsed.scheme in {"http", "https"} and parsed.hostname and not _is_private_hostname(parsed.hostname))
+    return bool(
+        parsed.scheme in {"http", "https"}
+        and parsed.hostname
+        and not _is_private_hostname(parsed.hostname)
+    )
 
 
 @app.get("/proxy-image")

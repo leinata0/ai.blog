@@ -390,7 +390,19 @@ def _attempt(item: ResolvedModelProvider, *, ok: bool, latency_ms: int, message:
     }
 
 
-def run_generation(db: Session, purpose: str, runner: Callable[[ai_channels.ResolvedAiChannel], T]) -> T:
+def run_generation(
+    db: Session,
+    purpose: str,
+    runner: Callable[[ai_channels.ResolvedAiChannel], T],
+    *,
+    return_selected: bool = False,
+) -> T | tuple[T, ResolvedModelProvider]:
+    """Run generation across the ordered model plan with failover.
+
+    When ``return_selected`` is True, returns ``(result, selected_provider)`` so
+    callers can attribute the response to the instance that actually succeeded
+    (not always plan[0]).
+    """
     normalized = ai_channels.normalize_purpose(purpose)
     plan = resolve_runtime_plan(db, normalized)
     if not plan:
@@ -402,6 +414,8 @@ def run_generation(db: Session, purpose: str, runner: Callable[[ai_channels.Reso
         try:
             result = runner(_as_channel(item))
             attempts.append(_attempt(item, ok=True, latency_ms=int((time.perf_counter() - started) * 1000), message="模型实例调用成功。"))
+            if return_selected:
+                return result, item
             return result
         except ai_channels.AiChannelError as exc:
             attempts.append(_attempt(item, ok=False, latency_ms=int((time.perf_counter() - started) * 1000), message=exc.message, error_code=exc.code))

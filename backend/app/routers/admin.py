@@ -201,20 +201,33 @@ def _cover_response(
 
 
 def _download_image_bytes(image_url: str) -> tuple[bytes, str]:
+    """Download a generated cover image with the same SSRF guards as /proxy-image."""
+    from app.storage import detect_image_content_type
+    from app.url_safety import (
+        ALLOWED_IMAGE_CONTENT_TYPES,
+        download_public_image_bytes,
+    )
+
     try:
-        response = httpx.get(
+        body, content_type = download_public_image_bytes(
             image_url,
-            headers={"User-Agent": "AIBlogCoverBot/1.0"},
-            timeout=30,
-            follow_redirects=True,
+            user_agent="AIBlogCoverBot/1.0",
+            timeout=30.0,
         )
-        response.raise_for_status()
+    except ValueError as exc:
+        raise CoverGenerationError("download_failed", f"拒绝下载不安全的图片地址：{exc}") from exc
     except httpx.HTTPStatusError as exc:
-        raise CoverGenerationError("download_failed", f"下载 Grok 图片失败，HTTP {exc.response.status_code}。") from exc
+        raise CoverGenerationError("download_failed", f"下载图片失败，HTTP {exc.response.status_code}。") from exc
     except httpx.HTTPError as exc:
-        raise CoverGenerationError("download_failed", "下载 Grok 图片失败，请稍后重试。") from exc
-    content_type = (response.headers.get("content-type") or "image/png").split(";")[0].strip() or "image/png"
-    return response.content, content_type
+        raise CoverGenerationError("download_failed", "下载图片失败，请稍后重试。") from exc
+
+    sniffed = detect_image_content_type(body)
+    if sniffed and sniffed in ALLOWED_IMAGE_CONTENT_TYPES:
+        content_type = sniffed
+    elif content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+        raise CoverGenerationError("download_failed", "上游返回的内容不是受支持的图片格式。")
+    return body, content_type
+
 
 
 def _get_cover_generation_status_payload(db: Session) -> dict:
@@ -1707,7 +1720,21 @@ def get_cover_generation_status(
     return _get_cover_generation_status_payload(db)
 
 
-def _raise_ai_provider_http_error(exc: AiChannelError) -> None:
+def _raise_ai_provider_http_error(exc: Exception) -> None:
+    """Map AI provider / encryption failures to HTTP errors."""
+    if isinstance(exc, RuntimeError) and "FIELD_ENCRYPTION_KEY" in str(exc):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": (
+                    "FIELD_ENCRYPTION_KEY 未配置或无效，无法在生产环境保存 API Key。"
+                    "请在 Render 环境变量中设置 Fernet 密钥后重试。"
+                ),
+                "error_code": "missing_field_encryption_key",
+            },
+        ) from exc
+    if not isinstance(exc, AiChannelError):
+        raise
     status_code = 404 if exc.code == "not_found" else 400
     detail = {"message": exc.message, "error_code": exc.code}
     attempts = getattr(exc, "attempts", None)
@@ -1735,7 +1762,7 @@ def create_ai_provider_source(
 ):
     try:
         source = ai_provider_manager.create_source(db, body.model_dump())
-    except AiChannelError as exc:
+    except (AiChannelError, RuntimeError) as exc:
         _raise_ai_provider_http_error(exc)
     return ai_provider_manager.source_to_public_dict(source)
 
@@ -1749,7 +1776,7 @@ def update_ai_provider_source(
 ):
     try:
         source = ai_provider_manager.update_source(db, source_id, body.model_dump())
-    except AiChannelError as exc:
+    except (AiChannelError, RuntimeError) as exc:
         _raise_ai_provider_http_error(exc)
     return ai_provider_manager.source_to_public_dict(source)
 
@@ -1878,15 +1905,14 @@ def generate_admin_text(
 ):
     try:
         messages = [message.model_dump() for message in body.messages]
-        content = ai_channels.generate_text(
+        content, selected = ai_channels.generate_text(
             db,
             messages,
             max_tokens=body.max_tokens,
             temperature=body.temperature,
             json_mode=body.json_mode,
+            return_selected=True,
         )
-        plan = ai_provider_manager.resolve_runtime_plan(db, ai_channels.TEXT_PURPOSE)
-        selected = plan[0] if plan else None
         return {
             "content": content,
             "provider": selected.provider if selected else "",

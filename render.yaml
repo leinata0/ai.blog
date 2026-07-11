@@ -15,6 +15,16 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      # Fernet key for encrypting AI provider API keys at rest. Required in production.
+      # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - key: FIELD_ENCRYPTION_KEY
+        sync: false
+      # Honor CF-Connecting-IP / X-Forwarded-For from Render's edge so rate limits
+      # key off real client IPs (also auto-enabled when RENDER is present).
+      - key: TRUST_PROXY_HEADERS
+        value: "1"
+      - key: TRUSTED_PROXY_DEPTH
+        value: "1"
       - key: AUTO_SEED_ON_EMPTY
         value: "0"
       - key: ENABLE_STARTUP_SCHEMA_SYNC
