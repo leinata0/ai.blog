@@ -5,7 +5,7 @@ resolved client IP, so it must NOT honor forged headers unless the deployment
 has explicitly opted into trusting its proxy.
 """
 
-from app.client_ip import resolve_client_ip
+from app.client_ip import resolve_client_ip, trust_proxy_headers
 
 
 def test_ignores_forged_headers_when_proxy_not_trusted():
@@ -74,3 +74,23 @@ def test_trusted_but_no_headers_uses_peer():
         trust_proxy=True,
     )
     assert resolved == "203.0.113.9"
+
+
+def test_trust_proxy_headers_defaults_false_without_render(monkeypatch):
+    monkeypatch.delenv("TRUST_PROXY_HEADERS", raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    assert trust_proxy_headers() is False
+
+
+def test_trust_proxy_headers_auto_enables_on_render(monkeypatch):
+    monkeypatch.delenv("TRUST_PROXY_HEADERS", raising=False)
+    monkeypatch.setenv("RENDER", "true")
+    assert trust_proxy_headers() is True
+
+
+def test_trust_proxy_headers_explicit_off_wins_over_render(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "0")
+    assert trust_proxy_headers() is False
+

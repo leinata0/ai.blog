@@ -131,8 +131,15 @@ def update_me(
         nickname = body.nickname.strip()
         if nickname:
             current_user.nickname = nickname
-    if body.avatar_url is not None:
-        current_user.avatar_url = body.avatar_url.strip()
+    # avatar_url is intentionally ignored on this endpoint: only the dedicated
+    # /me/avatar upload path may set it (validated magic-bytes + rehosted storage).
+    # Accepting arbitrary client URLs would allow javascript:/tracking payloads
+    # rendered as <img src> in comments.
+    if body.avatar_url is not None and body.avatar_url.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Please set avatar via the upload endpoint; direct avatar_url writes are not allowed",
+        )
     if body.bio is not None:
         current_user.bio = body.bio.strip()
     current_user.updated_at = datetime.now(timezone.utc)

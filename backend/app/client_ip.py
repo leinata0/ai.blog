@@ -5,8 +5,12 @@ server trusts ``X-Forwarded-For`` / ``CF-Connecting-IP`` unconditionally, anyone
 can send a random value per request and bypass every limit. Those headers are
 only meaningful when the request actually arrived through a known reverse proxy
 (Cloudflare -> Render here), so by default we ignore them and use the real
-socket peer. Operators opt in via ``TRUST_PROXY_HEADERS=1`` once the deployment
-guarantees the edge overwrites the header.
+socket peer.
+
+Operators should set ``TRUST_PROXY_HEADERS=1`` in production behind Cloudflare /
+Render once the edge is guaranteed to overwrite the header. When the variable is
+unset, we auto-enable on Render (``RENDER`` / ``RENDER_SERVICE_ID`` present) so
+deployments do not silently share one edge IP for all rate limits.
 """
 
 from __future__ import annotations
@@ -24,11 +28,19 @@ _UNKNOWN = "unknown"
 def trust_proxy_headers() -> bool:
     """Whether forwarded IP headers should be honored.
 
-    Defaults to False (fail closed). Set TRUST_PROXY_HEADERS to a truthy value in
-    deployments where every request is guaranteed to pass through a proxy that
-    overwrites the forwarded headers (so a client cannot forge them).
+    Precedence:
+    1. Explicit ``TRUST_PROXY_HEADERS`` (truthy/falsy) always wins.
+    2. When unset, auto-enable on Render so production rate limits key off the
+       real client IP rather than the shared load-balancer peer.
+    3. Otherwise fail closed (False).
     """
-    return env_truthy("TRUST_PROXY_HEADERS", default=False)
+    raw = clean_env("TRUST_PROXY_HEADERS")
+    if raw:
+        return env_truthy("TRUST_PROXY_HEADERS", default=False)
+    # Render terminates TLS and overwrites CF-Connecting-IP / X-Forwarded-For.
+    if clean_env("RENDER") or clean_env("RENDER_SERVICE_ID"):
+        return True
+    return False
 
 
 def _trusted_proxy_depth() -> int:
@@ -97,3 +109,4 @@ def client_ip_from_request(request) -> str:
         cf_connecting_ip=headers.get(_CF_HEADER),
         forwarded_for=headers.get(_XFF_HEADER),
     )
+

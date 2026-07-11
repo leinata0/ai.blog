@@ -12,6 +12,7 @@ from app.db import SessionLocal
 from app.schema_compat import ensure_admin_image_generation_schema_compat
 from app.models import AdminImageGenerationJob, Post, Series, SiteSettings, TopicProfile
 from app.services import cover_art as cover_art_service
+from app.url_safety import is_public_http_url
 
 logger = logging.getLogger("blog.image_jobs")
 
@@ -26,6 +27,21 @@ STATUS_SUCCEEDED = "succeeded"
 STATUS_FAILED = "failed"
 STATUS_CANCELED = "canceled"
 TERMINAL_STATUSES = {STATUS_SUCCEEDED, STATUS_FAILED, STATUS_CANCELED}
+
+
+def _validated_direct_image_url(raw: str) -> str | None:
+    """Accept only public http(s) URLs for the admin image_url shortcut.
+
+    Internal / private hosts and non-http schemes are rejected so a compromised
+    admin token cannot point covers at metadata endpoints or javascript: URLs.
+    Empty input returns None (caller falls through to generation).
+    """
+    image_url = str(raw or "").strip()
+    if not image_url:
+        return None
+    if not is_public_http_url(image_url, resolve_dns=False):
+        raise ValueError("image_url must be a public http(s) address")
+    return image_url
 
 
 def _now() -> datetime:
@@ -189,7 +205,11 @@ def _execute_post_cover(db: Session, job: AdminImageGenerationJob, payload: dict
         return
     preset = "post_cover"
     prompt = cover_art_service.sanitize_cover_prompt(payload.get("prompt") or "")
-    image_url = str(payload.get("image_url") or "").strip()
+    try:
+        image_url = _validated_direct_image_url(str(payload.get("image_url") or ""))
+    except ValueError:
+        _finish_failure(job, "invalid_image_url", "image_url 必须是可公开访问的 http(s) 地址。", prompt or None, preset)
+        return
     overwrite = bool(payload.get("overwrite"))
     preview = payload.get("mode") == "preview"
     if image_url:
@@ -228,7 +248,11 @@ def _execute_site_hero(db: Session, job: AdminImageGenerationJob, payload: dict[
         db.flush()
     preset = "site_hero"
     prompt = cover_art_service.sanitize_cover_prompt(payload.get("prompt") or "")
-    image_url = str(payload.get("image_url") or "").strip()
+    try:
+        image_url = _validated_direct_image_url(str(payload.get("image_url") or ""))
+    except ValueError:
+        _finish_failure(job, "invalid_image_url", "image_url 必须是可公开访问的 http(s) 地址。", prompt or None, preset)
+        return
     overwrite = True if payload.get("overwrite") is None else bool(payload.get("overwrite"))
     if image_url:
         settings.hero_image = image_url
@@ -258,7 +282,11 @@ def _execute_series_cover(db: Session, job: AdminImageGenerationJob, payload: di
         return
     preset = "series_cover"
     prompt = cover_art_service.sanitize_cover_prompt(payload.get("prompt") or "")
-    image_url = str(payload.get("image_url") or "").strip()
+    try:
+        image_url = _validated_direct_image_url(str(payload.get("image_url") or ""))
+    except ValueError:
+        _finish_failure(job, "invalid_image_url", "image_url 必须是可公开访问的 http(s) 地址。", prompt or None, preset)
+        return
     overwrite = bool(payload.get("overwrite"))
     if image_url:
         series.cover_image = image_url
@@ -289,7 +317,11 @@ def _execute_topic_cover(db: Session, job: AdminImageGenerationJob, payload: dic
         return
     preset = "topic_cover"
     prompt = cover_art_service.sanitize_cover_prompt(payload.get("prompt") or "")
-    image_url = str(payload.get("image_url") or "").strip()
+    try:
+        image_url = _validated_direct_image_url(str(payload.get("image_url") or ""))
+    except ValueError:
+        _finish_failure(job, "invalid_image_url", "image_url 必须是可公开访问的 http(s) 地址。", prompt or None, preset)
+        return
     overwrite = bool(payload.get("overwrite"))
     if image_url:
         profile.cover_image = image_url

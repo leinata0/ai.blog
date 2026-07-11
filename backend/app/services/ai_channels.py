@@ -957,7 +957,8 @@ def generate_text(
     max_tokens: int | None = None,
     temperature: float | None = None,
     json_mode: bool = False,
-) -> str:
+    return_selected: bool = False,
+):
     from app.services import ai_provider_manager
 
     return ai_provider_manager.run_generation(
@@ -970,6 +971,7 @@ def generate_text(
             temperature=temperature,
             json_mode=json_mode,
         ),
+        return_selected=return_selected,
     )
 
 

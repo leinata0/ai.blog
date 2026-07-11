@@ -171,12 +171,12 @@ cd scripts && npm test                               # 脚本 node --test
 
 | 分类 | 变量 |
 |------|------|
-| 运行环境 | `APP_ENV` · `DATABASE_URL` · `PUBLIC_SITE_URL` · `ALLOWED_ORIGINS` · `AUTO_SEED_ON_EMPTY` · `ENABLE_STARTUP_SCHEMA_SYNC` |
-| 管理认证 | `SECRET_KEY` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` |
+| 运行环境 | `APP_ENV` · `DATABASE_URL` · `PUBLIC_SITE_URL` · `ALLOWED_ORIGINS` · `AUTO_SEED_ON_EMPTY` · `ENABLE_STARTUP_SCHEMA_SYNC` · `TRUST_PROXY_HEADERS` / `TRUSTED_PROXY_DEPTH`（反向代理后的真实客户端 IP / 限流） |
+| 管理认证 | `SECRET_KEY` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · `FIELD_ENCRYPTION_KEY`（生产必填：Fernet 密钥，加密 AI Provider API Key） |
 | 存储 R2 | `R2_*`（含 `R2_PUBLIC_BASE_URL`） |
 | 邮件/推送 | `RESEND_API_KEY` · `EMAIL_FROM` · `WEB_PUSH_VAPID_PUBLIC_KEY` · `WEB_PUSH_VAPID_PRIVATE_KEY` · `WEB_PUSH_SUBJECT` · `WECOM_WEBHOOK_URLS` |
 | 访客系统 | `TURNSTILE_SECRET_KEY`（人机验证，留空则跳过）；邮箱验证复用 `RESEND_API_KEY` + `EMAIL_FROM` |
-| AI 生成 | `XAI_API_KEY`（生图）· `SILICONFLOW_API_KEY` / `SILICONFLOW_BASE_URL` / `SILICONFLOW_MODEL`（生文字） |
+| AI 生成 | 后台 AI Provider 配置（推荐）· 可选 env：`XAI_API_KEY` / `SILICONFLOW_*`（作 provider 的 env 回退密钥） |
 
 > 后台「站点设置」的 AI Provider 用于运营侧快速切换/校验模型；长期密钥仍建议放 Render 环境变量，运行时不再回退旧 AI Channel 配置。
 > 启用邮箱验证流程时，务必确认 Resend 发件域名已验证且上述两个变量已配置，否则注册用户无法验证、评论/点赞会被持续拦截。

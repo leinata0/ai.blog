@@ -33,6 +33,18 @@ def test_update_bio(client, db_session):
     assert resp.json()["bio"] == "你好，我是访客"
 
 
+def test_update_me_rejects_direct_avatar_url(client, db_session):
+    token = _register(client, db_session)["access_token"]
+    resp = client.put(
+        "/api/users/me",
+        json={"avatar_url": "javascript:alert(1)"},
+        headers=_ah(token),
+    )
+    assert resp.status_code == 400
+    me = client.get("/api/users/me", headers=_ah(token)).json()
+    assert me["avatar_url"] in ("", None) or not str(me["avatar_url"]).startswith("javascript:")
+
+
 def test_upload_avatar(client, db_session):
     token = _register(client, db_session)["access_token"]
     files = {"file": ("avatar.png", io.BytesIO(_png_bytes()), "image/png")}

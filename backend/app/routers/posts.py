@@ -7,7 +7,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, Response
 from sqlalchemy.orm import Session, load_only, selectinload
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.client_ip import client_ip_from_request
@@ -1110,8 +1110,16 @@ def like_post(
         ).first()
         if existing:
             db.delete(existing)
+            # Clamp in SQL so concurrent unlikes cannot drive like_count negative.
             db.execute(
-                update(Post).where(Post.id == post.id).values(like_count=Post.like_count - 1)
+                update(Post)
+                .where(Post.id == post.id)
+                .values(
+                    like_count=case(
+                        (Post.like_count > 0, Post.like_count - 1),
+                        else_=0,
+                    )
+                )
             )
             db.commit()
             refreshed = db.execute(select(Post.like_count).where(Post.id == post.id)).scalar_one_or_none()
@@ -1119,6 +1127,13 @@ def like_post(
         # ip_address is NOT NULL and carries uq_post_like(post_id, ip_address); store a
         # per-user sentinel so two accounts behind one NAT IP never collide there.
         db.add(PostLike(post_id=post.id, user_id=current_user.id, ip_address=f"user:{current_user.id}"))
+        try:
+            db.flush()
+        except IntegrityError:
+            # Concurrent double-click: treat as already liked (idempotent).
+            db.rollback()
+            refreshed = db.execute(select(Post.like_count).where(Post.id == post.id)).scalar_one_or_none()
+            return {"like_count": refreshed or 0, "liked": True}
         db.execute(
             update(Post).where(Post.id == post.id).values(like_count=Post.like_count + 1)
         )
