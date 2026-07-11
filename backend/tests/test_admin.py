@@ -1424,6 +1424,110 @@ def test_admin_text_generation_failure_includes_attempts(client, monkeypatch):
     assert "模型实例" in resolved["error"]
 
 
+def test_admin_generation_jobs_history_lists_image_and_text(client, monkeypatch):
+    """GET /generation-jobs merges image + text rows for cross-device dock hydrate."""
+    from app.routers import admin as admin_mod
+    from app.services import ai_channels as channel_mod
+
+    token = _login(client)
+
+    create_post = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "History Cover Post",
+            "slug": "history-cover-post",
+            "summary": "summary",
+            "content_md": "content",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create_post.status_code == 200
+    post_id = create_post.json()["id"]
+
+    monkeypatch.setattr(
+        admin_mod,
+        "_generate_cover_asset",
+        lambda db, prompt, filename_hint, framing_hint="": "https://img.example.com/history-cover.png",
+    )
+    cover_resp = client.post(
+        f"/api/admin/posts/{post_id}/generate-cover",
+        json={"prompt": "history cover"},
+        headers=_auth(token),
+    )
+    assert cover_resp.status_code == 200
+    cover_job = _resolve_image_job(client, token, cover_resp.json())
+    assert cover_job["status"] == "succeeded"
+
+    source_resp = client.post(
+        "/api/admin/ai-provider-sources",
+        json={
+            "name": "History Gateway",
+            "provider": "openai_compatible",
+            "base_url": "https://history.example.com/v1",
+            "api_key_value": "sk-history-123456",
+        },
+        headers=_auth(token),
+    )
+    assert source_resp.status_code == 201
+    instance_resp = client.post(
+        "/api/admin/ai-model-instances",
+        json={
+            "source_id": source_resp.json()["id"],
+            "name": "History Text",
+            "model": "history-text",
+            "purpose": "text_generation",
+            "priority": 1,
+            "is_default": True,
+        },
+        headers=_auth(token),
+    )
+    assert instance_resp.status_code == 201
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "history text body"}}]}
+
+    monkeypatch.setattr(channel_mod.httpx, "post", lambda *args, **kwargs: FakeResponse())
+    text_resp = client.post(
+        "/api/admin/ai-text/generate",
+        json={"messages": [{"role": "user", "content": "hello history"}]},
+        headers=_auth(token),
+    )
+    assert text_resp.status_code == 200
+    text_job = _resolve_text_job(client, token, text_resp.json())
+    assert text_job["status"] == "succeeded"
+
+    unauthorized = client.get("/api/admin/generation-jobs")
+    assert unauthorized.status_code in (401, 403)
+
+    history = client.get("/api/admin/generation-jobs?limit=40", headers=_auth(token))
+    assert history.status_code == 200
+    payload = history.json()
+    assert payload["total"] >= 2
+    kinds = {item["kind"] for item in payload["items"]}
+    assert "image_generation" in kinds
+    assert "text_generation" in kinds
+
+    image_rows = [item for item in payload["items"] if item["kind"] == "image_generation"]
+    text_rows = [item for item in payload["items"] if item["kind"] == "text_generation"]
+    assert any(row["job_id"] == cover_job["job_id"] for row in image_rows)
+    assert any(row["job_id"] == text_job["job_id"] for row in text_rows)
+    assert any(row.get("result_url") for row in image_rows)
+    assert any(row.get("result_preview") for row in text_rows)
+
+    image_only = client.get("/api/admin/generation-jobs?kind=image&limit=10", headers=_auth(token))
+    assert image_only.status_code == 200
+    assert all(item["kind"] == "image_generation" for item in image_only.json()["items"])
+
+    text_only = client.get("/api/admin/generation-jobs?kind=text&limit=10", headers=_auth(token))
+    assert text_only.status_code == 200
+    assert all(item["kind"] == "text_generation" for item in text_only.json()["items"])
+
+
 def test_admin_generate_site_hero_with_grok(client, monkeypatch):
     from app.routers import admin as admin_mod
 

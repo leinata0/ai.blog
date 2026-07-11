@@ -20,6 +20,7 @@ import {
   updateAdminAiProviderSource,
   updateSettings,
 } from '../../api/admin'
+import { trackAdminImageJob } from './adminJobsStore'
 import AdminAiProviderPanel from './AdminAiProviderPanel'
 import AdminSiteBasicsPanel from './AdminSiteBasicsPanel'
 import {
@@ -359,9 +360,14 @@ export default function AdminSettings() {
     setHeroGenerating(true)
     setMsg('')
     try {
-      const response = await generateAdminHeroImage({ overwrite: true })
-      setMsg('Hero 海报生成任务已提交，正在后台生成...')
-      const result = await waitForAdminImageGenerationJob(response)
+      setMsg('Hero 海报生成任务已提交，可在右上角「任务」面板查看进度。')
+      const result = await trackAdminImageJob({
+        label: '站点 Hero 海报',
+        detail: '覆盖生成',
+        targetType: 'site_hero',
+        submit: () => generateAdminHeroImage({ overwrite: true }),
+        wait: waitForAdminImageGenerationJob,
+      })
       setHeroDiagnostics({
         prompt: result?.prompt || '',
         preset: result?.preset || '',

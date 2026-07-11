@@ -671,6 +671,28 @@ class AdminTextGenerationJobOut(BaseModel):
     finished_at: datetime | None = None
 
 
+class AdminGenerationHistoryItem(BaseModel):
+    kind: str
+    job_id: int
+    status: str
+    label: str = ""
+    detail: str = ""
+    error: str = ""
+    result_url: str = ""
+    result_preview: str = ""
+    target_type: str = ""
+    target_id: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    finished_at: datetime | None = None
+    source: str = "server"
+
+
+class AdminGenerationHistoryOut(BaseModel):
+    items: list[AdminGenerationHistoryItem] = Field(default_factory=list)
+    total: int = 0
+
+
 class AiProviderSourceUpdateRequest(BaseModel):
     name: str | None = None
     provider: str | None = None

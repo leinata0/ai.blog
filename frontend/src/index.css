@@ -170,15 +170,15 @@ a {
 .grid-card,
 .editorial-card {
   transition:
-    transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 240ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 240ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .hero-card:hover,
 .grid-card:hover,
 .editorial-card:hover {
-  transform: translateY(-6px);
+  transform: translateY(-4px);
   box-shadow: var(--card-shadow-hover);
   border-color: var(--accent-border);
 }
@@ -559,13 +559,13 @@ a {
   background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg-surface-strong) 100%);
   box-shadow: var(--card-shadow-soft);
   transition:
-    transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 240ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 240ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .cover-card:hover {
-  transform: translateY(-6px);
+  transform: translateY(-4px);
   box-shadow: var(--card-shadow-hover);
   border-color: var(--accent-border);
 }
@@ -796,7 +796,7 @@ a {
   color: #fff;
   box-shadow: 0 20px 40px rgba(47, 140, 255, 0.28);
   cursor: pointer;
-  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease;
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms ease;
 }
 
 .back-to-top:hover {

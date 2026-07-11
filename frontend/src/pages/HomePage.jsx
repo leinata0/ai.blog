@@ -593,7 +593,7 @@ export default function HomePage() {
       <div className="mx-auto max-w-7xl px-6 py-12 sm:px-10 lg:px-20">
         <div className="flex flex-col gap-10 lg:flex-row">
           <div className="min-w-0 flex-1">
-            <div className="mb-8">
+            <div className="mb-8 sticky top-[4.5rem] z-20 -mx-1 rounded-[1.3rem] border border-[var(--border-muted)] bg-[var(--bg-surface)]/90 px-3 py-3 shadow-[var(--card-shadow-soft)] backdrop-blur-md sm:px-4">
               <TagFilterBar
                 tags={tags}
                 activeTag={tag}

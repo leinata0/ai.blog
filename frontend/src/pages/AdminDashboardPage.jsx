@@ -21,6 +21,8 @@ import {
 import { clearToken, getToken } from '../api/auth'
 import { adminDeletePost, adminUpdatePost, fetchAdminPosts, generateAdminPostCover } from '../api/admin'
 import AdminPostsList from '../components/admin/AdminPostsList'
+import AdminJobsDock from '../components/admin/AdminJobsDock'
+import { upsertAdminJob } from '../components/admin/adminJobsStore'
 
 const AdminComments = lazy(() => import('../components/admin/AdminComments'))
 const AdminContentHealth = lazy(() => import('../components/admin/AdminContentHealth'))
@@ -185,14 +187,34 @@ export default function AdminDashboardPage() {
         const actionLabel = isReplace ? '封面替换' : '封面生成'
         setStatus(`正在提交 0 / ${postIds.length} 篇文章的${actionLabel}任务...`)
         await runWithConcurrency(postIds, isReplace ? 1 : BULK_COVER_SUBMIT_CONCURRENCY, async (id) => {
+          const post = posts.find((item) => item.id === id)
+          const label = post?.title ? `封面 · ${post.title}` : `文章封面 #${id}`
           try {
             const result = await generateAdminPostCover(
               id,
               { mode: 'apply', overwrite: isReplace },
               { timeout: BULK_COVER_SUBMIT_TIMEOUT_MS }
             )
+            const jobId = result?.job_id || result?.id || null
+            upsertAdminJob({
+              jobId,
+              label,
+              detail: isReplace ? '批量替换封面' : '批量生成封面',
+              targetType: 'post_cover',
+              targetId: id,
+              status: result?.maybe_running ? 'timeout' : (jobId ? 'running' : 'queued'),
+              error: result?.error || '',
+            })
             submissions.push({ id, result })
           } catch (err) {
+            upsertAdminJob({
+              label,
+              detail: isReplace ? '批量替换封面' : '批量生成封面',
+              targetType: 'post_cover',
+              targetId: id,
+              status: 'failed',
+              error: err?.message || '提交失败',
+            })
             submissions.push({ id, error: err })
           } finally {
             setStatus(`正在提交 ${submissions.length} / ${postIds.length} 篇文章的${actionLabel}任务...`)
@@ -220,7 +242,7 @@ export default function AdminDashboardPage() {
         if (skippedCount) parts.push(`跳过 ${skippedCount} 篇已有封面的文章`)
         if (maybeRunningCount) parts.push(`${maybeRunningCount} 个请求响应较慢但可能仍在后台执行`)
         if (failedCount) parts.push(`${failedCount} 篇提交失败：${errorMessages.slice(0, 2).join('；')}`)
-        setStatus(`${parts.join('，')}。任务会在后台依次处理，请稍后刷新查看结果。`)
+        setStatus(`${parts.join('，')}。任务会在后台依次处理，可在右上角「任务」面板查看进度。`)
         return
       }
 
@@ -272,28 +294,38 @@ export default function AdminDashboardPage() {
   ]
 
   return (
-    <main className="min-h-screen bg-[var(--bg-canvas)]">
+    <main className="min-h-screen bg-[var(--bg-canvas)]" data-ui="admin-cockpit">
       <header
-        className="sticky top-0 z-50 bg-[var(--bg-surface)] px-6 sm:px-10"
-        style={{ backdropFilter: 'blur(10px)', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
+        className="sticky top-0 z-50 border-b border-[var(--border-muted)] bg-[var(--bg-surface)] px-6 sm:px-10"
+        style={{ backdropFilter: 'blur(12px)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
       >
-        <div className="flex items-center justify-between py-4">
-          <div>
-            <h1 className="text-xl font-semibold text-[var(--accent)]">博客编辑运营台</h1>
-            <p className="mt-1 text-sm text-[var(--text-faint)]">统一管理文章、系列、主题、质量与发布状态。</p>
+        <div className="flex items-center justify-between gap-4 py-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+              Operations
+            </p>
+            <h1 className="text-xl font-semibold text-[var(--text-primary)]">编辑运营台</h1>
+            <p className="mt-1 text-sm text-[var(--text-faint)]">
+              文章 · 质量 · 发布 · AI 生成任务，统一在此追踪。
+            </p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
-          >
-            <LogOut size={16} />
-            退出登录
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <AdminJobsDock />
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
+            >
+              <LogOut size={16} />
+              退出登录
+            </button>
+          </div>
         </div>
-        <div className="-mb-px flex gap-6 overflow-x-auto">
+        <div className="-mb-px flex gap-6 overflow-x-auto" role="tablist" aria-label="管理分区">
           {tabItems.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
+              role="tab"
+              aria-selected={tab === key}
               onClick={() => {
                 setTab(key)
                 if (key === 'posts') setView('list')

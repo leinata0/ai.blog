@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import AdminDashboardPage from '../src/pages/AdminDashboardPage'
+import { dismissAdminJob, getAdminJobs } from '../src/components/admin/adminJobsStore'
 
 const mocks = vi.hoisted(() => ({
   fetchAdminPosts: vi.fn(() =>
@@ -118,6 +119,7 @@ const mocks = vi.hoisted(() => ({
     })
   ),
   generateAdminPostCover: vi.fn(() => Promise.resolve({ job_id: 123, status: 'queued' })),
+  fetchAdminGenerationJobs: vi.fn(() => Promise.resolve({ items: [], total: 0 })),
   fetchSubscriptionHealth: vi.fn(() =>
     Promise.resolve({
       checked_at: '2026-04-16T01:00:00.000Z',
@@ -146,6 +148,7 @@ vi.mock('../src/api/admin', () => ({
   adminDeletePost: vi.fn(() => Promise.resolve({ detail: 'deleted' })),
   adminUpdatePost: vi.fn(() => Promise.resolve({ detail: 'updated' })),
   generateAdminPostCover: mocks.generateAdminPostCover,
+  fetchAdminGenerationJobs: mocks.fetchAdminGenerationJobs,
   fetchSettings: vi.fn(() =>
     Promise.resolve({
       author_name: '站点作者',
@@ -303,7 +306,10 @@ beforeEach(() => {
     page_size: 20,
   })
   mocks.generateAdminPostCover.mockResolvedValue({ job_id: 123, status: 'queued' })
+  mocks.fetchAdminGenerationJobs.mockResolvedValue({ items: [], total: 0 })
+  window.sessionStorage.clear()
   window.localStorage.clear()
+  getAdminJobs().forEach((job) => dismissAdminJob(job.localId))
 })
 
 afterEach(() => {
@@ -318,7 +324,7 @@ it('renders the posts tab by default', async () => {
   )
 
   expect(await screen.findByText('OpenAI released a new model')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /文章管理/ })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /文章管理/ })).toBeInTheDocument()
   expect(mocks.fetchAdminPosts).toHaveBeenCalledWith({ page: 1, page_size: 20 }, expect.anything())
 })
 
@@ -487,7 +493,7 @@ it('bulk-generates covers only for selected current-page posts missing covers', 
   })
   expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(1)
   expect(adminApi.generateAdminPostCover).not.toHaveBeenCalledWith(2, expect.anything())
-  expect(await screen.findByText('已提交 1 篇无封面文章的封面生成任务，跳过 1 篇已有封面的文章。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()
+  expect(await screen.findByText(/已提交 1 篇无封面文章的封面生成任务，跳过 1 篇已有封面的文章/)).toBeInTheDocument()
   expect(screen.queryByText(/正在提交 \d+ 篇文章的封面生成任务/)).not.toBeInTheDocument()
 })
 
@@ -541,7 +547,7 @@ it('bulk-generates current-page missing covers without requiring manual selectio
     expect(adminApi.generateAdminPostCover).toHaveBeenCalledWith(2, { mode: 'apply', overwrite: false }, { timeout: 12000 })
   })
   expect(adminApi.generateAdminPostCover).toHaveBeenCalledTimes(2)
-  expect(await screen.findByText('已提交 2 篇无封面文章的封面生成任务。任务会在后台依次处理，请稍后刷新查看结果。')).toBeInTheDocument()
+  expect(await screen.findByText(/已提交 2 篇无封面文章的封面生成任务/)).toBeInTheDocument()
   expect(screen.queryByText(/正在提交 \d+ 篇文章的封面生成任务/)).not.toBeInTheDocument()
 })
 
@@ -589,15 +595,15 @@ it('opens topic management, topic health, and search insights tabs', async () =>
 
   await screen.findByText('OpenAI released a new model')
 
-  await userEvent.click(screen.getByRole('button', { name: /主题管理/ }))
+  await userEvent.click(screen.getByRole('tab', { name: /主题管理/ }))
   expect(await screen.findByText('OpenAI 新模型')).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-topic-profiles"]')).toBeTruthy()
 
-  await userEvent.click(screen.getByRole('button', { name: /主题健康/ }))
+  await userEvent.click(screen.getByRole('tab', { name: /主题健康/ }))
   expect(await screen.findByText(/平均质量分/)).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-topic-health"]')).toBeTruthy()
 
-  await userEvent.click(screen.getByRole('button', { name: /搜索洞察/ }))
+  await userEvent.click(screen.getByRole('tab', { name: /搜索洞察/ }))
   expect(await screen.findByText('OpenAI')).toBeInTheDocument()
   expect(await screen.findByText('Mamba 2')).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-search-insights"]')).toBeTruthy()
@@ -612,7 +618,7 @@ it('opens endpoint health tab and renders probe and subscription results', async
 
   await screen.findByText('OpenAI released a new model')
 
-  await userEvent.click(screen.getByRole('button', { name: /接口与订阅健康/ }))
+  await userEvent.click(screen.getByRole('tab', { name: /接口与订阅健康/ }))
 
   expect(await screen.findByRole('heading', { name: /接口与订阅健康/ })).toBeInTheDocument()
   expect(await screen.findByText('/feed.xml')).toBeInTheDocument()
@@ -634,7 +640,7 @@ it('opens settings and manages AI provider sources and model instances', async (
   )
 
   await screen.findByText('OpenAI released a new model')
-  await userEvent.click(screen.getByRole('button', { name: /站点设置/ }))
+  await userEvent.click(screen.getByRole('tab', { name: /站点设置/ }))
   expect(await screen.findByRole('tab', { name: /AI Provider/ })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('tab', { name: /AI Provider/ }))
 

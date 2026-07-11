@@ -123,6 +123,67 @@ export async function waitForAdminImageGenerationJob(jobOrId, { intervalMs = 250
 export const generateAdminPostCover = (id, data = {}, requestOptions = {}) =>
   submitAdminImageGeneration(`/api/admin/posts/${id}/generate-cover`, data, requestOptions)
 
+export const fetchAdminTextGenerationJob = (id, requestOptions = {}) =>
+  apiGet(`/api/admin/text-generation-jobs/${id}`, {
+    ...requestOptions,
+    auth: true,
+    cache: false,
+    forceRefresh: true,
+    dedupe: false,
+  })
+
+export const generateAdminText = (data = {}, requestOptions = {}) =>
+  apiPost('/api/admin/ai-text/generate', data, {
+    auth: true,
+    timeout: ADMIN_IMAGE_GENERATION_SUBMIT_TIMEOUT_MS,
+    ...requestOptions,
+  })
+
+export async function waitForAdminTextGenerationJob(jobOrId, { intervalMs = 2500, timeoutMs = 180000 } = {}) {
+  const jobId = typeof jobOrId === 'object' ? (jobOrId.job_id || jobOrId.id) : jobOrId
+  if (!jobId) return jobOrId
+  const terminal = new Set(['succeeded', 'failed', 'canceled'])
+  let latest = typeof jobOrId === 'object' ? jobOrId : null
+  if (latest && !latest.status && (latest.generated || latest.error_code || latest.content)) return latest
+  const startedAt = Date.now()
+  while (!latest || !terminal.has(latest.status)) {
+    if (Date.now() - startedAt > timeoutMs) {
+      return {
+        ...(latest || {}),
+        job_id: latest?.job_id || latest?.id || jobId,
+        status: latest?.status === 'queued' ? 'queued' : 'running',
+        error: '文本生成任务仍在后台执行，请稍后在任务面板查看结果。',
+        error_code: 'poll_timeout',
+      }
+    }
+    await sleep(intervalMs)
+    try {
+      latest = await fetchAdminTextGenerationJob(jobId, { timeout: ADMIN_IMAGE_GENERATION_POLL_REQUEST_TIMEOUT_MS })
+    } catch (error) {
+      if (!isTransientImageGenerationPollError(error)) throw error
+      latest = {
+        ...(latest || {}),
+        job_id: jobId,
+        status: 'running',
+        error: ADMIN_IMAGE_GENERATION_STILL_RUNNING_MESSAGE,
+        error_code: 'poll_transient_timeout',
+      }
+    }
+  }
+  return latest
+}
+
+export const fetchAdminGenerationJobs = (params = {}, requestOptions = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/api/admin/generation-jobs${qs ? `?${qs}` : ''}`, {
+    auth: true,
+    cache: false,
+    forceRefresh: true,
+    dedupe: false,
+    ...requestOptions,
+  })
+}
+
 export async function adminUploadImage(file) {
   if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
     throw new Error('图片大小不能超过 10MB')
