@@ -19,7 +19,7 @@ vi.mock('../src/api/client', () => ({
         hero_image: '',
         github_link: '',
         announcement: '',
-        site_url: 'https://563118077.xyz',
+        site_url: 'https://www.563118077.xyz',
         friend_links: '[]',
       })
     }
@@ -42,7 +42,7 @@ vi.mock('../src/api/home', async () => {
         hero_image: '',
         github_link: '',
         announcement: '',
-        site_url: 'https://563118077.xyz',
+        site_url: 'https://www.563118077.xyz',
         friend_links: '[]',
       },
       home_modules: {
@@ -80,7 +80,7 @@ afterEach(() => {
   cleanup()
 })
 
-it('refreshes stale runtime bootstrap data on the homepage after hydration', async () => {
+it('revalidates runtime bootstrap on the homepage without force-refreshing the cache', async () => {
   window.__BLOG_BOOTSTRAP__ = {
     settings: {
       author_name: 'Runtime Author',
@@ -89,7 +89,7 @@ it('refreshes stale runtime bootstrap data on the homepage after hydration', asy
       hero_image: '',
       github_link: '',
       announcement: '',
-      site_url: 'https://563118077.xyz',
+      site_url: 'https://www.563118077.xyz',
       friend_links: '[]',
     },
     home_modules: {
@@ -112,7 +112,7 @@ it('refreshes stale runtime bootstrap data on the homepage after hydration', asy
       hero_image: '',
       github_link: '',
       announcement: '',
-      site_url: 'https://563118077.xyz',
+      site_url: 'https://www.563118077.xyz',
       friend_links: '[]',
     },
     home_modules: {
@@ -142,7 +142,9 @@ it('refreshes stale runtime bootstrap data on the homepage after hydration', asy
   expect(fetchHomeBootstrap).toHaveBeenCalledWith(
     { page: 1, page_size: 10 },
     expect.objectContaining({
-      forceRefresh: true,
+      forceRefresh: false,
+      staleWhileRevalidate: true,
+      cache: true,
     }),
   )
 })
@@ -160,6 +162,13 @@ it('uses the aggregated home bootstrap on the homepage and skips health prewarm'
   expect(screen.getByTestId('author')).toHaveTextContent('Bootstrap Author')
   expect(screen.getByTestId('bootstrap')).toHaveTextContent('10')
   expect(fetchHomeBootstrap).toHaveBeenCalledTimes(1)
+  expect(fetchHomeBootstrap).toHaveBeenCalledWith(
+    { page: 1, page_size: 10 },
+    expect.objectContaining({
+      forceRefresh: true,
+      staleWhileRevalidate: true,
+    }),
+  )
   expect(apiGet).not.toHaveBeenCalledWith('/api/health', expect.anything())
   expect(apiGet).not.toHaveBeenCalledWith('/api/settings', expect.anything())
 })

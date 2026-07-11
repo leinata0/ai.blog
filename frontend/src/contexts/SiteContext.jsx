@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { apiGet } from '../api/client'
 import { fetchHomeBootstrap } from '../api/home'
@@ -88,14 +88,16 @@ export function SiteProvider({ children }) {
     }
 
     function refreshHomeBootstrap(preserveCurrent = true) {
+      // Prefer memory/session cache and SWR. Only force a network round-trip when
+      // there is no current bootstrap/settings to show (cold client load).
       fetchHomeBootstrap(
         { page: 1, page_size: 10 },
         {
           cache: true,
           cacheTtl: 60000,
           staleTtl: 180000,
-          staleWhileRevalidate: false,
-          forceRefresh: true,
+          staleWhileRevalidate: true,
+          forceRefresh: !preserveCurrent,
         },
       )
         .then((payload) => {
@@ -112,6 +114,7 @@ export function SiteProvider({ children }) {
       const runtimeBootstrap = readRuntimeBootstrap()
       if (runtimeBootstrap?.settings) {
         applySettings(runtimeBootstrap.settings, runtimeBootstrap)
+        // Background revalidation only — do not bypass the client cache.
         refreshHomeBootstrap(true)
       } else {
         if (!settings) {
@@ -134,11 +137,22 @@ export function SiteProvider({ children }) {
     }
   }, [location.pathname])
 
-  const refreshSettings = () => apiGet('/api/settings', { forceRefresh: true }).then(setSettings).catch(() => {})
-  const refreshStats = () => apiGet('/api/stats', { forceRefresh: true }).then(setStats).catch(() => {})
+  const refreshSettings = useCallback(
+    () => apiGet('/api/settings', { forceRefresh: true }).then(setSettings).catch(() => {}),
+    [],
+  )
+  const refreshStats = useCallback(
+    () => apiGet('/api/stats', { forceRefresh: true }).then(setStats).catch(() => {}),
+    [],
+  )
+
+  const value = useMemo(
+    () => ({ settings, stats, bootstrap, loading, refreshSettings, refreshStats }),
+    [settings, stats, bootstrap, loading, refreshSettings, refreshStats],
+  )
 
   return (
-    <SiteContext.Provider value={{ settings, stats, bootstrap, loading, refreshSettings, refreshStats }}>
+    <SiteContext.Provider value={value}>
       {children}
     </SiteContext.Provider>
   )

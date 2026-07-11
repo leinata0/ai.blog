@@ -1,7 +1,12 @@
 const DEFAULT_TEXT_GENERATION_TIMEOUT_MS = 240000
+const DEFAULT_POLL_INTERVAL_MS = 1500
 
 function trimBaseUrl(value) {
   return String(value || '').trim().replace(/\/$/, '')
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function parseErrorBody(response) {
@@ -39,6 +44,26 @@ async function parseErrorBody(response) {
   }
 }
 
+async function fetchJson(url, { token, method = 'GET', body, timeoutMs } = {}) {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: body == null ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  if (!response.ok) {
+    throw new Error(`Admin text generation failed: ${response.status} ${await parseErrorBody(response)}`.trim())
+  }
+  return response.json()
+}
+
+/**
+ * Submit admin text generation and poll until the async job completes.
+ * Backend returns a job immediately so long LLM calls do not hold HTTP workers.
+ */
 export async function generateTextViaAdminApi({
   blogApiBase,
   token,
@@ -47,6 +72,7 @@ export async function generateTextViaAdminApi({
   temperature = null,
   jsonMode = false,
   timeoutMs = DEFAULT_TEXT_GENERATION_TIMEOUT_MS,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
 } = {}) {
   const base = trimBaseUrl(blogApiBase)
   if (!base) throw new Error('Missing BLOG_API_BASE')
@@ -55,13 +81,11 @@ export async function generateTextViaAdminApi({
     throw new Error('Missing text generation messages')
   }
 
-  const response = await fetch(`${base}/api/admin/ai-text/generate`, {
+  const submitPayload = await fetchJson(`${base}/api/admin/ai-text/generate`, {
+    token,
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
+    timeoutMs: Math.min(timeoutMs, 60000),
+    body: {
       messages: messages.map((message) => ({
         role: String(message?.role || '').trim(),
         content: String(message?.content || '').trim(),
@@ -69,16 +93,44 @@ export async function generateTextViaAdminApi({
       max_tokens: Number.isFinite(Number(maxTokens)) ? Number(maxTokens) : null,
       temperature: Number.isFinite(Number(temperature)) ? Number(temperature) : null,
       json_mode: Boolean(jsonMode),
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
+    },
   })
 
-  if (!response.ok) {
-    throw new Error(`Admin text generation failed: ${response.status} ${await parseErrorBody(response)}`.trim())
+  // Backward-compat: older backends returned content inline without a job.
+  if (submitPayload?.content && !submitPayload?.job_id && !submitPayload?.id) {
+    return String(submitPayload.content).trim()
   }
 
-  const data = await response.json()
-  const content = String(data?.content || '').trim()
+  const jobId = submitPayload?.job_id || submitPayload?.id
+  if (!jobId) {
+    throw new Error('Admin text generation did not return a job id')
+  }
+
+  const terminal = new Set(['succeeded', 'failed', 'canceled'])
+  const startedAt = Date.now()
+  let latest = submitPayload
+
+  while (!terminal.has(String(latest?.status || ''))) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`Admin text generation timed out after ${timeoutMs}ms (job ${jobId})`)
+    }
+    await sleep(pollIntervalMs)
+    latest = await fetchJson(`${base}/api/admin/text-generation-jobs/${jobId}`, {
+      token,
+      method: 'GET',
+      timeoutMs: 30000,
+    })
+  }
+
+  if (latest.status === 'failed' || latest.status === 'canceled') {
+    const code = String(latest.error_code || '').trim()
+    const message = String(latest.error || '文本生成失败').trim()
+    throw new Error(
+      `Admin text generation failed: job_${latest.status} ${[message, code && `code=${code}`].filter(Boolean).join('; ')}`.trim(),
+    )
+  }
+
+  const content = String(latest?.content || '').trim()
   if (!content) throw new Error('Admin text generation returned empty content')
   return content
 }

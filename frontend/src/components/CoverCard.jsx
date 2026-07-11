@@ -12,6 +12,7 @@ function CardMedia({ image, imageAlt, overlay, loading = 'lazy', fetchPriority }
           alt={imageAlt}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
           loading={loading}
+          decoding="async"
           referrerPolicy="no-referrer"
           {...imageProps}
         />

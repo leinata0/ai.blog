@@ -78,7 +78,8 @@ vi.mock('../src/api/home', () => ({
       hero_image: '',
       github_link: '',
       announcement: '',
-      site_url: 'https://563118077.xyz',
+      site_url: 'https://www.563118077.xyz',
+
       friend_links: '[]',
     },
     posts: {

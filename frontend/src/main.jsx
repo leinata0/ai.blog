@@ -1,5 +1,5 @@
 import React from 'react'
-import ReactDOM from 'react-dom/client'
+import { createRoot, hydrateRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { SiteProvider } from './contexts/SiteContext'
@@ -7,7 +7,7 @@ import { UserProvider } from './contexts/UserContext'
 import App from './App'
 import './index.css'
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+const tree = (
   <React.StrictMode>
     <BrowserRouter>
       <ThemeProvider>
@@ -18,5 +18,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </SiteProvider>
       </ThemeProvider>
     </BrowserRouter>
-  </React.StrictMode>,
+  </React.StrictMode>
 )
+
+const rootEl = document.getElementById('root')
+// Prerender writes SEO HTML into #root. Hydrate when present so first paint
+// keeps the static shell; fall back to createRoot for empty SPA shells.
+if (rootEl?.hasChildNodes()) {
+  hydrateRoot(rootEl, tree)
+} else {
+  createRoot(rootEl).render(tree)
+}

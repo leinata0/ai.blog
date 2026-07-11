@@ -4,15 +4,17 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import UserProtectedRoute from './components/UserProtectedRoute'
 
+// Keep first-paint routes eager; secondary public pages stay code-split.
 import HomePage from './pages/HomePage'
 import PostDetailPage from './pages/PostDetailPage'
-import ArchivePage from './pages/ArchivePage'
-import SeriesPage from './pages/SeriesPage'
-import SeriesDetailPage from './pages/SeriesDetailPage'
-import TopicsPage from './pages/TopicsPage'
-import TopicDetailPage from './pages/TopicDetailPage'
-import ContentTypePage from './pages/ContentTypePage'
 import NotFoundPage from './pages/NotFoundPage'
+
+const ArchivePage = lazy(() => import('./pages/ArchivePage'))
+const SeriesPage = lazy(() => import('./pages/SeriesPage'))
+const SeriesDetailPage = lazy(() => import('./pages/SeriesDetailPage'))
+const TopicsPage = lazy(() => import('./pages/TopicsPage'))
+const TopicDetailPage = lazy(() => import('./pages/TopicDetailPage'))
+const ContentTypePage = lazy(() => import('./pages/ContentTypePage'))
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage'))
 const SearchPage = lazy(() => import('./pages/SearchPage'))
 const FollowingPage = lazy(() => import('./pages/FollowingPage'))

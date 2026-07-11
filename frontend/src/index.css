@@ -572,6 +572,7 @@ a {
 
 .cover-card__media {
   position: relative;
+  aspect-ratio: 16 / 9;
   min-height: 12rem;
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.35), transparent 38%),
@@ -588,6 +589,7 @@ a {
 }
 
 .cover-card__media--overlay {
+  aspect-ratio: 16 / 10;
   min-height: 20rem;
 }
 
