@@ -25,16 +25,16 @@ jobs:
     steps:
       # 拉取仓库代码
       - name: 拉取仓库代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 安装 Node.js
       - name: 安装 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
 
-      # 发布文章并生成 Grok 封面
-      - name: 发布文章并生成 Grok 封面
+      # 发布文章并生成封面；Grok 不可用时自动回退 SiliconFlow。
+      - name: 发布文章并生成封面
         working-directory: scripts
         env:
           ARTICLE_FILE: ${{ github.event.inputs.article_file || './content/blog-migration-neon-r2.mjs' }}
@@ -42,4 +42,5 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
         run: node publish-content-file.mjs

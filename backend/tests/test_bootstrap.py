@@ -56,12 +56,13 @@ def test_should_enable_startup_schema_sync_defaults(monkeypatch):
 
 
 def test_initialize_runtime_skips_schema_sync_when_disabled(monkeypatch):
-    calls = {"create_all": 0, "schema_compat": 0, "seed": 0, "uploads": 0}
+    calls = {"create_all": 0, "schema_compat": 0, "runtime_schema": 0, "seed": 0, "uploads": 0}
 
     monkeypatch.setattr(bootstrap, "is_r2_enabled", lambda: False)
     monkeypatch.setattr(bootstrap, "ensure_local_upload_dir", lambda: calls.__setitem__("uploads", calls["uploads"] + 1))
     monkeypatch.setattr(bootstrap.db_mod.Base.metadata, "create_all", lambda bind=None: calls.__setitem__("create_all", calls["create_all"] + 1))
     monkeypatch.setattr(bootstrap, "ensure_schema_compat", lambda bind=None: calls.__setitem__("schema_compat", calls["schema_compat"] + 1))
+    monkeypatch.setattr(bootstrap, "ensure_runtime_required_schema", lambda bind=None: calls.__setitem__("runtime_schema", calls["runtime_schema"] + 1))
     monkeypatch.setattr(bootstrap, "seed_data", lambda db: calls.__setitem__("seed", calls["seed"] + 1))
     monkeypatch.setattr(bootstrap.db_mod, "SessionLocal", lambda: _FakeSession(post_count=3, settings_count=1))
 
@@ -70,6 +71,7 @@ def test_initialize_runtime_skips_schema_sync_when_disabled(monkeypatch):
     assert calls["uploads"] == 1
     assert calls["create_all"] == 0
     assert calls["schema_compat"] == 0
+    assert calls["runtime_schema"] == 1
     assert calls["seed"] == 0
 
 
@@ -77,6 +79,7 @@ def test_initialize_runtime_raises_helpful_error_without_schema_sync(monkeypatch
     monkeypatch.setattr(bootstrap, "is_r2_enabled", lambda: True)
     monkeypatch.setattr(bootstrap.db_mod.Base.metadata, "create_all", lambda bind=None: None)
     monkeypatch.setattr(bootstrap, "ensure_schema_compat", lambda bind=None: None)
+    monkeypatch.setattr(bootstrap, "ensure_runtime_required_schema", lambda bind=None: None)
     monkeypatch.setattr(bootstrap.db_mod, "SessionLocal", lambda: _FakeSession(raise_error=True))
 
     try:

@@ -31,11 +31,11 @@ jobs:
     steps:
       # 拉取仓库代码
       - name: 拉取仓库代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 安装 Node.js
       - name: 安装 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm

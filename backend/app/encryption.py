@@ -1,5 +1,7 @@
 """Field-level encryption for sensitive data like API keys."""
 
+import base64
+import hashlib
 import logging
 from functools import lru_cache
 
@@ -10,34 +12,48 @@ from app.env import clean_env
 logger = logging.getLogger(__name__)
 
 
+def _derive_fernet_key(secret: str) -> bytes:
+    digest = hashlib.sha256(f"ai-blog:field-encryption:v1:{secret}".encode()).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
 @lru_cache(maxsize=1)
 def _get_fernet() -> Fernet | None:
-    """Get Fernet instance from environment key, or None if not configured."""
+    """Resolve a dedicated Fernet key or derive one from the app secret."""
     key = clean_env("FIELD_ENCRYPTION_KEY")
-    if not key:
-        logger.error("FIELD_ENCRYPTION_KEY not set; refusing to store secrets")
-        return None
-    try:
-        return Fernet(key.encode() if isinstance(key, str) else key)
-    except Exception as exc:
-        logger.error("Invalid FIELD_ENCRYPTION_KEY: %s", exc)
-        return None
+    if key:
+        try:
+            return Fernet(key.encode() if isinstance(key, str) else key)
+        except Exception as exc:
+            logger.error("Invalid FIELD_ENCRYPTION_KEY: %s", exc)
+            return None
+
+    secret_key = clean_env("SECRET_KEY")
+    if secret_key:
+        logger.warning(
+            "FIELD_ENCRYPTION_KEY is not set; deriving a domain-separated "
+            "encryption key from SECRET_KEY"
+        )
+        return Fernet(_derive_fernet_key(secret_key))
+
+    logger.error("Neither FIELD_ENCRYPTION_KEY nor SECRET_KEY is set; refusing to store secrets")
+    return None
 
 
 def encrypt_value(plaintext: str) -> str:
     """Encrypt a string value.
 
-    A missing or invalid ``FIELD_ENCRYPTION_KEY`` is always fatal. Development
-    databases and backups can leak just as easily as production databases, so
-    silently storing API keys in plaintext is never an acceptable fallback.
+    A dedicated ``FIELD_ENCRYPTION_KEY`` is preferred. When it is absent, a
+    domain-separated key derived from ``SECRET_KEY`` keeps setup automatic
+    without ever falling back to plaintext storage.
     """
     if not plaintext:
         return plaintext
     fernet = _get_fernet()
     if fernet is None:
         raise RuntimeError(
-            "FIELD_ENCRYPTION_KEY is not configured (or invalid); refusing to "
-            "store a secret in plaintext. Set a valid Fernet key."
+            "No valid encryption key is available; refusing to store a secret "
+            "in plaintext. Set FIELD_ENCRYPTION_KEY or SECRET_KEY."
         )
     try:
         return fernet.encrypt(plaintext.encode()).decode()

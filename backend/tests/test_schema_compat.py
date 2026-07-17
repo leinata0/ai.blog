@@ -13,6 +13,7 @@ from app.schema_compat import (
     TOPIC_PROFILE_COLUMNS,
     USER_COLUMNS,
     _create_table_if_missing,
+    ensure_runtime_required_schema,
 )
 from app.models import Post
 
@@ -100,6 +101,23 @@ def test_users_security_columns_backfilled_on_existing_table():
     assert USER_COLUMNS["token_version"] == "INTEGER NOT NULL DEFAULT 0"
     with engine.connect() as conn:
         assert conn.execute(text("SELECT token_version FROM users WHERE id = 1")).scalar_one() == 0
+
+
+def test_runtime_required_schema_only_backfills_token_version():
+    from sqlalchemy import text
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, "
+            "password_hash VARCHAR(255) NOT NULL)"
+        ))
+
+    ensure_runtime_required_schema(engine)
+    ensure_runtime_required_schema(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    assert columns == {"id", "email", "password_hash", "token_version"}
 
 
 class _ExistingTableInspector:

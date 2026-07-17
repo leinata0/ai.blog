@@ -15,7 +15,8 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
-      # Fernet key for encrypting AI provider API keys at rest. Required in production.
+      # Optional dedicated Fernet key for AI provider API keys. When omitted,
+      # the app derives an isolated encryption key from SECRET_KEY.
       # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       - key: FIELD_ENCRYPTION_KEY
         sync: false
