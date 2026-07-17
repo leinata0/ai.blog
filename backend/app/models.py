@@ -403,6 +403,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), nullable=False, unique=True, index=True)
     password_hash = Column(String(255), nullable=False)
+    token_version = Column(Integer, nullable=False, default=0)
     nickname = Column(String(50), nullable=False, default="")
     avatar_url = Column(String(500), nullable=False, default="")
     bio = Column(String(300), nullable=False, default="")

@@ -15,13 +15,6 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
           if (id.includes('framer-motion')) return 'vendor-motion'
-          if (
-            id.includes('react-markdown')
-            || id.includes('remark-gfm')
-            || id.includes('react-syntax-highlighter')
-          ) {
-            return 'vendor-markdown'
-          }
           if (id.includes('@uiw/react-md-editor') || id.includes('@uiw/react-markdown-preview')) {
             return 'vendor-md-editor'
           }

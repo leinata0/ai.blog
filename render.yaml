@@ -5,7 +5,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     region: oregon
-    healthCheckPath: /health
+    healthCheckPath: /readyz
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -19,8 +19,8 @@ services:
       # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       - key: FIELD_ENCRYPTION_KEY
         sync: false
-      # Honor CF-Connecting-IP / X-Forwarded-For from Render's edge so rate limits
-      # key off real client IPs (also auto-enabled when RENDER is present).
+      # Honor the X-Forwarded-For hop appended by Render. CF-Connecting-IP stays
+      # disabled unless direct origin access is separately restricted.
       - key: TRUST_PROXY_HEADERS
         value: "1"
       - key: TRUSTED_PROXY_DEPTH
@@ -28,6 +28,10 @@ services:
       - key: AUTO_SEED_ON_EMPTY
         value: "0"
       - key: ENABLE_STARTUP_SCHEMA_SYNC
+        value: "0"
+      # Production must use durable R2 storage. Set to "1" only for an
+      # explicitly accepted emergency deployment with ephemeral local uploads.
+      - key: ALLOW_EPHEMERAL_UPLOADS
         value: "0"
       - key: R2_ACCOUNT_ID
         sync: false

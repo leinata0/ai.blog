@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy.exc import OperationalError
 
 from app import bootstrap
@@ -84,3 +85,19 @@ def test_initialize_runtime_raises_helpful_error_without_schema_sync(monkeypatch
         assert "python -m app.bootstrap" in str(exc)
     else:
         raise AssertionError("Expected initialize_runtime to raise a helpful RuntimeError")
+
+
+def test_initialize_runtime_validates_storage_before_database_work(monkeypatch):
+    monkeypatch.setattr(
+        bootstrap,
+        "validate_storage_configuration",
+        lambda: (_ for _ in ()).throw(RuntimeError("storage configuration invalid")),
+    )
+    monkeypatch.setattr(
+        bootstrap.db_mod.Base.metadata,
+        "create_all",
+        lambda bind=None: pytest.fail("database work must not start"),
+    )
+
+    with pytest.raises(RuntimeError, match="storage configuration invalid"):
+        bootstrap.initialize_runtime(sync_schema=True, seed_on_empty=False)

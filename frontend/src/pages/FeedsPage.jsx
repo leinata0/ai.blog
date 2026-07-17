@@ -15,8 +15,10 @@ import {
 
 import { fetchSeriesList, fetchTopics } from '../api/posts'
 import {
+  confirmEmailSubscription,
   fetchSubscriptionStatus,
   subscribeEmail,
+  unsubscribeEmail,
   fetchWebPushPublicKey,
   subscribeWebPush,
   unsubscribeWebPush,
@@ -263,10 +265,25 @@ function EmailSubscriptionCard({ status, contentType, topicKey, seriesSlug }) {
         topic_keys: topicKey ? [topicKey] : [],
         series_slugs: seriesSlug ? [seriesSlug] : [],
       })
-      setMessage(result.message || '邮件订阅已保存。')
+      setMessage(result.message || '确认邮件已发送，请打开邮件中的链接完成订阅。')
       setEmail('')
     } catch (err) {
-      setError(err.message || '保存邮件订阅时失败。')
+      setError(err.message || '发送订阅确认邮件时失败。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleUnsubscribe() {
+    setSaving(true)
+    setMessage('')
+    setError('')
+    try {
+      const result = await unsubscribeEmail({ email })
+      setMessage(result.message || '退订确认邮件已发送，请打开邮件中的安全链接完成退订。')
+      setEmail('')
+    } catch (err) {
+      setError(err.message || '发送退订确认邮件时失败。')
     } finally {
       setSaving(false)
     }
@@ -289,14 +306,15 @@ function EmailSubscriptionCard({ status, contentType, topicKey, seriesSlug }) {
       </div>
 
       <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-        适合想在收件箱里稳定回看内容的人。你保存的范围会决定后续收到的是全站、日报、周报，还是更具体的主题与系列更新。
+        适合想在收件箱里稳定回看内容的人。提交后需要打开确认邮件，验证邮箱所有权后这组订阅范围才会生效。
       </p>
 
       <form onSubmit={handleSubmit} className="mt-5">
-        <label className="block text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+        <label htmlFor="subscription-email" className="block text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
           邮箱地址
         </label>
         <input
+          id="subscription-email"
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
@@ -308,16 +326,25 @@ function EmailSubscriptionCard({ status, contentType, topicKey, seriesSlug }) {
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            disabled={saving || !email.trim()}
+            disabled={saving || !email.trim() || !status?.email_configured}
             className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white transition-transform duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ backgroundColor: 'var(--accent)' }}
           >
             <Mail size={15} />
-            {saving ? '保存中...' : '保存邮件订阅'}
+            {saving ? '发送中...' : '发送确认邮件'}
+          </button>
+          <button
+            type="button"
+            disabled={saving || !email.trim() || !status?.email_configured}
+            className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ borderColor: 'var(--border-muted)', color: 'var(--text-secondary)' }}
+            onClick={handleUnsubscribe}
+          >
+            发送退订邮件
           </button>
           {!status?.email_configured ? (
             <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
-              站点还没有完成邮件投递配置，先保存偏好也没问题，后续接通后会开始发送。
+              站点还没有完成邮件投递配置，当前不会保存或启用邮箱订阅。
             </span>
           ) : null}
         </div>
@@ -334,6 +361,25 @@ function EmailSubscriptionCard({ status, contentType, topicKey, seriesSlug }) {
         ) : null}
       </form>
     </motion.article>
+  )
+}
+
+function EmailConfirmationNotice({ state }) {
+  if (!state.status) return null
+  const isError = state.status === 'error'
+  const isPending = state.status === 'pending'
+  return (
+    <div
+      role={isError ? 'alert' : 'status'}
+      className="mb-8 rounded-[1.3rem] border px-5 py-4 text-sm"
+      style={{
+        borderColor: isError ? 'rgba(239,68,68,0.35)' : 'rgba(16,185,129,0.35)',
+        backgroundColor: isError ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)',
+        color: isError ? '#b91c1c' : '#047857',
+      }}
+    >
+      {isPending ? '正在验证邮件确认链接...' : state.message}
+    </div>
   )
 }
 
@@ -542,7 +588,7 @@ function WecomSubscriptionCard({ status }) {
 
 export default function FeedsPage() {
   const { settings } = useSite()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [topics, setTopics] = useState([])
   const [seriesList, setSeriesList] = useState([])
   const [loading, setLoading] = useState(true)
@@ -555,6 +601,17 @@ export default function FeedsPage() {
   const [contentType, setContentType] = useState(searchParams.get('content_type') || '')
   const [topicKey, setTopicKey] = useState(searchParams.get('topic_key') || '')
   const [seriesSlug, setSeriesSlug] = useState(searchParams.get('series_slug') || '')
+  const subscriptionToken = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+      const hashToken = hashParams.get('subscription_token')
+      if (hashToken) return hashToken
+    }
+    // Preserve compatibility with confirmation links issued before tokens moved
+    // into the URL fragment.
+    return searchParams.get('subscription_token') || ''
+  }, [searchParams])
+  const [emailConfirmation, setEmailConfirmation] = useState({ status: '', message: '' })
 
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
@@ -587,7 +644,9 @@ export default function FeedsPage() {
       .slice(0, 6)
   ), [seriesList])
   const canonicalPath = useMemo(() => {
-    const query = searchParams.toString()
+    const canonicalParams = new URLSearchParams(searchParams)
+    canonicalParams.delete('subscription_token')
+    const query = canonicalParams.toString()
     return query ? `/feeds?${query}` : '/feeds'
   }, [searchParams])
   const jsonLd = useMemo(() => ([
@@ -640,6 +699,45 @@ export default function FeedsPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => {
+    if (!subscriptionToken) return undefined
+    let cancelled = false
+    setEmailConfirmation({ status: 'pending', message: '' })
+
+    confirmEmailSubscription(subscriptionToken)
+      .then((result) => {
+        if (cancelled) return
+        setEmailConfirmation({
+          status: result?.is_active ? 'subscribed' : 'unsubscribed',
+          message: result?.message || (result?.is_active ? '邮件订阅已确认。' : '退订已确认。'),
+        })
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setEmailConfirmation({
+          status: 'error',
+          message: error.message || '邮件确认链接无效或已过期，请重新发起请求。',
+        })
+      })
+      .finally(() => {
+        if (cancelled) return
+        if (typeof window !== 'undefined' && window.location.hash) {
+          window.history.replaceState(
+            window.history.state,
+            '',
+            `${window.location.pathname}${window.location.search}`,
+          )
+        }
+        const nextParams = new URLSearchParams(searchParams)
+        nextParams.delete('subscription_token')
+        setSearchParams(nextParams, { replace: true })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [setSearchParams, subscriptionToken])
+
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <SeoMeta
@@ -651,6 +749,7 @@ export default function FeedsPage() {
       />
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
+        <EmailConfirmationNotice state={emailConfirmation} />
         <motion.div initial="hidden" animate="visible" variants={motionContainerVariants}>
           <motion.section variants={motionItemVariants} className="editorial-panel rounded-[2rem] px-8 py-8">
             <EditorialSectionHeader

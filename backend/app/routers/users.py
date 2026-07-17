@@ -16,7 +16,7 @@ from app.db import get_db
 from app.email_verification import decode_verify_token, send_verification_email
 from app.models import Comment, FollowedTopic, Post, PostLike, ReadingHistory, SiteSettings, User
 from app.notifications import is_valid_email
-from app.passwords import hash_password, verify_password
+from app.passwords import PasswordTooLongError, hash_password, validate_password_length, verify_password
 from app.rate_limit import limiter
 from app.services.user_account import purge_user
 from app.site_config import resolve_public_site_url
@@ -50,7 +50,17 @@ def _default_nickname(email: str) -> str:
 
 
 def _issue_token(user: User) -> str:
-    return create_access_token(data={"sub": str(user.id)}, audience=USER_TOKEN_AUDIENCE)
+    return create_access_token(
+        data={"sub": str(user.id), "ver": user.token_version or 0},
+        audience=USER_TOKEN_AUDIENCE,
+    )
+
+
+def _validate_password_or_400(password: str) -> None:
+    try:
+        validate_password_length(password)
+    except PasswordTooLongError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _site_url(db: Session) -> str:
@@ -72,6 +82,7 @@ def _check_turnstile(request: Request, token: str | None) -> None:
 @limiter.limit("5/minute")
 def register(request: Request, body: UserRegisterRequest, db: Session = Depends(get_db)):
     _check_turnstile(request, body.turnstile_token)
+    _validate_password_or_400(body.password)
     email = (body.email or "").strip().lower()
     if not is_valid_email(email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
@@ -154,9 +165,11 @@ def change_password(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _validate_password_or_400(body.new_password)
     if not verify_password(body.old_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="原密码不正确")
     current_user.password_hash = hash_password(body.new_password)
+    current_user.token_version = (current_user.token_version or 0) + 1
     current_user.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {"message": "密码已更新"}

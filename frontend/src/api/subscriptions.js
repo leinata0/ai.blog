@@ -18,6 +18,13 @@ export function unsubscribeEmail(payload, requestOptions = {}) {
   })
 }
 
+export function confirmEmailSubscription(token, requestOptions = {}) {
+  return apiPost('/api/subscriptions/email/confirm', { token }, {
+    ...requestOptions,
+    invalidatePaths: requestOptions.invalidatePaths ?? ['/api/subscriptions/status', '/api/home/modules'],
+  })
+}
+
 export function fetchWebPushPublicKey(requestOptions = {}) {
   return apiGet('/api/subscriptions/web-push/public-key', requestOptions)
 }

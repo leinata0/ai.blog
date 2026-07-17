@@ -261,6 +261,7 @@ USER_COLUMNS = {
     "id": "INTEGER PRIMARY KEY",
     "email": "VARCHAR(255) NOT NULL UNIQUE",
     "password_hash": "VARCHAR(255) NOT NULL",
+    "token_version": "INTEGER NOT NULL DEFAULT 0",
     "nickname": "VARCHAR(50) NOT NULL DEFAULT ''",
     "avatar_url": "VARCHAR(500) NOT NULL DEFAULT ''",
     "bio": "VARCHAR(300) NOT NULL DEFAULT ''",
@@ -364,23 +365,6 @@ def _ddl_for_dialect(ddl: str, dialect_name: str) -> str:
     return ddl
 
 
-def _create_table_if_missing(engine, table_name: str, columns: dict[str, str], indexes: list[str] | None = None) -> None:
-    inspector = inspect(engine)
-    table_exists = table_name in set(inspector.get_table_names())
-
-    if not table_exists:
-        column_sql = ", ".join(
-            f"{name} {_ddl_for_dialect(ddl, engine.dialect.name)}"
-            for name, ddl in columns.items()
-        )
-        with engine.begin() as connection:
-            connection.execute(text(f"CREATE TABLE {table_name} ({column_sql})"))
-
-    with engine.begin() as connection:
-        for index_sql in indexes or []:
-            connection.execute(text(index_sql))
-
-
 def _ensure_postgres_id_default(engine, table_name: str) -> None:
     if engine.dialect.name != "postgresql":
         return
@@ -403,6 +387,27 @@ def _ensure_postgres_id_default(engine, table_name: str) -> None:
         )
 
 
+def _create_table_if_missing(engine, table_name: str, columns: dict[str, str], indexes: list[str] | None = None) -> None:
+    inspector = inspect(engine)
+    table_exists = table_name in set(inspector.get_table_names())
+
+    if not table_exists:
+        column_sql = ", ".join(
+            f"{name} {_ddl_for_dialect(ddl, engine.dialect.name)}"
+            for name, ddl in columns.items()
+        )
+        with engine.begin() as connection:
+            connection.execute(text(f"CREATE TABLE {table_name} ({column_sql})"))
+
+    with engine.begin() as connection:
+        for index_sql in indexes or []:
+            connection.execute(text(index_sql))
+
+    id_ddl = columns.get("id", "").upper()
+    if "INTEGER" in id_ddl and "PRIMARY KEY" in id_ddl:
+        _ensure_postgres_id_default(engine, table_name)
+
+
 def ensure_ai_provider_schema_compat(engine) -> None:
     _create_table_if_missing(
         engine,
@@ -412,7 +417,6 @@ def ensure_ai_provider_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_ai_provider_sources_provider ON ai_provider_sources (provider)",
         ],
     )
-    _ensure_postgres_id_default(engine, "ai_provider_sources")
 
     _create_table_if_missing(
         engine,
@@ -424,7 +428,6 @@ def ensure_ai_provider_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_ai_model_instances_priority ON ai_model_instances (priority)",
         ],
     )
-    _ensure_postgres_id_default(engine, "ai_model_instances")
 
 
 def ensure_admin_image_generation_schema_compat(engine) -> None:
@@ -438,7 +441,6 @@ def ensure_admin_image_generation_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_admin_image_generation_jobs_created_at ON admin_image_generation_jobs (created_at)",
         ],
     )
-    _ensure_postgres_id_default(engine, "admin_image_generation_jobs")
 
 
 def ensure_admin_text_generation_schema_compat(engine) -> None:
@@ -451,7 +453,6 @@ def ensure_admin_text_generation_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_admin_text_generation_jobs_created_at ON admin_text_generation_jobs (created_at)",
         ],
     )
-    _ensure_postgres_id_default(engine, "admin_text_generation_jobs")
 
 
 def ensure_schema_compat(engine) -> None:
@@ -633,7 +634,6 @@ def ensure_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_users_status ON users (status)",
         ],
     )
-    _ensure_postgres_id_default(engine, "users")
 
     _create_table_if_missing(
         engine,
@@ -644,7 +644,6 @@ def ensure_schema_compat(engine) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_topic ON followed_topics (user_id, topic_key)",
         ],
     )
-    _ensure_postgres_id_default(engine, "followed_topics")
 
     _create_table_if_missing(
         engine,
@@ -655,7 +654,6 @@ def ensure_schema_compat(engine) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_slug ON reading_history (user_id, slug)",
         ],
     )
-    _ensure_postgres_id_default(engine, "reading_history")
 
     # Backfill user_id on the pre-existing comments / post_likes tables (added with the
     # visitor user system). SQLite cannot add a column with an inline FK, so we add a bare

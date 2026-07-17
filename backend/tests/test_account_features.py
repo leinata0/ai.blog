@@ -3,7 +3,7 @@ import io
 
 from sqlalchemy import select
 
-from app.models import User
+from app.models import Post, User
 
 
 def _register(client, db_session, email="acct@example.com", verified=True):
@@ -103,13 +103,18 @@ def test_delete_account(client, db_session):
     token = reg["access_token"]
     user_id = reg["user"]["id"]
     slug = client.get("/api/posts").json()["items"][0]["slug"]
+    post = db_session.execute(select(Post).where(Post.slug == slug)).scalar_one()
+    original_like_count = post.like_count
     client.post(f"/api/posts/{slug}/comments", json={"content": "bye"}, headers=_ah(token))
+    assert client.post(f"/api/posts/{slug}/like", headers=_ah(token)).status_code == 200
 
     resp = client.delete("/api/users/me", headers=_ah(token))
     assert resp.status_code == 200
     # user gone → token no longer resolves
     assert client.get("/api/users/me", headers=_ah(token)).status_code == 401
     assert db_session.get(User, user_id) is None
+    db_session.expire_all()
+    assert db_session.execute(select(Post.like_count).where(Post.slug == slug)).scalar_one() == original_like_count
     # comment anonymized but kept
     comments = client.get(f"/api/posts/{slug}/comments").json()
     assert len(comments) == 1

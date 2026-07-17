@@ -72,13 +72,30 @@ export default function SeriesDetailPage() {
   ]), [series, seriesPath, seriesTitle, siteUrl])
 
   useEffect(() => {
-    fetchSeriesDetail(slug)
+    const controller = new AbortController()
+    setSeries(null)
+
+    if (!slug) {
+      setLoading(false)
+      return () => controller.abort()
+    }
+
+    setLoading(true)
+    fetchSeriesDetail(slug, { signal: controller.signal, dedupe: false })
       .then((payload) => {
+        if (controller.signal.aborted) return
         setSeries(payload)
         document.title = `${getSeriesTitle(payload)} - AI 资讯观察`
       })
-      .catch(() => setSeries(null))
-      .finally(() => setLoading(false))
+      .catch((err) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+        setSeries(null)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+
+    return () => controller.abort()
   }, [slug])
 
   return (

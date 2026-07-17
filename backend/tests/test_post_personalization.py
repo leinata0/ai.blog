@@ -1,8 +1,8 @@
 """Tests for account-bound likes and comments on posts."""
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
-from app.models import User
+from app.models import Post, PostLike, User
 
 
 def _register(client, db_session, email="liker@example.com", password="secret123", nickname="Liker"):
@@ -49,6 +49,36 @@ def test_logged_in_like_toggles(client, db_session, published_slug):
     # state reflects unliked
     state2 = client.get(f"/api/posts/{published_slug}/like-state", headers=headers).json()
     assert state2["liked"] is False
+
+
+def test_concurrent_unlike_does_not_decrement_twice(
+    client, db_session, published_slug, monkeypatch
+):
+    token = _register(client, db_session)
+    headers = {"Authorization": f"Bearer {token}"}
+    initial = client.get(f"/api/posts/{published_slug}/like-state", headers=headers).json()
+    client.post(f"/api/posts/{published_slug}/like", headers=headers)
+
+    from app.routers import posts as posts_router
+
+    def concurrent_winner(db, like_id):
+        result = db.execute(delete(PostLike).where(PostLike.id == like_id))
+        assert result.rowcount == 1
+        db.execute(
+            update(Post)
+            .where(Post.slug == published_slug)
+            .values(like_count=Post.like_count - 1)
+        )
+        return False
+
+    monkeypatch.setattr(posts_router, "_delete_registered_like", concurrent_winner)
+    response = client.post(f"/api/posts/{published_slug}/like", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"like_count": initial["like_count"], "liked": False}
+    assert db_session.execute(
+        select(PostLike).join(Post).where(Post.slug == published_slug)
+    ).scalar_one_or_none() is None
 
 
 def test_anonymous_like_not_cancellable(client, published_slug):

@@ -50,15 +50,51 @@ export default function ArticleMarkdownRenderer({ markdown = '', copiedCode = ''
     }
 
     let active = true
+    const languageNames = [
+      'javascript',
+      'typescript',
+      'jsx',
+      'tsx',
+      'python',
+      'bash',
+      'cpp',
+      'json',
+      'yaml',
+      'markup',
+      'sql',
+      'nginx',
+    ]
+
     Promise.all([
-      import('react-syntax-highlighter'),
-      import('react-syntax-highlighter/dist/esm/styles/prism'),
+      import('react-syntax-highlighter/dist/esm/prism-light'),
+      import('react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/javascript'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/typescript'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/jsx'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/tsx'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/python'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/bash'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/cpp'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/json'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/yaml'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/markup'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/sql'),
+      import('react-syntax-highlighter/dist/esm/languages/prism/nginx'),
     ])
-      .then(([syntaxModule, stylesModule]) => {
+      .then(([syntaxModule, stylesModule, ...languageModules]) => {
         if (!active) return
+        const SyntaxHighlighter = syntaxModule.default
+        languageModules.forEach((languageModule, index) => {
+          SyntaxHighlighter.registerLanguage(languageNames[index], languageModule.default)
+        })
+        SyntaxHighlighter.alias('javascript', ['js'])
+        SyntaxHighlighter.alias('typescript', ['ts'])
+        SyntaxHighlighter.alias('bash', ['sh', 'shell'])
+        SyntaxHighlighter.alias('yaml', ['yml'])
+        SyntaxHighlighter.alias('markup', ['html', 'xml'])
         setSyntaxState({
-          SyntaxHighlighter: syntaxModule.Prism,
-          syntaxStyle: stylesModule.vscDarkPlus,
+          SyntaxHighlighter,
+          syntaxStyle: stylesModule.default,
         })
       })
       .catch(() => {

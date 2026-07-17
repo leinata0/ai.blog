@@ -1149,13 +1149,18 @@ class EmailSubscriptionResponse(BaseModel):
     content_types: list[str] = Field(default_factory=list)
     topic_keys: list[str] = Field(default_factory=list)
     series_slugs: list[str] = Field(default_factory=list)
-    is_active: bool = True
+    is_active: bool | None = None
     delivery_ready: bool = False
+    confirmation_required: bool = False
     message: str = ""
 
 
 class EmailUnsubscribeRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=255)
+
+
+class EmailSubscriptionConfirmRequest(BaseModel):
+    token: str = Field(..., min_length=20, max_length=4096)
 
 
 class WebPushSubscriptionKeysInput(BaseModel):

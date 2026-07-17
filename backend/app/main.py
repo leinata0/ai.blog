@@ -9,6 +9,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 import anyio
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
 
 from app.auth import get_current_admin
-from app.bootstrap import initialize_runtime
+from app.bootstrap import check_runtime_readiness, initialize_runtime
 from app.db import get_db
 from app.env import clean_env, get_allowed_origins
 from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
@@ -47,6 +48,7 @@ from app.url_safety import (
 AUTO_SEED_ON_EMPTY = clean_env("AUTO_SEED_ON_EMPTY", "1") != "0"
 logger = logging.getLogger("blog.public")
 REQUEST_ID_HEADER = "X-Request-ID"
+READINESS_TIMEOUT_SECONDS = 2.0
 
 
 @asynccontextmanager
@@ -158,10 +160,26 @@ async def log_public_request_timing(request: Request, call_next):
     return response
 
 
+@app.get("/livez")
 @app.get("/health")
 @app.get("/api/health")
-def health():
+def livez():
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    try:
+        with anyio.fail_after(READINESS_TIMEOUT_SECONDS):
+            await anyio.to_thread.run_sync(check_runtime_readiness, abandon_on_cancel=True)
+    except TimeoutError:
+        logger.warning("Readiness check timed out after %.1f seconds", READINESS_TIMEOUT_SECONDS)
+        return JSONResponse(status_code=503, content={"status": "not_ready"})
+    except Exception:
+        logger.exception("Readiness check failed")
+        return JSONResponse(status_code=503, content={"status": "not_ready"})
+
+    return {"status": "ready"}
 
 
 @app.get(f"{UPLOADS_URL_PREFIX}/{{filename:path}}")

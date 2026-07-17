@@ -1,5 +1,9 @@
 """Tests for admin user management + cross-token isolation."""
 
+from sqlalchemy import select
+
+from app.models import Post, User
+
 
 def _admin_token(client):
     resp = client.post("/api/admin/login", json={"username": "admin", "password": "admin123"})
@@ -71,7 +75,6 @@ def test_delete_user_anonymizes_comments(client, db_session):
     user_token = reg["access_token"]
     user_id = reg["user"]["id"]
     # verify email so the account-bound comment isn't soft-blocked
-    from app.models import User
     user = db_session.get(User, user_id)
     user.email_verified = True
     db_session.commit()
@@ -82,6 +85,12 @@ def test_delete_user_anonymizes_comments(client, db_session):
         json={"content": "by registered user"},
         headers=_ah(user_token),
     )
+    like_response = client.post(f"/api/posts/{slug}/like", headers=_ah(user_token))
+    assert like_response.status_code == 200
+    post = db_session.execute(select(Post).where(Post.slug == slug)).scalar_one()
+    # Exercise the lower bound too: legacy counters may already be inconsistent.
+    post.like_count = 0
+    db_session.commit()
 
     resp = client.delete(f"/api/admin/users/{user_id}", headers=_ah(_admin_token(client)))
     assert resp.status_code == 200
@@ -91,6 +100,8 @@ def test_delete_user_anonymizes_comments(client, db_session):
     assert len(comments) == 1
     assert comments[0]["user_id"] is None
     assert comments[0]["is_registered"] is False
+    db_session.expire_all()
+    assert db_session.execute(select(Post.like_count).where(Post.slug == slug)).scalar_one() == 0
 
 
 # ── cross-token isolation ──

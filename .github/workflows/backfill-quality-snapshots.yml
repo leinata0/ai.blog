@@ -29,6 +29,9 @@ on:
         default: '20'
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   backfill:
     runs-on: ubuntu-latest
@@ -64,9 +67,30 @@ jobs:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+          DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
+          DISPATCH_FORCE: ${{ inputs.force }}
+          DISPATCH_LIMIT: ${{ inputs.limit }}
+          DISPATCH_OFFSET: ${{ inputs.offset }}
+          DISPATCH_MAX_PAGES: ${{ inputs.max_pages }}
+        shell: bash
         run: |
-          ARGS="--limit=${{ inputs.limit }} --offset=${{ inputs.offset }} --max-pages=${{ inputs.max_pages }}"
-          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
-          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
-          echo "Running: node scripts/backfill-quality-snapshots.mjs $ARGS"
-          node scripts/backfill-quality-snapshots.mjs $ARGS
+          if [[ ! "$DISPATCH_LIMIT" =~ ^[1-9][0-9]{0,2}$ ]] || (( 10#$DISPATCH_LIMIT > 200 )); then
+            echo "::error::limit must be an integer between 1 and 200"
+            exit 1
+          fi
+          if [[ ! "$DISPATCH_OFFSET" =~ ^(0|[1-9][0-9]{0,6})$ ]] || (( 10#$DISPATCH_OFFSET > 1000000 )); then
+            echo "::error::offset must be an integer between 0 and 1000000"
+            exit 1
+          fi
+          if [[ ! "$DISPATCH_MAX_PAGES" =~ ^[1-9][0-9]{0,2}$ ]] || (( 10#$DISPATCH_MAX_PAGES > 200 )); then
+            echo "::error::max_pages must be an integer between 1 and 200"
+            exit 1
+          fi
+
+          args=(--limit "$DISPATCH_LIMIT" --offset "$DISPATCH_OFFSET" --max-pages "$DISPATCH_MAX_PAGES")
+          if [ "$DISPATCH_DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ "$DISPATCH_FORCE" = "true" ]; then args+=(--force); fi
+          printf 'Running:'
+          printf ' %q' node scripts/backfill-quality-snapshots.mjs "${args[@]}"
+          printf '\n'
+          node scripts/backfill-quality-snapshots.mjs "${args[@]}"

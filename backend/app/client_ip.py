@@ -7,13 +7,16 @@ only meaningful when the request actually arrived through a known reverse proxy
 (Cloudflare -> Render here), so by default we ignore them and use the real
 socket peer.
 
-Operators should set ``TRUST_PROXY_HEADERS=1`` in production behind Cloudflare /
-Render once the edge is guaranteed to overwrite the header. When the variable is
-unset, we auto-enable on Render (``RENDER`` / ``RENDER_SERVICE_ID`` present) so
-deployments do not silently share one edge IP for all rate limits.
+Operators should set ``TRUST_PROXY_HEADERS=1`` only when the reverse proxy
+appends a trustworthy X-Forwarded-For entry. ``CF-Connecting-IP`` needs the
+additional ``TRUST_CF_CONNECTING_IP=1`` opt-in and must only be enabled when
+direct origin access is blocked. When proxy trust is unset, it auto-enables on
+Render so the right-most XFF hop can be used instead of the internal socket peer.
 """
 
 from __future__ import annotations
+
+import ipaddress
 
 from app.env import clean_env, env_truthy
 
@@ -43,6 +46,21 @@ def trust_proxy_headers() -> bool:
     return False
 
 
+def trust_cf_connecting_ip() -> bool:
+    """Trust Cloudflare's client-IP header only after origin access is restricted."""
+    return env_truthy("TRUST_CF_CONNECTING_IP", default=False)
+
+
+def _normalize_ip(value: str | None) -> str:
+    candidate = (value or "").strip()
+    if not candidate:
+        return ""
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return ""
+
+
 def _trusted_proxy_depth() -> int:
     """Number of trusted proxy hops in front of the app.
 
@@ -66,23 +84,24 @@ def resolve_client_ip(
     cf_connecting_ip: str | None = None,
     forwarded_for: str | None = None,
     trust_proxy: bool | None = None,
+    trust_cf_header: bool | None = None,
     proxy_depth: int | None = None,
 ) -> str:
     """Resolve the client IP from the socket peer and optional forwarded headers.
 
-    When proxy headers are not trusted, only ``peer_ip`` is used — forged headers
-    are ignored entirely. When trusted, CF-Connecting-IP wins (the edge sets it
-    directly), otherwise the X-Forwarded-For entry ``proxy_depth`` hops from the
-    right is taken, which is the value the trusted proxy actually observed.
+    When proxy headers are not trusted, only ``peer_ip`` is used. When trusted,
+    the X-Forwarded-For entry ``proxy_depth`` hops from the right is used.
+    CF-Connecting-IP takes precedence only with its separate explicit opt-in.
     """
     trusted = trust_proxy_headers() if trust_proxy is None else trust_proxy
-    peer = (peer_ip or "").strip()
+    peer = _normalize_ip(peer_ip)
 
     if not trusted:
         return peer or _UNKNOWN
 
-    cf = (cf_connecting_ip or "").strip()
-    if cf:
+    cf = _normalize_ip(cf_connecting_ip)
+    cf_is_trusted = trust_cf_connecting_ip() if trust_cf_header is None else trust_cf_header
+    if cf_is_trusted and cf:
         return cf
 
     forwarded = (forwarded_for or "").strip()
@@ -95,7 +114,9 @@ def resolve_client_ip(
             index = len(parts) - depth
             if index < 0:
                 index = 0
-            return parts[index]
+            forwarded_ip = _normalize_ip(parts[index])
+            if forwarded_ip:
+                return forwarded_ip
 
     return peer or _UNKNOWN
 
@@ -109,4 +130,4 @@ def client_ip_from_request(request) -> str:
         cf_connecting_ip=headers.get(_CF_HEADER),
         forwarded_for=headers.get(_XFF_HEADER),
     )
-
+

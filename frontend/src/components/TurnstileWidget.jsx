@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
 const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
@@ -15,7 +15,11 @@ function loadTurnstileScript() {
     script.async = true
     script.defer = true
     script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Failed to load Turnstile'))
+    script.onerror = () => {
+      script.remove()
+      scriptPromise = null
+      reject(new Error('Failed to load Turnstile'))
+    }
     document.head.appendChild(script)
   })
   return scriptPromise
@@ -29,10 +33,13 @@ function loadTurnstileScript() {
 export default function TurnstileWidget({ onVerify }) {
   const containerRef = useRef(null)
   const widgetIdRef = useRef(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   useEffect(() => {
     if (!SITE_KEY) return undefined
     let cancelled = false
+    setLoadFailed(false)
 
     loadTurnstileScript()
       .then(() => {
@@ -44,22 +51,42 @@ export default function TurnstileWidget({ onVerify }) {
           'error-callback': () => onVerify?.(''),
         })
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true)
+      })
 
     return () => {
       cancelled = true
-      if (widgetIdRef.current && window.turnstile) {
+      if (widgetIdRef.current !== null && window.turnstile) {
         try {
           window.turnstile.remove(widgetIdRef.current)
         } catch {
           // ignore
         }
       }
+      widgetIdRef.current = null
     }
-  }, [onVerify])
+  }, [loadAttempt, onVerify])
 
   if (!SITE_KEY) return null
-  return <div ref={containerRef} className="flex justify-center" />
+  return (
+    <div className="flex flex-col items-center justify-center gap-2">
+      <div ref={containerRef} className="flex justify-center" />
+      {loadFailed ? (
+        <div role="alert" className="flex items-center gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          <span>验证服务加载失败</span>
+          <button
+            type="button"
+            className="font-semibold"
+            style={{ color: 'var(--accent)' }}
+            onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+          >
+            重试
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export const TURNSTILE_ENABLED = Boolean(SITE_KEY)

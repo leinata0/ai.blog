@@ -36,6 +36,7 @@ vi.mock('../src/utils/topicRetention', () => ({
 
 let UserProvider
 let useUser
+let USER_UNAUTHORIZED_EVENT
 
 function Consumer() {
   const { user, loading, login, logout } = useUser()
@@ -53,6 +54,7 @@ beforeEach(async () => {
   vi.clearAllMocks()
   vi.resetModules()
   ;({ UserProvider, useUser } = await import('../src/contexts/UserContext'))
+  ;({ USER_UNAUTHORIZED_EVENT } = await import('../src/api/client'))
 })
 
 afterEach(() => {
@@ -96,5 +98,19 @@ describe('UserContext', () => {
     await userEvent.click(screen.getByText('logout'))
     await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('none'))
     expect(mocks.clearUserToken).toHaveBeenCalled()
+  })
+
+  it('logs out immediately when the API reports a user 401', async () => {
+    mocks.getUserToken.mockReturnValue('tok')
+    mocks.isUserTokenExpired.mockReturnValue(false)
+    mocks.fetchMe.mockResolvedValue({ email: 'u@example.com' })
+
+    render(<UserProvider><Consumer /></UserProvider>)
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('u@example.com'))
+
+    window.dispatchEvent(new Event(USER_UNAUTHORIZED_EVENT))
+
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('none'))
+    expect(screen.getByTestId('loading').textContent).toBe('false')
   })
 })

@@ -108,16 +108,40 @@ export default function ContentTypePage({ contentType }) {
   ]), [copy.description, copy.title, path, posts, siteUrl])
 
   useEffect(() => {
+    const controller = new AbortController()
     document.title = `${copy.title} - AI 资讯观察`
+    setPosts([])
     setLoading(true)
 
-    fetchDiscover({ content_type: contentType })
-      .then((payload) => setPosts(Array.isArray(payload?.items) ? payload.items : []))
-      .catch(async () => {
-        const fallback = await fetchPosts({ pageSize: 50 })
-        setPosts((fallback.items || []).filter((post) => post.content_type === contentType))
-      })
-      .finally(() => setLoading(false))
+    async function loadPosts() {
+      try {
+        const payload = await fetchDiscover(
+          { content_type: contentType },
+          { signal: controller.signal, dedupe: false },
+        )
+        if (controller.signal.aborted) return
+        setPosts(Array.isArray(payload?.items) ? payload.items : [])
+      } catch (err) {
+        if (controller.signal.aborted || err?.name === 'AbortError') return
+
+        try {
+          const fallback = await fetchPosts(
+            { pageSize: 50 },
+            { signal: controller.signal, dedupe: false },
+          )
+          if (controller.signal.aborted) return
+          setPosts((fallback.items || []).filter((post) => post.content_type === contentType))
+        } catch (fallbackErr) {
+          if (controller.signal.aborted || fallbackErr?.name === 'AbortError') return
+          setPosts([])
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+
+    loadPosts()
+    return () => controller.abort()
   }, [contentType, copy.title])
 
   const orderedPosts = useMemo(() => sortByCreatedTime(posts), [posts])

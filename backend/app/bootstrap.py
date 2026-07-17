@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 
 import app.db as db_mod
 from app.env import clean_env
-from app.models import Post, SiteSettings
+from app.models import Post, SiteSettings, User
 from app.schema_compat import ensure_schema_compat
 from app.seed import seed_data
-from app.storage import ensure_local_upload_dir, is_r2_enabled
+from app.storage import (
+    check_storage_readiness,
+    ensure_local_upload_dir,
+    is_r2_enabled,
+    validate_storage_configuration,
+)
 
 FALSE_VALUES = {"0", "false", "no", "off"}
 
@@ -31,6 +37,7 @@ def initialize_runtime(*, sync_schema: bool | None = None, seed_on_empty: bool |
     effective_sync = should_enable_startup_schema_sync() if sync_schema is None else sync_schema
     effective_seed = env_flag("AUTO_SEED_ON_EMPTY", True) if seed_on_empty is None else seed_on_empty
 
+    validate_storage_configuration()
     if not is_r2_enabled():
         ensure_local_upload_dir()
 
@@ -53,6 +60,18 @@ def initialize_runtime(*, sync_schema: bool | None = None, seed_on_empty: bool |
                 "for a single deploy."
             ) from exc
         raise
+
+
+def check_runtime_readiness() -> None:
+    with db_mod.engine.connect() as connection:
+        if connection.execute(text("SELECT 1")).scalar_one() != 1:
+            raise RuntimeError("Database connectivity check returned an unexpected result")
+
+        # LIMIT 0 validates the mapped columns without reading application rows.
+        for model in (Post, SiteSettings, User):
+            connection.execute(select(model).limit(0))
+
+    check_storage_readiness()
 
 
 def main() -> None:
