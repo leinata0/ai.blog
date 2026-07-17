@@ -76,32 +76,29 @@ function normalizeSubscriptionCta(payload = {}) {
   }
 }
 
+function normalizeHomeModules(payload) {
+  const modules = payload && typeof payload === 'object' ? payload : {}
+  return {
+    hero: normalizeHero(modules.hero),
+    latest_weekly: Array.isArray(modules.latest_weekly) ? modules.latest_weekly.map((post) => normalizePost(post)) : [],
+    latest_daily: Array.isArray(modules.latest_daily) ? modules.latest_daily.map((post) => normalizePost(post)) : [],
+    featured_series: Array.isArray(modules.featured_series) ? modules.featured_series.map((series) => normalizeSeries(series)) : [],
+    topic_pulse: normalizeTopicPulse(modules.topic_pulse),
+    continue_reading: normalizeContinueReading(modules.continue_reading),
+    subscription_cta: normalizeSubscriptionCta(modules.subscription_cta),
+  }
+}
+
 export async function fetchHomeModules(requestOptions = {}) {
   const payload = await apiGet('/api/home/modules', requestOptions)
-  return {
-    hero: normalizeHero(payload?.hero),
-    latest_weekly: Array.isArray(payload?.latest_weekly) ? payload.latest_weekly.map((post) => normalizePost(post)) : [],
-    latest_daily: Array.isArray(payload?.latest_daily) ? payload.latest_daily.map((post) => normalizePost(post)) : [],
-    featured_series: Array.isArray(payload?.featured_series) ? payload.featured_series.map((series) => normalizeSeries(series)) : [],
-    topic_pulse: normalizeTopicPulse(payload?.topic_pulse),
-    continue_reading: normalizeContinueReading(payload?.continue_reading),
-    subscription_cta: normalizeSubscriptionCta(payload?.subscription_cta),
-  }
+  return normalizeHomeModules(payload)
 }
 
 export async function fetchHomeBootstrap(params = {}, requestOptions = {}) {
   const payload = await apiGet(`/api/public/home-bootstrap${buildQuery(params)}`, requestOptions)
   return {
     settings: normalizeSettings(payload?.settings),
-    home_modules: {
-      hero: normalizeHero(payload?.home_modules?.hero),
-      latest_weekly: Array.isArray(payload?.home_modules?.latest_weekly) ? payload.home_modules.latest_weekly.map((post) => normalizePost(post)) : [],
-      latest_daily: Array.isArray(payload?.home_modules?.latest_daily) ? payload.home_modules.latest_daily.map((post) => normalizePost(post)) : [],
-      featured_series: Array.isArray(payload?.home_modules?.featured_series) ? payload.home_modules.featured_series.map((series) => normalizeSeries(series)) : [],
-      topic_pulse: normalizeTopicPulse(payload?.home_modules?.topic_pulse),
-      continue_reading: normalizeContinueReading(payload?.home_modules?.continue_reading),
-      subscription_cta: normalizeSubscriptionCta(payload?.home_modules?.subscription_cta),
-    },
+    home_modules: normalizeHomeModules(payload?.home_modules),
     posts: normalizePostList(payload?.posts),
   }
 }

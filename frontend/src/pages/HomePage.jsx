@@ -3,30 +3,23 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Calendar, Pin, Search, Sparkles, Tag } from 'lucide-react'
 
-import { fetchPosts, prefetchPostDetail, prefetchTopicDetail } from '../api/posts'
-import { fetchHomeModules } from '../api/home'
+import { fetchPosts, prefetchPostDetail } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
-import { getContinueReadingItems } from '../utils/topicRetention'
 import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
 import TagFilterBar from '../components/TagFilterBar'
 import Pagination from '../components/Pagination'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
-import SeriesEditorialStack from '../components/SeriesEditorialStack'
 import AmbientHeroBackdrop from '../components/AmbientHeroBackdrop'
-import CoverCard from '../components/CoverCard'
 import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import HeroFocusLine from '../components/HeroFocusLine'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import SiteHeroPosterStage from '../components/SiteHeroPosterStage'
-import TopicPulseSection from '../components/home/TopicPulseSection'
-import ContinueReadingSection from '../components/home/ContinueReadingSection'
-import SubscriptionShortcutSection from '../components/home/SubscriptionShortcutSection'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import {
   buildCollectionPageJsonLd,
@@ -41,16 +34,6 @@ import {
   motionItemVariants,
 } from '../utils/contentPresentation'
 
-const DEFAULT_HOME_MODULES = {
-  hero: null,
-  featured_series: [],
-  latest_daily: [],
-  latest_weekly: [],
-  topic_pulse: { items: [] },
-  continue_reading: { items: [] },
-  subscription_cta: null,
-}
-
 function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
   return (
     <form onSubmit={onSubmit} className="mt-8 flex max-w-2xl flex-col gap-3 sm:flex-row">
@@ -61,7 +44,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
           onChange={onInputChange}
           aria-label="搜索文章"
           placeholder={SITE_COPY.homeSearchPlaceholder}
-          className="w-full rounded-[1.3rem] border px-11 py-3.5 text-sm outline-none transition-colors"
+        className="w-full rounded-[1.3rem] border px-11 py-3.5 text-sm outline-none transition-colors focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
           style={{
             backgroundColor: 'var(--bg-surface-strong)',
             borderColor: 'var(--border-muted)',
@@ -89,80 +72,6 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
         </button>
       </div>
     </form>
-  )
-}
-
-function WeeklySpotlight({ post, onPrefetch, loading }) {
-  return (
-    <motion.section data-ui="home-weekly-spotlight" variants={motionItemVariants} className="space-y-4">
-      <EditorialSectionHeader
-        eyebrow="周报主卡"
-        title="先读一篇，快速看清这一周的关键变化"
-        description="把一周里最值得回看的消息、产品动作和产业线索串成完整脉络，更适合从全局理解变化。"
-        actionLabel="查看全部周报"
-        actionTo="/weekly"
-        actionIcon={ArrowRight}
-      />
-
-      {post ? (
-        <div onMouseEnter={() => onPrefetch(post.slug)} onFocus={() => onPrefetch(post.slug)}>
-          <CoverCard
-            to={`/posts/${post.slug}`}
-            image={post.cover_image}
-            imageAlt={post.title}
-            overlay
-            eyebrow="本周精选"
-            title={post.title}
-            description={post.summary}
-            meta={[
-              post.coverage_date || formatDate(post.created_at),
-              CONTENT_TYPE_META.weekly_review.label,
-            ]}
-            imageLoading="eager"
-            imageFetchPriority="high"
-            footer={<span className="inline-flex items-center gap-2 font-semibold">进入这篇周报 <ArrowRight size={14} /></span>}
-          />
-        </div>
-      ) : loading ? (
-        <LoadingSkeletonSet count={1} minHeight="20rem" />
-      ) : (
-        <EmptyStatePanel
-          title="最新周报会出现在这里"
-          description="当新的周报发布后，这里会优先展示最新一篇，方便你快速进入本周主线。"
-        />
-      )}
-    </motion.section>
-  )
-}
-
-function DailyCard({ post, onPrefetch }) {
-  return (
-    <motion.article
-      variants={motionItemVariants}
-      whileHover={hoverLift}
-      className="editorial-card rounded-[1.6rem] border px-5 py-5"
-      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow-soft)' }}
-    >
-      <Link to={`/posts/${post.slug}`} className="block" onMouseEnter={() => onPrefetch(post.slug)} onFocus={() => onPrefetch(post.slug)}>
-        <div className="flex items-center justify-between gap-3">
-          <span
-            className="rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]"
-            style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
-          >
-            今日关注
-          </span>
-          <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
-            {post.coverage_date || formatDate(post.created_at)}
-          </span>
-        </div>
-        <h3 className="mt-4 font-display text-xl font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>
-          {post.title}
-        </h3>
-        <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
-          {post.summary}
-        </p>
-      </Link>
-    </motion.article>
   )
 }
 
@@ -249,26 +158,22 @@ function PostCard({ post, onTagSelect, onPrefetch }) {
 }
 
 export default function HomePage() {
-  const { settings, bootstrap, loading: siteLoading } = useSite()
+  const { settings, bootstrap, bootstrapLoading, loading: siteLoading } = useSite()
   const [tag, setTag] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
-  const [posts, setPosts] = useState([])
-  const [homeModules, setHomeModules] = useState(DEFAULT_HOME_MODULES)
-  const [continueReadingItems, setContinueReadingItems] = useState([])
-  const [homeModulesLoading, setHomeModulesLoading] = useState(false)
-  const [homeModulesLoaded, setHomeModulesLoaded] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [posts, setPosts] = useState(() => (Array.isArray(bootstrap?.posts?.items) ? bootstrap.posts.items : []))
+  const [loading, setLoading] = useState(() => !bootstrap?.posts)
   const [slowLoading, setSlowLoading] = useState(false)
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
+  const [total, setTotal] = useState(() => bootstrap?.posts?.total ?? 0)
   const [pageSize] = useState(10)
   const postsRequestRef = useRef(0)
   const postsAbortRef = useRef(null)
-  const modulesAbortRef = useRef(null)
+  const hasInteractedRef = useRef(false)
 
-  const heroImage = homeModules.hero?.image || settings?.hero_image || settings?.avatar_url || ''
+  const heroImage = settings?.hero_image || settings?.avatar_url || ''
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
@@ -297,77 +202,31 @@ export default function HomePage() {
   const prefetchPost = useCallback((slug) => {
     prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
   }, [])
-  const prefetchTopic = useCallback((topicKey) => {
-    prefetchTopicDetail(topicKey, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
-  }, [])
 
   const applyBootstrapPayload = useCallback((payload) => {
-    if (!payload?.posts || !payload?.home_modules) return false
+    if (!payload?.posts) return false
+
+    postsAbortRef.current?.abort()
+    postsAbortRef.current = null
+    postsRequestRef.current += 1
 
     startTransition(() => {
-      setHomeModules(payload.home_modules)
       setPosts(Array.isArray(payload.posts.items) ? payload.posts.items : [])
       setTotal(payload.posts.total ?? 0)
     })
-    setHomeModulesLoaded(true)
-    setHomeModulesLoading(false)
     setLoading(false)
     setSlowLoading(false)
     setError('')
     return true
   }, [])
 
-  const loadHomeModules = useCallback((requestOptions = {}) => {
-    if (siteLoading && !bootstrap?.home_modules) {
-      return
-    }
-
-    if (bootstrap?.home_modules) {
-      startTransition(() => {
-        setHomeModules(bootstrap.home_modules)
-      })
-      setHomeModulesLoaded(true)
-      setHomeModulesLoading(false)
-      return
-    }
-
-    modulesAbortRef.current?.abort()
-    const controller = new AbortController()
-    modulesAbortRef.current = controller
-
-    setHomeModulesLoading(true)
-    fetchHomeModules(
-      {
-        signal: controller.signal,
-        staleWhileRevalidate: true,
-        cacheTtl: 45000,
-        staleTtl: 180000,
-        ...requestOptions,
-      },
-    )
-      .then((payload) => {
-        if (controller.signal.aborted) return
-        startTransition(() => {
-          setHomeModules(payload)
-        })
-        setHomeModulesLoaded(true)
-      })
-      .catch((err) => {
-        if (controller.signal.aborted || err?.name === 'AbortError') return
-        setHomeModulesLoaded(true)
-      })
-      .finally(() => {
-        if (controller.signal.aborted) return
-        setHomeModulesLoading(false)
-      })
-  }, [bootstrap?.home_modules, siteLoading])
-
   const loadPosts = useCallback(() => {
-    if (siteLoading && !bootstrap?.posts && !tag && !searchQuery && page === 1) {
+    const isDefaultView = !tag && !searchQuery && page === 1
+    if ((siteLoading || bootstrapLoading) && !bootstrap?.posts && isDefaultView) {
       return
     }
 
-    if (!tag && !searchQuery && page === 1 && applyBootstrapPayload(bootstrap)) {
+    if (isDefaultView && !hasInteractedRef.current && applyBootstrapPayload(bootstrap)) {
       return
     }
 
@@ -385,7 +244,7 @@ export default function HomePage() {
 
     fetchPosts(
       { tag: tag || undefined, q: searchQuery || undefined, page, pageSize },
-      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 10000, staleTtl: 45000 },
+      { signal: controller.signal, dedupe: false, staleWhileRevalidate: true, cacheTtl: 10000, staleTtl: 45000 },
     )
       .then((result) => {
         if (controller.signal.aborted || requestId !== postsRequestRef.current) return
@@ -407,7 +266,7 @@ export default function HomePage() {
         setLoading(false)
         setSlowLoading(false)
       })
-  }, [applyBootstrapPayload, bootstrap, page, pageSize, searchQuery, siteLoading, tag])
+  }, [applyBootstrapPayload, bootstrap, bootstrapLoading, page, pageSize, searchQuery, siteLoading, tag])
 
   useEffect(() => {
     loadPosts()
@@ -415,36 +274,7 @@ export default function HomePage() {
 
   useEffect(() => () => {
     postsAbortRef.current?.abort()
-    modulesAbortRef.current?.abort()
   }, [])
-
-  useEffect(() => {
-    loadHomeModules()
-  }, [loadHomeModules, bootstrap, siteLoading])
-
-  useEffect(() => {
-    if (!tag && !searchQuery && page === 1) {
-      applyBootstrapPayload(bootstrap)
-    }
-  }, [applyBootstrapPayload, bootstrap, page, searchQuery, tag])
-
-  useEffect(() => {
-    function syncContinueReading() {
-      setContinueReadingItems(getContinueReadingItems(4))
-    }
-
-    syncContinueReading()
-    window.addEventListener('focus', syncContinueReading)
-    window.addEventListener('pageshow', syncContinueReading)
-    return () => {
-      window.removeEventListener('focus', syncContinueReading)
-      window.removeEventListener('pageshow', syncContinueReading)
-    }
-  }, [])
-
-  useEffect(() => {
-    setPage(1)
-  }, [tag, searchQuery])
 
   const tags = useMemo(() => {
     const map = new Map()
@@ -454,43 +284,30 @@ export default function HomePage() {
     return Array.from(map.values())
   }, [posts])
 
-  const latestWeekly = useMemo(
-    () => homeModules.latest_weekly[0] || posts.find((post) => post.content_type === 'weekly_review') || null,
-    [homeModules.latest_weekly, posts],
-  )
-  const latestDaily = useMemo(
-    () => (
-      homeModules.latest_daily.length > 0
-        ? homeModules.latest_daily.slice(0, 4)
-        : posts.filter((post) => post.content_type === 'daily_brief').slice(0, 4)
-    ),
-    [homeModules.latest_daily, posts],
-  )
-  const homeSeries = useMemo(() => homeModules.featured_series.slice(0, 4), [homeModules.featured_series])
-  const topicPulseModule = useMemo(
-    () => homeModules.topic_pulse || { title: '正在发酵', description: '', items: [] },
-    [homeModules.topic_pulse],
-  )
-  const continueReadingModule = useMemo(
-    () => homeModules.continue_reading || { title: '继续追更', empty_hint: '', items: [] },
-    [homeModules.continue_reading],
-  )
-  const subscriptionShortcut = useMemo(
-    () => homeModules.subscription_cta || null,
-    [homeModules.subscription_cta],
-  )
-
   function handleSearch(event) {
     event.preventDefault()
+    hasInteractedRef.current = true
+    setPage(1)
     setSearchQuery(searchInput.trim())
   }
 
   function clearSearch() {
+    hasInteractedRef.current = true
+    setPage(1)
     setSearchInput('')
     setSearchQuery('')
   }
 
+  function handleTagSelect(nextTag) {
+    hasInteractedRef.current = true
+    setPage(1)
+    setTag(nextTag)
+    setSearchQuery('')
+    setSearchInput('')
+  }
+
   function handlePageChange(newPage) {
+    hasInteractedRef.current = true
     setPage(newPage)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -581,7 +398,7 @@ export default function HomePage() {
 
       {searchQuery ? (
         <div className="mx-auto max-w-7xl px-6 pt-2 sm:px-10 lg:px-20">
-          <div className="rounded-[1.3rem] border px-4 py-3 text-sm" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', color: 'var(--text-secondary)' }}>
+          <div className="break-words rounded-[1.3rem] border px-4 py-3 text-sm [overflow-wrap:anywhere]" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', color: 'var(--text-secondary)' }}>
             搜索结果：“{searchQuery}”
             <span className="ml-2" style={{ color: 'var(--text-faint)' }}>
               共 {total} 篇
@@ -593,97 +410,22 @@ export default function HomePage() {
       <div className="mx-auto max-w-7xl px-6 py-12 sm:px-10 lg:px-20">
         <div className="flex flex-col gap-10 lg:flex-row">
           <div className="min-w-0 flex-1">
+            <EditorialSectionHeader
+              eyebrow="最新文章"
+              title="继续阅读今天与本周的更新"
+              description="这里保留完整文章流，你可以按标签、搜索和分页继续向下浏览。"
+              className="mb-6"
+            />
+
             <div className="mb-8 sticky top-[4.5rem] z-20 -mx-1 rounded-[1.3rem] border border-[var(--border-muted)] bg-[var(--bg-surface)]/90 px-3 py-3 shadow-[var(--card-shadow-soft)] backdrop-blur-md sm:px-4">
               <TagFilterBar
                 tags={tags}
                 activeTag={tag}
-                onTagSelect={(nextTag) => {
-                  setTag(nextTag)
-                  setSearchQuery('')
-                  setSearchInput('')
-                }}
+                onTagSelect={handleTagSelect}
               />
             </div>
 
-            <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="mb-12 space-y-12">
-              <WeeklySpotlight
-                post={latestWeekly}
-                onPrefetch={prefetchPost}
-                loading={homeModulesLoading && !homeModulesLoaded && !latestWeekly}
-              />
-
-              <motion.section data-ui="home-daily-rail" variants={motionItemVariants} className="space-y-4">
-                <EditorialSectionHeader
-                  eyebrow="日报流"
-                  title="先看今天最值得跟进的消息"
-                  description="从更快的节奏里挑出真正值得继续追踪的更新，让首页更像一份经过编辑整理的内容首页。"
-                  actionLabel="查看日报"
-                  actionTo="/daily"
-                  actionIcon={ArrowRight}
-                />
-
-                {latestDaily.length > 0 ? (
-                  <motion.div variants={motionContainerVariants} className="grid gap-4 md:grid-cols-2">
-                    {latestDaily.map((post) => (
-                      <DailyCard key={post.slug} post={post} onPrefetch={prefetchPost} />
-                    ))}
-                  </motion.div>
-                ) : homeModulesLoading && !homeModulesLoaded ? (
-                  <LoadingSkeletonSet count={2} className="grid gap-4 md:grid-cols-2" minHeight="12rem" />
-                ) : (
-                  <EmptyStatePanel
-                    title="最新日报会出现在这里"
-                    description="当天的重要消息发布后，这里会优先展示最新日报入口。"
-                  />
-                )}
-              </motion.section>
-
-              <motion.section variants={motionItemVariants}>
-                <EditorialSectionHeader
-                  eyebrow="系列入口"
-                  title="沿着栏目路径继续阅读"
-                  description="系列强调的是“如何组织阅读”。它会把日报、周报和专题文章重新编排成更适合长期追踪的栏目路径。"
-                  actionLabel="查看全部系列"
-                  actionTo="/series"
-                  actionIcon={ArrowRight}
-                />
-
-                <div className="mt-4">
-                  {homeSeries.length > 0 ? (
-                    <SeriesEditorialStack
-                      items={homeSeries}
-                      mode="compact"
-                      emptyText="系列入口正在整理中。"
-                      dataUi="home-series-showcase"
-                    />
-                  ) : homeModulesLoading && !homeModulesLoaded ? (
-                    <LoadingSkeletonSet count={1} minHeight="22rem" />
-                  ) : (
-                    <EmptyStatePanel
-                      title="系列入口正在整理中"
-                      description="推荐系列会在主内容稳定显示后补齐到这里，方便你沿着阅读路径继续看下去。"
-                    />
-                  )}
-                </div>
-              </motion.section>
-
-              <TopicPulseSection module={topicPulseModule} onPrefetchTopic={prefetchTopic} />
-              <ContinueReadingSection
-                module={continueReadingModule}
-                items={continueReadingItems}
-                onPrefetch={prefetchPost}
-              />
-              {subscriptionShortcut ? <SubscriptionShortcutSection module={subscriptionShortcut} /> : null}
-            </motion.div>
-
             <section aria-label="文章列表">
-              <EditorialSectionHeader
-                eyebrow="最新文章"
-                title="继续阅读今天与本周的更新"
-                description="这里保留完整文章流，你可以按标签、搜索和分页继续向下浏览。"
-                className="mb-6"
-              />
-
               {loading ? (
                 <div className="space-y-5">
                   {slowLoading ? (
@@ -709,11 +451,7 @@ export default function HomePage() {
                       key={post.slug}
                       post={post}
                       onPrefetch={prefetchPost}
-                      onTagSelect={(nextTag) => {
-                        setTag(nextTag)
-                        setSearchQuery('')
-                        setSearchInput('')
-                      }}
+                      onTagSelect={handleTagSelect}
                     />
                   ))}
                 </motion.div>

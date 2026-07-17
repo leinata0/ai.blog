@@ -7,6 +7,7 @@ const defaultSiteContextValue = {
   settings: null,
   stats: null,
   bootstrap: null,
+  bootstrapLoading: false,
   loading: false,
   refreshSettings: async () => {},
   refreshStats: async () => {},
@@ -37,6 +38,7 @@ export function SiteProvider({ children }) {
   const [settings, setSettings] = useState(() => readRuntimeBootstrap()?.settings ?? null)
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(() => readRuntimeBootstrap()?.settings == null)
+  const [homeBootstrapSettled, setHomeBootstrapSettled] = useState(() => Boolean(readRuntimeBootstrap()?.posts))
 
   useEffect(() => {
     let active = true
@@ -91,7 +93,7 @@ export function SiteProvider({ children }) {
       // Prefer memory/session cache and SWR. Only force a network round-trip when
       // there is no current bootstrap/settings to show (cold client load).
       fetchHomeBootstrap(
-        { page: 1, page_size: 10 },
+        { page: 1, page_size: 10, include_modules: false },
         {
           cache: true,
           cacheTtl: 60000,
@@ -102,10 +104,12 @@ export function SiteProvider({ children }) {
       )
         .then((payload) => {
           if (!active || !payload?.settings) return
+          setHomeBootstrapSettled(true)
           applySettings(payload.settings, payload)
         })
         .catch(() => {
           if (!active || preserveCurrent) return
+          setHomeBootstrapSettled(true)
           loadSettingsFallback({ forceRefresh: true })
         })
     }
@@ -113,10 +117,12 @@ export function SiteProvider({ children }) {
     if (isHomeRoute) {
       const runtimeBootstrap = readRuntimeBootstrap()
       if (runtimeBootstrap?.settings) {
+        setHomeBootstrapSettled(true)
         applySettings(runtimeBootstrap.settings, runtimeBootstrap)
         // Background revalidation only — do not bypass the client cache.
         refreshHomeBootstrap(true)
       } else {
+        setHomeBootstrapSettled(false)
         if (!settings) {
           setLoading(true)
         }
@@ -128,6 +134,7 @@ export function SiteProvider({ children }) {
     } else {
       setLoading(false)
       setBootstrap(null)
+      setHomeBootstrapSettled(false)
       loadStatsInBackground()
     }
 
@@ -146,9 +153,10 @@ export function SiteProvider({ children }) {
     [],
   )
 
+  const bootstrapLoading = location.pathname === '/' && !bootstrap?.posts && !homeBootstrapSettled
   const value = useMemo(
-    () => ({ settings, stats, bootstrap, loading, refreshSettings, refreshStats }),
-    [settings, stats, bootstrap, loading, refreshSettings, refreshStats],
+    () => ({ settings, stats, bootstrap, bootstrapLoading, loading, refreshSettings, refreshStats }),
+    [settings, stats, bootstrap, bootstrapLoading, loading, refreshSettings, refreshStats],
   )
 
   return (
