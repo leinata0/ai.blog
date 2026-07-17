@@ -46,6 +46,22 @@ test('publisher respects the admin API default page-size limit', async () => {
   assert.match(requestedUrl, /page_size=50$/)
 })
 
+test('publisher retries transient admin-list failures during rolling deploys', async () => {
+  let attempts = 0
+  const result = await fetchExistingPostBySlug('target', 'token', {
+    blogApiBase: 'https://blog.example',
+    fetchImpl: async () => {
+      attempts += 1
+      if (attempts < 3) return new Response('deploying', { status: 502 })
+      return jsonResponse({ items: [{ id: 5, slug: 'target' }], total: 1 })
+    },
+    retryOptions: { attempts: 3, sleepImpl: async () => {} },
+  })
+
+  assert.equal(result.id, 5)
+  assert.equal(attempts, 3)
+})
+
 test('publisher preserves an existing post cover', () => {
   assert.equal(
     resolveExistingCover({}, { cover_image: 'https://img.example/existing.jpg' }),

@@ -16,6 +16,33 @@ const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
 
+const TRANSIENT_HTTP_STATUSES = new Set([429, 500, 502, 503, 504])
+
+function sleep(ms) {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
+}
+
+async function fetchWithTransientRetry(
+  fetchImpl,
+  url,
+  options,
+  { attempts = 7, sleepImpl = sleep } = {},
+) {
+  let response
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      response = await fetchImpl(url, options)
+    } catch (error) {
+      if (attempt === attempts) throw error
+      await sleepImpl(Math.min(1000 * 2 ** (attempt - 1), 8000))
+      continue
+    }
+    if (!TRANSIENT_HTTP_STATUSES.has(response.status) || attempt === attempts) return response
+    await sleepImpl(Math.min(1000 * 2 ** (attempt - 1), 8000))
+  }
+  return response
+}
+
 async function loadArticle() {
   const articleUrl = new URL(ARTICLE_FILE, import.meta.url)
   const mod = await import(articleUrl)
@@ -40,12 +67,15 @@ async function login() {
 export async function fetchExistingPostBySlug(
   slug,
   token,
-  { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, pageSize = 50 } = {},
+  { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, pageSize = 50, retryOptions } = {},
 ) {
   for (let page = 1; ; page += 1) {
-    const listResp = await fetchImpl(`${blogApiBase}/api/admin/posts?page=${page}&page_size=${pageSize}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    const listResp = await fetchWithTransientRetry(
+      fetchImpl,
+      `${blogApiBase}/api/admin/posts?page=${page}&page_size=${pageSize}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      retryOptions,
+    )
     if (!listResp.ok) {
       throw new Error(`Failed to load admin posts: ${listResp.status} ${(await listResp.text()).slice(0, 300)}`)
     }
