@@ -1,4 +1,8 @@
+from datetime import timedelta
+
 from app.models import EmailSubscription, PostNotificationDispatch, WebPushSubscription
+from app.notifications import send_subscription_confirmation_email
+from app.subscription_tokens import SUBSCRIBE_PURPOSE, issue_subscription_token
 
 
 def _login(client):
@@ -11,6 +15,39 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _capture_confirmations(monkeypatch):
+    confirmations = []
+
+    def _send(email, token, site_url, purpose):
+        confirmations.append(
+            {"email": email, "token": token, "site_url": site_url, "purpose": purpose}
+        )
+        return True
+
+    monkeypatch.setattr(
+        "app.routers.subscriptions.send_subscription_confirmation_email",
+        _send,
+    )
+    return confirmations
+
+
+def _confirm_latest(client, confirmations):
+    return client.post(
+        "/api/subscriptions/email/confirm",
+        json={"token": confirmations[-1]["token"]},
+    )
+
+
+def _subscribe_and_confirm(client, confirmations, payload):
+    request_resp = client.post("/api/subscriptions/email", json=payload)
+    assert request_resp.status_code == 200
+    assert request_resp.json()["confirmation_required"] is True
+    confirm_resp = _confirm_latest(client, confirmations)
+    assert confirm_resp.status_code == 200
+    assert confirm_resp.json()["is_active"] is True
+    return confirm_resp
+
+
 def test_subscription_status_and_public_subscription_endpoints(client, db_session, monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "resend_test")
     monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
@@ -18,6 +55,7 @@ def test_subscription_status_and_public_subscription_endpoints(client, db_sessio
     monkeypatch.setenv("WEB_PUSH_VAPID_PRIVATE_KEY", "private-test-key")
     monkeypatch.setenv("WEB_PUSH_SUBJECT", "mailto:owner@example.com")
     monkeypatch.setenv("WECOM_WEBHOOK_URLS", "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test")
+    confirmations = _capture_confirmations(monkeypatch)
 
     status_resp = client.get("/api/subscriptions/status")
     assert status_resp.status_code == 200
@@ -38,8 +76,16 @@ def test_subscription_status_and_public_subscription_endpoints(client, db_sessio
     )
     assert email_resp.status_code == 200
     assert email_resp.json()["delivery_ready"] is True
+    assert email_resp.json()["confirmation_required"] is True
+    assert email_resp.json()["is_active"] is None
     assert email_resp.json()["topic_keys"] == ["openai-models"]
     assert email_resp.json()["series_slugs"] == ["ai-weekly-review"]
+    assert db_session.query(EmailSubscription).filter_by(email="reader@example.com").one_or_none() is None
+
+    confirm_resp = _confirm_latest(client, confirmations)
+    assert confirm_resp.status_code == 200
+    assert confirm_resp.json()["confirmation_required"] is False
+    assert confirmations[0]["site_url"] == "https://example.test"
 
     email_sub = db_session.query(EmailSubscription).filter_by(email="reader@example.com").one()
     assert email_sub.is_active is True
@@ -73,17 +119,18 @@ def test_manual_post_dispatches_email_notification(client, db_session, monkeypat
     monkeypatch.setenv("RESEND_API_KEY", "resend_test")
     monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
     sent_emails = []
+    confirmations = _capture_confirmations(monkeypatch)
 
     monkeypatch.setattr(
         "app.notifications._send_email_notification",
         lambda email, post, site_url: sent_emails.append((email, post.slug, site_url)),
     )
 
-    subscribe_resp = client.post(
-        "/api/subscriptions/email",
-        json={"email": "reader@example.com", "content_types": ["all"]},
+    _subscribe_and_confirm(
+        client,
+        confirmations,
+        {"email": "reader@example.com", "content_types": ["all"]},
     )
-    assert subscribe_resp.status_code == 200
 
     token = _login(client)
     create_resp = client.post(
@@ -112,17 +159,18 @@ def test_auto_post_dispatches_after_publishing_metadata(client, db_session, monk
     monkeypatch.setenv("RESEND_API_KEY", "resend_test")
     monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
     sent_emails = []
+    confirmations = _capture_confirmations(monkeypatch)
 
     monkeypatch.setattr(
         "app.notifications._send_email_notification",
         lambda email, post, site_url: sent_emails.append((email, post.slug)),
     )
 
-    subscribe_resp = client.post(
-        "/api/subscriptions/email",
-        json={"email": "reader@example.com", "content_types": ["daily_brief"]},
+    _subscribe_and_confirm(
+        client,
+        confirmations,
+        {"email": "reader@example.com", "content_types": ["daily_brief"]},
     )
-    assert subscribe_resp.status_code == 200
 
     token = _login(client)
     create_resp = client.post(
@@ -179,31 +227,35 @@ def test_subscription_preferences_match_topic_or_series(client, db_session, monk
     monkeypatch.setenv("RESEND_API_KEY", "resend_test")
     monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
     sent_emails = []
+    confirmations = _capture_confirmations(monkeypatch)
 
     monkeypatch.setattr(
         "app.notifications._send_email_notification",
         lambda email, post, site_url: sent_emails.append((email, post.slug)),
     )
 
-    client.post(
-        "/api/subscriptions/email",
-        json={
+    _subscribe_and_confirm(
+        client,
+        confirmations,
+        {
             "email": "topic@example.com",
             "content_types": ["daily_brief"],
             "topic_keys": ["topic-follow-up"],
         },
     )
-    client.post(
-        "/api/subscriptions/email",
-        json={
+    _subscribe_and_confirm(
+        client,
+        confirmations,
+        {
             "email": "series@example.com",
             "content_types": ["daily_brief"],
             "series_slugs": ["ai-daily-brief"],
         },
     )
-    client.post(
-        "/api/subscriptions/email",
-        json={
+    _subscribe_and_confirm(
+        client,
+        confirmations,
+        {
             "email": "other@example.com",
             "content_types": ["weekly_review"],
             "topic_keys": ["other-topic"],
@@ -232,3 +284,170 @@ def test_subscription_preferences_match_topic_or_series(client, db_session, monk
         ("topic@example.com", "daily-topic-follow-up"),
         ("series@example.com", "daily-topic-follow-up"),
     ]
+
+
+def test_email_subscription_fails_closed_without_delivery_configuration(client, db_session, monkeypatch):
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+
+    response = client.post(
+        "/api/subscriptions/email",
+        json={"email": "reader@example.com", "content_types": ["all"]},
+    )
+
+    assert response.status_code == 503
+    assert "confirmation email was not sent" in response.json()["detail"]
+    assert db_session.query(EmailSubscription).count() == 0
+
+
+def test_email_subscription_does_not_overwrite_preferences_before_confirmation(client, db_session, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "resend_test")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
+    confirmations = _capture_confirmations(monkeypatch)
+    existing = EmailSubscription(
+        email="reader@example.com",
+        content_types_json='["weekly_review"]',
+        topic_keys_json='["old-topic"]',
+        series_slugs_json="[]",
+        is_active=True,
+        source="test",
+    )
+    db_session.add(existing)
+    db_session.commit()
+
+    response = client.post(
+        "/api/subscriptions/email",
+        json={
+            "email": "reader@example.com",
+            "content_types": ["daily_brief"],
+            "topic_keys": ["new-topic"],
+        },
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(existing)
+    assert existing.content_types_json == '["weekly_review"]'
+    assert existing.topic_keys_json == '["old-topic"]'
+
+    confirm_resp = _confirm_latest(client, confirmations)
+    assert confirm_resp.status_code == 200
+    db_session.refresh(existing)
+    assert existing.content_types_json == '["daily_brief"]'
+    assert existing.topic_keys_json == '["new-topic"]'
+
+
+def test_email_unsubscribe_requires_matching_confirmation_token(client, db_session, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "resend_test")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
+    confirmations = _capture_confirmations(monkeypatch)
+    _subscribe_and_confirm(
+        client,
+        confirmations,
+        {
+            "email": "reader@example.com",
+            "content_types": ["daily_brief"],
+            "topic_keys": ["agent-tools"],
+        },
+    )
+    subscription = db_session.query(EmailSubscription).filter_by(email="reader@example.com").one()
+
+    request_resp = client.post(
+        "/api/subscriptions/email/unsubscribe",
+        json={"email": "reader@example.com"},
+    )
+    assert request_resp.status_code == 200
+    assert request_resp.json()["confirmation_required"] is True
+    db_session.refresh(subscription)
+    assert subscription.is_active is True
+
+    confirm_resp = _confirm_latest(client, confirmations)
+    assert confirm_resp.status_code == 200
+    assert confirm_resp.json()["is_active"] is False
+    db_session.refresh(subscription)
+    assert subscription.is_active is False
+
+
+def test_stale_unsubscribe_token_cannot_cancel_changed_preferences(client, db_session, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "resend_test")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
+    confirmations = _capture_confirmations(monkeypatch)
+    _subscribe_and_confirm(
+        client,
+        confirmations,
+        {"email": "reader@example.com", "content_types": ["daily_brief"]},
+    )
+    request_resp = client.post(
+        "/api/subscriptions/email/unsubscribe",
+        json={"email": "reader@example.com"},
+    )
+    assert request_resp.status_code == 200
+    unsubscribe_token = confirmations[-1]["token"]
+
+    subscription = db_session.query(EmailSubscription).filter_by(email="reader@example.com").one()
+    subscription.content_types_json = '["weekly_review"]'
+    db_session.commit()
+
+    confirm_resp = client.post(
+        "/api/subscriptions/email/confirm",
+        json={"token": unsubscribe_token},
+    )
+    assert confirm_resp.status_code == 409
+    db_session.refresh(subscription)
+    assert subscription.is_active is True
+
+
+def test_invalid_and_expired_subscription_tokens_are_rejected(client):
+    invalid_resp = client.post(
+        "/api/subscriptions/email/confirm",
+        json={"token": "not-a-valid-confirmation-token"},
+    )
+    assert invalid_resp.status_code == 400
+
+    expired_token = issue_subscription_token(
+        purpose=SUBSCRIBE_PURPOSE,
+        email="reader@example.com",
+        content_types=["all"],
+        topic_keys=[],
+        series_slugs=[],
+        expires_delta=timedelta(seconds=-1),
+    )
+    expired_resp = client.post(
+        "/api/subscriptions/email/confirm",
+        json={"token": expired_token},
+    )
+    assert expired_resp.status_code == 410
+
+
+def test_confirmation_delivery_failure_does_not_create_subscription(client, db_session, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "resend_test")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
+    monkeypatch.setattr(
+        "app.routers.subscriptions.send_subscription_confirmation_email",
+        lambda *args: False,
+    )
+
+    response = client.post(
+        "/api/subscriptions/email",
+        json={"email": "reader@example.com", "content_types": ["all"]},
+    )
+    assert response.status_code == 503
+    assert db_session.query(EmailSubscription).count() == 0
+
+
+def test_confirmation_email_keeps_token_out_of_http_query(monkeypatch):
+    captured = {}
+
+    def _send_email(to, subject, html, text):
+        captured.update({"to": to, "subject": subject, "html": html, "text": text})
+        return True
+
+    monkeypatch.setattr("app.notifications.send_email", _send_email)
+
+    assert send_subscription_confirmation_email(
+        "reader@example.com",
+        "signed.token/value",
+        "https://example.test",
+        SUBSCRIBE_PURPOSE,
+    )
+    assert "https://example.test/feeds#subscription_token=signed.token%2Fvalue" in captured["text"]
+    assert "/feeds?subscription_token=" not in captured["text"]

@@ -6,6 +6,7 @@ import {
   mergeTopicsCloud,
   mergeHistoryCloud,
 } from '../api/user'
+import { subscribeToUserUnauthorized } from '../api/client'
 import { getUserToken, setUserToken, clearUserToken, isUserTokenExpired } from '../api/userAuth'
 import { getFollowedTopics, getReadingHistory } from '../utils/topicRetention'
 
@@ -78,6 +79,11 @@ export function UserProvider({ children }) {
       setLoading(false)
     }
   }, [])
+
+  useEffect(() => subscribeToUserUnauthorized(() => {
+    setUser(null)
+    setLoading(false)
+  }), [])
 
   useEffect(() => {
     refresh()

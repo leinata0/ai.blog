@@ -1,5 +1,5 @@
 import React from 'react'
-import { createRoot, hydrateRoot } from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { SiteProvider } from './contexts/SiteContext'
@@ -22,10 +22,6 @@ const tree = (
 )
 
 const rootEl = document.getElementById('root')
-// Prerender writes SEO HTML into #root. Hydrate when present so first paint
-// keeps the static shell; fall back to createRoot for empty SPA shells.
-if (rootEl?.hasChildNodes()) {
-  hydrateRoot(rootEl, tree)
-} else {
-  createRoot(rootEl).render(tree)
-}
+// The prerendered markup is an SEO/no-JS snapshot, not a React server render.
+// Once JavaScript starts, React intentionally replaces that snapshot.
+createRoot(rootEl).render(tree)

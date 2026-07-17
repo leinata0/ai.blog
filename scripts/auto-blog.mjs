@@ -1228,7 +1228,7 @@ function inferTopicKeyFromSlug(slug, coverageDate) {
   return String(slug || '').startsWith(prefix) ? String(slug).slice(prefix.length) : ''
 }
 
-async function fetchPublishedTopicKeys({ coverageDate }) {
+export async function fetchPublishedTopicKeys({ coverageDate, fetchImpl = fetch }) {
   const topicKeys = new Set()
   let page = 1
   const pageSize = 50
@@ -1236,7 +1236,7 @@ async function fetchPublishedTopicKeys({ coverageDate }) {
   while (page <= 4) {
     let response
     try {
-      response = await fetch(`${BLOG_API_BASE}/api/posts?page=${page}&page_size=${pageSize}`, {
+      response = await fetchImpl(`${BLOG_API_BASE}/api/posts?page=${page}&page_size=${pageSize}`, {
         signal: AbortSignal.timeout(10000),
       })
     } catch {
@@ -1247,6 +1247,7 @@ async function fetchPublishedTopicKeys({ coverageDate }) {
     const data = await response.json()
     const items = Array.isArray(data?.items) ? data.items : []
     for (const post of items) {
+      if (String(post?.coverage_date || '').trim() !== coverageDate) continue
       const topicKey = post.topic_key || inferTopicKeyFromSlug(post.slug, coverageDate)
       if (topicKey) topicKeys.add(topicKey)
     }
@@ -3115,15 +3116,12 @@ async function upsertPublishingMetadata(token, payload) {
   return resp.json()
 }
 
-async function bridgePublishingMetadata(token, payload) {
-  if (!token || !payload) return null
-  try {
-    return await upsertPublishingMetadata(token, payload)
-  } catch (error) {
-    const postLabel = payload?.post_slug || payload?.post_id || 'unknown-post'
-    console.warn(`Failed to bridge publishing metadata for ${postLabel}: ${error.message}`)
-    return null
-  }
+export async function bridgePublishingMetadata(token, payload, {
+  upsert = upsertPublishingMetadata,
+} = {}) {
+  if (!token) throw new Error('Publishing metadata bridge failed: missing admin token')
+  if (!payload) throw new Error('Publishing metadata bridge failed: missing payload')
+  return upsert(token, payload)
 }
 
 async function upsertQualitySnapshot(token, payload) {
@@ -3179,14 +3177,13 @@ async function upsertQualitySnapshot(token, payload) {
   throw new Error(`Quality snapshot endpoint unavailable (${failures.join('; ')})`)
 }
 
-async function bridgeQualitySnapshot(token, payload) {
-  if (!token || !payload) return null
-  try {
-    return await upsertQualitySnapshot(token, payload)
-  } catch (error) {
-    console.warn(`Failed to bridge quality snapshot: ${error.message}`)
-    return null
-  }
+export async function bridgeQualitySnapshot(token, payload, {
+  upsert = upsertQualitySnapshot,
+} = {}) {
+  if (!token) throw new Error('Quality snapshot bridge failed: missing admin token')
+  if (!payload) throw new Error('Quality snapshot bridge failed: missing payload')
+  if (!payload.post_id) throw new Error('Quality snapshot bridge failed: missing post_id')
+  return upsert(token, payload)
 }
 
 async function upsertTopicMetadata(token, payload) {
@@ -3240,14 +3237,13 @@ async function upsertTopicMetadata(token, payload) {
   throw new Error(`Topic metadata endpoint unavailable (${failures.join('; ')})`)
 }
 
-async function bridgeTopicMetadata(token, payload) {
-  if (!token || !payload) return null
-  try {
-    return await upsertTopicMetadata(token, payload)
-  } catch (error) {
-    console.warn(`Failed to bridge topic metadata: ${error.message}`)
-    return null
-  }
+export async function bridgeTopicMetadata(token, payload, {
+  upsert = upsertTopicMetadata,
+} = {}) {
+  if (!token) throw new Error('Topic metadata bridge failed: missing admin token')
+  if (!payload) throw new Error('Topic metadata bridge failed: missing payload')
+  if (!payload.post_id) throw new Error('Topic metadata bridge failed: missing post_id')
+  return upsert(token, payload)
 }
 
 async function localizeImagePlans(imagePlans, token) {

@@ -7,7 +7,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, Response
 from sqlalchemy.orm import Session, load_only, selectinload
-from sqlalchemy import case, func, or_, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.client_ip import client_ip_from_request
@@ -1063,6 +1063,10 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
 
 # ── 点赞接口 ──
 
+def _delete_registered_like(db: Session, like_id: int) -> bool:
+    result = db.execute(delete(PostLike).where(PostLike.id == like_id))
+    return result.rowcount == 1
+
 @router.get("/posts/{slug}/like-state")
 def get_like_state(
     slug: str,
@@ -1117,18 +1121,20 @@ def like_post(
             PostLike.user_id == current_user.id,
         ).first()
         if existing:
-            db.delete(existing)
-            # Clamp in SQL so concurrent unlikes cannot drive like_count negative.
-            db.execute(
-                update(Post)
-                .where(Post.id == post.id)
-                .values(
-                    like_count=case(
-                        (Post.like_count > 0, Post.like_count - 1),
-                        else_=0,
+            deleted = _delete_registered_like(db, existing.id)
+            if deleted:
+                # The counter follows the actual DELETE row count. A concurrent
+                # cancellation that already removed the row must not decrement twice.
+                db.execute(
+                    update(Post)
+                    .where(Post.id == post.id)
+                    .values(
+                        like_count=case(
+                            (Post.like_count > 0, Post.like_count - 1),
+                            else_=0,
+                        )
                     )
                 )
-            )
             db.commit()
             refreshed = db.execute(select(Post.like_count).where(Post.id == post.id)).scalar_one_or_none()
             return {"like_count": max(refreshed or 0, 0), "liked": False}

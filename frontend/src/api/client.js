@@ -5,6 +5,7 @@ const TIMEOUT = 30000
 const GET_CACHE_TTL = 15000
 const GET_STALE_TTL = 60000
 const SESSION_CACHE_PREFIX = 'blog.api-cache:'
+export const USER_UNAUTHORIZED_EVENT = 'blog:user-unauthorized'
 const SESSION_CACHE_MATCHERS = [
   /^public:\/api\/settings(?:\?|$)/,
   /^public:\/api\/stats(?:\?|$)/,
@@ -16,6 +17,21 @@ const SESSION_CACHE_MATCHERS = [
 
 const getCache = new Map()
 const inflightGet = new Map()
+const activeGetCounts = new Map()
+const cacheGenerations = new Map()
+let generationCounter = 0
+let globalCacheGeneration = 0
+
+function notifyUserUnauthorized() {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(USER_UNAUTHORIZED_EVENT))
+}
+
+export function subscribeToUserUnauthorized(listener) {
+  if (typeof window === 'undefined') return () => {}
+  window.addEventListener(USER_UNAUTHORIZED_EVENT, listener)
+  return () => window.removeEventListener(USER_UNAUTHORIZED_EVENT, listener)
+}
 
 function isAbortError(err) {
   return err?.name === 'AbortError' || /aborted|canceled|cancelled/i.test(String(err?.message || ''))
@@ -124,7 +140,47 @@ function readCacheEntry(cacheKey, now) {
   return entry
 }
 
-function writeCacheEntry(cacheKey, data, cacheTtl, staleTtl) {
+function currentCacheGeneration(cacheKey) {
+  return Math.max(globalCacheGeneration, cacheGenerations.get(cacheKey) || 0)
+}
+
+function isCurrentCacheGeneration(cacheKey, generation) {
+  return currentCacheGeneration(cacheKey) === generation
+}
+
+function invalidateCacheKey(cacheKey) {
+  cacheGenerations.set(cacheKey, ++generationCounter)
+  getCache.delete(cacheKey)
+  inflightGet.delete(cacheKey)
+  deleteSessionCacheEntry(cacheKey)
+}
+
+function trackActiveGet(cacheKey) {
+  activeGetCounts.set(cacheKey, (activeGetCounts.get(cacheKey) || 0) + 1)
+}
+
+function untrackActiveGet(cacheKey) {
+  const remaining = (activeGetCounts.get(cacheKey) || 1) - 1
+  if (remaining > 0) {
+    activeGetCounts.set(cacheKey, remaining)
+  } else {
+    activeGetCounts.delete(cacheKey)
+  }
+}
+
+function matchesCacheKey(cacheKey, matchPath) {
+  if (typeof matchPath === 'string') return cacheKey.includes(matchPath)
+  if (!(matchPath instanceof RegExp)) return false
+
+  matchPath.lastIndex = 0
+  const matches = matchPath.test(cacheKey)
+  matchPath.lastIndex = 0
+  return matches
+}
+
+function writeCacheEntry(cacheKey, data, cacheTtl, staleTtl, generation) {
+  if (!isCurrentCacheGeneration(cacheKey, generation)) return
+
   const now = Date.now()
   const entry = {
     data,
@@ -218,9 +274,8 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
         throw new Error('登录已过期，请重新登录')
       }
       if (resp.status === 401 && authMode === 'user') {
-        // Clear the stale visitor token but do NOT hard-redirect — the calling
-        // page/UserContext decides whether to route to /login.
         clearUserToken()
+        notifyUserUnauthorized()
         throw new Error('登录已过期，请重新登录')
       }
       throw new Error(await readErrorMessage(resp))
@@ -243,10 +298,10 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
   }
 }
 
-async function requestGetNetwork(path, options, cacheKey, cacheConfig) {
+async function requestGetNetwork(path, options, cacheKey, cacheConfig, generation) {
   const response = await request('GET', path, options)
   if (cacheConfig.enabled) {
-    writeCacheEntry(cacheKey, response, cacheConfig.cacheTtl, cacheConfig.staleTtl)
+    writeCacheEntry(cacheKey, response, cacheConfig.cacheTtl, cacheConfig.staleTtl, generation)
   }
   return response
 }
@@ -260,6 +315,7 @@ export function apiGet(path, opts = {}) {
   const staleWhileRevalidate = Boolean(opts.staleWhileRevalidate)
   const forceRefresh = Boolean(opts.forceRefresh)
   const cacheKey = requestGetKey(path, authMode)
+  const generation = currentCacheGeneration(cacheKey)
   const now = Date.now()
   const cacheConfig = { enabled: cacheEnabled, cacheTtl, staleTtl }
 
@@ -270,29 +326,41 @@ export function apiGet(path, opts = {}) {
     }
     if (cached && staleWhileRevalidate) {
       if (!inflightGet.has(cacheKey)) {
-        const refreshPromise = requestGetNetwork(path, { ...opts, signal: undefined }, cacheKey, cacheConfig)
+        trackActiveGet(cacheKey)
+        let refreshPromise
+        refreshPromise = requestGetNetwork(path, { ...opts, signal: undefined }, cacheKey, cacheConfig, generation)
           .catch(() => null)
-          .finally(() => inflightGet.delete(cacheKey))
-        inflightGet.set(cacheKey, refreshPromise)
+          .finally(() => {
+            untrackActiveGet(cacheKey)
+            if (inflightGet.get(cacheKey)?.promise === refreshPromise) {
+              inflightGet.delete(cacheKey)
+            }
+          })
+        inflightGet.set(cacheKey, { generation, promise: refreshPromise })
       }
       return Promise.resolve(cached.data)
     }
   }
 
   if (dedupeEnabled && inflightGet.has(cacheKey)) {
-    return inflightGet.get(cacheKey)
+    return inflightGet.get(cacheKey).promise
   }
 
   // When the promise will be shared via dedupe, strip the caller's signal so one
   // consumer unmounting/aborting can't reject the shared promise for everyone.
   // When dedupe is off the promise isn't shared, so keep the caller's signal.
   const networkOpts = dedupeEnabled ? { ...opts, signal: undefined } : opts
-  const requestPromise = requestGetNetwork(path, networkOpts, cacheKey, cacheConfig).finally(() => {
-    inflightGet.delete(cacheKey)
+  trackActiveGet(cacheKey)
+  let requestPromise
+  requestPromise = requestGetNetwork(path, networkOpts, cacheKey, cacheConfig, generation).finally(() => {
+    untrackActiveGet(cacheKey)
+    if (inflightGet.get(cacheKey)?.promise === requestPromise) {
+      inflightGet.delete(cacheKey)
+    }
   })
 
   if (dedupeEnabled) {
-    inflightGet.set(cacheKey, requestPromise)
+    inflightGet.set(cacheKey, { generation, promise: requestPromise })
   }
 
   return requestPromise
@@ -309,7 +377,10 @@ export function apiPrefetchGet(path, opts = {}) {
 
 export function clearApiGetCache(matchPath = null) {
   if (!matchPath) {
+    globalCacheGeneration = ++generationCounter
+    cacheGenerations.clear()
     getCache.clear()
+    inflightGet.clear()
     if (canUseSessionStorage()) {
       for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
         const key = window.sessionStorage.key(index)
@@ -321,16 +392,14 @@ export function clearApiGetCache(matchPath = null) {
     return
   }
 
-  for (const key of getCache.keys()) {
-    if (typeof matchPath === 'string' && key.includes(matchPath)) {
-      getCache.delete(key)
-      deleteSessionCacheEntry(key)
-      continue
-    }
-    if (matchPath instanceof RegExp && matchPath.test(key)) {
-      getCache.delete(key)
-      deleteSessionCacheEntry(key)
-    }
+  const knownCacheKeys = new Set([
+    ...getCache.keys(),
+    ...inflightGet.keys(),
+    ...activeGetCounts.keys(),
+    ...cacheGenerations.keys(),
+  ])
+  for (const key of knownCacheKeys) {
+    if (matchesCacheKey(key, matchPath)) invalidateCacheKey(key)
   }
 
   if (canUseSessionStorage()) {
@@ -338,11 +407,7 @@ export function clearApiGetCache(matchPath = null) {
       const storageKey = window.sessionStorage.key(index)
       if (!storageKey?.startsWith(SESSION_CACHE_PREFIX)) continue
       const rawCacheKey = storageKey.slice(SESSION_CACHE_PREFIX.length)
-      if (typeof matchPath === 'string' && rawCacheKey.includes(matchPath)) {
-        window.sessionStorage.removeItem(storageKey)
-        continue
-      }
-      if (matchPath instanceof RegExp && matchPath.test(rawCacheKey)) {
+      if (matchesCacheKey(rawCacheKey, matchPath)) {
         window.sessionStorage.removeItem(storageKey)
       }
     }

@@ -1,6 +1,8 @@
 import json
 import re
 from datetime import datetime, timezone
+from html import escape
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
@@ -287,6 +289,43 @@ def send_email(to: str, subject: str, html: str, text: str) -> bool:
     )
     response.raise_for_status()
     return True
+
+
+def send_subscription_confirmation_email(
+    email: str,
+    token: str,
+    site_url: str,
+    purpose: str,
+) -> bool:
+    # Keep action tokens out of HTTP requests, CDN logs, and Referer headers.
+    confirmation_url = f"{site_url}/feeds#subscription_token={quote(token, safe='')}"
+    safe_url = escape(confirmation_url, quote=True)
+    if purpose == "email_unsubscribe":
+        subject = "确认退订 - AI 资讯观察"
+        heading = "确认关闭邮件订阅"
+        description = "点击下方按钮后，这个邮箱才会停止接收更新。"
+        button = "确认退订"
+    else:
+        subject = "确认邮件订阅 - AI 资讯观察"
+        heading = "确认你的邮件订阅"
+        description = "点击下方按钮确认邮箱所有权并启用你刚刚选择的订阅偏好。"
+        button = "确认订阅"
+
+    html = f"""
+    <div style="font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.7;color:#0f172a;padding:24px;background:#f8fbff">
+      <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:18px;padding:32px;border:1px solid #dbeafe">
+        <h1 style="font-size:24px;line-height:1.3;margin:0 0 16px;">{heading}</h1>
+        <p style="font-size:15px;color:#334155;margin:0 0 20px;">{description}</p>
+        <a href="{safe_url}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:999px;font-weight:700;">{button}</a>
+        <p style="margin-top:20px;font-size:13px;color:#64748b;">如果按钮无法点击，请复制以下链接到浏览器打开：<br>{safe_url}</p>
+        <p style="margin-top:12px;font-size:12px;color:#94a3b8;">链接 1 小时内有效。如果不是你本人操作，请忽略本邮件。</p>
+      </div>
+    </div>
+    """.strip()
+    text = "\n".join(
+        [subject, "", description, confirmation_url, "", "链接 1 小时内有效。"]
+    )
+    return send_email(email, subject, html, text)
 
 
 def _send_wecom_notification(url: str, post: Post, site_url: str) -> None:

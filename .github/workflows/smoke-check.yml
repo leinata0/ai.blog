@@ -17,6 +17,9 @@ on:
         default: true
         type: boolean
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest

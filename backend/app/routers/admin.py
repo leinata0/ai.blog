@@ -1735,8 +1735,8 @@ def _raise_ai_provider_http_error(exc: Exception) -> None:
             status_code=503,
             detail={
                 "message": (
-                    "FIELD_ENCRYPTION_KEY 未配置或无效，无法在生产环境保存 API Key。"
-                    "请在 Render 环境变量中设置 Fernet 密钥后重试。"
+                    "FIELD_ENCRYPTION_KEY 未配置或无效，无法安全保存 API Key。"
+                    "请在当前运行环境中设置 Fernet 密钥后重试。"
                 ),
                 "error_code": "missing_field_encryption_key",
             },

@@ -1,16 +1,26 @@
+FROM ghcr.io/astral-sh/uv:0.11.6 AS uv
+
 FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
-# Install dependencies
-COPY pyproject.toml .
-RUN pip install --no-cache-dir fastapi uvicorn sqlalchemy pydantic python-jose[cryptography] bcrypt python-multipart httpx psycopg[binary] boto3 pywebpush slowapi bleach cryptography
+COPY --from=uv /uv /uvx /bin/
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --no-cache
 
-# Copy application code
-COPY app/ ./app/
+RUN groupadd --system appuser \
+    && useradd --system --gid appuser --create-home --home-dir /home/appuser appuser \
+    && mkdir -p /app/uploads /data \
+    && chown appuser:appuser /app /app/uploads /data
 
-# Create data directory for SQLite persistent disk
-RUN mkdir -p /data
+COPY --chown=appuser:appuser app/ ./app/
+
+USER appuser
 
 EXPOSE 8000
 

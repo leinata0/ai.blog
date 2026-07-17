@@ -1,3 +1,5 @@
+import time
+
 from jose import jwt
 
 from app.auth import ALGORITHM, SECRET_KEY, TOKEN_AUDIENCE, TOKEN_ISSUER
@@ -13,6 +15,67 @@ def test_api_health_endpoint_alias(client):
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+def test_livez_is_a_process_only_probe(client, monkeypatch):
+    import app.main as main_mod
+
+    monkeypatch.setattr(
+        main_mod,
+        "check_runtime_readiness",
+        lambda: (_ for _ in ()).throw(RuntimeError("dependency unavailable")),
+    )
+
+    resp = client.get("/livez")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+
+
+def test_readyz_checks_runtime_dependencies(client):
+    resp = client.get("/readyz")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ready"}
+
+
+def test_readyz_rejects_missing_critical_schema(client):
+    import app.db as db_mod
+    from app.models import User
+
+    User.__table__.drop(bind=db_mod.engine)
+
+    resp = client.get("/readyz")
+
+    assert resp.status_code == 503
+    assert resp.json() == {"status": "not_ready"}
+
+
+def test_readyz_returns_503_when_dependency_check_fails(client, monkeypatch):
+    import app.main as main_mod
+
+    monkeypatch.setattr(
+        main_mod,
+        "check_runtime_readiness",
+        lambda: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+    )
+
+    resp = client.get("/readyz")
+
+    assert resp.status_code == 503
+    assert resp.json() == {"status": "not_ready"}
+
+
+def test_readyz_returns_503_on_timeout(client, monkeypatch):
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "READINESS_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(main_mod, "check_runtime_readiness", lambda: time.sleep(0.1))
+
+    resp = client.get("/readyz")
+
+    assert resp.status_code == 503
+    assert resp.json() == {"status": "not_ready"}
 
 
 def test_unknown_route_keeps_framework_404_shape(client):

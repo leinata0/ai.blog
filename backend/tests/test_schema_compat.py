@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
@@ -6,9 +7,12 @@ from app.schema_compat import (
     POST_QUALITY_REVIEW_COLUMNS,
     POST_QUALITY_SNAPSHOT_COLUMNS,
     POST_SOURCE_COLUMNS,
+    PUBLISHING_RUN_COLUMNS,
     SEARCH_INSIGHT_COLUMNS,
     SERIES_COLUMNS,
     TOPIC_PROFILE_COLUMNS,
+    USER_COLUMNS,
+    _create_table_if_missing,
 )
 from app.models import Post
 
@@ -71,7 +75,7 @@ def test_image_generation_stale_cleanup_creates_missing_job_table():
         db.close()
 
 
-def test_users_bio_column_backfilled_on_existing_table():
+def test_users_security_columns_backfilled_on_existing_table():
     from sqlalchemy import text
     from app.schema_compat import ensure_schema_compat
 
@@ -85,8 +89,73 @@ def test_users_bio_column_backfilled_on_existing_table():
             "email_verified BOOLEAN NOT NULL DEFAULT 0, created_at DATETIME, updated_at DATETIME, "
             "last_login_at DATETIME)"
         ))
+        conn.execute(text(
+            "INSERT INTO users (id, email, password_hash) "
+            "VALUES (1, 'legacy@example.com', 'legacy-hash')"
+        ))
     ensure_schema_compat(engine)
     ensure_schema_compat(engine)  # idempotent
     cols = {c["name"] for c in inspect(engine).get_columns("users")}
-    assert "bio" in cols
+    assert {"bio", "token_version"} <= cols
+    assert USER_COLUMNS["token_version"] == "INTEGER NOT NULL DEFAULT 0"
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT token_version FROM users WHERE id = 1")).scalar_one() == 0
 
+
+class _ExistingTableInspector:
+    def __init__(self, table_name):
+        self.table_name = table_name
+
+    def get_table_names(self):
+        return [self.table_name]
+
+
+class _RecordingConnection:
+    def __init__(self, statements):
+        self.statements = statements
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def execute(self, statement):
+        self.statements.append(str(statement))
+
+
+class _PostgresEngine:
+    class _Dialect:
+        name = "postgresql"
+
+    dialect = _Dialect()
+
+    def __init__(self):
+        self.statements = []
+
+    def begin(self):
+        return _RecordingConnection(self.statements)
+
+
+@pytest.mark.parametrize(
+    ("table_name", "columns"),
+    [
+        ("series", SERIES_COLUMNS),
+        ("publishing_runs", PUBLISHING_RUN_COLUMNS),
+        ("future_records", {"id": "INTEGER PRIMARY KEY"}),
+    ],
+)
+def test_integer_id_primary_key_tables_automatically_get_postgres_sequence(
+    monkeypatch, table_name, columns
+):
+    from app import schema_compat
+
+    engine = _PostgresEngine()
+    monkeypatch.setattr(schema_compat, "inspect", lambda _engine: _ExistingTableInspector(table_name))
+
+    _create_table_if_missing(engine, table_name, columns)
+
+    sql = "\n".join(engine.statements)
+    assert f"CREATE SEQUENCE IF NOT EXISTS {table_name}_id_seq" in sql
+    assert f"ALTER SEQUENCE {table_name}_id_seq OWNED BY {table_name}.id" in sql
+    assert f"ALTER COLUMN id SET DEFAULT nextval('{table_name}_id_seq'::regclass)" in sql

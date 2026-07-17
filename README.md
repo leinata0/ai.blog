@@ -60,7 +60,7 @@ flowchart LR
 | `users` | `/api/users` | 访客账号：注册/登录/资料/改密/邮箱验证/头像/我的评论·点赞/关注·历史同步/注销 |
 | `admin` | `/api/admin` | 管理后台（JWT，50+ 端点）：文章/主题/系列/评论/图片/AI 渠道/用户管理/统计 |
 
-`main.py` 直接端点：`/health`、`/api/settings`、`/api/stats`、`/api/public/home-bootstrap`（首页一次性聚合）、`/proxy-image`（SSRF 防护，仅第三方图片）、`/feed.xml`、`/sitemap.xml`。
+`main.py` 直接端点：`/livez`（纯进程存活）、`/readyz`（DB、关键 schema 与存储依赖就绪）、兼容入口 `/health`、`/api/settings`、`/api/stats`、`/api/public/home-bootstrap`（首页一次性聚合）、`/proxy-image`（SSRF 防护，仅第三方图片）、`/feed.xml`、`/sitemap.xml`。
 
 ### 服务层（`app/services/`）
 
@@ -71,7 +71,7 @@ flowchart LR
 - **认证（`auth.py` + `user_auth.py`）**：JWT HS256。三类身份用不同 `aud` 严格隔离 —— admin（`aud="admin"`，sub=用户名）、访客（`aud="user"`，sub=用户 id）、邮箱验证链接（`aud="email_verify"`，短期）。访客密码经 bcrypt 哈希（`passwords.py`）。
 - **人机验证（`turnstile.py`）**：注册/登录可接 Cloudflare Turnstile；未配置密钥时自动跳过，不锁死。
 - **邮件（`notifications.py` + `email_verification.py`）**：通用 `send_email` 基于 Resend，承载订阅通知与邮箱验证；另支持 Web Push（VAPID）与企业微信 webhook。
-- **存储（`storage.py`）**：双模 —— 配置 `R2_*` 时走 Cloudflare R2（boto3，S3 兼容），否则落本地 `/uploads`；统一图片校验原语供后台与头像上传复用。
+- **存储（`storage.py`）**：开发环境未配置 `R2_*` 时落本地 `/uploads`；production/Render 必须完整配置 Cloudflare R2（boto3，S3 兼容），否则启动失败。仅在显式设置 `ALLOW_EPHEMERAL_UPLOADS=1` 时允许生产临时盘降级；统一图片校验原语供后台与头像上传复用。
 - **其它**：`http_cache`（ETag/304）、`rate_limit`（slowapi，按真实客户端 IP）、`env`（生产/开发环境判定与变量清洗）。
 
 ---
@@ -151,7 +151,9 @@ cd scripts && npm test                               # 脚本 node --test
 
 ### 后端 / Render
 
-`render.yaml` 定义 Docker 部署（端口 `8000`，健康检查 `/health`）。生产建议：用 Neon Postgres、关闭 `AUTO_SEED_ON_EMPTY`、明确设置 `PUBLIC_SITE_URL` 与 `ALLOWED_ORIGINS`、R2 就绪后配 `R2_PUBLIC_BASE_URL`。
+`render.yaml` 定义 Docker 部署（端口 `8000`，就绪检查 `/readyz`）。`/livez` 和兼容入口 `/health` 只反映进程存活；`/readyz` 在 2 秒总时限内执行 DB `SELECT 1`、只读验证 `posts` / `site_settings` / `users` 映射，并检查存储依赖。R2 使用只读 `HeadBucket`，探针不会上传测试对象。
+
+生产使用 Neon Postgres，关闭 `AUTO_SEED_ON_EMPTY`，明确设置 `PUBLIC_SITE_URL` 与 `ALLOWED_ORIGINS`，并完整配置 `R2_ACCOUNT_ID`（或 `R2_ENDPOINT`）、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`R2_BUCKET_NAME`、`R2_PUBLIC_BASE_URL`。缺少任一项会让 production/Render 启动失败；`ALLOW_EPHEMERAL_UPLOADS=1` 仅用于明确接受文件会随实例重启丢失的应急部署。Docker 镜像按 `uv.lock` 冻结安装生产依赖，并以非 root 用户运行。
 
 > ⚠️ **schema 同步（务必了解）**：生产默认 `ENABLE_STARTUP_SCHEMA_SYNC=0`，启动期**不会**自动补表/补列。因此**每次新增模型字段后，老库不会自动获得新列**，会导致接口报错。补列方式二选一：
 > - 临时设 `ENABLE_STARTUP_SCHEMA_SYNC=1` 部署一次（幂等补齐），确认正常后改回 `0` 再部署；
@@ -171,9 +173,9 @@ cd scripts && npm test                               # 脚本 node --test
 
 | 分类 | 变量 |
 |------|------|
-| 运行环境 | `APP_ENV` · `DATABASE_URL` · `PUBLIC_SITE_URL` · `ALLOWED_ORIGINS` · `AUTO_SEED_ON_EMPTY` · `ENABLE_STARTUP_SCHEMA_SYNC` · `TRUST_PROXY_HEADERS` / `TRUSTED_PROXY_DEPTH`（反向代理后的真实客户端 IP / 限流） |
-| 管理认证 | `SECRET_KEY` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · `FIELD_ENCRYPTION_KEY`（生产必填：Fernet 密钥，加密 AI Provider API Key） |
-| 存储 R2 | `R2_*`（含 `R2_PUBLIC_BASE_URL`） |
+| 运行环境 | `APP_ENV` · `DATABASE_URL` · `PUBLIC_SITE_URL` · `ALLOWED_ORIGINS` · `AUTO_SEED_ON_EMPTY` · `ENABLE_STARTUP_SCHEMA_SYNC` · `ALLOW_EPHEMERAL_UPLOADS`（生产应保持 `0`）· `TRUST_PROXY_HEADERS` / `TRUSTED_PROXY_DEPTH`（可信 XFF 链）· `TRUST_CF_CONNECTING_IP`（仅在源站已限制为 Cloudflare 流量时启用） |
+| 管理认证 | `SECRET_KEY` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · `FIELD_ENCRYPTION_KEY`（保存 AI Provider API Key 时必填的 Fernet 密钥，所有环境均不允许明文降级） |
+| 存储 R2 | `R2_ACCOUNT_ID` 或 `R2_ENDPOINT` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET_NAME` · `R2_PUBLIC_BASE_URL` · 可选 `R2_REGION` |
 | 邮件/推送 | `RESEND_API_KEY` · `EMAIL_FROM` · `WEB_PUSH_VAPID_PUBLIC_KEY` · `WEB_PUSH_VAPID_PRIVATE_KEY` · `WEB_PUSH_SUBJECT` · `WECOM_WEBHOOK_URLS` |
 | 访客系统 | `TURNSTILE_SECRET_KEY`（人机验证，留空则跳过）；邮箱验证复用 `RESEND_API_KEY` + `EMAIL_FROM` |
 | AI 生成 | 后台 AI Provider 配置（推荐）· 可选 env：`XAI_API_KEY` / `SILICONFLOW_*`（作 provider 的 env 回退密钥） |
@@ -196,6 +198,8 @@ cd scripts && npm test                               # 脚本 node --test
 | 现象 | 优先检查 |
 |------|----------|
 | 注册/登录或某接口 500 | 是否新增了模型字段但生产库未补列（见 §7 schema 同步） |
+| Render 启动失败并提示 R2 配置不完整 | 补齐全部 R2 变量；只有明确接受实例重启后上传丢失时才设置 `ALLOW_EPHEMERAL_UPLOADS=1` |
+| `/readyz` 返回 503 | 检查 DB 连通性与 schema 是否补齐，并确认 R2 token 对目标 bucket 至少具备 `HeadBucket` 所需访问权限 |
 | Vercel 构建失败 | `VITE_API_BASE` 是否可达后端；`PUBLIC_SITE_URL` 是否与规范域名一致；后端是否已部署预渲染所需公开接口 |
 | 首访很慢 | 首页是否命中预渲染 HTML；Render 是否冷启动；一方图片是否走 `VITE_IMAGE_DIRECT_BASES` 直连 |
 | 图片不显示 | `R2_PUBLIC_BASE_URL`、`VITE_IMAGE_DIRECT_BASES`；第三方图片是否仍需经 `/proxy-image` |

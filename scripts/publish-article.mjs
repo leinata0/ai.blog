@@ -1,6 +1,10 @@
-import { resolveAdminPassword, resolveBlogApiBase } from './lib/blog-api.mjs'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+
+import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 
 const BLOG_API_BASE = resolveBlogApiBase()
+const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
 const SLUG = "auto-blog-architecture-and-cloudflare"
 
@@ -171,24 +175,87 @@ xAI 的 Grok Imagine API 是目前性价比最高的选择：\`grok-imagine-imag
 
 > 最好的自动化不是让机器替你思考，而是让机器替你执行那些你已经想清楚的事情。`
 
-async function main() {
-  // Login
-  const loginResp = await fetch(`${BLOG_API_BASE}/api/admin/login`, {
+export async function findPostByExactSlug({
+  slug,
+  token,
+  blogApiBase = BLOG_API_BASE,
+  fetchImpl = fetch,
+  pageSize = 50,
+  maxPages = 1000,
+}) {
+  const matches = []
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const listResp = await fetchImpl(`${blogApiBase}/api/admin/posts?page=${page}&page_size=${pageSize}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!listResp.ok) {
+      throw new Error(`Failed to load admin posts: ${listResp.status} ${(await listResp.text()).slice(0, 300)}`)
+    }
+
+    const data = await listResp.json()
+    if (!Array.isArray(data?.items)) throw new Error('Failed to load admin posts: invalid response body')
+    matches.push(...data.items.filter((post) => post?.slug === slug))
+    if (matches.length > 1) throw new Error(`Multiple posts found for exact slug: ${slug}`)
+
+    const total = Number(data.total)
+    if (data.items.length < pageSize || (Number.isFinite(total) && page * pageSize >= total)) {
+      if (matches.length === 0) throw new Error(`Post not found for exact slug: ${slug}`)
+      return matches[0]
+    }
+  }
+
+  throw new Error(`Failed to resolve exact slug within ${maxPages} pages: ${slug}`)
+}
+
+export async function publishArticle({
+  slug = SLUG,
+  contentMd = CONTENT_MD,
+  blogApiBase = BLOG_API_BASE,
+  username = ADMIN_USERNAME,
+  password = ADMIN_PASSWORD,
+  fetchImpl = fetch,
+  logger = console,
+} = {}) {
+  if (!password) throw new Error('Missing ADMIN_PASSWORD')
+
+  const loginResp = await fetchImpl(`${blogApiBase}/api/admin/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "admin", password: ADMIN_PASSWORD }),
+    body: JSON.stringify({ username, password }),
   })
-  if (!loginResp.ok) { console.log("Login failed"); return }
-  const token = (await loginResp.json()).access_token
-  console.log("Login OK")
+  if (!loginResp.ok) {
+    throw new Error(`Admin login failed: ${loginResp.status} ${(await loginResp.text()).slice(0, 300)}`)
+  }
+  const token = String((await loginResp.json())?.access_token || '').trim()
+  if (!token) throw new Error('Admin login failed: missing access_token')
+  logger.log('Login OK')
 
-  // Update content_md directly by ID
-  const updateResp = await fetch(`${BLOG_API_BASE}/api/admin/posts/6`, {
+  const target = await findPostByExactSlug({ slug, token, blogApiBase, fetchImpl })
+  if (!target?.id) throw new Error(`Post found for slug ${slug} but has no id`)
+
+  const updateResp = await fetchImpl(`${blogApiBase}/api/admin/posts/${target.id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ content_md: CONTENT_MD }),
+    body: JSON.stringify({ content_md: contentMd }),
   })
-  if (!updateResp.ok) { console.log("Update failed:", updateResp.status, await updateResp.text()); return }
-  console.log("Content updated with backticks!")
+  if (!updateResp.ok) {
+    throw new Error(`Post update failed: ${updateResp.status} ${(await updateResp.text()).slice(0, 300)}`)
+  }
+  logger.log(`Content updated for slug=${slug} id=${target.id}`)
+  return target
 }
-main().catch(e => console.error(e.message))
+
+async function main() {
+  await publishArticle()
+}
+
+const __filename = fileURLToPath(import.meta.url)
+const isMainModule = process.argv[1] ? resolve(process.argv[1]) === __filename : false
+
+if (isMainModule) {
+  main().catch((error) => {
+    console.error(error.message)
+    process.exitCode = 1
+  })
+}

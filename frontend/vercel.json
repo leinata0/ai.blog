@@ -4,6 +4,8 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "https://ai-blog-hbur.onrender.com/api/$1" },
+    { "source": "/feed.xml", "destination": "https://ai-blog-hbur.onrender.com/feed.xml" },
+    { "source": "/sitemap.xml", "destination": "https://ai-blog-hbur.onrender.com/sitemap.xml" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

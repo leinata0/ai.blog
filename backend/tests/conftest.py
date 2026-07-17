@@ -1,6 +1,7 @@
 import sys
 import os
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -27,6 +28,7 @@ def _patch_runtime_env(monkeypatch):
     monkeypatch.setenv("DEV_SECRET_KEY", "test-dev-secret-key")
     monkeypatch.setenv("DEV_ADMIN_USERNAME", "admin")
     monkeypatch.setenv("DEV_ADMIN_PASSWORD", "admin123")
+    monkeypatch.setenv("FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("PUBLIC_SITE_URL", "https://example.test")
     monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
     monkeypatch.delenv("SECRET_KEY", raising=False)
@@ -35,6 +37,11 @@ def _patch_runtime_env(monkeypatch):
     monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.delenv("RENDER", raising=False)
     monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    from app import encryption
+
+    encryption._get_fernet.cache_clear()
+    yield
+    encryption._get_fernet.cache_clear()
 
 
 @pytest.fixture(autouse=True)

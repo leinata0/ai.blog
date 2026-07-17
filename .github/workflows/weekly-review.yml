@@ -68,12 +68,28 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
           VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
+          DISPATCH_COVERAGE_DATE: ${{ inputs.coverage_date }}
+          DISPATCH_FORCE: ${{ inputs.force }}
+        shell: bash
         run: |
-          ARGS="--mode weekly-review"
+          args=(--mode weekly-review)
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
-            if [ -n "${{ inputs.coverage_date }}" ]; then ARGS="$ARGS --coverage-date ${{ inputs.coverage_date }}"; fi
-            if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+            if [ -n "$DISPATCH_COVERAGE_DATE" ]; then
+              if [[ ! "$DISPATCH_COVERAGE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+                echo "::error::coverage_date must use YYYY-MM-DD format"
+                exit 1
+              fi
+              if ! normalized_date=$(date -u -d "$DISPATCH_COVERAGE_DATE" +%F 2>/dev/null) || [ "$normalized_date" != "$DISPATCH_COVERAGE_DATE" ]; then
+                echo "::error::coverage_date must be a valid calendar date"
+                exit 1
+              fi
+              args+=(--coverage-date "$DISPATCH_COVERAGE_DATE")
+            fi
+            if [ "$DISPATCH_DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+            if [ "$DISPATCH_FORCE" = "true" ]; then args+=(--force); fi
           fi
-          echo "Running: node scripts/auto-blog.mjs $ARGS"
-          node scripts/auto-blog.mjs $ARGS
+          printf 'Running:'
+          printf ' %q' node scripts/auto-blog.mjs "${args[@]}"
+          printf '\n'
+          node scripts/auto-blog.mjs "${args[@]}"

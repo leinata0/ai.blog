@@ -23,6 +23,7 @@ vi.mock('../src/api/base', () => ({
 
 let apiGet
 let apiPost
+let USER_UNAUTHORIZED_EVENT
 
 beforeEach(async () => {
   vi.clearAllMocks()
@@ -30,7 +31,7 @@ beforeEach(async () => {
   // jsdom navigation guard
   delete window.location
   window.location = { href: '' }
-  ;({ apiGet, apiPost } = await import('../src/api/client'))
+  ;({ apiGet, apiPost, USER_UNAUTHORIZED_EVENT } = await import('../src/api/client'))
 })
 
 afterEach(() => {
@@ -48,12 +49,15 @@ function mockFetch(status, body = {}) {
 }
 
 describe('client auth routing', () => {
-  it('user 401 clears the user token and does NOT redirect to /admin/login', async () => {
+  it('user 401 clears the user token, notifies the app, and does NOT redirect to /admin/login', async () => {
     mocks.getUserToken.mockReturnValue('user-token')
     mockFetch(401, { detail: 'expired' })
+    const unauthorizedListener = vi.fn()
+    window.addEventListener(USER_UNAUTHORIZED_EVENT, unauthorizedListener, { once: true })
 
     await expect(apiPost('/api/users/me/topics', {}, { auth: 'user' })).rejects.toThrow()
     expect(mocks.clearUserToken).toHaveBeenCalled()
+    expect(unauthorizedListener).toHaveBeenCalledOnce()
     expect(mocks.clearToken).not.toHaveBeenCalled()
     expect(window.location.href).toBe('')
   })

@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from mimetypes import guess_extension
 from pathlib import Path
@@ -15,10 +16,16 @@ except ImportError:  # pragma: no cover - dependency is installed in production
     class ClientError(Exception):
         pass
 
+from app.env import clean_env, is_production_env
 from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
-from app.env import clean_env
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"}
+R2_REQUIRED_ENV_VARS = (
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "R2_BUCKET_NAME",
+    "R2_PUBLIC_BASE_URL",
+)
 
 # Shared image-upload validation (used by admin uploads and visitor avatars).
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
@@ -153,13 +160,36 @@ def get_r2_public_base_url() -> str:
     return _normalize_base_url(_clean_env("R2_PUBLIC_BASE_URL"))
 
 
+def get_missing_r2_configuration() -> tuple[str, ...]:
+    missing = [name for name in R2_REQUIRED_ENV_VARS if not _clean_env(name)]
+    if not get_r2_endpoint():
+        missing.append("R2_ENDPOINT or R2_ACCOUNT_ID")
+    return tuple(missing)
+
+
 def is_r2_enabled() -> bool:
-    return all([
-        get_r2_bucket_name(),
-        get_r2_endpoint(),
-        _clean_env("R2_ACCESS_KEY_ID"),
-        _clean_env("R2_SECRET_ACCESS_KEY"),
-    ])
+    return not get_missing_r2_configuration()
+
+
+def is_durable_storage_required() -> bool:
+    is_render_runtime = bool(_clean_env("RENDER") or _clean_env("RENDER_SERVICE_ID"))
+    return is_production_env() or is_render_runtime
+
+
+def ephemeral_uploads_allowed() -> bool:
+    return _clean_env("ALLOW_EPHEMERAL_UPLOADS") == "1"
+
+
+def validate_storage_configuration() -> None:
+    if is_r2_enabled() or not is_durable_storage_required() or ephemeral_uploads_allowed():
+        return
+
+    missing = ", ".join(get_missing_r2_configuration())
+    raise RuntimeError(
+        "Durable R2 storage is required in production and on Render, but the "
+        f"configuration is incomplete (missing: {missing}). Configure R2 or set "
+        "ALLOW_EPHEMERAL_UPLOADS=1 to explicitly accept ephemeral local uploads."
+    )
 
 
 def build_storage_url(filename: str) -> str:
@@ -170,12 +200,22 @@ def build_storage_url(filename: str) -> str:
     return f"{UPLOADS_URL_PREFIX}/{quote(safe_name)}"
 
 
-def build_r2_client():
+def build_r2_client(*, request_timeout_seconds: float | None = None):
     endpoint = get_r2_endpoint()
     if not endpoint:
         raise RuntimeError("Missing R2 endpoint")
     if boto3 is None or Config is None:
         raise RuntimeError("boto3 is required for R2 storage")
+
+    config_options = {"signature_version": "s3v4"}
+    if request_timeout_seconds is not None:
+        config_options.update(
+            {
+                "connect_timeout": request_timeout_seconds,
+                "read_timeout": request_timeout_seconds,
+                "retries": {"total_max_attempts": 1, "mode": "standard"},
+            }
+        )
 
     return boto3.client(
         "s3",
@@ -183,7 +223,7 @@ def build_r2_client():
         aws_access_key_id=_clean_env("R2_ACCESS_KEY_ID"),
         aws_secret_access_key=_clean_env("R2_SECRET_ACCESS_KEY"),
         region_name=_clean_env("R2_REGION") or "auto",
-        config=Config(signature_version="s3v4"),
+        config=Config(**config_options),
     )
 
 
@@ -194,6 +234,19 @@ def _local_upload_path(filename: str) -> Path:
 
 def ensure_local_upload_dir() -> None:
     get_uploads_dir().mkdir(parents=True, exist_ok=True)
+
+
+def check_storage_readiness(*, request_timeout_seconds: float = 1.0) -> None:
+    validate_storage_configuration()
+
+    if is_r2_enabled():
+        client = build_r2_client(request_timeout_seconds=request_timeout_seconds)
+        client.head_bucket(Bucket=get_r2_bucket_name())
+        return
+
+    uploads_dir = get_uploads_dir()
+    if not uploads_dir.is_dir() or not os.access(uploads_dir, os.W_OK):
+        raise RuntimeError(f"Local uploads directory is not writable: {uploads_dir}")
 
 
 def save_upload(filename: str, contents: bytes, content_type: str = "") -> StoredImage:

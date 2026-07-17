@@ -7,12 +7,29 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from app.env import clean_env, get_database_url
 
 DATABASE_URL = get_database_url()
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args,
-    pool_pre_ping=True,
-)
+
+
+def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+
+
+def create_db_engine(database_url: str):
+    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    db_engine = create_engine(
+        database_url,
+        connect_args=connect_args,
+        pool_pre_ping=True,
+    )
+    if db_engine.dialect.name == "sqlite":
+        event.listen(db_engine, "connect", _enable_sqlite_foreign_keys)
+    return db_engine
+
+
+engine = create_db_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 db_logger = logging.getLogger("blog.db")
