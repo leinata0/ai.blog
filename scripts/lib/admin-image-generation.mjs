@@ -28,32 +28,43 @@ export function imageGenerationJobSucceeded(job = {}) {
   return job.status === 'succeeded' && Boolean(imageGenerationJobImageUrl(job))
 }
 
-export async function submitPostCoverGenerationJob({
+function generationEndpoint(targetType, targetId) {
+  const id = Number(targetId)
+  if (targetType === 'site_hero') return '/api/admin/settings/generate-hero'
+  if (!Number.isFinite(id) || id <= 0) throw new Error('Missing or invalid targetId')
+  if (targetType === 'post_cover') return `/api/admin/posts/${id}/generate-cover`
+  if (targetType === 'series_cover') return `/api/admin/series/${id}/generate-cover`
+  if (targetType === 'topic_cover') return `/api/admin/topic-profiles/${id}/generate-cover`
+  throw new Error(`Unsupported image generation target: ${targetType}`)
+}
+
+export async function submitImageGenerationJob({
   blogApiBase,
   token,
-  postId,
+  targetType = 'post_cover',
+  targetId,
   prompt = '',
   overwrite = false,
   mode = 'apply',
   timeoutMs = DEFAULT_SUBMIT_TIMEOUT_MS,
 } = {}) {
   const base = trimBaseUrl(blogApiBase)
-  const id = Number(postId)
   if (!base) throw new Error('Missing BLOG_API_BASE')
   if (!token) throw new Error('Missing admin token')
-  if (!Number.isFinite(id) || id <= 0) throw new Error('Missing or invalid postId')
+  const endpoint = generationEndpoint(targetType, targetId)
+  const payload = {
+    prompt: String(prompt || '').trim() || null,
+    overwrite: Boolean(overwrite),
+  }
+  if (targetType !== 'site_hero') payload.mode = mode
 
-  const response = await fetch(`${base}/api/admin/posts/${id}/generate-cover`, {
+  const response = await fetch(`${base}${endpoint}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({
-      prompt: String(prompt || '').trim() || null,
-      overwrite: Boolean(overwrite),
-      mode,
-    }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(timeoutMs),
   })
 
@@ -61,6 +72,14 @@ export async function submitPostCoverGenerationJob({
     throw new Error(`Submit cover generation job failed: ${response.status} ${await parseErrorBody(response)}`.trim())
   }
   return response.json()
+}
+
+export function submitPostCoverGenerationJob(options = {}) {
+  return submitImageGenerationJob({
+    ...options,
+    targetType: 'post_cover',
+    targetId: options.postId,
+  })
 }
 
 export async function fetchImageGenerationJob({
@@ -122,4 +141,29 @@ export async function generatePostCoverViaAdminJob(options = {}) {
     jobId: job.job_id || job.id,
     initialJob: job,
   })
+}
+
+async function generateTargetImageViaAdminJob(targetType, options = {}) {
+  const job = await submitImageGenerationJob({
+    ...options,
+    targetType,
+    targetId: options.targetId,
+  })
+  return waitForImageGenerationJob({
+    ...options,
+    jobId: job.job_id || job.id,
+    initialJob: job,
+  })
+}
+
+export function generateSeriesCoverViaAdminJob(options = {}) {
+  return generateTargetImageViaAdminJob('series_cover', options)
+}
+
+export function generateTopicCoverViaAdminJob(options = {}) {
+  return generateTargetImageViaAdminJob('topic_cover', options)
+}
+
+export function generateSiteHeroViaAdminJob(options = {}) {
+  return generateTargetImageViaAdminJob('site_hero', options)
 }

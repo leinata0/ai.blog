@@ -18,7 +18,6 @@ logger = logging.getLogger("blog.admin")
 
 from app.auth import create_access_token, get_current_admin, verify_admin
 from app.db import get_db
-from app.env import clean_env
 from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.models import (
     AdminImageGenerationJob,
@@ -106,9 +105,6 @@ from app.services.ai_channels import AiChannelError
 from app.services.admin_posts import AdminPostFilters, list_admin_posts
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-XAI_IMAGE_MODEL = "grok-imagine-image"
-
 
 class CoverGenerationError(RuntimeError):
     def __init__(self, code: str, message: str):
@@ -273,44 +269,6 @@ def _hero_response(
         "error": error,
         "error_code": error_code,
     }
-
-
-def _generate_grok_image_url(
-    prompt: str,
-    framing_hint: str = "Wide landscape banner image, cinematic, high quality",
-) -> str:
-    api_key = clean_env("XAI_API_KEY")
-    if not api_key:
-        raise CoverGenerationError(
-            "missing_backend_env",
-            "缺少后端运行环境变量 XAI_API_KEY。请把它配置到 Render 后端环境变量中，GitHub Secret 不会自动提供给后台实时生图。",
-        )
-
-    try:
-        response = httpx.post(
-            "https://api.x.ai/v1/images/generations",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": XAI_IMAGE_MODEL,
-                "prompt": f"{framing_hint}: {prompt}",
-                "n": 1,
-            },
-            timeout=60,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except httpx.HTTPStatusError as exc:
-        raise CoverGenerationError("generation_failed", f"Grok 生图请求失败，HTTP {exc.response.status_code}。") from exc
-    except httpx.HTTPError as exc:
-        raise CoverGenerationError("generation_failed", "Grok 生图请求失败，请稍后重试。") from exc
-
-    image_url = (data.get("data") or [{}])[0].get("url")
-    if not image_url:
-        raise CoverGenerationError("generation_failed", "Grok 未返回可用图片地址。")
-    return image_url
 
 
 def _generate_cover_asset(

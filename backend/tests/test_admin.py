@@ -1528,7 +1528,7 @@ def test_admin_generation_jobs_history_lists_image_and_text(client, monkeypatch)
     assert all(item["kind"] == "text_generation" for item in text_only.json()["items"])
 
 
-def test_admin_generate_site_hero_with_grok(client, monkeypatch):
+def test_admin_generate_site_hero_with_configured_channel(client, monkeypatch):
     from app.routers import admin as admin_mod
 
     token = _login(client)
@@ -1563,11 +1563,8 @@ def test_admin_generate_site_hero_with_grok(client, monkeypatch):
     assert settings_resp.json()["hero_image"] == "https://img.example.com/site-hero.png"
 
 
-def test_admin_generate_site_hero_reports_missing_env(client, monkeypatch):
-    from app.routers import admin as admin_mod
-
+def test_admin_generate_site_hero_reports_missing_configured_channel(client):
     token = _login(client)
-    monkeypatch.setattr(admin_mod, "clean_env", lambda key: "")
 
     response = client.post(
         "/api/admin/settings/generate-hero",
@@ -1581,9 +1578,7 @@ def test_admin_generate_site_hero_reports_missing_env(client, monkeypatch):
     assert "Provider" in payload["error"]
 
 
-def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeypatch):
-    from app.routers import admin as admin_mod
-
+def test_admin_series_generate_cover_reports_missing_configured_channel(client):
     token = _login(client)
     created = client.post(
         "/api/admin/series",
@@ -1598,8 +1593,6 @@ def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeyp
     assert created.status_code == 200
     series_id = created.json()["id"]
 
-    monkeypatch.setattr(admin_mod, "clean_env", lambda key: "")
-
     response = client.post(
         f"/api/admin/series/{series_id}/generate-cover",
         json={},
@@ -1612,7 +1605,7 @@ def test_admin_series_generate_cover_reports_missing_backend_env(client, monkeyp
     assert "Provider" in payload["error"]
 
 
-def test_admin_topic_profile_generate_cover_with_grok(client, monkeypatch):
+def test_admin_topic_profile_generate_cover_with_configured_channel(client, monkeypatch):
     from app.routers import admin as admin_mod
 
     token = _login(client)

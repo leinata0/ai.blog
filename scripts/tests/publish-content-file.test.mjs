@@ -3,7 +3,6 @@ import test from 'node:test'
 
 import {
   fetchExistingPostBySlug,
-  generateCoverWithFallback,
   resolveExistingCover,
 } from '../publish-content-file.mjs'
 
@@ -56,36 +55,4 @@ test('publisher preserves an existing post cover', () => {
     resolveExistingCover({ cover_image: 'https://img.example/article.jpg' }, { cover_image: 'old.jpg' }),
     'https://img.example/article.jpg',
   )
-})
-
-test('cover generation falls back to the next configured provider', async () => {
-  const attempts = []
-  const warnings = []
-  const providers = [
-    { name: 'Grok', apiKey: 'xai-key' },
-    { name: 'SiliconFlow', apiKey: 'sf-key' },
-  ]
-  const result = await generateCoverWithFallback('prompt', 'token', {
-    providers,
-    generate: async (_prompt, _token, provider) => {
-      attempts.push(provider.name)
-      if (provider.name === 'Grok') throw new Error('Grok credits exhausted')
-      return 'https://img.example/fallback.jpg'
-    },
-    logger: { warn: (message) => warnings.push(message) },
-  })
-
-  assert.equal(result, 'https://img.example/fallback.jpg')
-  assert.deepEqual(attempts, ['Grok', 'SiliconFlow'])
-  assert.equal(warnings.length, 1)
-})
-
-test('cover generation is optional when every provider fails', async () => {
-  const result = await generateCoverWithFallback('prompt', 'token', {
-    providers: [{ name: 'Grok', apiKey: 'xai-key' }],
-    generate: async () => { throw new Error('quota exceeded') },
-    logger: { warn: () => {} },
-  })
-
-  assert.equal(result, '')
 })

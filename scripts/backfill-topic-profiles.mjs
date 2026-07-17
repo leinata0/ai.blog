@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url'
 
 import { buildTopicMetadataPayload } from './auto-blog.mjs'
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  generateTopicCoverViaAdminJob,
+  imageGenerationJobImageUrl,
+  imageGenerationJobSucceeded,
+} from './lib/admin-image-generation.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -13,7 +18,6 @@ const __dirname = dirname(__filename)
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
-const XAI_API_KEY = process.env.XAI_API_KEY?.trim() || ''
 const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   ? resolve(process.env.AUTO_BLOG_CONFIG_PATH)
   : resolve(__dirname, 'config', 'auto-blog.config.json')
@@ -199,41 +203,11 @@ async function upsertTopicProfile(token, payload) {
       },
       body: JSON.stringify(endpoint.body),
     })
-    if (resp.ok) return { ok: true, endpoint: endpoint.url }
+    if (resp.ok) return { ok: true, endpoint: endpoint.url, data: await resp.json() }
     if (resp.status === 404 || resp.status === 405) continue
     throw new Error(`Upsert topic metadata failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
   return { ok: false, reason: 'no_supported_endpoint' }
-}
-
-async function downloadAndUploadImage(imageUrl, token) {
-  const imageResp = await fetch(imageUrl, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TopicCoverBot/1.0)' },
-    signal: AbortSignal.timeout(30000),
-  })
-  if (!imageResp.ok) throw new Error(`Failed to download generated image: ${imageResp.status}`)
-
-  const contentType = imageResp.headers.get('content-type') || 'image/png'
-  const ext = contentType.includes('png') ? '.png' : contentType.includes('webp') ? '.webp' : '.jpg'
-  const buffer = Buffer.from(await imageResp.arrayBuffer())
-  const filename = `topic-cover-${Date.now()}${ext}`
-  const boundary = `----FormBoundary${Date.now()}`
-  const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`
-  const footer = `\r\n--${boundary}--\r\n`
-  const body = Buffer.concat([Buffer.from(header), buffer, Buffer.from(footer)])
-
-  const uploadResp = await fetch(`${BLOG_API_BASE}/api/admin/upload`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-    },
-    body,
-    signal: AbortSignal.timeout(30000),
-  })
-  if (!uploadResp.ok) throw new Error(`Upload failed: ${uploadResp.status} ${(await uploadResp.text()).slice(0, 300)}`)
-  const data = await uploadResp.json()
-  return data.url?.startsWith('http') ? data.url : `${BLOG_API_BASE}${data.url}`
 }
 
 function buildTopicCoverPrompt(payload) {
@@ -247,26 +221,18 @@ function buildTopicCoverPrompt(payload) {
   ].filter(Boolean).join(' ')
 }
 
-async function generateTopicCoverWithGrok(payload, token) {
-  if (!XAI_API_KEY) return ''
-  const prompt = buildTopicCoverPrompt(payload)
-  const resp = await fetch('https://api.x.ai/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${XAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'grok-imagine-image',
-      prompt: `Wide landscape banner image, cinematic, high quality: ${prompt}`,
-      n: 1,
-    }),
-    signal: AbortSignal.timeout(60000),
+async function generateTopicCover(payload, profileId, token, overwrite) {
+  const job = await generateTopicCoverViaAdminJob({
+    blogApiBase: BLOG_API_BASE,
+    token,
+    targetId: profileId,
+    prompt: buildTopicCoverPrompt(payload),
+    overwrite,
   })
-  if (!resp.ok) throw new Error(`Grok generation failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  const grokUrl = (await resp.json()).data?.[0]?.url
-  if (!grokUrl) throw new Error('Grok returned no image URL')
-  return downloadAndUploadImage(grokUrl, token)
+  if (!imageGenerationJobSucceeded(job)) {
+    throw new Error(job.error || `Configured image channel failed: ${job.error_code || job.status || 'unknown_error'}`)
+  }
+  return imageGenerationJobImageUrl(job)
 }
 
 export async function runBackfillTopicProfiles(options = {}) {
@@ -302,28 +268,34 @@ export async function runBackfillTopicProfiles(options = {}) {
         continue
       }
 
-      if (args.withCover && !String(post?.cover_image || '').trim() && !String(payload.topic_metadata?.topic_cover_image || '').trim()) {
-        if (args.dryRun) {
-          payload.topic_metadata.topic_cover_image = '__DRY_RUN_GENERATE__'
-        } else {
-        try {
-          const generatedCover = await generateTopicCoverWithGrok(payload, token)
-          if (generatedCover) payload.topic_metadata.topic_cover_image = generatedCover
-        } catch (error) {
-          items.push({ post_id: postId, status: 'cover_failed', reason: error.message })
-        }
-        }
+      const shouldGenerateCover = args.withCover
+        && !String(post?.cover_image || '').trim()
+        && !String(payload.topic_metadata?.topic_cover_image || '').trim()
+      if (shouldGenerateCover && args.dryRun) {
+        payload.topic_metadata.topic_cover_image = '__DRY_RUN_GENERATE__'
       }
 
       if (args.dryRun) {
         items.push({ post_id: postId, status: 'dry_run', topic_metadata: payload.topic_metadata })
         continue
       }
+
       const result = await upsertTopicProfile(token, payload)
+      let coverImage = ''
+      let coverError = ''
+      if (result.ok && shouldGenerateCover) {
+        try {
+          coverImage = await generateTopicCover(payload, result.data?.profile_id, token, args.force)
+        } catch (error) {
+          coverError = error.message
+        }
+      }
       items.push({
         post_id: postId,
         status: result.ok ? 'updated' : 'skipped',
-        reason: result.reason || '',
+        reason: result.reason || coverError,
+        cover_status: shouldGenerateCover ? (coverImage ? 'updated' : 'failed') : 'not_requested',
+        cover_image: coverImage,
       })
     }
     if (posts.length < args.limit) break

@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: '22'
 
-      # 发布文章并生成封面；Grok 不可用时自动回退 SiliconFlow。
+      # 发布文章，并通过后台已配置的图片生成渠道生成封面。
       - name: 发布文章并生成封面
         working-directory: scripts
         env:
@@ -41,6 +41,4 @@ jobs:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
         run: node publish-content-file.mjs

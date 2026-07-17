@@ -48,10 +48,8 @@ jobs:
       - name: 检查必要密钥
         env:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
           if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
-          if [ -z "$XAI_API_KEY" ]; then echo "::error::Missing XAI_API_KEY"; exit 1; fi
           echo "Secrets look good."
 
       - name: 执行系列封面补齐
@@ -59,7 +57,6 @@ jobs:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
           DISPATCH_FORCE: ${{ inputs.force }}
           DISPATCH_LIMIT: ${{ inputs.limit }}
