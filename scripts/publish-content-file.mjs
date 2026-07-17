@@ -37,7 +37,7 @@ async function login() {
 export async function fetchExistingPostBySlug(
   slug,
   token,
-  { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, pageSize = 100 } = {},
+  { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, pageSize = 50 } = {},
 ) {
   for (let page = 1; ; page += 1) {
     const listResp = await fetchImpl(`${blogApiBase}/api/admin/posts?page=${page}&page_size=${pageSize}`, {

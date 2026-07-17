@@ -34,6 +34,19 @@ test('publisher searches every admin page for an exact slug', async () => {
   assert.equal(calls.length, 2)
 })
 
+test('publisher respects the admin API default page-size limit', async () => {
+  let requestedUrl = ''
+  await fetchExistingPostBySlug('missing', 'token', {
+    blogApiBase: 'https://blog.example',
+    fetchImpl: async (url) => {
+      requestedUrl = url
+      return jsonResponse({ items: [], total: 0 })
+    },
+  })
+
+  assert.match(requestedUrl, /page_size=50$/)
+})
+
 test('publisher preserves an existing post cover', () => {
   assert.equal(
     resolveExistingCover({}, { cover_image: 'https://img.example/existing.jpg' }),
