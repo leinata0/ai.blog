@@ -100,6 +100,44 @@ def _series_to_dict(series: Series, post_count: int = 0, latest_post_at=None) ->
     }
 
 
+def build_lightweight_home_modules_payload(settings_payload: dict) -> dict:
+    hero_image = settings_payload.get("hero_image") or settings_payload.get("avatar_url") or ""
+    return {
+        "hero": {
+            "image": hero_image,
+            "image_alt": "站点 Hero 主海报",
+            "preset": "site_hero",
+            "art_direction_version": "",
+        },
+        "latest_weekly": [],
+        "latest_daily": [],
+        "featured_series": [],
+        "topic_pulse": {
+            "title": "正在发酵",
+            "description": "",
+            "items": [],
+        },
+        "continue_reading": {
+            "title": "继续追更",
+            "empty_hint": "",
+            "local_only": True,
+            "items": [],
+        },
+        "subscription_cta": {
+            "title": "订阅捷径",
+            "description": "",
+            "feeds_path": "/feeds",
+            "rss_url": "/feed.xml",
+            "primary_label": "打开订阅中心",
+            "primary_to": "/feeds",
+            "secondary_label": "RSS",
+            "secondary_to": "/feed.xml",
+            "email_enabled": False,
+            "web_push_enabled": False,
+        },
+    }
+
+
 def build_home_modules_payload(db: Session):
     settings = db.execute(select(SiteSettings).limit(1)).scalar_one_or_none()
     site_url = resolve_public_site_url(db, settings=settings)

@@ -162,7 +162,7 @@ async function fetchJsonWithStatus(apiBase, path) {
 }
 
 export async function loadHomeBootstrap(apiBase) {
-  const primaryPath = '/api/public/home-bootstrap?page=1&page_size=10'
+  const primaryPath = '/api/public/home-bootstrap?page=1&page_size=10&include_modules=false'
   let bootstrapResponse = null
 
   try {
@@ -183,15 +183,14 @@ export async function loadHomeBootstrap(apiBase) {
     console.warn('[prerender] home-bootstrap unavailable, falling back to legacy public endpoints.')
   }
 
-  const [settings, homeModules, posts] = await Promise.all([
+  const [settings, posts] = await Promise.all([
     fetchJson(apiBase, '/api/settings'),
-    fetchJson(apiBase, '/api/home/modules'),
     fetchJson(apiBase, '/api/posts?page=1&page_size=10'),
   ])
 
   return {
     settings,
-    home_modules: homeModules,
+    home_modules: {},
     posts,
   }
 }
@@ -270,11 +269,8 @@ function renderListLinks(items, toHref, metaBuilder = () => []) {
   `
 }
 
-function renderHomePage(template, payload, siteUrl) {
+export function renderHomePage(template, payload, siteUrl) {
   const posts = payload?.posts?.items || []
-  const modules = payload?.home_modules || {}
-  const featuredTopics = modules?.topic_pulse?.items || []
-  const featuredSeries = modules?.featured_series || []
   const title = `${SITE_TITLE} | ${HOME_TITLE}`
   const description = HOME_DESCRIPTION
   const rootHtml = `
@@ -300,25 +296,6 @@ function renderHomePage(template, payload, siteUrl) {
         </div>
       </section>
 
-      <section class="prerender-section">
-        <h2>推荐主题</h2>
-        <div class="prerender-grid cols-3">
-          ${featuredTopics.slice(0, 6).map((topic) => renderCard(topic, `/topics/${encodeURIComponent(topic.topic_key)}`, [
-            `${topic.post_count || 0} 篇内容`,
-            topic.latest_post_at ? `最近更新 ${formatDate(topic.latest_post_at)}` : '持续追踪',
-          ])).join('')}
-        </div>
-      </section>
-
-      <section class="prerender-section">
-        <h2>内容系列</h2>
-        <div class="prerender-grid cols-2">
-          ${featuredSeries.slice(0, 4).map((series) => renderCard(series, `/series/${series.slug}`, [
-            `${series.post_count || 0} 篇`,
-            series.latest_post_at ? formatDate(series.latest_post_at) : '持续更新',
-          ])).join('')}
-        </div>
-      </section>
     </main>
   `
   return injectTemplate(
@@ -329,7 +306,7 @@ function renderHomePage(template, payload, siteUrl) {
       description,
       rootHtml,
       siteUrl,
-      image: modules?.hero?.image || payload?.settings?.hero_image || '',
+      image: payload?.settings?.hero_image || payload?.settings?.avatar_url || '',
       extraScript: bootstrapScript(payload),
     },
   )

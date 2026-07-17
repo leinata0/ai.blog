@@ -140,7 +140,7 @@ it('revalidates runtime bootstrap on the homepage without force-refreshing the c
   await waitFor(() => expect(screen.getByTestId('author')).toHaveTextContent('Fresh Author'))
   expect(fetchHomeBootstrap).toHaveBeenCalledTimes(1)
   expect(fetchHomeBootstrap).toHaveBeenCalledWith(
-    { page: 1, page_size: 10 },
+    { page: 1, page_size: 10, include_modules: false },
     expect.objectContaining({
       forceRefresh: false,
       staleWhileRevalidate: true,
@@ -163,7 +163,7 @@ it('uses the aggregated home bootstrap on the homepage and skips health prewarm'
   expect(screen.getByTestId('bootstrap')).toHaveTextContent('10')
   expect(fetchHomeBootstrap).toHaveBeenCalledTimes(1)
   expect(fetchHomeBootstrap).toHaveBeenCalledWith(
-    { page: 1, page_size: 10 },
+    { page: 1, page_size: 10, include_modules: false },
     expect.objectContaining({
       forceRefresh: true,
       staleWhileRevalidate: true,
@@ -171,4 +171,27 @@ it('uses the aggregated home bootstrap on the homepage and skips health prewarm'
   )
   expect(apiGet).not.toHaveBeenCalledWith('/api/health', expect.anything())
   expect(apiGet).not.toHaveBeenCalledWith('/api/settings', expect.anything())
+})
+
+it('normalizes a lightweight bootstrap without home modules', async () => {
+  apiGet.mockResolvedValueOnce({
+    settings: { author_name: 'Lightweight Author' },
+    posts: {
+      items: [{ title: 'Latest post', slug: 'latest-post' }],
+      total: 1,
+      page: 1,
+      page_size: 10,
+    },
+  })
+
+  const { fetchHomeBootstrap: actualFetchHomeBootstrap } = await vi.importActual('../src/api/home')
+  const payload = await actualFetchHomeBootstrap({ include_modules: false })
+
+  expect(apiGet).toHaveBeenCalledWith('/api/public/home-bootstrap?include_modules=false', {})
+  expect(payload.settings.author_name).toBe('Lightweight Author')
+  expect(payload.posts.items).toHaveLength(1)
+  expect(payload.posts.items[0].slug).toBe('latest-post')
+  expect(payload.home_modules.latest_daily).toEqual([])
+  expect(payload.home_modules.featured_series).toEqual([])
+  expect(payload.home_modules.topic_pulse.items).toEqual([])
 })

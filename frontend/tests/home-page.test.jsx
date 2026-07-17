@@ -1,11 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import { SiteProvider } from '../src/contexts/SiteContext'
 import { ThemeProvider } from '../src/contexts/ThemeContext'
-import { fetchHomeBootstrap, fetchHomeModules } from '../src/api/home'
+import { fetchHomeBootstrap } from '../src/api/home'
 import { fetchPosts } from '../src/api/posts'
 import HomePage from '../src/pages/HomePage'
 
@@ -66,7 +66,6 @@ vi.mock('../src/api/posts', () => ({
     return Promise.resolve({ items: filtered, total: filtered.length, page: 1, page_size: 10 })
   }),
   prefetchPostDetail: vi.fn(),
-  prefetchTopicDetail: vi.fn(),
 }))
 
 vi.mock('../src/api/home', () => ({
@@ -116,46 +115,6 @@ vi.mock('../src/api/home', () => ({
       page: 1,
       page_size: 10,
     },
-    home_modules: {
-      hero: { image: '', image_alt: 'hero', preset: 'site_hero', art_direction_version: 'v1' },
-      featured_series: [
-        { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily AI coverage.', is_featured: true },
-        { slug: 'ai-weekly-review', title: 'AI Weekly Review', description: 'Weekly long-form review.', is_featured: true },
-        { slug: 'product-strategy-watch', title: 'Product Strategy Watch', description: 'Product and company moves.', is_featured: true },
-        { slug: 'tooling-workflow', title: 'Tooling Workflow', description: 'Tooling and workflow notes.', is_featured: true },
-      ],
-      latest_daily: [],
-      latest_weekly: [],
-      topic_pulse: {
-        title: '正在发酵',
-        description: '最近最值得继续追踪的主题。',
-        items: [
-          { topic_key: 'agent-mcp', title: 'Agent 与 MCP', description: '接口契约和工具调用开始成型。', post_count: 3, source_count: 8 },
-        ],
-      },
-      continue_reading: { title: '继续追更', empty_hint: 'empty', local_only: true, items: [] },
-      subscription_cta: { title: '订阅捷径', primary_to: '/feeds', secondary_to: '/feed.xml' },
-    },
-  })),
-  fetchHomeModules: vi.fn(() => Promise.resolve({
-    hero: { image: '', image_alt: 'hero', preset: 'site_hero', art_direction_version: 'v1' },
-    featured_series: [
-      { slug: 'ai-daily-brief', title: 'AI Daily Brief', description: 'Daily AI coverage.', is_featured: true },
-      { slug: 'ai-weekly-review', title: 'AI Weekly Review', description: 'Weekly long-form review.', is_featured: true },
-      { slug: 'product-strategy-watch', title: 'Product Strategy Watch', description: 'Product and company moves.', is_featured: true },
-      { slug: 'tooling-workflow', title: 'Tooling Workflow', description: 'Tooling and workflow notes.', is_featured: true },
-    ],
-    latest_daily: [],
-    latest_weekly: [],
-    topic_pulse: {
-      title: '正在发酵',
-      description: '最近最值得继续追踪的主题。',
-      items: [
-        { topic_key: 'agent-mcp', title: 'Agent 与 MCP', description: '接口契约和工具调用开始成型。', post_count: 3, source_count: 8 },
-      ],
-    },
-    continue_reading: { title: '继续追更', empty_hint: 'empty', local_only: true, items: [] },
-    subscription_cta: { title: '订阅捷径', primary_to: '/feeds', secondary_to: '/feed.xml' },
   })),
 }))
 
@@ -165,6 +124,8 @@ beforeEach(() => {
   window.sessionStorage.clear()
   delete window.__BLOG_BOOTSTRAP__
 })
+
+afterEach(cleanup)
 
 it('renders the homepage hero as a single poster layout', async () => {
   const { container } = render(
@@ -183,19 +144,77 @@ it('renders the homepage hero as a single poster layout', async () => {
   expect(container.querySelector('[data-ui="home-hero-stage"]')).toBeTruthy()
   expect(container.querySelector('[data-ui="home-hero-stage"]')?.getAttribute('data-layout')).toBe('single-poster')
   expect(container.querySelectorAll('[data-ui="home-hero-poster"]')).toHaveLength(1)
-  expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeTruthy()
-  await waitFor(() => expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeTruthy())
-  expect(container.querySelector('[data-ui="home-topic-pulse"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="home-continue-reading"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="home-subscription-shortcut"]')).toBeTruthy()
+  expect(screen.getByRole('textbox', { name: '搜索文章' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '继续阅读今天与本周的更新' })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
+  expect(screen.getByRole('complementary')).toBeInTheDocument()
+  expect(screen.getByText('作者与站点')).toBeInTheDocument()
+  expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeNull()
+  expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeNull()
+  expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeNull()
+  expect(container.querySelector('[data-ui="home-topic-pulse"]')).toBeNull()
+  expect(container.querySelector('[data-ui="home-continue-reading"]')).toBeNull()
+  expect(container.querySelector('[data-ui="home-subscription-shortcut"]')).toBeNull()
   expect(await screen.findAllByText(/Python automation with Selenium and Pandas/i)).not.toHaveLength(0)
   expect(fetchHomeBootstrap).toHaveBeenCalledTimes(1)
-  expect(fetchHomeModules).not.toHaveBeenCalled()
   expect(fetchPosts).not.toHaveBeenCalled()
 
-  await userEvent.click(screen.getAllByRole('button', { name: /Python/i })[0])
+  await userEvent.click(within(document.querySelector('[data-ui="filter-bar"]')).getByRole('button', { name: /Python/i }))
   await waitFor(() => expect(fetchPosts).toHaveBeenCalledTimes(1))
   expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)
+})
+
+it('does not let a stale filtered request overwrite the restored latest-post view', async () => {
+  let resolveFilteredRequest
+  fetchPosts
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFilteredRequest = resolve
+    }))
+    .mockResolvedValueOnce({
+      items: [{
+        title: 'Newest unfiltered article',
+        slug: 'newest-unfiltered-article',
+        summary: 'Fresh homepage content.',
+        content_type: 'post',
+        tags: [{ name: 'Fresh', slug: 'fresh' }],
+      }],
+      total: 1,
+      page: 1,
+      page_size: 10,
+    })
+
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <SiteProvider>
+          <HomePage />
+        </SiteProvider>
+      </ThemeProvider>
+    </MemoryRouter>,
+  )
+
+  await screen.findAllByText(/Python automation with Selenium and Pandas/i)
+  await userEvent.type(screen.getByRole('textbox', { name: '搜索文章' }), 'Python')
+  await userEvent.click(screen.getByRole('button', { name: '开始搜索' }))
+  await waitFor(() => expect(fetchPosts).toHaveBeenCalledTimes(1))
+
+  await userEvent.click(screen.getByRole('button', { name: '清空' }))
+  expect(await screen.findByText('Newest unfiltered article')).toBeInTheDocument()
+  expect(fetchPosts.mock.calls[1][0]).toEqual(expect.objectContaining({ page: 1, tag: undefined, q: undefined }))
+
+  resolveFilteredRequest({
+    items: [{
+      title: 'Stale filtered response',
+      slug: 'stale-filtered-response',
+      summary: 'This response arrived too late.',
+      content_type: 'post',
+      tags: [{ name: 'Python', slug: 'python' }],
+    }],
+    total: 1,
+    page: 1,
+    page_size: 10,
+  })
+
+  await waitFor(() => expect(screen.queryByText('Stale filtered response')).not.toBeInTheDocument())
+  expect(screen.getByText('Newest unfiltered article')).toBeInTheDocument()
 })

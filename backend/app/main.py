@@ -26,7 +26,11 @@ from app.http_cache import build_public_cache_control, public_json_response, pub
 from app.models import Post, Series, SiteSettings, Tag
 from app.rate_limit import limiter
 from app.routers.admin import router as admin_router
-from app.routers.home import build_home_modules_payload, router as home_router
+from app.routers.home import (
+    build_home_modules_payload,
+    build_lightweight_home_modules_payload,
+    router as home_router,
+)
 from app.routers.posts import build_posts_list_payload, router as posts_router
 from app.routers.subscriptions import router as subscriptions_router
 from app.routers.users import router as users_router
@@ -259,11 +263,17 @@ def get_public_home_bootstrap(
     request: Request,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=50),
+    include_modules: bool = Query(default=True),
     db: Session = Depends(get_db),
 ):
+    settings_payload = build_settings_payload(db)
     payload = {
-        "settings": build_settings_payload(db),
-        "home_modules": build_home_modules_payload(db),
+        "settings": settings_payload,
+        "home_modules": (
+            build_home_modules_payload(db)
+            if include_modules
+            else build_lightweight_home_modules_payload(settings_payload)
+        ),
         "posts": build_posts_list_payload(db, page=page, page_size=page_size),
     }
     return public_json_response(

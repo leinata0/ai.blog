@@ -8,6 +8,7 @@ import {
   Menu,
   Moon,
   PanelsTopLeft,
+  Search,
   Sun,
   User as UserIcon,
   X,
@@ -26,6 +27,12 @@ import { SITE_COPY } from '../utils/contentPresentation'
 const NAV_ITEMS = [
   { label: '首页', to: '/' },
   { label: '开始阅读', to: '/start-here' },
+]
+
+const BROWSE_ITEMS = [
+  { label: '日报', to: '/daily' },
+  { label: '周报', to: '/weekly' },
+  { label: '系列', to: '/series' },
   { label: '主题', to: '/topics' },
   { label: '订阅', to: '/feeds' },
   { label: '归档', to: '/archive' },
@@ -34,6 +41,7 @@ const NAV_ITEMS = [
 ]
 
 const TRACKING_CLOSE_DELAY_MS = 220
+const BROWSE_CLOSE_DELAY_MS = 220
 
 function NavLink({ to, active, children, onClick }) {
   const className = 'relative pb-1 text-sm font-semibold transition-colors duration-200 group'
@@ -88,6 +96,29 @@ function TrackingCard({ to, onNavigate, title, description }) {
         {description}
       </div>
     </Link>
+  )
+}
+
+function BrowsePreview({ pathname, onNavigate }) {
+  return (
+    <GlassPopover data-ui="browse-dropdown" className="w-[320px] p-3">
+      <div className="grid grid-cols-2 gap-1">
+        {BROWSE_ITEMS.map((item) => {
+          const active = pathname === item.to || pathname.startsWith(`${item.to}/`)
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              onClick={onNavigate}
+              className="rounded-lg px-3 py-3 text-sm font-semibold transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
+              style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }}
+            >
+              {item.label}
+            </Link>
+          )
+        })}
+      </div>
+    </GlassPopover>
   )
 }
 
@@ -173,20 +204,33 @@ function TrackingPreview({
 export default function Navbar() {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [mobileBrowseOpen, setMobileBrowseOpen] = useState(false)
   const [mobileTrackingOpen, setMobileTrackingOpen] = useState(false)
+  const [browseOpen, setBrowseOpen] = useState(false)
+  const [browsePinned, setBrowsePinned] = useState(false)
   const [trackingOpen, setTrackingOpen] = useState(false)
   const [trackingPinned, setTrackingPinned] = useState(false)
   const [continueReading, setContinueReading] = useState([])
   const [followedTopics, setFollowedTopics] = useState([])
   const [recentTopics, setRecentTopics] = useState([])
-  const panelRef = useRef(null)
-  const closeTimerRef = useRef(null)
+  const browsePanelRef = useRef(null)
+  const trackingPanelRef = useRef(null)
+  const navRef = useRef(null)
+  const browseTriggerRef = useRef(null)
+  const trackingTriggerRef = useRef(null)
+  const mobileMenuButtonRef = useRef(null)
+  const mobilePanelRef = useRef(null)
+  const browseCloseTimerRef = useRef(null)
+  const trackingCloseTimerRef = useRef(null)
   const { dark, toggleTheme } = useTheme()
   const { user } = useUser()
 
   useEffect(() => {
     setMobileOpen(false)
+    setMobileBrowseOpen(false)
     setMobileTrackingOpen(false)
+    setBrowseOpen(false)
+    setBrowsePinned(false)
     setTrackingOpen(false)
     setTrackingPinned(false)
   }, [location.pathname])
@@ -210,7 +254,16 @@ export default function Navbar() {
 
   useEffect(() => {
     function handlePointerDown(event) {
-      if (!panelRef.current?.contains(event.target)) {
+      if (!navRef.current?.contains(event.target)) {
+        setMobileOpen(false)
+        setMobileBrowseOpen(false)
+        setMobileTrackingOpen(false)
+      }
+      if (!browsePanelRef.current?.contains(event.target)) {
+        setBrowseOpen(false)
+        setBrowsePinned(false)
+      }
+      if (!trackingPanelRef.current?.contains(event.target)) {
         setTrackingOpen(false)
         setTrackingPinned(false)
       }
@@ -218,8 +271,20 @@ export default function Navbar() {
 
     function handleEscape(event) {
       if (event.key === 'Escape') {
+        const activeElement = document.activeElement
+        const restoreBrowseFocus = browsePanelRef.current?.contains(activeElement)
+        const restoreTrackingFocus = trackingPanelRef.current?.contains(activeElement)
+        const restoreMobileFocus = mobilePanelRef.current?.contains(activeElement)
+        if (restoreBrowseFocus) browseTriggerRef.current?.focus()
+        if (restoreTrackingFocus) trackingTriggerRef.current?.focus()
+        if (restoreMobileFocus) mobileMenuButtonRef.current?.focus()
+        setBrowseOpen(false)
+        setBrowsePinned(false)
         setTrackingOpen(false)
         setTrackingPinned(false)
+        setMobileOpen(false)
+        setMobileBrowseOpen(false)
+        setMobileTrackingOpen(false)
       }
     }
 
@@ -232,8 +297,11 @@ export default function Navbar() {
   }, [])
 
   useEffect(() => () => {
-    if (closeTimerRef.current) {
-      window.clearTimeout(closeTimerRef.current)
+    if (browseCloseTimerRef.current) {
+      window.clearTimeout(browseCloseTimerRef.current)
+    }
+    if (trackingCloseTimerRef.current) {
+      window.clearTimeout(trackingCloseTimerRef.current)
     }
   }, [])
 
@@ -242,37 +310,87 @@ export default function Navbar() {
     [continueReading.length, followedTopics.length, recentTopics.length],
   )
 
-  function clearCloseTimer() {
-    if (closeTimerRef.current) {
-      window.clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = null
+  function clearBrowseCloseTimer() {
+    if (browseCloseTimerRef.current) {
+      window.clearTimeout(browseCloseTimerRef.current)
+      browseCloseTimerRef.current = null
     }
   }
 
-  function scheduleClose() {
-    clearCloseTimer()
-    closeTimerRef.current = window.setTimeout(() => {
+  function clearTrackingCloseTimer() {
+    if (trackingCloseTimerRef.current) {
+      window.clearTimeout(trackingCloseTimerRef.current)
+      trackingCloseTimerRef.current = null
+    }
+  }
+
+  function scheduleBrowseClose() {
+    clearBrowseCloseTimer()
+    browseCloseTimerRef.current = window.setTimeout(() => {
+      if (!browsePinned) {
+        setBrowseOpen(false)
+      }
+    }, BROWSE_CLOSE_DELAY_MS)
+  }
+
+  function scheduleTrackingClose() {
+    clearTrackingCloseTimer()
+    trackingCloseTimerRef.current = window.setTimeout(() => {
       if (!trackingPinned) {
         setTrackingOpen(false)
       }
     }, TRACKING_CLOSE_DELAY_MS)
   }
 
+  function openBrowsePreview() {
+    clearBrowseCloseTimer()
+    clearTrackingCloseTimer()
+    setTrackingOpen(false)
+    setTrackingPinned(false)
+    setBrowseOpen(true)
+  }
+
   function openTrackingPreview() {
-    clearCloseTimer()
+    clearTrackingCloseTimer()
+    clearBrowseCloseTimer()
+    setBrowseOpen(false)
+    setBrowsePinned(false)
     setTrackingOpen(true)
   }
 
+  function closeBrowse() {
+    clearBrowseCloseTimer()
+    setBrowseOpen(false)
+    setBrowsePinned(false)
+  }
+
   function closeTracking() {
-    clearCloseTimer()
+    clearTrackingCloseTimer()
     setTrackingOpen(false)
     setTrackingPinned(false)
     setMobileOpen(false)
     setMobileTrackingOpen(false)
   }
 
+  function handleBrowseButtonClick() {
+    clearBrowseCloseTimer()
+    clearTrackingCloseTimer()
+    setTrackingOpen(false)
+    setTrackingPinned(false)
+    if (browseOpen && browsePinned) {
+      setBrowseOpen(false)
+      setBrowsePinned(false)
+      return
+    }
+    setBrowseOpen(true)
+    setBrowsePinned(true)
+  }
+
   function handleTrackingButtonClick() {
-    clearCloseTimer()
+    clearTrackingCloseTimer()
+    clearBrowseCloseTimer()
+    setBrowseOpen(false)
+    setBrowsePinned(false)
     if (trackingOpen && trackingPinned) {
       setTrackingOpen(false)
       setTrackingPinned(false)
@@ -284,6 +402,7 @@ export default function Navbar() {
 
   return (
     <nav
+      ref={navRef}
       className="sticky top-0 z-50 transition-all duration-300"
       style={{
         backgroundColor: dark ? 'rgba(10, 17, 29, 0.82)' : 'rgba(255, 255, 255, 0.78)',
@@ -300,7 +419,7 @@ export default function Navbar() {
           </div>
         </Link>
 
-        <div className="hidden items-center gap-8 md:flex">
+        <div className="hidden items-center gap-4 lg:flex xl:gap-6">
           {NAV_ITEMS.map((item) => (
             <NavLink key={item.to} to={item.to} active={location.pathname === item.to}>
               {item.label}
@@ -308,14 +427,74 @@ export default function Navbar() {
           ))}
 
           <div
-            ref={panelRef}
+            ref={browsePanelRef}
             className="relative"
-            onMouseEnter={openTrackingPreview}
+            onMouseEnter={openBrowsePreview}
             onMouseLeave={() => {
-              if (!trackingPinned) scheduleClose()
+              if (!browsePinned) scheduleBrowseClose()
+            }}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) closeBrowse()
             }}
           >
             <button
+              ref={browseTriggerRef}
+              type="button"
+              data-ui="desktop-browse-trigger"
+              onClick={handleBrowseButtonClick}
+              onFocus={openBrowsePreview}
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-all duration-200"
+              style={{
+                backgroundColor: browseOpen ? 'var(--accent-soft)' : 'transparent',
+                color: browseOpen ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+              aria-label="打开浏览菜单"
+              aria-expanded={browseOpen}
+            >
+              <Compass size={16} />
+              浏览
+              <ChevronDown size={15} className={`transition-transform duration-200 ${browseOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {browseOpen ? (
+              <div
+                className="absolute left-1/2 top-full z-[70] -translate-x-1/2 pt-3"
+                onMouseEnter={openBrowsePreview}
+                onMouseLeave={() => {
+                  if (!browsePinned) scheduleBrowseClose()
+                }}
+              >
+                <BrowsePreview pathname={location.pathname} onNavigate={closeBrowse} />
+              </div>
+            ) : null}
+          </div>
+
+          <Link
+            to="/search"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-200"
+            style={{
+              color: location.pathname === '/search' ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor: 'var(--bg-surface)',
+            }}
+            aria-label="搜索"
+            title="搜索"
+          >
+            <Search size={18} />
+          </Link>
+
+          <div
+            ref={trackingPanelRef}
+            className="relative"
+            onMouseEnter={openTrackingPreview}
+            onMouseLeave={() => {
+              if (!trackingPinned) scheduleTrackingClose()
+            }}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) closeTracking()
+            }}
+          >
+            <button
+              ref={trackingTriggerRef}
               type="button"
               onClick={handleTrackingButtonClick}
               onFocus={openTrackingPreview}
@@ -337,7 +516,7 @@ export default function Navbar() {
                 className="absolute right-0 top-full z-[70] pt-3"
                 onMouseEnter={openTrackingPreview}
                 onMouseLeave={() => {
-                  if (!trackingPinned) scheduleClose()
+                  if (!trackingPinned) scheduleTrackingClose()
                 }}
               >
                 <TrackingPreview
@@ -368,25 +547,31 @@ export default function Navbar() {
             className="inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-200"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             aria-label="切换主题"
+            aria-pressed={dark}
+            title={dark ? '切换到浅色主题' : '切换到深色主题'}
           >
             {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
         </div>
 
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-2 lg:hidden">
           <button
             onClick={toggleTheme}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             aria-label="切换主题"
+            aria-pressed={dark}
+            title={dark ? '切换到浅色主题' : '切换到深色主题'}
           >
             {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <button
+            ref={mobileMenuButtonRef}
             onClick={() => setMobileOpen((open) => !open)}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             aria-label="菜单"
+            aria-expanded={mobileOpen}
           >
             {mobileOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
@@ -394,7 +579,7 @@ export default function Navbar() {
       </div>
 
       {mobileOpen ? (
-        <div className="space-y-3 px-6 pb-5 md:hidden" style={{ borderTop: '1px solid var(--border-muted)' }}>
+        <div ref={mobilePanelRef} className="max-h-[calc(100vh-4.5rem)] space-y-3 overflow-y-auto px-6 pb-5 lg:hidden" style={{ borderTop: '1px solid var(--border-muted)' }}>
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
@@ -406,10 +591,70 @@ export default function Navbar() {
             </NavLink>
           ))}
 
-          <div className="rounded-[1.5rem] border p-4" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-surface)' }}>
+          <div data-ui="mobile-quick-links" className="grid grid-cols-2 gap-2 pt-1">
+            <Link
+              to="/search"
+              onClick={() => setMobileOpen(false)}
+              className="flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-semibold"
+              style={{ borderColor: 'var(--border-muted)', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
+            >
+              <Search size={16} />
+              搜索
+            </Link>
+            <Link
+              to={user ? '/account' : '/login'}
+              onClick={() => setMobileOpen(false)}
+              className="flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-semibold"
+              style={{ borderColor: 'var(--border-muted)', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
+            >
+              <UserIcon size={16} />
+              {user ? (user.nickname || '个人中心') : '登录'}
+            </Link>
+          </div>
+
+          <div className="rounded-lg border p-4" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-surface)' }}>
             <button
               type="button"
-              onClick={() => setMobileTrackingOpen((open) => !open)}
+              data-ui="mobile-browse-trigger"
+              onClick={() => {
+                setMobileBrowseOpen((open) => !open)
+                setMobileTrackingOpen(false)
+              }}
+              className="flex w-full items-center justify-between text-left"
+              style={{ color: 'var(--text-primary)' }}
+              aria-expanded={mobileBrowseOpen}
+            >
+              <span className="inline-flex items-center gap-2 text-sm font-semibold">
+                <Compass size={16} />
+                浏览
+              </span>
+              <ChevronDown size={16} className={`transition-transform duration-200 ${mobileBrowseOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {mobileBrowseOpen ? (
+              <div data-ui="mobile-browse-links" className="mt-4 grid grid-cols-2 gap-1">
+                {BROWSE_ITEMS.map((item) => (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    onClick={() => setMobileOpen(false)}
+                    className="rounded-lg px-3 py-3 text-sm font-semibold transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
+                    style={{ color: location.pathname === item.to ? 'var(--accent)' : 'var(--text-secondary)' }}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-lg border p-4" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-surface)' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileTrackingOpen((open) => !open)
+                setMobileBrowseOpen(false)
+              }}
               className="flex w-full items-center justify-between text-left"
               style={{ color: 'var(--text-primary)' }}
               aria-expanded={mobileTrackingOpen}
