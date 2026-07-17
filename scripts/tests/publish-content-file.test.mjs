@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import {
+  fetchExistingPostBySlug,
+  generateCoverWithFallback,
+  resolveExistingCover,
+} from '../publish-content-file.mjs'
+
+function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+test('publisher searches every admin page for an exact slug', async () => {
+  const calls = []
+  const fetchImpl = async (url) => {
+    calls.push(url)
+    if (url.includes('page=1&')) {
+      return jsonResponse({ items: [{ id: 1, slug: 'other' }], total: 2 })
+    }
+    return jsonResponse({ items: [{ id: 5, slug: 'target' }], total: 2 })
+  }
+
+  const result = await fetchExistingPostBySlug('target', 'token', {
+    blogApiBase: 'https://blog.example',
+    fetchImpl,
+    pageSize: 1,
+  })
+
+  assert.equal(result.id, 5)
+  assert.equal(calls.length, 2)
+})
+
+test('publisher preserves an existing post cover', () => {
+  assert.equal(
+    resolveExistingCover({}, { cover_image: 'https://img.example/existing.jpg' }),
+    'https://img.example/existing.jpg',
+  )
+  assert.equal(
+    resolveExistingCover({ cover_image: 'https://img.example/article.jpg' }, { cover_image: 'old.jpg' }),
+    'https://img.example/article.jpg',
+  )
+})
+
+test('cover generation falls back to the next configured provider', async () => {
+  const attempts = []
+  const warnings = []
+  const providers = [
+    { name: 'Grok', apiKey: 'xai-key' },
+    { name: 'SiliconFlow', apiKey: 'sf-key' },
+  ]
+  const result = await generateCoverWithFallback('prompt', 'token', {
+    providers,
+    generate: async (_prompt, _token, provider) => {
+      attempts.push(provider.name)
+      if (provider.name === 'Grok') throw new Error('Grok credits exhausted')
+      return 'https://img.example/fallback.jpg'
+    },
+    logger: { warn: (message) => warnings.push(message) },
+  })
+
+  assert.equal(result, 'https://img.example/fallback.jpg')
+  assert.deepEqual(attempts, ['Grok', 'SiliconFlow'])
+  assert.equal(warnings.length, 1)
+})
+
+test('cover generation is optional when every provider fails', async () => {
+  const result = await generateCoverWithFallback('prompt', 'token', {
+    providers: [{ name: 'Grok', apiKey: 'xai-key' }],
+    generate: async () => { throw new Error('quota exceeded') },
+    logger: { warn: () => {} },
+  })
+
+  assert.equal(result, '')
+})

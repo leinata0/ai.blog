@@ -6,7 +6,7 @@ from sqlalchemy.exc import OperationalError
 import app.db as db_mod
 from app.env import clean_env
 from app.models import Post, SiteSettings, User
-from app.schema_compat import ensure_schema_compat
+from app.schema_compat import ensure_runtime_required_schema, ensure_schema_compat
 from app.seed import seed_data
 from app.storage import (
     check_storage_readiness,
@@ -44,6 +44,8 @@ def initialize_runtime(*, sync_schema: bool | None = None, seed_on_empty: bool |
     if effective_sync:
         db_mod.Base.metadata.create_all(bind=db_mod.engine)
         ensure_schema_compat(db_mod.engine)
+    else:
+        ensure_runtime_required_schema(db_mod.engine)
 
     try:
         with db_mod.SessionLocal() as db:

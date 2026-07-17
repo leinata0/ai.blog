@@ -272,6 +272,12 @@ USER_COLUMNS = {
     "last_login_at": "DATETIME",
 }
 
+RUNTIME_REQUIRED_COLUMNS = {
+    "users": {
+        "token_version": USER_COLUMNS["token_version"],
+    },
+}
+
 FOLLOWED_TOPIC_COLUMNS = {
     "id": "INTEGER PRIMARY KEY",
     "user_id": "INTEGER NOT NULL",
@@ -453,6 +459,26 @@ def ensure_admin_text_generation_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_admin_text_generation_jobs_created_at ON admin_text_generation_jobs (created_at)",
         ],
     )
+
+
+def ensure_runtime_required_schema(engine) -> None:
+    """Apply small additive migrations required by the current runtime.
+
+    Full compatibility sync remains opt-in in production. These columns are
+    different: without them the deployed application cannot become ready.
+    """
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    for table_name, columns in RUNTIME_REQUIRED_COLUMNS.items():
+        if table_name not in table_names:
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        missing_columns = {name: ddl for name, ddl in columns.items() if name not in existing_columns}
+        if not missing_columns:
+            continue
+        with engine.begin() as connection:
+            for column_name, ddl in missing_columns.items():
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}"))
 
 
 def ensure_schema_compat(engine) -> None:

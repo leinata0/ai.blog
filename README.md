@@ -155,7 +155,7 @@ cd scripts && npm test                               # 脚本 node --test
 
 生产使用 Neon Postgres，关闭 `AUTO_SEED_ON_EMPTY`，明确设置 `PUBLIC_SITE_URL` 与 `ALLOWED_ORIGINS`，并完整配置 `R2_ACCOUNT_ID`（或 `R2_ENDPOINT`）、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`R2_BUCKET_NAME`、`R2_PUBLIC_BASE_URL`。缺少任一项会让 production/Render 启动失败；`ALLOW_EPHEMERAL_UPLOADS=1` 仅用于明确接受文件会随实例重启丢失的应急部署。Docker 镜像按 `uv.lock` 冻结安装生产依赖，并以非 root 用户运行。
 
-> ⚠️ **schema 同步（务必了解）**：生产默认 `ENABLE_STARTUP_SCHEMA_SYNC=0`，启动期**不会**自动补表/补列。因此**每次新增模型字段后，老库不会自动获得新列**，会导致接口报错。补列方式二选一：
+> **schema 同步**：生产默认 `ENABLE_STARTUP_SCHEMA_SYNC=0`，不会执行全量兼容同步。当前版本运行所必需的安全字段（如 `users.token_version`）会在启动时自动、幂等补齐；其它新增表/列仍需使用以下方式之一：
 > - 临时设 `ENABLE_STARTUP_SCHEMA_SYNC=1` 部署一次（幂等补齐），确认正常后改回 `0` 再部署；
 > - 或在可用 Shell 的环境执行一次 `python -m app.bootstrap`。
 
@@ -174,7 +174,7 @@ cd scripts && npm test                               # 脚本 node --test
 | 分类 | 变量 |
 |------|------|
 | 运行环境 | `APP_ENV` · `DATABASE_URL` · `PUBLIC_SITE_URL` · `ALLOWED_ORIGINS` · `AUTO_SEED_ON_EMPTY` · `ENABLE_STARTUP_SCHEMA_SYNC` · `ALLOW_EPHEMERAL_UPLOADS`（生产应保持 `0`）· `TRUST_PROXY_HEADERS` / `TRUSTED_PROXY_DEPTH`（可信 XFF 链）· `TRUST_CF_CONNECTING_IP`（仅在源站已限制为 Cloudflare 流量时启用） |
-| 管理认证 | `SECRET_KEY` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · `FIELD_ENCRYPTION_KEY`（保存 AI Provider API Key 时必填的 Fernet 密钥，所有环境均不允许明文降级） |
+| 管理认证 | `SECRET_KEY` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · 可选 `FIELD_ENCRYPTION_KEY`（建议使用独立 Fernet 密钥；未配置时从 `SECRET_KEY` 域隔离派生，始终禁止明文存储） |
 | 存储 R2 | `R2_ACCOUNT_ID` 或 `R2_ENDPOINT` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET_NAME` · `R2_PUBLIC_BASE_URL` · 可选 `R2_REGION` |
 | 邮件/推送 | `RESEND_API_KEY` · `EMAIL_FROM` · `WEB_PUSH_VAPID_PUBLIC_KEY` · `WEB_PUSH_VAPID_PRIVATE_KEY` · `WEB_PUSH_SUBJECT` · `WECOM_WEBHOOK_URLS` |
 | 访客系统 | `TURNSTILE_SECRET_KEY`（人机验证，留空则跳过）；邮箱验证复用 `RESEND_API_KEY` + `EMAIL_FROM` |
