@@ -3,6 +3,12 @@ import {
   fetchMe,
   loginUser,
   registerUser,
+  verifyLoginCode,
+  confirmPasswordReset,
+  requestLoginCode,
+  requestPasswordReset,
+  changePassword,
+  revokeSessions,
   mergeTopicsCloud,
   mergeHistoryCloud,
 } from '../api/user'
@@ -22,6 +28,13 @@ const defaultUserContextValue = {
   user: null,
   loading: false,
   login: notReady,
+  loginWithPassword: notReady,
+  loginWithCode: notReady,
+  requestLoginCode: notReady,
+  requestPasswordReset: notReady,
+  resetPassword: notReady,
+  updatePassword: notReady,
+  revokeAllSessions: notReady,
   register: notReady,
   logout: noop,
   refresh: async () => null,
@@ -97,6 +110,16 @@ export function UserProvider({ children }) {
     return data.user
   }, [])
 
+  const loginWithPassword = login
+
+  const loginWithCode = useCallback(async (credentials) => {
+    const data = await verifyLoginCode(credentials)
+    setUserToken(data.access_token)
+    setUser(data.user)
+    await mergeLocalDataToCloud()
+    return data.user
+  }, [])
+
   const register = useCallback(async (payload) => {
     const data = await registerUser(payload)
     setUserToken(data.access_token)
@@ -105,14 +128,53 @@ export function UserProvider({ children }) {
     return data.user
   }, [])
 
+  const finishAuthResponse = useCallback(async (data, { merge = false } = {}) => {
+    setUserToken(data.access_token)
+    setUser(data.user)
+    if (merge) await mergeLocalDataToCloud()
+    return data.user
+  }, [])
+
+  const resetPassword = useCallback(async (payload) => {
+    return finishAuthResponse(await confirmPasswordReset(payload), { merge: true })
+  }, [finishAuthResponse])
+
+  const updatePassword = useCallback(async (payload) => {
+    return finishAuthResponse(await changePassword(payload))
+  }, [finishAuthResponse])
+
+  const sendLoginCode = useCallback((payload) => requestLoginCode(payload), [])
+  const sendPasswordReset = useCallback((payload) => requestPasswordReset(payload), [])
+
+  const revokeAllSessions = useCallback(async () => {
+    await revokeSessions()
+    clearUserToken()
+    setUser(null)
+  }, [])
+
   const logout = useCallback(() => {
     clearUserToken()
     setUser(null)
   }, [])
 
   const value = useMemo(
-    () => ({ user, loading, login, register, logout, refresh, setUser }),
-    [user, loading, login, register, logout, refresh],
+    () => ({
+      user,
+      loading,
+      login,
+      loginWithPassword,
+      loginWithCode,
+      requestLoginCode: sendLoginCode,
+      requestPasswordReset: sendPasswordReset,
+      resetPassword,
+      updatePassword,
+      revokeAllSessions,
+      register,
+      logout,
+      refresh,
+      setUser,
+    }),
+    [user, loading, login, loginWithPassword, loginWithCode, sendLoginCode, sendPasswordReset, resetPassword, updatePassword, revokeAllSessions, register, logout, refresh],
   )
 
   return (

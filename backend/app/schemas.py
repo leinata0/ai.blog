@@ -1287,6 +1287,29 @@ class UserLoginRequest(BaseModel):
     turnstile_token: str | None = None
 
 
+class AuthCodeRequest(BaseModel):
+    email: str = Field(..., max_length=255)
+    turnstile_token: str | None = None
+
+
+class AuthCodeVerifyRequest(BaseModel):
+    email: str = Field(..., max_length=255)
+    challenge_id: str = Field(..., min_length=1, max_length=64)
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+    turnstile_token: str | None = None
+
+
+class PasswordResetConfirmRequest(AuthCodeVerifyRequest):
+    new_password: str = Field(..., min_length=8, max_length=72)
+
+
+class AuthCodeDispatchResponse(BaseModel):
+    challenge_id: str
+    expires_in: int = 600
+    retry_after: int = 60
+    message: str
+
+
 class VerifyEmailRequest(BaseModel):
     token: str = Field(..., min_length=1)
 
@@ -1299,7 +1322,9 @@ class UserOut(BaseModel):
     avatar_url: str
     bio: str = ""
     email_verified: bool
+    password_set: bool = True
     created_at: datetime
+    last_login_at: datetime | None = None
 
 
 class UserAuthResponse(BaseModel):
@@ -1315,7 +1340,7 @@ class UserProfileUpdate(BaseModel):
 
 
 class PasswordChangeRequest(BaseModel):
-    old_password: str = Field(..., min_length=1, max_length=72)
+    old_password: str | None = Field(default=None, max_length=72)
     new_password: str = Field(..., min_length=8, max_length=72)
 
 

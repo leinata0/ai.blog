@@ -46,7 +46,7 @@ flowchart LR
 - **站点与 AI 配置**：`site_settings` / `ai_channel_configs`（旧）/ `ai_provider_sources` + `ai_model_instances`（新，服务源→模型实例两层）/ `admin_image_generation_jobs`
 - **发布与质量**：`publishing_runs` / `publishing_artifacts` / `post_quality_snapshots` / `post_quality_reviews` / `topic_profiles` / `search_insights`
 - **互动与订阅**：`post_likes` / `view_logs` / `email_subscriptions` / `web_push_subscriptions` / `post_notification_dispatches`
-- **访客用户系统**：`users` / `followed_topics` / `reading_history`（`comments`、`post_likes` 带可空 `user_id`）
+- **访客用户系统**：`users` / `auth_challenges` / `followed_topics` / `reading_history`（`comments`、`post_likes` 带可空 `user_id`）
 
 > **schema 演进无 Alembic**：所有表/列变更通过 `app/schema_compat.py` 在启动期补齐（建表 + `ALTER ADD COLUMN`，幂等）。新增模型字段必须同步进该文件，详见 [§7 部署](#7-部署)。
 
@@ -57,7 +57,7 @@ flowchart LR
 | `posts` | `/api` | 公开读：文章/系列/主题/搜索/归档/标签/评论/点赞/RSS |
 | `home` | `/api/home` | 首页模块数据 |
 | `subscriptions` | `/api/subscriptions` | 邮件 / Web Push 订阅管理 |
-| `users` | `/api/users` | 访客账号：注册/登录/资料/改密/邮箱验证/头像/我的评论·点赞/关注·历史同步/注销 |
+| `users` | `/api/users` | 访客账号：密码或验证码登录、找回密码、资料、安全中心、邮箱验证、互动数据同步与注销 |
 | `admin` | `/api/admin` | 管理后台（JWT，50+ 端点）：文章/主题/系列/评论/图片/AI 渠道/用户管理/统计 |
 
 `main.py` 直接端点：`/livez`（纯进程存活）、`/readyz`（DB、关键 schema 与存储依赖就绪）、兼容入口 `/health`、`/api/settings`、`/api/stats`、`/api/public/home-bootstrap`（首页一次性聚合）、`/proxy-image`（SSRF 防护，仅第三方图片）、`/feed.xml`、`/sitemap.xml`。
@@ -68,8 +68,8 @@ flowchart LR
 
 ### 关键子系统
 
-- **认证（`auth.py` + `user_auth.py`）**：JWT HS256。三类身份用不同 `aud` 严格隔离 —— admin（`aud="admin"`，sub=用户名）、访客（`aud="user"`，sub=用户 id）、邮箱验证链接（`aud="email_verify"`，短期）。访客密码经 bcrypt 哈希（`passwords.py`）。
-- **人机验证（`turnstile.py`）**：注册/登录可接 Cloudflare Turnstile；未配置密钥时自动跳过，不锁死。
+- **认证（`auth.py` + `user_auth.py` + `auth_challenges.py`）**：JWT HS256。三类身份用不同 `aud` 严格隔离 —— admin（`aud="admin"`，sub=用户名）、访客（`aud="user"`，sub=用户 id）、邮箱验证链接（`aud="email_verify"`，短期）。访客密码经 bcrypt 哈希；邮箱验证码仅保存 HMAC 摘要，成功消费后立即失效。访客 JWT 带 `token_version`，改密和退出全部设备会撤销旧令牌。
+- **人机验证（`turnstile.py`）**：注册、密码登录、登录验证码和找回密码验证码请求可接 Cloudflare Turnstile；未配置密钥时自动跳过，不锁死。
 - **邮件（`notifications.py` + `email_verification.py`）**：通用 `send_email` 基于 Resend，承载订阅通知与邮箱验证；另支持 Web Push（VAPID）与企业微信 webhook。
 - **存储（`storage.py`）**：开发环境未配置 `R2_*` 时落本地 `/uploads`；production/Render 必须完整配置 Cloudflare R2（boto3，S3 兼容），否则启动失败。仅在显式设置 `ALLOW_EPHEMERAL_UPLOADS=1` 时允许生产临时盘降级；统一图片校验原语供后台与头像上传复用。
 - **其它**：`http_cache`（ETag/304）、`rate_limit`（slowapi，按真实客户端 IP）、`env`（生产/开发环境判定与变量清洗）。
@@ -94,9 +94,10 @@ React 18 SPA + 构建期 SSG 预渲染。
 
 面向公开访客的账号体系，与原有单一 admin 身份**完全隔离**（不同 JWT `aud`、不同前端 token 存储、401 互不跳转）。
 
-- **认证**：邮箱 + 密码注册/登录（bcrypt 哈希）。
+- **邮箱优先认证**：登录身份只接受邮箱，支持密码登录与 6 位邮箱验证码免密登录；未注册邮箱验证成功后自动创建已验证的无密码账号。验证码 10 分钟有效、最多错误 5 次，同邮箱同用途 60 秒内不可重复发送。
+- **密码恢复与安全中心**：支持找回/重置密码、无密码账号设置密码、修改密码、退出全部设备。重置或修改密码后服务端提升 `token_version` 并返回新登录态，旧 JWT 立即失效。
 - **邮箱软验证**：注册后即可登录浏览；评论、点赞等写操作需先验证邮箱。验证链接为带 `aud="email_verify"` 的短期 JWT，复用 Resend 发信。**未配置 Resend 时注册照常，但邮箱无法验证、写操作被持续软拦截。**
-- **人机验证**：注册/登录接入 Cloudflare Turnstile。**未配置 `TURNSTILE_SECRET_KEY` / `VITE_TURNSTILE_SITE_KEY` 时自动跳过**，两者需配套启用。
+- **人机验证**：注册、密码登录和验证码发送接入 Cloudflare Turnstile。**未配置 `TURNSTILE_SECRET_KEY` / `VITE_TURNSTILE_SITE_KEY` 时自动跳过**，两者需配套启用。
 - **账号能力**：评论/点赞绑定账号（点赞可取消）；关注主题与阅读历史云端同步、跨设备可见；登录时自动把本地 localStorage 数据合并到云端。
 - **个人中心（`/account`）**：头像上传、个人简介、我的评论、我的点赞、阅读历史、修改密码、注销账号。
 - **管理后台**：用户列表、封禁/解封（即时生效）、删除（评论匿名保留、其余关联数据清除）。
@@ -177,11 +178,11 @@ cd scripts && npm test                               # 脚本 node --test
 | 管理认证 | `SECRET_KEY` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · 可选 `FIELD_ENCRYPTION_KEY`（建议使用独立 Fernet 密钥；未配置时从 `SECRET_KEY` 域隔离派生，始终禁止明文存储） |
 | 存储 R2 | `R2_ACCOUNT_ID` 或 `R2_ENDPOINT` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET_NAME` · `R2_PUBLIC_BASE_URL` · 可选 `R2_REGION` |
 | 邮件/推送 | `RESEND_API_KEY` · `EMAIL_FROM` · `WEB_PUSH_VAPID_PUBLIC_KEY` · `WEB_PUSH_VAPID_PRIVATE_KEY` · `WEB_PUSH_SUBJECT` · `WECOM_WEBHOOK_URLS` |
-| 访客系统 | `TURNSTILE_SECRET_KEY`（人机验证，留空则跳过）；邮箱验证复用 `RESEND_API_KEY` + `EMAIL_FROM` |
+| 访客系统 | `TURNSTILE_SECRET_KEY`（人机验证，留空则跳过）；邮箱验证、登录验证码和找回密码复用 `RESEND_API_KEY` + `EMAIL_FROM` |
 | AI 生成 | 后台 AI Provider 配置（推荐）· 可选 env：`XAI_API_KEY` / `SILICONFLOW_*`（作 provider 的 env 回退密钥） |
 
 > 后台「站点设置」的 AI Provider 用于运营侧快速切换/校验模型；长期密钥仍建议放 Render 环境变量，运行时不再回退旧 AI Channel 配置。
-> 启用邮箱验证流程时，务必确认 Resend 发件域名已验证且上述两个变量已配置，否则注册用户无法验证、评论/点赞会被持续拦截。
+> 启用邮箱认证流程时，务必确认 Resend 发件域名已验证且上述两个变量已配置，否则验证码登录、找回密码与注册邮箱验证不可用。
 
 ### 前端（Vercel / 本地）
 

@@ -403,6 +403,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), nullable=False, unique=True, index=True)
     password_hash = Column(String(255), nullable=False)
+    password_set = Column(Boolean, nullable=False, default=True)
     token_version = Column(Integer, nullable=False, default=0)
     nickname = Column(String(50), nullable=False, default="")
     avatar_url = Column(String(500), nullable=False, default="")
@@ -414,6 +415,20 @@ class User(Base):
     last_login_at = Column(DateTime, nullable=True)
     followed_topics = relationship("FollowedTopic", back_populates="user", cascade="all, delete-orphan")
     reading_history = relationship("ReadingHistory", back_populates="user", cascade="all, delete-orphan")
+
+
+class AuthChallenge(Base):
+    __tablename__ = "auth_challenges"
+    id = Column(String(36), primary_key=True)
+    email = Column(String(255), nullable=False, index=True)
+    purpose = Column(String(30), nullable=False, index=True)
+    code_digest = Column(String(64), nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=5)
+    consumed_at = Column(DateTime, nullable=True)
+    request_ip = Column(String(80), nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
 
 
 class FollowedTopic(Base):
