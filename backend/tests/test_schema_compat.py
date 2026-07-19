@@ -97,13 +97,14 @@ def test_users_security_columns_backfilled_on_existing_table():
     ensure_schema_compat(engine)
     ensure_schema_compat(engine)  # idempotent
     cols = {c["name"] for c in inspect(engine).get_columns("users")}
-    assert {"bio", "token_version"} <= cols
+    assert {"bio", "token_version", "password_set"} <= cols
     assert USER_COLUMNS["token_version"] == "INTEGER NOT NULL DEFAULT 0"
     with engine.connect() as conn:
         assert conn.execute(text("SELECT token_version FROM users WHERE id = 1")).scalar_one() == 0
+        assert conn.execute(text("SELECT password_set FROM users WHERE id = 1")).scalar_one() in (1, True)
 
 
-def test_runtime_required_schema_only_backfills_token_version():
+def test_runtime_required_schema_backfills_auth_requirements():
     from sqlalchemy import text
 
     engine = create_engine("sqlite://")
@@ -117,7 +118,10 @@ def test_runtime_required_schema_only_backfills_token_version():
     ensure_runtime_required_schema(engine)
 
     columns = {column["name"] for column in inspect(engine).get_columns("users")}
-    assert columns == {"id", "email", "password_hash", "token_version"}
+    assert columns == {"id", "email", "password_hash", "token_version", "password_set"}
+    assert "auth_challenges" in inspect(engine).get_table_names()
+    challenge_columns = {column["name"] for column in inspect(engine).get_columns("auth_challenges")}
+    assert {"id", "email", "purpose", "code_digest", "expires_at", "attempts", "consumed_at"} <= challenge_columns
 
 
 class _ExistingTableInspector:

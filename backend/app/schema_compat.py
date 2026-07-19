@@ -261,6 +261,7 @@ USER_COLUMNS = {
     "id": "INTEGER PRIMARY KEY",
     "email": "VARCHAR(255) NOT NULL UNIQUE",
     "password_hash": "VARCHAR(255) NOT NULL",
+    "password_set": "BOOLEAN NOT NULL DEFAULT TRUE",
     "token_version": "INTEGER NOT NULL DEFAULT 0",
     "nickname": "VARCHAR(50) NOT NULL DEFAULT ''",
     "avatar_url": "VARCHAR(500) NOT NULL DEFAULT ''",
@@ -275,7 +276,21 @@ USER_COLUMNS = {
 RUNTIME_REQUIRED_COLUMNS = {
     "users": {
         "token_version": USER_COLUMNS["token_version"],
+        "password_set": USER_COLUMNS["password_set"],
     },
+}
+
+AUTH_CHALLENGE_COLUMNS = {
+    "id": "VARCHAR(36) PRIMARY KEY",
+    "email": "VARCHAR(255) NOT NULL",
+    "purpose": "VARCHAR(30) NOT NULL",
+    "code_digest": "VARCHAR(64) NOT NULL",
+    "expires_at": "DATETIME NOT NULL",
+    "attempts": "INTEGER NOT NULL DEFAULT 0",
+    "max_attempts": "INTEGER NOT NULL DEFAULT 5",
+    "consumed_at": "DATETIME",
+    "request_ip": "VARCHAR(80) NOT NULL DEFAULT ''",
+    "created_at": "DATETIME",
 }
 
 FOLLOWED_TOPIC_COLUMNS = {
@@ -480,6 +495,17 @@ def ensure_runtime_required_schema(engine) -> None:
             for column_name, ddl in missing_columns.items():
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}"))
 
+    _create_table_if_missing(
+        engine,
+        "auth_challenges",
+        AUTH_CHALLENGE_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_auth_challenges_email ON auth_challenges (email)",
+            "CREATE INDEX IF NOT EXISTS ix_auth_challenges_purpose ON auth_challenges (purpose)",
+            "CREATE INDEX IF NOT EXISTS ix_auth_challenges_expires_at ON auth_challenges (expires_at)",
+        ],
+    )
+
 
 def ensure_schema_compat(engine) -> None:
     inspector = inspect(engine)
@@ -658,6 +684,17 @@ def ensure_schema_compat(engine) -> None:
         indexes=[
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email)",
             "CREATE INDEX IF NOT EXISTS ix_users_status ON users (status)",
+        ],
+    )
+
+    _create_table_if_missing(
+        engine,
+        "auth_challenges",
+        AUTH_CHALLENGE_COLUMNS,
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS ix_auth_challenges_email ON auth_challenges (email)",
+            "CREATE INDEX IF NOT EXISTS ix_auth_challenges_purpose ON auth_challenges (purpose)",
+            "CREATE INDEX IF NOT EXISTS ix_auth_challenges_expires_at ON auth_challenges (expires_at)",
         ],
     )
 

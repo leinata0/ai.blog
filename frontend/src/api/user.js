@@ -12,6 +12,25 @@ export function loginUser({ email, password, turnstile_token }) {
   return apiPost('/api/users/login', { email, password, turnstile_token })
 }
 
+export function requestLoginCode({ email, turnstile_token }) {
+  return apiPost('/api/users/login-code/request', { email, turnstile_token })
+}
+
+export function verifyLoginCode({ email, challenge_id, code, turnstile_token }) {
+  return apiPost('/api/users/login-code/verify', { email, challenge_id, code, turnstile_token })
+}
+
+export function requestPasswordReset({ email, turnstile_token }) {
+  return apiPost('/api/users/password-reset/request', { email, turnstile_token })
+}
+
+export function confirmPasswordReset({ email, challenge_id, code, new_password, turnstile_token }) {
+  return apiPost(
+    '/api/users/password-reset/confirm',
+    { email, challenge_id, code, new_password, turnstile_token },
+  )
+}
+
 export function fetchMe() {
   return apiGet('/api/users/me', { auth: 'user', cache: false })
 }
@@ -22,6 +41,10 @@ export function updateMe({ nickname, avatar_url, bio }) {
 
 export function changePassword({ old_password, new_password }) {
   return apiPost('/api/users/me/password', { old_password, new_password }, { auth: 'user' })
+}
+
+export function revokeSessions() {
+  return apiPost('/api/users/me/revoke-sessions', undefined, { auth: 'user' })
 }
 
 // ── Email verification ──

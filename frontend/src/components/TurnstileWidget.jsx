@@ -30,7 +30,7 @@ function loadTurnstileScript() {
  * it renders nothing and is treated as "passed" — the parent should not gate on
  * a token in that case. Reports the token via onVerify(token).
  */
-export default function TurnstileWidget({ onVerify }) {
+export default function TurnstileWidget({ onVerify, resetKey = 0 }) {
   const containerRef = useRef(null)
   const widgetIdRef = useRef(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
@@ -66,7 +66,7 @@ export default function TurnstileWidget({ onVerify }) {
       }
       widgetIdRef.current = null
     }
-  }, [loadAttempt, onVerify])
+  }, [loadAttempt, onVerify, resetKey])
 
   if (!SITE_KEY) return null
   return (
