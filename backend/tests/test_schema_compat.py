@@ -81,6 +81,37 @@ def test_image_generation_stale_cleanup_creates_missing_job_table():
         db.close()
 
 
+def test_image_generation_job_creation_backfills_v3_column_on_legacy_table():
+    from sqlalchemy import text
+    from app.services import image_generation_jobs
+
+    engine = create_engine("sqlite:///:memory:")
+    legacy_columns = {
+        name: ddl
+        for name, ddl in ADMIN_IMAGE_GENERATION_JOB_COLUMNS.items()
+        if name != "art_direction_json"
+    }
+    column_sql = ", ".join(f"{name} {ddl}" for name, ddl in legacy_columns.items())
+    with engine.begin() as connection:
+        connection.execute(text(f"CREATE TABLE admin_image_generation_jobs ({column_sql})"))
+
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        job = image_generation_jobs.create_job(
+            db,
+            job_type=image_generation_jobs.JOB_POST_COVER,
+            target_id=1,
+            body={"cover_brief": "legacy production table compatibility"},
+        )
+        columns = {column["name"] for column in inspect(engine).get_columns("admin_image_generation_jobs")}
+        assert "art_direction_json" in columns
+        assert job.art_direction_json == "{}"
+        assert job.art_direction_version == "post-cover-v3"
+    finally:
+        db.close()
+
+
 def test_users_security_columns_backfilled_on_existing_table():
     from sqlalchemy import text
     from app.schema_compat import ensure_schema_compat

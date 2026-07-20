@@ -420,7 +420,6 @@ def _create_table_if_missing(engine, table_name: str, columns: dict[str, str], i
         )
         with engine.begin() as connection:
             connection.execute(text(f"CREATE TABLE {table_name} ({column_sql})"))
-
     with engine.begin() as connection:
         for index_sql in indexes or []:
             connection.execute(text(index_sql))
@@ -463,6 +462,26 @@ def ensure_admin_image_generation_schema_compat(engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_admin_image_generation_jobs_created_at ON admin_image_generation_jobs (created_at)",
         ],
     )
+    inspector = inspect(engine)
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns("admin_image_generation_jobs")
+    }
+    missing_columns = {
+        name: _ddl_for_dialect(ddl, engine.dialect.name)
+        for name, ddl in ADMIN_IMAGE_GENERATION_JOB_COLUMNS.items()
+        if name not in existing_columns
+    }
+    if missing_columns:
+        with engine.begin() as connection:
+            for column_name, ddl in missing_columns.items():
+                if_not_exists = "IF NOT EXISTS " if engine.dialect.name == "postgresql" else ""
+                connection.execute(
+                    text(
+                        "ALTER TABLE admin_image_generation_jobs "
+                        f"ADD COLUMN {if_not_exists}{column_name} {ddl}"
+                    )
+                )
 
 
 def ensure_admin_text_generation_schema_compat(engine) -> None:
