@@ -2,7 +2,6 @@ import base64
 
 import pytest
 
-from app.routers import admin as admin_router
 from app.services import ai_channels
 
 
@@ -16,6 +15,8 @@ def test_extract_generated_image_keeps_url_response():
 
 
 def test_extract_generated_image_accepts_openai_base64_response():
+    from app.routers import admin as admin_router
+
     encoded = base64.b64encode(PNG_BYTES).decode("ascii")
 
     result = ai_channels._extract_generated_image({"data": [{"b64_json": encoded}]})
@@ -27,5 +28,7 @@ def test_extract_generated_image_accepts_openai_base64_response():
 
 
 def test_download_generated_image_rejects_invalid_base64():
+    from app.routers import admin as admin_router
+
     with pytest.raises(admin_router.CoverGenerationError, match="base64"):
         admin_router._download_image_bytes("data:image/png;base64,not-valid***")
