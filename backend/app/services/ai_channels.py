@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 import time
@@ -748,9 +750,9 @@ def _generate_image_from_channel(channel: ResolvedAiChannel, prompt: str, framin
             )
             response.raise_for_status()
             data = response.json()
-            image_url = (data.get("data") or [{}])[0].get("url")
+            image_url = _extract_generated_image(data)
             if not image_url:
-                last_error = AiChannelError("generation_failed", "生图服务未返回可用图片地址。")
+                last_error = AiChannelError("generation_failed", "生图服务已响应，但未返回可用图片 URL 或 base64 图片。")
                 continue
             return image_url
         except httpx.HTTPStatusError as exc:
@@ -762,6 +764,48 @@ def _generate_image_from_channel(channel: ResolvedAiChannel, prompt: str, framin
     if last_error is not None:
         raise last_error
     raise AiChannelError("generation_failed", "生图请求失败，请检查 Base URL。")
+
+
+def _extract_generated_image(data: Any) -> str:
+    """Normalize common OpenAI-compatible image response shapes.
+
+    DALL-E-style services return ``data[0].url`` while several compatible
+    gateways return ``data[0].b64_json`` after a successful, billable request.
+    The latter is converted to a data URL and is consumed immediately by the
+    cover downloader; it is never stored as the article's public URL.
+    """
+    if not isinstance(data, dict):
+        return ""
+    items = data.get("data")
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list):
+        items = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for key in ("url", "image_url", "imageUrl"):
+            value = str(item.get(key) or "").strip()
+            if value:
+                return value
+        encoded = ""
+        for key in ("b64_json", "b64", "base64", "image_base64", "imageBase64"):
+            candidate = str(item.get(key) or "").strip()
+            if candidate:
+                encoded = candidate
+                break
+        if encoded:
+            if encoded.startswith("data:image/"):
+                return encoded
+            mime = str(item.get("mime_type") or item.get("mimeType") or item.get("content_type") or "image/png").strip().lower()
+            if mime not in {"image/jpeg", "image/png", "image/gif", "image/webp"}:
+                mime = "image/png"
+            try:
+                base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError):
+                continue
+            return f"data:{mime};base64,{encoded}"
+    return ""
 
 
 def _generate_text_openai(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,6 +14,8 @@ from app.env import clean_env
 from app.models import AiModelInstance, AiProviderSource
 from app.schema_compat import ensure_ai_provider_schema_compat
 from app.services import ai_channels
+
+logger = logging.getLogger("blog.ai_provider_manager")
 
 T = TypeVar("T")
 
@@ -443,8 +446,20 @@ def run_generation(
         except ai_channels.AiChannelError as exc:
             attempts.append(_attempt(item, ok=False, latency_ms=int((time.perf_counter() - started) * 1000), message=exc.message, error_code=exc.code))
             last_error = exc
+            logger.warning(
+                "AI model instance failed purpose=%s instance_id=%s provider=%s model=%s error=%s message=%s",
+                normalized,
+                item.instance_id,
+                item.provider,
+                item.model,
+                exc.code,
+                exc.message,
+            )
     if last_error is not None:
-        failure = ai_channels.AiChannelError("all_models_failed", "所有 AI 模型实例均调用失败，请检查服务源、模型和 API Key。")
+        failure = ai_channels.AiChannelError(
+            "all_models_failed",
+            f"所有 AI 模型实例均调用失败。最后一次错误：{last_error.message}",
+        )
         failure.attempts = attempts
         raise failure
     raise ai_channels.AiChannelError("missing_provider_model", "请在后台 AI Provider 配置中创建可用的服务源和模型实例。")

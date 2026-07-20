@@ -135,6 +135,22 @@ it('renders markdown images with proxy and lazy loading', async () => {
   expect(articleImage).toHaveAttribute('src', proxyImageUrl('https://example.com/markdown.jpg'))
 })
 
+it('falls back to the original markdown image when the proxy fails', async () => {
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <PostDetailPage slug="python-automation-selenium-pandas" />
+      </ThemeProvider>
+    </MemoryRouter>,
+  )
+
+  const articleImage = await screen.findByRole('img', { name: 'Example image' })
+  fireEvent.error(articleImage)
+  await waitFor(() => {
+    expect(screen.getByRole('img', { name: 'Example image' })).toHaveAttribute('src', 'https://example.com/markdown.jpg')
+  })
+})
+
 it('shows not found message on 404', async () => {
   const { container } = render(
     <MemoryRouter>

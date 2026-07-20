@@ -199,11 +199,30 @@ def _cover_response(
 
 def _download_image_bytes(image_url: str) -> tuple[bytes, str]:
     """Download a generated cover image with the same SSRF guards as /proxy-image."""
+    import base64
+    import binascii
+    from urllib.parse import unquote
+
     from app.storage import detect_image_content_type
     from app.url_safety import (
         ALLOWED_IMAGE_CONTENT_TYPES,
         download_public_image_bytes,
     )
+
+    if str(image_url or "").startswith("data:image/"):
+        header, separator, encoded = str(image_url).partition(",")
+        if not separator or ";base64" not in header.lower():
+            raise CoverGenerationError("download_failed", "生图服务返回的内嵌图片格式无效。")
+        try:
+            body = base64.b64decode(unquote(encoded), validate=True)
+        except (binascii.Error, ValueError):
+            raise CoverGenerationError("download_failed", "生图服务返回的 base64 图片无效。") from None
+        if len(body) > 5 * 1024 * 1024:
+            raise CoverGenerationError("download_failed", "生成图片超过 5 MB 大小限制。")
+        sniffed = detect_image_content_type(body)
+        if sniffed not in ALLOWED_IMAGE_CONTENT_TYPES:
+            raise CoverGenerationError("download_failed", "生图服务返回的内嵌内容不是受支持的图片格式。")
+        return body, sniffed
 
     try:
         body, content_type = download_public_image_bytes(

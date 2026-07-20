@@ -15,12 +15,26 @@ function flattenToText(children) {
 
 function MarkdownImage({ src, alt, title }) {
   const [visible, setVisible] = useState(true)
+  const canFallbackToOriginal = /^https?:\/\//i.test(src || '')
 
   useEffect(() => {
     setVisible(true)
   }, [src])
 
-  if (!src || !visible) return null
+  if (!src) return null
+
+  if (!visible) {
+    return (
+      <span
+        role="status"
+        className="not-prose my-8 block border px-5 py-4 text-sm"
+        style={{ borderColor: 'var(--border-muted)', color: 'var(--text-secondary)' }}
+      >
+        图片暂时无法加载
+        {typeof alt === 'string' && alt ? `：${alt}` : ''}
+      </span>
+    )
+  }
 
   return (
     <span className="not-prose my-8 block overflow-hidden rounded-[1.6rem] border" style={{ borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow-soft)' }}>
@@ -31,7 +45,14 @@ function MarkdownImage({ src, alt, title }) {
         loading="lazy"
         referrerPolicy="no-referrer"
         className="block h-auto w-full object-cover"
-        onError={() => setVisible(false)}
+        onError={(event) => {
+          if (canFallbackToOriginal && event.currentTarget.dataset.fallbackAttempted !== 'true' && proxyImageUrl(src) !== src) {
+            event.currentTarget.dataset.fallbackAttempted = 'true'
+            event.currentTarget.setAttribute('src', src)
+            return
+          }
+          setVisible(false)
+        }}
       />
     </span>
   )
