@@ -154,7 +154,7 @@ def _extract_post_cover_prompt_from_artifact(post_id: int, db: Session) -> str:
         return ""
     if not isinstance(payload, dict):
         return ""
-    return str(payload.get("cover_prompt") or "").strip()
+    return str(payload.get("cover_brief") or payload.get("cover_prompt") or "").strip()
 
 
 def _extract_post_headings(content_md: str, limit: int = 4) -> list[str]:
@@ -320,21 +320,27 @@ class _ImageGenerationExecutor:
         return _extract_post_cover_prompt_from_artifact(post_id, db)
 
     @staticmethod
-    def refine_post_cover_prompt(db, post, artifact_prompt="", manual_prompt=""):
-        messages = cover_art_service.build_post_cover_refinement_messages(
+    def plan_post_cover(db, post, cover_brief="", recent_directions=None):
+        recent = recent_directions or []
+        messages = cover_art_service.build_post_cover_direction_messages(
             post,
-            artifact_prompt=artifact_prompt,
-            manual_prompt=manual_prompt,
+            cover_brief=cover_brief,
+            recent_directions=recent,
         )
         try:
-            refined = ai_channels.generate_text(db, messages, max_tokens=512, temperature=0.45, json_mode=False)
+            raw = ai_channels.generate_text(
+                db,
+                messages,
+                max_tokens=1400,
+                temperature=0.75,
+                json_mode=True,
+            )
+            return cover_art_service.select_post_cover_direction(raw, post, recent)
         except AiChannelError as exc:
-            logger.warning("post_cover_prompt_refinement_failed post_id=%s error=%s", getattr(post, "id", None), exc.code)
-            return ""
+            logger.warning("post_cover_direction_generation_failed post_id=%s error=%s", getattr(post, "id", None), exc.code)
         except Exception:
-            logger.exception("post_cover_prompt_refinement_unhandled post_id=%s", getattr(post, "id", None))
-            return ""
-        return cover_art_service.sanitize_refined_cover_prompt(refined)
+            logger.exception("post_cover_direction_generation_unhandled post_id=%s", getattr(post, "id", None))
+        return cover_art_service.fallback_post_cover_direction(post, recent)
 
     @staticmethod
     def trigger_frontend_refresh_safe(**kwargs):

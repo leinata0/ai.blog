@@ -6,7 +6,6 @@ import {
   callLLM,
   loginAdminWithRetry,
   parseJsonFromLlm,
-  normalizeArticleCoverPromptResult,
   assessResearchPackSourceSupport,
   buildTopicKey,
   clusterResearchItemsByTopic,
@@ -250,16 +249,6 @@ test('loginAdminWithRetry does not retry auth failures', async () => {
     /Admin login failed: 401/
   )
   assert.equal(calls, 1)
-})
-
-test('normalizeArticleCoverPromptResult appends avoid guidance', () => {
-  const prompt = normalizeArticleCoverPromptResult({
-    prompt: 'Documentary editorial photograph of a quiet insurance operations room, paper claims folders and a single illuminated risk map, warm neutral palette, wide website cover composition.',
-    avoid: ['generic glowing AI brain', 'blue-purple cyberpunk', 'humanoid robot'],
-  })
-
-  assert.match(prompt, /Documentary editorial photograph/)
-  assert.match(prompt, /Avoid generic glowing AI brain, blue-purple cyberpunk, humanoid robot\./)
 })
 
 test('callLLM max token attempts fall back under common provider limits', () => {

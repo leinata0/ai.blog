@@ -44,6 +44,7 @@ export async function submitImageGenerationJob({
   targetType = 'post_cover',
   targetId,
   prompt = '',
+  coverBrief = '',
   overwrite = false,
   mode = 'apply',
   timeoutMs = DEFAULT_SUBMIT_TIMEOUT_MS,
@@ -56,6 +57,8 @@ export async function submitImageGenerationJob({
     prompt: String(prompt || '').trim() || null,
     overwrite: Boolean(overwrite),
   }
+  const normalizedCoverBrief = String(coverBrief || '').trim()
+  if (targetType === 'post_cover' && normalizedCoverBrief) payload.cover_brief = normalizedCoverBrief
   if (targetType !== 'site_hero') payload.mode = mode
 
   const response = await fetch(`${base}${endpoint}`, {

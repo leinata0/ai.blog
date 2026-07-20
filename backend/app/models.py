@@ -175,6 +175,7 @@ class AdminImageGenerationJob(Base):
     prompt = Column(Text, nullable=False, default="")
     preset = Column(String(80), nullable=False, default="")
     art_direction_version = Column(String(80), nullable=False, default="")
+    art_direction_json = Column(Text, nullable=False, default="{}")
     result_image_url = Column(String(500), nullable=False, default="")
     error_code = Column(String(80), nullable=False, default="")
     error = Column(Text, nullable=False, default="")

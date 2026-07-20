@@ -599,6 +599,7 @@ class TopicHealthOut(BaseModel):
 
 class CoverGenerateRequest(BaseModel):
     prompt: str | None = None
+    cover_brief: str | None = None
     image_url: str | None = None
     overwrite: bool = False
     mode: str = Field(default="apply", pattern=r"^(apply|preview)$")
@@ -611,6 +612,8 @@ class CoverGenerateResponse(BaseModel):
     prompt: str | None = None
     preset: str | None = None
     art_direction_version: str | None = None
+    prompt_version: str | None = None
+    art_direction: dict | None = None
     error: str = ""
     error_code: str = ""
     job_id: int | None = None
@@ -646,6 +649,8 @@ class AdminImageGenerationJobOut(BaseModel):
     prompt: str | None = None
     preset: str | None = None
     art_direction_version: str | None = None
+    prompt_version: str | None = None
+    art_direction: dict | None = None
     error: str = ""
     error_code: str = ""
     created_at: datetime | None = None

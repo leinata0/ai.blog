@@ -185,6 +185,7 @@ ADMIN_IMAGE_GENERATION_JOB_COLUMNS = {
     "prompt": "TEXT NOT NULL DEFAULT ''",
     "preset": "VARCHAR(80) NOT NULL DEFAULT ''",
     "art_direction_version": "VARCHAR(80) NOT NULL DEFAULT ''",
+    "art_direction_json": "TEXT NOT NULL DEFAULT '{}'",
     "result_image_url": "VARCHAR(500) NOT NULL DEFAULT ''",
     "error_code": "VARCHAR(80) NOT NULL DEFAULT ''",
     "error": "TEXT NOT NULL DEFAULT ''",

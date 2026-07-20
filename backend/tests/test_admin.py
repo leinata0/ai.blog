@@ -1,3 +1,4 @@
+import json
 import time
 
 import httpx
@@ -935,13 +936,15 @@ def test_admin_post_generate_cover_uses_artifact_prompt(client, monkeypatch):
     assert payload["generated"] is True
     assert payload["cover_image"] == "https://img.example.com/post-auto.png"
     assert payload["preset"] == "post_cover"
-    assert payload["art_direction_version"]
+    assert payload["prompt_version"] == "post-cover-v3"
+    assert payload["art_direction"]["prompt_version"] == "post-cover-v3"
+    assert len(payload["art_direction"]["candidates"]) == 3
     assert "cinematic privacy-first product trust scene" in captured["prompt"]
     assert captured["filename_hint"] == "post-trust-led-privacy-ux.png"
     assert "website cover image" in captured["framing_hint"]
 
 
-def test_admin_post_generate_cover_refines_prompt_with_text_channel(client, monkeypatch):
+def test_admin_post_generate_cover_plans_three_directions_with_text_channel(client, monkeypatch):
     from app.routers import admin as admin_mod
 
     token = _login(client)
@@ -966,7 +969,49 @@ def test_admin_post_generate_cover_refines_prompt_with_text_channel(client, monk
     def fake_generate_text(db, messages, **kwargs):
         captured["messages"] = messages
         captured["text_kwargs"] = kwargs
-        return "archival newsroom collage of a cracked security seal beside a calm venture-capital ledger, muted paper texture, restrained editorial lighting"
+        return json.dumps({
+            "candidates": [
+                {
+                    "style_key": "conceptual_still_life",
+                    "content_anchors": ["AI security incidents", "startup funding"],
+                    "visual_metaphor": "a cracked security seal balanced against a funding ledger",
+                    "primary_subject": "a cracked ceramic security seal and a closed investment ledger",
+                    "setting": "a quiet due-diligence table",
+                    "palette_key": "warm_risk_neutral",
+                    "palette": "warm paper, charcoal and a restrained red accent",
+                    "composition_key": "split_tension",
+                    "lighting": "controlled side light",
+                    "texture": "ceramic, paper and brushed metal",
+                    "avoid": ["coins"],
+                },
+                {
+                    "style_key": "paper_cut",
+                    "content_anchors": ["Security pressure", "Capital signals"],
+                    "visual_metaphor": "two paper currents diverging around a barrier",
+                    "primary_subject": "layered paper channels and a central barrier",
+                    "setting": "a tactile editorial paper field",
+                    "palette_key": "paper_ochre_slate",
+                    "palette": "ochre, slate and off-white",
+                    "composition_key": "diagonal_flow",
+                    "lighting": "soft raking light",
+                    "texture": "visible paper fibers",
+                    "avoid": [],
+                },
+                {
+                    "style_key": "restrained_3d",
+                    "content_anchors": ["AI Safety Capital Split", "startup funding"],
+                    "visual_metaphor": "one structure pulled by safety and capital forces",
+                    "primary_subject": "a restrained mechanical balance with two unequal weights",
+                    "setting": "a neutral editorial studio",
+                    "palette_key": "mineral_amber",
+                    "palette": "mineral gray with amber accents",
+                    "composition_key": "asymmetric_right",
+                    "lighting": "soft studio light",
+                    "texture": "matte stone and metal",
+                    "avoid": [],
+                },
+            ]
+        })
 
     def fake_generate_cover_asset(db, prompt, filename_hint, framing_hint=""):
         captured["prompt"] = prompt
@@ -984,9 +1029,12 @@ def test_admin_post_generate_cover_refines_prompt_with_text_channel(client, monk
     payload = _resolve_image_job(client, token, response.json())
     assert payload["generated"] is True
     assert payload["cover_image"] == "https://img.example.com/refined-cover.png"
-    assert "archival newsroom collage" in captured["prompt"]
+    assert "cracked ceramic security seal" in captured["prompt"]
     assert "security and funding tension" in captured["messages"][1]["content"]
-    assert captured["text_kwargs"]["max_tokens"] == 512
+    assert captured["text_kwargs"]["max_tokens"] == 1400
+    assert captured["text_kwargs"]["json_mode"] is True
+    assert payload["prompt_version"] == "post-cover-v3"
+    assert len(payload["art_direction"]["candidates"]) == 3
 
 
 def test_admin_post_generate_cover_reports_cover_exists(client):

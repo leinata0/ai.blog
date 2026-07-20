@@ -8,7 +8,7 @@ on:
         required: true
         default: '6'
       cover_prompt:
-        description: 可选，手动指定封面提示词；留空时自动根据文章内容生成
+        description: 可选，补充文章封面的内容线索；留空时完全根据文章生成
         required: false
         default: ''
       overwrite_existing_cover:
@@ -54,7 +54,7 @@ jobs:
           if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
           echo "Secrets look good."
 
-      # 自动读取文章内容，生成提示词后调用管理端配置的生图 API 并回写封面
+      # 自动读取文章内容，由后端 V3 规划视觉方向并调用配置的生图 API 回写封面
       - name: 生成封面图并更新文章
         env:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}

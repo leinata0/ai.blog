@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
-import { buildPostCoverPrompt } from './lib/cover-art.mjs'
+import { buildPostCoverBrief } from './lib/cover-art.mjs'
 import {
   generatePostCoverViaAdminJob,
   imageGenerationJobImageUrl,
@@ -149,19 +149,19 @@ async function main() {
   }
 
   const coverImage = resolveExistingCover(article, existingPost)
-  const normalizedCoverPrompt = buildPostCoverPrompt(article, {
-    manualPrompt: String(article.cover_prompt || '').trim(),
+  const coverBrief = buildPostCoverBrief(article, {
+    manualBrief: String(article.cover_brief || article.cover_prompt || '').trim(),
   })
   const payload = normalizeArticle(article, coverImage)
   const result = await createOrUpdatePost(payload, existingPost, token)
 
-  if (!coverImage && normalizedCoverPrompt) {
+  if (!coverImage && coverBrief) {
     console.log('Generating cover with the configured image channel...')
     const job = await generatePostCoverViaAdminJob({
       blogApiBase: BLOG_API_BASE,
       token,
       postId: result.id,
-      prompt: normalizedCoverPrompt,
+      coverBrief,
       overwrite: false,
     })
     if (!imageGenerationJobSucceeded(job)) {

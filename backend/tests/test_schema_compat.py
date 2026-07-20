@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
 from app.schema_compat import (
+    ADMIN_IMAGE_GENERATION_JOB_COLUMNS,
     DEFAULT_SERIES_SEED,
     POST_QUALITY_REVIEW_COLUMNS,
     POST_QUALITY_SNAPSHOT_COLUMNS,
@@ -52,6 +53,10 @@ def test_topic_search_tables_contract_columns_exist():
     assert "query" in SEARCH_INSIGHT_COLUMNS
     assert "search_count" in SEARCH_INSIGHT_COLUMNS
     assert "last_searched_at" in SEARCH_INSIGHT_COLUMNS
+
+
+def test_image_generation_job_schema_includes_v3_art_direction_metadata():
+    assert ADMIN_IMAGE_GENERATION_JOB_COLUMNS["art_direction_json"] == "TEXT NOT NULL DEFAULT '{}'"
 
 
 def test_post_model_declares_public_read_indexes():

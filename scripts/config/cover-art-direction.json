@@ -42,6 +42,102 @@
     "low quality render",
     "oversaturated neon"
   ],
+  "post_cover_v3": {
+    "prompt_version": "post-cover-v3",
+    "history_window": 12,
+    "universal_rules": [
+      "wide 16:9 landscape editorial cover",
+      "publication-quality finish",
+      "clear focal hierarchy",
+      "reserve the lower 32 percent as a calm overlay-safe area",
+      "keep important subjects away from extreme crop edges"
+    ],
+    "negative_rules": [
+      "readable text",
+      "title typography",
+      "logo",
+      "watermark",
+      "fake UI screenshot",
+      "code editor",
+      "human face",
+      "hands",
+      "humanoid robot",
+      "robot mascot",
+      "glowing AI brain",
+      "floating holographic dashboard",
+      "circuit-board background",
+      "generic blue-purple cyberpunk",
+      "random icons",
+      "busy particles",
+      "low quality render"
+    ],
+    "styles": [
+      {
+        "key": "documentary_photo",
+        "label": "documentary editorial photography",
+        "medium": "naturalistic documentary editorial photograph with credible physical detail and restrained color grading",
+        "topic_hints": ["business", "商业", "policy", "政策", "industry", "产业", "product", "产品", "deployment", "部署", "workplace", "职场"],
+        "default_palette": "natural neutral tones with one controlled accent",
+        "default_texture": "fine photographic grain"
+      },
+      {
+        "key": "architectural_system",
+        "label": "architectural and industrial landscape",
+        "medium": "architectural editorial photography or precise environmental illustration emphasizing scale and infrastructure",
+        "topic_hints": ["compute", "算力", "chip", "芯片", "datacenter", "数据中心", "infrastructure", "基础设施", "energy", "能源", "cloud", "云"],
+        "default_palette": "steel, mineral and atmospheric tones",
+        "default_texture": "material surfaces, haze and structural depth"
+      },
+      {
+        "key": "conceptual_still_life",
+        "label": "conceptual editorial still life",
+        "medium": "carefully staged editorial still life using a few symbolic physical objects",
+        "topic_hints": ["security", "安全", "trust", "信任", "business", "商业", "competition", "竞争", "governance", "治理", "risk", "风险"],
+        "default_palette": "warm neutral studio tones with a precise contrasting accent",
+        "default_texture": "paper, glass, metal or ceramic material detail"
+      },
+      {
+        "key": "paper_cut",
+        "label": "paper-cut editorial illustration",
+        "medium": "layered paper-cut or screen-printed editorial illustration with tactile edges and restrained depth",
+        "topic_hints": ["education", "教育", "society", "社会", "policy", "政策", "community", "社区", "open source", "开源"],
+        "default_palette": "limited print palette chosen from the article mood",
+        "default_texture": "paper fibers and subtle print registration"
+      },
+      {
+        "key": "isometric_system",
+        "label": "isometric systems metaphor",
+        "medium": "clean isometric editorial illustration showing interacting systems without interface labels",
+        "topic_hints": ["agent", "智能体", "workflow", "工作流", "platform", "平台", "tool", "工具", "software", "软件", "automation", "自动化"],
+        "default_palette": "balanced technical colors with low saturation",
+        "default_texture": "crisp matte surfaces and controlled shadows"
+      },
+      {
+        "key": "restrained_3d",
+        "label": "restrained 3D object study",
+        "medium": "premium restrained 3D object study centered on one article-specific sculptural metaphor",
+        "topic_hints": ["model", "模型", "research", "研究", "reasoning", "推理", "multimodal", "多模态", "science", "科学"],
+        "default_palette": "article-specific studio palette, avoiding default neon blue",
+        "default_texture": "high-quality physical materials with soft studio light"
+      },
+      {
+        "key": "geometric_infographic",
+        "label": "label-free geometric infographic",
+        "medium": "minimal label-free geometric editorial infographic expressing relationships through shape, scale and flow",
+        "topic_hints": ["benchmark", "基准", "market", "市场", "trend", "趋势", "comparison", "比较", "data", "数据", "economics", "经济"],
+        "default_palette": "three-color analytical palette with strong tonal separation",
+        "default_texture": "flat print texture with subtle depth cues"
+      },
+      {
+        "key": "archival_collage",
+        "label": "archival newsroom collage",
+        "medium": "restrained archival newsroom collage using documents, environments and material fragments without readable text",
+        "topic_hints": ["history", "历史", "policy", "政策", "lawsuit", "诉讼", "regulation", "监管", "geopolitics", "地缘", "company", "公司"],
+        "default_palette": "muted archival paper tones with one contemporary accent",
+        "default_texture": "newsprint, paper edges and photographic fragments"
+      }
+    ]
+  },
   "presets": {
     "site_hero": {
       "label": "Homepage hero poster",

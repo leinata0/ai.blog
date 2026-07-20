@@ -5,9 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
-import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
 import {
-  buildPostCoverPrompt,
+  buildPostCoverBrief,
   buildPromptContext,
   extractHeadings,
   sanitizeCoverPrompt,
@@ -23,7 +22,7 @@ const MANUAL_COVER_PROMPT = String(process.env.COVER_PROMPT || '').trim()
 const OVERWRITE_EXISTING_COVER = String(process.env.OVERWRITE_EXISTING_COVER || 'false').toLowerCase() === 'true'
 
 export function buildHeuristicCoverPrompt(post) {
-  return buildPostCoverPrompt(post)
+  return buildPostCoverBrief(post)
 }
 
 async function login() {
@@ -52,57 +51,12 @@ async function fetchAdminPost(postId, token) {
   return resp.json()
 }
 
-async function generatePromptWithConfiguredProvider(post, token) {
-  const context = buildPromptContext(post)
-  const system = [
-    'You write one English hero-image prompt for an AI/tech blog article.',
-    'Return only the prompt text, no markdown, no quotes, no JSON.',
-    'Keep it under 55 words.',
-    'Focus on a single strong visual scene, not a collage.',
-    'No text overlay, no logos, no watermark, no UI mockup unless the article is specifically about product interface design.',
-    'Suitable for a wide website cover banner.',
-  ].join(' ')
-  const user = [
-    `Title: ${context.title}`,
-    `Summary: ${context.summary}`,
-    `Headings: ${context.headings.join(' | ')}`,
-    `Tags: ${context.tags.join(', ')}`,
-    `Body preview: ${context.bodyPreview}`,
-    'Generate one polished English image prompt that captures the article topic and tone.',
-  ].join('\n')
-
-  try {
-    const text = await generateTextViaAdminApi({
-      blogApiBase: BLOG_API_BASE,
-      token,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      maxTokens: 512,
-      temperature: 0.4,
-    })
-    return sanitizeCoverPrompt(text)
-  } catch (error) {
-    console.warn(`Configured text prompt generation failed: ${error.message}`)
-    return ''
-  }
-}
-
-async function buildAutoCoverPrompt(post, token) {
-  const aiPrompt = await generatePromptWithConfiguredProvider(post, token)
-  if (aiPrompt) {
-    return buildPostCoverPrompt(post, { manualPrompt: aiPrompt })
-  }
-  return buildHeuristicCoverPrompt(post)
-}
-
-async function generateCoverWithConfiguredProvider(postId, prompt, token) {
+async function generateCoverWithConfiguredProvider(postId, coverBrief, token) {
   const job = await generatePostCoverViaAdminJob({
     blogApiBase: BLOG_API_BASE,
     token,
     postId,
-    prompt,
+    coverBrief,
     overwrite: OVERWRITE_EXISTING_COVER,
   })
   if (!imageGenerationJobSucceeded(job)) {
@@ -127,13 +81,13 @@ async function main() {
     return
   }
 
-  const coverPrompt = MANUAL_COVER_PROMPT || await buildAutoCoverPrompt(post, token)
-  if (!coverPrompt) {
-    throw new Error('Failed to build cover prompt')
+  const coverBrief = buildPostCoverBrief(post, { manualBrief: MANUAL_COVER_PROMPT })
+  if (!coverBrief) {
+    throw new Error('Failed to build cover brief')
   }
-  console.log(`Using cover prompt: ${coverPrompt}`)
+  console.log(`Using cover brief: ${coverBrief}`)
 
-  const coverImage = await generateCoverWithConfiguredProvider(POST_ID, coverPrompt, token)
+  const coverImage = await generateCoverWithConfiguredProvider(POST_ID, coverBrief, token)
   console.log(`Cover generated and updated via configured provider: ${coverImage}`)
 }
 

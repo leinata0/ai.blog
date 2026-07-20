@@ -64,6 +64,32 @@ def _load_request(job: AdminImageGenerationJob) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _load_art_direction(job: AdminImageGenerationJob) -> dict[str, Any]:
+    try:
+        parsed = json.loads(job.art_direction_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _recent_post_cover_directions(db: Session, *, current_job_id: int, limit: int = 12) -> list[dict[str, Any]]:
+    jobs = db.execute(
+        select(AdminImageGenerationJob)
+        .where(AdminImageGenerationJob.job_type == JOB_POST_COVER)
+        .where(AdminImageGenerationJob.status == STATUS_SUCCEEDED)
+        .where(AdminImageGenerationJob.id != current_job_id)
+        .order_by(AdminImageGenerationJob.created_at.desc(), AdminImageGenerationJob.id.desc())
+        .limit(limit)
+    ).scalars().all()
+    recent = []
+    for item in jobs:
+        payload = _load_art_direction(item)
+        selected = payload.get("selected") if isinstance(payload.get("selected"), dict) else None
+        if selected:
+            recent.append({**selected, "target_id": item.target_id, "job_id": item.id})
+    return recent
+
+
 def _finish_success(job: AdminImageGenerationJob, image_url: str, prompt: str | None = None, preset: str | None = None) -> None:
     job.status = STATUS_SUCCEEDED
     job.locked_at = None
@@ -95,6 +121,7 @@ def job_to_dict(job: AdminImageGenerationJob) -> dict[str, Any]:
     image_url = job.result_image_url or ""
     generated = job.status == STATUS_SUCCEEDED and bool(image_url)
     is_hero = job.job_type == JOB_SITE_HERO
+    art_direction = _load_art_direction(job)
     return {
         "id": job.id,
         "job_id": job.id,
@@ -108,6 +135,8 @@ def job_to_dict(job: AdminImageGenerationJob) -> dict[str, Any]:
         "prompt": job.prompt or None,
         "preset": job.preset or None,
         "art_direction_version": job.art_direction_version or cover_art_service.cover_art_version(),
+        "prompt_version": job.art_direction_version or cover_art_service.cover_art_version(),
+        "art_direction": art_direction or None,
         "error": job.error or "",
         "error_code": job.error_code or "",
         "created_at": job.created_at,
@@ -152,6 +181,8 @@ def history_item(job: AdminImageGenerationJob) -> dict[str, Any]:
         "error": data.get("error") or "",
         "result_url": data.get("result_image_url") or data.get("cover_image") or data.get("hero_image") or "",
         "result_preview": "",
+        "art_direction": data.get("art_direction"),
+        "prompt_version": data.get("prompt_version"),
         "target_type": job.job_type or "",
         "target_id": job.target_id,
         "created_at": data.get("created_at"),
@@ -169,7 +200,11 @@ def create_job(db: Session, *, job_type: str, target_id: int | None, body: Any) 
         target_id=target_id,
         status=STATUS_QUEUED,
         request_json=json.dumps(payload, ensure_ascii=False),
-        art_direction_version=cover_art_service.cover_art_version(),
+        art_direction_version=(
+            cover_art_service.post_cover_prompt_version()
+            if job_type == JOB_POST_COVER
+            else cover_art_service.cover_art_version()
+        ),
         created_at=_now(),
         updated_at=_now(),
     )
@@ -248,11 +283,11 @@ def _execute_post_cover(db: Session, job: AdminImageGenerationJob, payload: dict
         _finish_failure(job, "not_found", "Post not found")
         return
     preset = "post_cover"
-    prompt = cover_art_service.sanitize_cover_prompt(payload.get("prompt") or "")
+    manual_brief = cover_art_service.normalize_cover_brief(payload.get("cover_brief") or payload.get("prompt") or "")
     try:
         image_url = _validated_direct_image_url(str(payload.get("image_url") or ""))
     except ValueError:
-        _finish_failure(job, "invalid_image_url", "image_url 必须是可公开访问的 http(s) 地址。", prompt or None, preset)
+        _finish_failure(job, "invalid_image_url", "image_url 必须是可公开访问的 http(s) 地址。", manual_brief or None, preset)
         return
     overwrite = bool(payload.get("overwrite"))
     preview = payload.get("mode") == "preview"
@@ -260,16 +295,36 @@ def _execute_post_cover(db: Session, job: AdminImageGenerationJob, payload: dict
         if not preview:
             post.cover_image = image_url
             post.updated_at = _now()
-        _finish_success(job, image_url, prompt or None, preset)
+        _finish_success(job, image_url, manual_brief or None, preset)
         return
     if (post.cover_image or "").strip() and not overwrite and not preview:
-        _finish_failure(job, "cover_exists", "当前文章已经有封面，如需覆盖请使用重生成。", prompt or None, preset)
+        _finish_failure(job, "cover_exists", "当前文章已经有封面，如需覆盖请使用重生成。", manual_brief or None, preset)
         return
-    artifact_prompt = executor.extract_post_cover_prompt_from_artifact(post.id, db)
-    refined_prompt = ""
-    if hasattr(executor, "refine_post_cover_prompt"):
-        refined_prompt = executor.refine_post_cover_prompt(db, post, artifact_prompt=artifact_prompt, manual_prompt=prompt)
-    prompt = cover_art_service.build_post_cover_prompt(post, artifact_prompt=artifact_prompt, manual_prompt=refined_prompt or prompt)
+    artifact_brief = cover_art_service.normalize_cover_brief(executor.extract_post_cover_prompt_from_artifact(post.id, db))
+    cover_brief = manual_brief or artifact_brief
+    recent_directions = _recent_post_cover_directions(
+        db,
+        current_job_id=job.id,
+        limit=cover_art_service.post_cover_history_window(),
+    )
+    if hasattr(executor, "plan_post_cover"):
+        art_direction = executor.plan_post_cover(db, post, cover_brief=cover_brief, recent_directions=recent_directions)
+    else:
+        art_direction = cover_art_service.fallback_post_cover_direction(post, recent_directions)
+    prompt = cover_art_service.compile_post_cover_prompt(post, art_direction, cover_brief=cover_brief)
+    job.art_direction_json = json.dumps(art_direction, ensure_ascii=False)
+    job.art_direction_version = cover_art_service.post_cover_prompt_version()
+    selected = art_direction.get("selected") if isinstance(art_direction.get("selected"), dict) else {}
+    logger.info(
+        "post_cover_v3_selected job_id=%s post_id=%s style=%s composition=%s score=%s prompt_length=%s reasons=%s",
+        job.id,
+        post.id,
+        selected.get("style_key"),
+        selected.get("composition_key"),
+        selected.get("score"),
+        len(prompt),
+        ",".join(selected.get("score_reasons") or []),
+    )
     if not prompt:
         _finish_failure(job, "prompt_unavailable", "当前文章缺少可用提示词，暂时无法生成封面。", prompt or None, preset)
         return

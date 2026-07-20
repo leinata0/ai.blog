@@ -37,14 +37,15 @@ test('buildPromptContext extracts stable cover prompt context', () => {
   assert.deepEqual(context.tags, ['google', 'ai'])
 })
 
-test('buildHeuristicCoverPrompt builds a non-empty editorial prompt', () => {
-  const prompt = buildHeuristicCoverPrompt({
+test('buildHeuristicCoverPrompt builds a content-only cover brief for backend V3', () => {
+  const brief = buildHeuristicCoverPrompt({
     title: '旧博客迁移到 Neon + R2',
     summary: '讲一次博客架构迁移和数据持久化升级。',
     content_md: '## 一、问题\n\n内容\n\n## 二、迁移方案\n\n内容',
     tags: ['devops', 'neon', 'cloudflare'],
   })
-  assert.ok(prompt.includes('horizontal editorial cover banner'))
-  assert.ok(prompt.includes('Neon + R2'))
-  assert.ok(prompt.includes('Strictly exclude readable text'))
+  assert.ok(brief.includes('Neon + R2'))
+  assert.ok(brief.includes('一、问题'))
+  assert.equal(brief.includes('horizontal editorial cover banner'), false)
+  assert.equal(brief.includes('Strictly exclude readable text'), false)
 })

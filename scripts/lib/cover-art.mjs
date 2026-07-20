@@ -99,6 +99,24 @@ export function buildPromptContext(post = {}) {
   }
 }
 
+export function buildPostCoverBrief(post = {}, { manualBrief = '', artifactPrompt = '' } = {}) {
+  const context = buildPromptContext(post)
+  const suppliedBrief = sanitizeCoverPrompt(manualBrief || artifactPrompt)
+  const parts = []
+  if (suppliedBrief) parts.push(`Editorial idea: ${suppliedBrief}.`)
+  if (context.title) parts.push(`Article: ${context.title}.`)
+  if (context.summary) parts.push(`Summary: ${context.summary}.`)
+  if (context.headings.length > 0) parts.push(`Key angles: ${context.headings.slice(0, 3).join('; ')}.`)
+  if (context.topicKey) parts.push(`Topic: ${context.topicKey}.`)
+  if (context.tags.length > 0) parts.push(`Entities: ${context.tags.slice(0, 4).join(', ')}.`)
+  return parts
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 700)
+    .trimEnd()
+}
+
 function buildBrandClause(config) {
   const palette = config.brand_palette.join(', ')
   const motifs = config.brand_motifs.join(', ')

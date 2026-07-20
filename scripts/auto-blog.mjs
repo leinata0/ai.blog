@@ -21,7 +21,7 @@ import {
   neutralizeBannedPhrases,
 } from './lib/blog-format.mjs'
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
-import { buildPostCoverPrompt } from './lib/cover-art.mjs'
+import { buildPostCoverBrief } from './lib/cover-art.mjs'
 import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
 import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
 import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
@@ -524,6 +524,7 @@ export function buildPublishingArtifactPayload({
       paper_count: Number(researchPack?.paper_items?.length || 0),
       topic: String(outline?.topic || ''),
       thesis: String(outline?.thesis || ''),
+      cover_brief: String(outline?.cover_brief || '').trim(),
       cover_prompt: String(outline?.cover_prompt || '').trim(),
     }),
     quality_gate_json: JSON.stringify(gate || {}),
@@ -1564,7 +1565,7 @@ async function chooseTopic({ researchPack, formatProfile, today }) {
     '你的任务不是罗列新闻，而是从素材里挑出一条最值得展开的主线。',
     '',
     '请输出一个 JSON，键必须是：',
-    'topic, thesis, keywords, arxiv_queries, outline, image_sections, key_sources, tags, cover_prompt',
+    'topic, thesis, keywords, arxiv_queries, outline, image_sections, key_sources, tags, cover_brief',
     '',
     '要求：',
     '- outline 必须优先使用以下章节骨架，并允许同名章节下增加少量三级子标题。',
@@ -1573,7 +1574,7 @@ async function chooseTopic({ researchPack, formatProfile, today }) {
     '- image_sections 最多 3 个，只能从 outline 里挑。',
     '- thesis 是一句明确判断，不是摘要。',
     '- key_sources 用标题或 URL 标识真正重要的来源。',
-    '- cover_prompt 只用于封面图生成，不要提及正文插图。',
+    '- cover_brief 只写与文章内容直接相关的简短视觉线索，不写配色、媒介、构图、品牌模板或负面词。',
   ].join('\n')
 
   const user = [
@@ -1808,7 +1809,7 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         'You are planning a premium Chinese weekly AI review.',
         'This is not a single-news article. It must synthesize the most important changes across the full week.',
         'Return JSON with keys:',
-        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, image_sections, key_sources, tags, cover_prompt, watchlist',
+        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, image_sections, key_sources, tags, cover_brief, watchlist',
         'Requirements:',
         '- Cover the week as a whole, not one company announcement.',
         '- The outline must use the exact required section headings provided by the format profile.',
@@ -1818,13 +1819,13 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         '- key_sources must identify the source IDs or URLs that are truly central to the weekly argument.',
         '- section_briefs.source_focus and must_use_sources should prefer concrete source IDs such as S1/S2 from evidence_cards.',
         '- image_sections can include at most 3 section headings.',
-        '- cover_prompt is only for cover-image generation and must not mention inline images.',
+        '- cover_brief must be a short content-only visual clue; do not prescribe medium, palette, composition, brand motifs, or negative prompts.',
       ].join('\n')
     : isFreeStructure
     ? [
         'You are planning a Chinese AI editorial article with one clear thesis.',
         'Return JSON with keys:',
-        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, evidence_cards, counterpoints, reader_question, image_sections, key_sources, tags, cover_prompt',
+        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, evidence_cards, counterpoints, reader_question, image_sections, key_sources, tags, cover_brief',
         'Requirements:',
         '- Focus on one topic rather than a loose news digest.',
         '- You design the article structure yourself. Do NOT reuse fixed template chapter names.',
@@ -1841,12 +1842,12 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         '- key_sources must identify the source IDs or URLs most worth citing.',
         '- section_briefs.source_focus and must_use_sources should prefer concrete source IDs such as S1/S2 from evidence_cards.',
         '- Do not author the 参考来源 / 图片来源 / 一句话结论 tail blocks; the program appends them.',
-        '- cover_prompt is only for cover-image generation and must not mention inline images.',
+        '- cover_brief must be a short content-only visual clue; do not prescribe medium, palette, composition, brand motifs, or negative prompts.',
       ].join('\n')
     : [
         'You are planning a Chinese AI daily brief with one clear thesis.',
         'Return JSON with keys:',
-        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, evidence_cards, counterpoints, reader_question, image_sections, key_sources, tags, cover_prompt',
+        'topic, thesis, keywords, arxiv_queries, outline, section_briefs, evidence_cards, counterpoints, reader_question, image_sections, key_sources, tags, cover_brief',
         'Requirements:',
         '- Focus on one topic rather than a loose news digest.',
         '- The outline must use the exact required section headings provided by the format profile.',
@@ -1858,7 +1859,7 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
         '- image_sections can include at most 3 section headings.',
         '- key_sources must identify the source IDs or URLs most worth citing.',
         '- section_briefs.source_focus and must_use_sources should prefer concrete source IDs such as S1/S2 from evidence_cards.',
-        '- cover_prompt is only for cover-image generation and must not mention inline images.',
+        '- cover_brief must be a short content-only visual clue; do not prescribe medium, palette, composition, brand motifs, or negative prompts.',
       ].join('\n')
 
   const user = [
@@ -2294,80 +2295,6 @@ function canRepairQualityGate(gate) {
     && gate.reasons.every((reason) => repairablePrefixes.some((prefix) => reason.startsWith(prefix)))
 }
 
-export function normalizeArticleCoverPromptResult(result = {}) {
-  const prompt = String(result?.prompt || result?.image_prompt || result?.cover_prompt || '').trim()
-  if (prompt.length < 40) return ''
-
-  const avoidItems = Array.isArray(result?.avoid)
-    ? result.avoid.map((item) => String(item || '').trim()).filter(Boolean)
-    : String(result?.avoid || '').split(/[,;，；]/).map((item) => item.trim()).filter(Boolean)
-  const avoidClause = avoidItems.length > 0 ? ` Avoid ${avoidItems.slice(0, 8).join(', ')}.` : ''
-  return `${prompt.replace(/\s+/g, ' ')}${avoidClause}`.trim()
-}
-
-async function generateArticleCoverPrompt({ post, outline, researchPack, workflow, today }) {
-  const system = [
-    'You are an art director for a Chinese AI/technology editorial blog.',
-    'Your job is to create one differentiated image-generation prompt for the article cover.',
-    'Return only JSON with keys: visual_metaphor, scene, style, palette, composition, avoid, prompt.',
-    'The prompt field must be a complete English-first image prompt suitable for an image generation API.',
-    'Choose a visual language that fits this specific article, not a generic AI poster.',
-    'Vary the medium when appropriate: documentary editorial photography, minimal infographic, paper-cut editorial illustration, isometric product metaphor, archival newsroom collage, lab still life, architectural metaphor, or restrained 3D object study.',
-    'Do not request readable text, title typography, logos, UI screenshots, code editors, human faces, hands, robot mascots, or clutter.',
-    'Avoid generic glowing AI brain, blue-purple cyberpunk, humanoid robot, floating holographic dashboard, and circuit-board clichés unless the article specifically requires them.',
-    'Respect a wide landscape website cover composition with a calmer lower area for overlay text.',
-  ].join('\n')
-
-  const user = [
-    `Date: ${today}`,
-    `Workflow: ${workflow?.slug || ''}`,
-    '',
-    'Article:',
-    stringifyPromptPayload({
-      title: post?.title,
-      summary: post?.summary,
-      tags: post?.tags,
-      topic_key: post?.topic_key,
-      content_type: post?.content_type,
-      content_preview: smartTruncate(post?.content_md || '', 4000),
-    }, 6000),
-    '',
-    'Outline cover idea:',
-    String(outline?.cover_prompt || '').trim(),
-    '',
-    'Research/evidence context:',
-    stringifyPromptPayload({
-      topic: outline?.topic,
-      thesis: outline?.thesis,
-      key_sources: outline?.key_sources,
-      evidence_cards: Array.isArray(researchPack?.evidence_cards) ? researchPack.evidence_cards.slice(0, 8) : [],
-      sources: Array.isArray(researchPack?.sources) ? researchPack.sources.slice(0, 8).map((item) => ({
-        title: item.title,
-        source_name: item.source_name,
-        source_type: item.source_type,
-        summary: item.summary,
-      })) : [],
-    }, 10000),
-  ].join('\n')
-
-  return callLLM(system, user, 2048)
-}
-
-async function generateArticleCoverPromptSafe(args) {
-  try {
-    const result = await generateArticleCoverPrompt(args)
-    const prompt = normalizeArticleCoverPromptResult(result)
-    if (prompt) {
-      console.log(`Generated refined cover prompt: ${prompt.slice(0, 180)}`)
-      return prompt
-    }
-    console.warn('Refined cover prompt was empty; falling back to outline cover prompt.')
-  } catch (error) {
-    console.warn(`Refined cover prompt generation skipped: ${error.message}`)
-  }
-  return ''
-}
-
 function headingsFromGateReasons(reasons = [], requiredSections = []) {
   const matched = new Set()
   for (const reason of reasons) {
@@ -2678,13 +2605,13 @@ async function downloadAndUploadImageResult(imageUrl, token) {
   }
 }
 
-async function generatePostCoverWithAdminApi(postId, prompt, token) {
+async function generatePostCoverWithAdminApi(postId, coverBrief, token) {
   try {
     const job = await generatePostCoverViaAdminJob({
       blogApiBase: BLOG_API_BASE,
       token,
       postId,
-      prompt,
+      coverBrief,
       overwrite: false,
     })
     const imageUrl = imageGenerationJobImageUrl(job)
@@ -3438,17 +3365,10 @@ async function buildPublishablePost({
   }
 
   const normalizedPost = normalizeForApi(postForGate, fixedSlug, outline, metadata)
-  const refinedCoverPrompt = await generateArticleCoverPromptSafe({
-    post: normalizedPost,
-    outline,
-    researchPack,
-    workflow: workflowProfile,
-    today,
-  })
   const normalizedOutline = {
     ...outline,
-    cover_prompt: buildPostCoverPrompt(normalizedPost, {
-      manualPrompt: refinedCoverPrompt || String(outline?.cover_prompt || '').trim(),
+    cover_brief: buildPostCoverBrief(normalizedPost, {
+      manualBrief: String(outline?.cover_brief || outline?.cover_prompt || '').trim(),
     }),
   }
 
@@ -3672,9 +3592,10 @@ async function runDailyMode(config, cliOptions) {
     topicMetadataPayload.post_id = metadataBridgePayload.post_id
 
     let coverImage = ''
-    if (metadataBridgePayload.post_id && artifact.outline.cover_prompt) {
+    const coverBrief = artifact.outline.cover_brief || artifact.outline.cover_prompt || ''
+    if (metadataBridgePayload.post_id && coverBrief) {
       console.log(`Requesting configured cover generation for ${slug}...`)
-      const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, artifact.outline.cover_prompt, token)
+      const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, coverBrief, token)
       logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
       coverImage = coverResult.ok ? coverResult.imageUrl : ''
     }
@@ -3907,9 +3828,10 @@ async function runWeeklyReviewMode(config, cliOptions) {
   topicMetadataPayload.post_id = metadataBridgePayload.post_id
 
   let coverImage = ''
-  if (metadataBridgePayload.post_id && artifact.outline.cover_prompt) {
+  const coverBrief = artifact.outline.cover_brief || artifact.outline.cover_prompt || ''
+  if (metadataBridgePayload.post_id && coverBrief) {
     console.log('Requesting configured cover generation...')
-    const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, artifact.outline.cover_prompt, token)
+    const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, coverBrief, token)
     logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
     coverImage = coverResult.ok ? coverResult.imageUrl : ''
   }

@@ -37,7 +37,7 @@ test('generatePostCoverViaAdminJob submits post cover job to admin API', async (
       blogApiBase: 'https://blog.example.com/',
       token: 'admin-token',
       postId: 7,
-      prompt: 'editorial AI cover',
+      coverBrief: 'Agent tool permissions collide with deployment speed.',
       overwrite: true,
     })
 
@@ -46,7 +46,8 @@ test('generatePostCoverViaAdminJob submits post cover job to admin API', async (
     assert.equal(calls[0].options.method, 'POST')
     assert.equal(calls[0].options.headers.Authorization, 'Bearer admin-token')
     assert.deepEqual(JSON.parse(calls[0].options.body), {
-      prompt: 'editorial AI cover',
+      prompt: null,
+      cover_brief: 'Agent tool permissions collide with deployment speed.',
       overwrite: true,
       mode: 'apply',
     })

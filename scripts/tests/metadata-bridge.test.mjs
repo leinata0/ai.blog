@@ -116,6 +116,7 @@ test('metadata bridge payload keeps core post fields unchanged and persists cove
     topic: 'Agent tooling',
     thesis: 'Execution matters',
     key_sources: ['https://example.com/a'],
+    cover_brief: 'Agent tools must balance permissions with execution speed.',
     cover_prompt: 'cinematic agent team',
   }
   const metadata = {
@@ -183,12 +184,15 @@ test('metadata bridge payload keeps core post fields unchanged and persists cove
   assert.equal(post.content_md, postBefore.content_md)
   assert.equal(post.cover_image, postBefore.cover_image)
   assert.equal(outline.cover_prompt, outlineBefore.cover_prompt)
+  assert.equal(outline.cover_brief, outlineBefore.cover_brief)
   assert.equal(payload.post_id, 101)
   assert.equal(payload.post_slug, 'a-title')
   assert.equal(payload.metadata.source_count, 2)
   assert.equal(payload.metadata.series_slug, 'ai-daily-brief')
   assert.equal(payload.metadata.series_order, 100)
-  assert.ok(payload.publishing_artifact.research_pack_summary.includes('cover_prompt'))
+  const artifactSummary = JSON.parse(payload.publishing_artifact.research_pack_summary)
+  assert.equal(artifactSummary.cover_brief, outline.cover_brief)
+  assert.equal(artifactSummary.cover_prompt, outline.cover_prompt)
 })
 
 test('buildPostSourcesPayload normalizes published_at values to ISO strings or null', () => {
