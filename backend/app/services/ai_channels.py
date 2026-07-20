@@ -748,22 +748,48 @@ def _generate_image_from_channel(channel: ResolvedAiChannel, prompt: str, framin
                 },
                 timeout=60,
             )
-            response.raise_for_status()
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError:
+                data = None
             image_url = _extract_generated_image(data)
-            if not image_url:
-                last_error = AiChannelError("generation_failed", "生图服务已响应，但未返回可用图片 URL 或 base64 图片。")
+            # Some paid gateways return a usable result body with a transient
+            # 5xx status. The image is more authoritative than the status code.
+            if image_url:
+                return image_url
+            if response.status_code >= 400:
+                detail = _response_error_detail(response, data)
+                last_error = AiChannelError(
+                    "generation_failed",
+                    f"生图请求失败，HTTP {response.status_code}{f'：{detail}' if detail else '。'}",
+                )
+                # Do not send a second billable request after an upstream 5xx.
+                if response.status_code >= 500:
+                    break
                 continue
-            return image_url
-        except httpx.HTTPStatusError as exc:
-            last_error = AiChannelError("generation_failed", f"生图请求失败，HTTP {exc.response.status_code}。")
+            last_error = AiChannelError("generation_failed", "生图服务已响应，但未返回可用图片 URL 或 base64 图片。")
+            continue
         except httpx.HTTPError:
             last_error = AiChannelError("generation_failed", "生图请求失败，请稍后重试。")
-        except ValueError:
-            last_error = AiChannelError("generation_failed", "生图服务响应不是合法 JSON。")
     if last_error is not None:
         raise last_error
     raise AiChannelError("generation_failed", "生图请求失败，请检查 Base URL。")
+
+
+def _response_error_detail(response, data: Any = None) -> str:
+    if isinstance(data, dict):
+        for key in ("error", "message", "detail"):
+            value = data.get(key)
+            if isinstance(value, dict):
+                value = value.get("message") or value.get("detail") or value.get("code")
+            if value:
+                text = str(value).strip()
+                return text[:300]
+    try:
+        text = str(response.text or "").strip()
+    except Exception:
+        text = ""
+    return " ".join(text.split())[:300]
 
 
 def _extract_generated_image(data: Any) -> str:
@@ -774,37 +800,44 @@ def _extract_generated_image(data: Any) -> str:
     The latter is converted to a data URL and is consumed immediately by the
     cover downloader; it is never stored as the article's public URL.
     """
+    if isinstance(data, str):
+        value = data.strip()
+        if value.startswith(("http://", "https://", "data:image/")):
+            return value
+        return ""
+    if isinstance(data, list):
+        for item in data:
+            result = _extract_generated_image(item)
+            if result:
+                return result
+        return ""
     if not isinstance(data, dict):
         return ""
-    items = data.get("data")
-    if isinstance(items, dict):
-        items = [items]
-    if not isinstance(items, list):
-        items = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        for key in ("url", "image_url", "imageUrl"):
-            value = str(item.get(key) or "").strip()
-            if value:
-                return value
-        encoded = ""
-        for key in ("b64_json", "b64", "base64", "image_base64", "imageBase64"):
-            candidate = str(item.get(key) or "").strip()
-            if candidate:
-                encoded = candidate
-                break
-        if encoded:
-            if encoded.startswith("data:image/"):
-                return encoded
-            mime = str(item.get("mime_type") or item.get("mimeType") or item.get("content_type") or "image/png").strip().lower()
-            if mime not in {"image/jpeg", "image/png", "image/gif", "image/webp"}:
-                mime = "image/png"
-            try:
-                base64.b64decode(encoded, validate=True)
-            except (binascii.Error, ValueError):
-                continue
-            return f"data:{mime};base64,{encoded}"
+    for key in ("url", "image_url", "imageUrl"):
+        value = str(data.get(key) or "").strip()
+        if value.startswith(("http://", "https://", "data:image/")):
+            return value
+    encoded = ""
+    for key in ("b64_json", "b64", "base64", "image_base64", "imageBase64"):
+        candidate = str(data.get(key) or "").strip()
+        if candidate:
+            encoded = candidate
+            break
+    if encoded:
+        if encoded.startswith("data:image/"):
+            return encoded
+        mime = str(data.get("mime_type") or data.get("mimeType") or data.get("content_type") or "image/png").strip().lower()
+        if mime not in {"image/jpeg", "image/png", "image/gif", "image/webp"}:
+            mime = "image/png"
+        try:
+            base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError):
+            return ""
+        return f"data:{mime};base64,{encoded}"
+    for key in ("data", "images", "output", "result", "results", "image"):
+        result = _extract_generated_image(data.get(key))
+        if result:
+            return result
     return ""
 
 
