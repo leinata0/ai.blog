@@ -155,7 +155,9 @@ it('renders the homepage hero as a single poster layout', async () => {
   expect(container.querySelector('[data-ui="home-topic-pulse"]')).toBeNull()
   expect(container.querySelector('[data-ui="home-continue-reading"]')).toBeNull()
   expect(container.querySelector('[data-ui="home-subscription-shortcut"]')).toBeNull()
-  expect(await screen.findAllByText(/Python automation with Selenium and Pandas/i)).not.toHaveLength(0)
+  await waitFor(() => {
+    expect(screen.queryAllByText(/Python automation with Selenium and Pandas/i)).not.toHaveLength(0)
+  }, { timeout: 5000 })
   expect(fetchHomeBootstrap).toHaveBeenCalledTimes(1)
   expect(fetchPosts).not.toHaveBeenCalled()
 
@@ -193,7 +195,9 @@ it('does not let a stale filtered request overwrite the restored latest-post vie
     </MemoryRouter>,
   )
 
-  await screen.findAllByText(/Python automation with Selenium and Pandas/i)
+  await waitFor(() => {
+    expect(screen.queryAllByText(/Python automation with Selenium and Pandas/i)).not.toHaveLength(0)
+  }, { timeout: 5000 })
   await userEvent.type(screen.getByRole('textbox', { name: '搜索文章' }), 'Python')
   await userEvent.click(screen.getByRole('button', { name: '开始搜索' }))
   await waitFor(() => expect(fetchPosts).toHaveBeenCalledTimes(1))
