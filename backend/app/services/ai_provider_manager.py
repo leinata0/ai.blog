@@ -455,6 +455,9 @@ def run_generation(
                 exc.code,
                 exc.message,
             )
+            if not getattr(exc, "allow_failover", True):
+                exc.attempts = attempts
+                raise
     if last_error is not None:
         failure = ai_channels.AiChannelError(
             "all_models_failed",

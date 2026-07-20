@@ -95,7 +95,7 @@ function invalidateImageGenerationCaches(job) {
   paths.filter(Boolean).forEach((path) => clearApiGetCache(path))
 }
 
-export async function waitForAdminImageGenerationJob(jobOrId, { intervalMs = 2500, timeoutMs = 180000 } = {}) {
+export async function waitForAdminImageGenerationJob(jobOrId, { intervalMs = 2500, timeoutMs = 420000 } = {}) {
   const jobId = typeof jobOrId === 'object' ? (jobOrId.job_id || jobOrId.id) : jobOrId
   if (!jobId) return jobOrId
   const terminal = new Set(['succeeded', 'failed', 'canceled'])

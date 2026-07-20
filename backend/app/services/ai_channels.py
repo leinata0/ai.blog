@@ -20,7 +20,23 @@ from app.models import AiChannelConfig
 
 logger = logging.getLogger(__name__)
 
+
+def _bounded_env_seconds(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(clean_env(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
 DEFAULT_TEXT_GENERATION_TIMEOUT_SECONDS = 180
+DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS = _bounded_env_seconds(
+    "IMAGE_GENERATION_TIMEOUT_SECONDS",
+    300,
+    minimum=60,
+    maximum=600,
+)
+IMAGE_CONNECT_RETRY_ATTEMPTS = 2
 
 IMAGE_PURPOSE = "image_generation"
 TEXT_PURPOSE = "text_generation"
@@ -162,10 +178,11 @@ DEFAULTS = {
 
 
 class AiChannelError(RuntimeError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, *, allow_failover: bool = True):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.allow_failover = allow_failover
 
 
 @dataclass(frozen=True)
@@ -733,44 +750,93 @@ def _generate_image_from_channel(channel: ResolvedAiChannel, prompt: str, framin
     ensure_channel_ready(channel)
     full_prompt = f"{framing_hint}: {prompt}" if framing_hint else prompt
     last_error: AiChannelError | None = None
+    idempotency_key = str(uuid4())
+    timeout = httpx.Timeout(
+        connect=15.0,
+        read=float(DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS),
+        write=30.0,
+        pool=15.0,
+    )
     for endpoint in _openai_endpoints(channel.base_url, "/images/generations"):
-        try:
-            response = httpx.post(
-                endpoint,
-                headers={
-                    "Authorization": f"Bearer {channel.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": channel.model,
-                    "prompt": full_prompt,
-                    "n": 1,
-                },
-                timeout=60,
-            )
+        response = None
+        for connect_attempt in range(IMAGE_CONNECT_RETRY_ATTEMPTS):
             try:
-                data = response.json()
-            except ValueError:
-                data = None
-            image_url = _extract_generated_image(data)
-            # Some paid gateways return a usable result body with a transient
-            # 5xx status. The image is more authoritative than the status code.
-            if image_url:
-                return image_url
-            if response.status_code >= 400:
-                detail = _response_error_detail(response, data)
-                last_error = AiChannelError(
-                    "generation_failed",
-                    f"生图请求失败，HTTP {response.status_code}{f'：{detail}' if detail else '。'}",
+                response = httpx.post(
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {channel.api_key}",
+                        "Content-Type": "application/json",
+                        "Idempotency-Key": idempotency_key,
+                    },
+                    json={
+                        "model": channel.model,
+                        "prompt": full_prompt,
+                        "n": 1,
+                    },
+                    timeout=timeout,
                 )
-                # Do not send a second billable request after an upstream 5xx.
-                if response.status_code >= 500:
-                    break
-                continue
-            last_error = AiChannelError("generation_failed", "生图服务已响应，但未返回可用图片 URL 或 base64 图片。")
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+                logger.warning(
+                    "image_generation_connect_failed endpoint=%s attempt=%s/%s error=%s",
+                    endpoint,
+                    connect_attempt + 1,
+                    IMAGE_CONNECT_RETRY_ATTEMPTS,
+                    type(exc).__name__,
+                )
+                last_error = AiChannelError(
+                    "generation_connect_failed",
+                    "连接生图服务失败，已进行安全重试，请稍后再试。",
+                )
+                if connect_attempt + 1 < IMAGE_CONNECT_RETRY_ATTEMPTS:
+                    time.sleep(0.5 * (connect_attempt + 1))
+                    continue
+            except httpx.ReadTimeout as exc:
+                raise AiChannelError(
+                    "generation_timeout",
+                    f"生图服务在 {DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS} 秒内未返回结果。为避免重复扣费，系统未自动重复提交；上游可能仍在处理。",
+                    allow_failover=False,
+                ) from exc
+            except (httpx.ReadError, httpx.WriteError, httpx.WriteTimeout, httpx.RemoteProtocolError) as exc:
+                raise AiChannelError(
+                    "generation_connection_lost",
+                    "生图请求送出后连接中断。为避免重复扣费，系统未自动重复提交，请稍后检查上游记录。",
+                    allow_failover=False,
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise AiChannelError(
+                    "generation_connection_lost",
+                    "生图请求发生网络异常。为避免重复扣费，系统未自动重复提交。",
+                    allow_failover=False,
+                ) from exc
+        if response is None:
             continue
-        except httpx.HTTPError:
-            last_error = AiChannelError("generation_failed", "生图请求失败，请稍后重试。")
+        try:
+            data = response.json()
+        except ValueError:
+            data = None
+        image_url = _extract_generated_image(data)
+        # Some paid gateways return a usable result body with a transient
+        # 5xx status. The image is more authoritative than the status code.
+        if image_url:
+            return image_url
+        if response.status_code >= 400:
+            detail = _response_error_detail(response, data)
+            last_error = AiChannelError(
+                "generation_failed",
+                f"生图请求失败，HTTP {response.status_code}{f'：{detail}' if detail else '。'}",
+                allow_failover=response.status_code < 500,
+            )
+            # A 5xx can be emitted after an upstream has accepted and billed
+            # the generation. Never submit another paid request in that case.
+            if response.status_code >= 500:
+                raise last_error
+            continue
+        raise AiChannelError(
+            "generation_empty_response",
+            "生图服务已响应，但未返回可用图片。为避免重复扣费，系统未自动再次提交。",
+            allow_failover=False,
+        )
     if last_error is not None:
         raise last_error
     raise AiChannelError("generation_failed", "生图请求失败，请检查 Base URL。")
