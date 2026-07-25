@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { useParams, Link, useLocation } from 'react-router-dom'
-import { ArrowLeft, Heart, Pin } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Heart, Pin } from 'lucide-react'
 import { motion, useScroll, useSpring } from 'framer-motion'
 
 import { fetchPostDetail, likePost, fetchLikeState, fetchRelatedPosts, prefetchPostDetail } from '../api/posts'
@@ -51,7 +51,7 @@ function DetailRailSection({ title, items, toPostLabel = false, onPrefetch }) {
             to={`/posts/${item.slug}`}
             onMouseEnter={() => onPrefetch?.(item.slug)}
             onFocus={() => onPrefetch?.(item.slug)}
-            className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+            className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-[transform,border-color,background-color] duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
           >
             {toPostLabel && item.content_type ? (
               <div className="mb-2 text-[11px]" style={{ color: 'var(--text-faint)' }}>
@@ -236,6 +236,37 @@ function TopicTrackingSection({ post }) {
   )
 }
 
+function ReadingPathNavigation({ previousPost, nextPost, onPrefetch }) {
+  if (!previousPost && !nextPost) return null
+
+  return (
+    <nav className="reading-path" aria-label="上下篇文章">
+      {previousPost ? (
+        <Link
+          to={`/posts/${previousPost.slug}`}
+          onMouseEnter={() => onPrefetch(previousPost.slug)}
+          onFocus={() => onPrefetch(previousPost.slug)}
+          className="reading-path__item reading-path__item--previous"
+        >
+          <span><ArrowLeft size={14} aria-hidden="true" /> 系列延伸</span>
+          <strong>{previousPost.title}</strong>
+        </Link>
+      ) : <span />}
+      {nextPost ? (
+        <Link
+          to={`/posts/${nextPost.slug}`}
+          onMouseEnter={() => onPrefetch(nextPost.slug)}
+          onFocus={() => onPrefetch(nextPost.slug)}
+          className="reading-path__item reading-path__item--next"
+        >
+          <span>主题延伸 <ArrowRight size={14} aria-hidden="true" /></span>
+          <strong>{nextPost.title}</strong>
+        </Link>
+      ) : null}
+    </nav>
+  )
+}
+
 export default function PostDetailPage({ slug: overrideSlug }) {
   const { settings } = useSite()
   const { user } = useUser()
@@ -252,6 +283,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   const [sameSeriesPosts, setSameSeriesPosts] = useState([])
   const [sameTopicPosts, setSameTopicPosts] = useState([])
   const [sameWeekPosts, setSameWeekPosts] = useState([])
+  const [interactionMessage, setInteractionMessage] = useState('')
   const { scrollYProgress } = useScroll()
   const progressScaleX = useSpring(scrollYProgress, {
     stiffness: 140,
@@ -401,9 +433,11 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         const result = await likePost(slug, { auth: 'user' })
         if (typeof result?.like_count === 'number') setLikeCount(result.like_count)
         if (typeof result?.liked === 'boolean') setLiked(result.liked)
+        setInteractionMessage(optimistic ? '已加入你的点赞。' : '已取消点赞。')
       } catch {
         setLiked(prevLiked)
         setLikeCount((c) => Math.max(0, c + (optimistic ? -1 : 1)))
+        setInteractionMessage('点赞未保存，请检查网络后重试。')
       }
       return
     }
@@ -422,9 +456,11 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         setLikeCount(result.like_count)
       }
       localStorage.setItem(`liked_${slug}`, '1')
+      setInteractionMessage('已加入你的点赞。')
     } catch {
       setLiked(false)
       setLikeCount((c) => Math.max(0, c - 1))
+      setInteractionMessage('点赞未保存，请检查网络后重试。')
     }
   }
 
@@ -541,7 +577,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                 whileTap={{ scale: 0.95 }}
                 onClick={handleLike}
                 disabled={liked && !user}
-                className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-all duration-200 disabled:cursor-default"
+                className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-[transform,background-color,color,border-color,box-shadow] duration-200 disabled:cursor-default"
                 style={{
                   backgroundColor: liked ? 'var(--danger-soft)' : 'var(--bg-surface)',
                   color: liked ? '#ef4444' : 'var(--text-secondary)',
@@ -553,6 +589,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                 {liked ? '已点赞' : '点赞'} · {likeCount}
               </motion.button>
             </div>
+            <div className="sr-only" role="status" aria-live="polite">{interactionMessage}</div>
 
             {post.tags?.length > 0 ? (
               <div className="mt-6 flex flex-wrap gap-2">
@@ -568,6 +605,12 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                 ))}
               </div>
             ) : null}
+
+            <ReadingPathNavigation
+              previousPost={sameSeriesPosts[0] || null}
+              nextPost={sameTopicPosts[0] || relatedPosts[0] || null}
+              onPrefetch={prefetchPost}
+            />
 
             {relatedPosts.length > 0 ? (
               <div className="mt-10">

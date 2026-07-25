@@ -1,7 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight, Calendar, Pin, Search, Sparkles, Tag } from 'lucide-react'
+import { ArrowRight, Calendar, Eye, Pin, Search, Sparkles, Tag } from 'lucide-react'
 
 import { fetchPosts, prefetchPostDetail } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
@@ -19,7 +19,8 @@ import EmptyStatePanel from '../components/EmptyStatePanel'
 import HeroFocusLine from '../components/HeroFocusLine'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
-import SiteHeroPosterStage from '../components/SiteHeroPosterStage'
+import TodaySignalBoard from '../components/TodaySignalBoard'
+import ArticleQuickPreview from '../components/ArticleQuickPreview'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import {
   buildCollectionPageJsonLd,
@@ -43,6 +44,9 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
           value={searchInput}
           onChange={onInputChange}
           aria-label="搜索文章"
+          name="home-search"
+          autoComplete="off"
+          spellCheck={false}
           placeholder={SITE_COPY.homeSearchPlaceholder}
         className="w-full rounded-[1.3rem] border px-11 py-3.5 text-sm outline-none transition-colors focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
           style={{
@@ -75,7 +79,7 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
   )
 }
 
-function PostCard({ post, onTagSelect, onPrefetch }) {
+function PostCard({ post, onTagSelect, onPrefetch, onPreview }) {
   const contentMeta = getContentTypeMeta(post.content_type)
 
   return (
@@ -86,18 +90,27 @@ function PostCard({ post, onTagSelect, onPrefetch }) {
       data-ui="post-card"
       className={`cover-card relative overflow-hidden ${post.is_pinned ? 'ring-2 ring-[var(--accent-border)] ring-offset-2 ring-offset-[var(--bg-canvas)]' : ''}`}
     >
-      <Link to={`/posts/${post.slug}`} className="block" onMouseEnter={() => onPrefetch(post.slug)} onFocus={() => onPrefetch(post.slug)}>
-        {post.cover_image ? (
+      {post.cover_image ? (
+        <Link
+          to={`/posts/${post.slug}`}
+          className="block"
+          onMouseEnter={() => onPrefetch(post.slug)}
+          onFocus={() => onPrefetch(post.slug)}
+          aria-label={`阅读：${post.title}`}
+        >
           <div className="editorial-cover h-60 overflow-hidden">
             <img
               src={proxyImageUrl(post.cover_image)}
               alt={post.title}
               className="h-full w-full object-cover transition-transform duration-500 hover:scale-[1.05]"
               loading="lazy"
+              width="1200"
+              height="630"
               referrerPolicy="no-referrer"
             />
           </div>
-        ) : null}
+        </Link>
+      ) : null}
 
         <div className="p-7 sm:p-8">
           <div className="flex flex-wrap items-center gap-2">
@@ -126,7 +139,14 @@ function PostCard({ post, onTagSelect, onPrefetch }) {
           </div>
 
           <h2 className="mt-5 font-display text-[1.9rem] font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>
-            {post.title}
+            <Link
+              to={`/posts/${post.slug}`}
+              className="post-card__title-link"
+              onMouseEnter={() => onPrefetch(post.slug)}
+              onFocus={() => onPrefetch(post.slug)}
+            >
+              {post.title}
+            </Link>
           </h2>
           <p className="mt-4 text-[15px] leading-8" style={{ color: 'var(--text-secondary)' }}>
             {post.summary}
@@ -144,30 +164,40 @@ function PostCard({ post, onTagSelect, onPrefetch }) {
                   event.preventDefault()
                   onTagSelect(item.slug)
                 }}
-                className="inline-flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5"
+                className="inline-flex min-h-11 cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-[background-color,color,transform] duration-200 hover:-translate-y-0.5"
                 style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
               >
                 <Tag size={12} /> {item.name}
               </button>
             ))}
           </div>
+          <div className="post-card__actions">
+            <button type="button" className="signal-button signal-button--ghost hidden md:inline-flex" onClick={() => onPreview(post)}>
+              <Eye size={15} aria-hidden="true" /> 快速预览
+            </button>
+            <Link to={`/posts/${post.slug}`} className="signal-button signal-button--primary" onMouseEnter={() => onPrefetch(post.slug)} onFocus={() => onPrefetch(post.slug)}>
+              阅读全文 <ArrowRight size={15} aria-hidden="true" />
+            </Link>
+          </div>
         </div>
-      </Link>
     </motion.article>
   )
 }
 
 export default function HomePage() {
   const { settings, bootstrap, bootstrapLoading, loading: siteLoading } = useSite()
-  const [tag, setTag] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchInput, setSearchInput] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tag = searchParams.get('tag') || ''
+  const searchQuery = searchParams.get('q') || ''
+  const parsedPage = Number.parseInt(searchParams.get('page') || '1', 10)
+  const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1
+  const [searchInput, setSearchInput] = useState(searchQuery)
   const [posts, setPosts] = useState(() => (Array.isArray(bootstrap?.posts?.items) ? bootstrap.posts.items : []))
   const [loading, setLoading] = useState(() => !bootstrap?.posts)
   const [slowLoading, setSlowLoading] = useState(false)
   const [error, setError] = useState('')
-  const [page, setPage] = useState(1)
   const [total, setTotal] = useState(() => bootstrap?.posts?.total ?? 0)
+  const [previewPost, setPreviewPost] = useState(null)
   const [pageSize] = useState(10)
   const postsRequestRef = useRef(0)
   const postsAbortRef = useRef(null)
@@ -198,6 +228,10 @@ export default function HomePage() {
   useEffect(() => {
     document.title = SITE_COPY.brand
   }, [])
+
+  useEffect(() => {
+    setSearchInput(searchQuery)
+  }, [searchQuery])
 
   const prefetchPost = useCallback((slug) => {
     prefetchPostDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
@@ -287,30 +321,36 @@ export default function HomePage() {
   function handleSearch(event) {
     event.preventDefault()
     hasInteractedRef.current = true
-    setPage(1)
-    setSearchQuery(searchInput.trim())
+    const next = new URLSearchParams()
+    const query = searchInput.trim()
+    if (query) next.set('q', query)
+    setSearchParams(next)
   }
 
   function clearSearch() {
     hasInteractedRef.current = true
-    setPage(1)
     setSearchInput('')
-    setSearchQuery('')
+    setSearchParams(new URLSearchParams())
   }
 
   function handleTagSelect(nextTag) {
     hasInteractedRef.current = true
-    setPage(1)
-    setTag(nextTag)
-    setSearchQuery('')
     setSearchInput('')
+    const next = new URLSearchParams()
+    if (nextTag) next.set('tag', nextTag)
+    setSearchParams(next)
   }
 
   function handlePageChange(newPage) {
     hasInteractedRef.current = true
-    setPage(newPage)
+    const next = new URLSearchParams(searchParams)
+    if (newPage > 1) next.set('page', String(newPage))
+    else next.delete('page')
+    setSearchParams(next)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  const closePreview = useCallback(() => setPreviewPost(null), [])
 
   return (
     <main data-ui="home-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
@@ -391,7 +431,7 @@ export default function HomePage() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
           >
-            <SiteHeroPosterStage image={heroImage} imageAlt={SITE_COPY.homePosterAlt} />
+            <TodaySignalBoard posts={posts} loading={loading} />
           </motion.div>
         </div>
       </section>
@@ -452,6 +492,7 @@ export default function HomePage() {
                       post={post}
                       onPrefetch={prefetchPost}
                       onTagSelect={handleTagSelect}
+                      onPreview={setPreviewPost}
                     />
                   ))}
                 </motion.div>
@@ -471,6 +512,7 @@ export default function HomePage() {
         </div>
       </div>
 
+      <ArticleQuickPreview post={previewPost} onClose={closePreview} />
       <Footer />
       <BackToTop />
     </main>

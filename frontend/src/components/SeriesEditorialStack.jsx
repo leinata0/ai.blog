@@ -66,6 +66,8 @@ function SeriesCover({ series }) {
       <img
         src={proxyImageUrl(series.cover_image)}
         alt={getSeriesTitle(series)}
+        width="1200"
+        height="630"
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"

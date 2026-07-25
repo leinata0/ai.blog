@@ -1,19 +1,19 @@
 export const SITE_COPY = {
   brand: 'AI 资讯观察',
-  homeBadge: '中文 AI 资讯与观察',
-  homeTitle: '持续更新 AI 最新动态与关键变化的中文博客',
+  homeBadge: 'AI INTELLIGENCE DESK · 中文信号站',
+  homeTitle: '从每天的噪音里，校准真正重要的 AI 信号',
   homeSubtitle:
-    '聚焦值得持续追踪的消息、产品更新与产业线索，用更清晰的结构整理每一天和每一周的重要变化。',
+    '连接模型、产品、研究与产业动作，把孤立新闻整理成可以持续追踪的变化脉络。',
   homeFocusLines: [
-    '追踪今天最重要的 AI 变化',
-    '连接产品更新与产业线索',
-    '从噪音里筛出真正值得看的内容',
+    '识别今天最重要的模型与产品变化',
+    '连接论文、产品与产业动作',
+    '将孤立新闻组织成长期主题网络',
     '用日报与周报保留连续上下文',
   ],
-  homeSignalLabels: ['日报', '周报', '主题追踪', '系列阅读'],
+  homeSignalLabels: ['实时信号', '主题网络', '编辑筛选', '上下文追踪'],
   homePosterAlt: '站点 Hero 主海报',
-  homeSearchPlaceholder: '搜索文章、主题或系列',
-  homeSearchAction: '开始搜索',
+  homeSearchPlaceholder: '输入模型、公司、产品或主题…',
+  homeSearchAction: '校准信号',
   homeClearAction: '清空',
 }
 
@@ -49,7 +49,7 @@ export const CONTENT_TYPE_META = {
     label: '周报',
     title: 'AI 周报',
     englishTitle: 'AI Weekly Review',
-    accent: '#2563eb',
+    accent: '#1d4ed8',
     background: 'rgba(37, 99, 235, 0.12)',
     description: '从一周视角梳理关键变化，帮助你快速回看主线与趋势。',
     kicker: '每周回看',

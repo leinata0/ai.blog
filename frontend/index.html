@@ -3,13 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="持续更新 AI 最新动态与关键变化的中文博客，聚焦值得持续追踪的消息、产品更新与产业线索。">
+    <meta name="description" content="连接模型、产品、研究与产业动作，把孤立新闻整理成可以持续追踪的 AI 变化脉络。">
+    <meta name="theme-color" content="#f3f3ef">
     <meta property="og:title" content="AI 资讯观察">
-    <meta property="og:description" content="聚焦值得持续追踪的消息、产品更新与产业线索，用更清晰的结构整理每一天和每一周的重要变化。">
+    <meta property="og:description" content="从每天的噪音里，校准真正重要的 AI 信号。">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://www.563118077.xyz">
     <link rel="alternate" type="application/rss+xml" title="AI 资讯观察 RSS" href="/feed.xml">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💻</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='26' fill='%23071016'/><path d='M23 67 46 39l20 22 12-17' fill='none' stroke='%2357d8ea' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/><circle cx='23' cy='67' r='6' fill='%23ffad68'/><circle cx='46' cy='39' r='6' fill='%2357d8ea'/><circle cx='66' cy='61' r='6' fill='%23a997ff'/></svg>">
+    <script>
+      (() => {
+        let dark = false
+        try {
+          dark = localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && matchMedia('(prefers-color-scheme: dark)').matches)
+        } catch {}
+        const standard = /^(\/admin|\/account|\/login|\/register|\/forgot-password|\/reset-password|\/verify-email)/.test(location.pathname)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        document.documentElement.dataset.surface = standard ? 'standard' : 'editorial'
+        document.querySelector('meta[name="theme-color"]').content = standard ? (dark ? '#09111d' : '#edf3f8') : (dark ? '#071016' : '#f3f3ef')
+      })()
+    </script>
     <title>AI 资讯观察</title>
   </head>
   <body>

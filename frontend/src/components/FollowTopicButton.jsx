@@ -8,6 +8,8 @@ export default function FollowTopicButton({ topic, onChange }) {
   const topicKey = String(topic?.topic_key || '').trim()
   const { user } = useUser()
   const [followed, setFollowed] = useState(() => isTopicFollowed(topicKey))
+  const [pending, setPending] = useState(false)
+  const [message, setMessage] = useState('')
 
   useEffect(() => {
     setFollowed(isTopicFollowed(topicKey))
@@ -16,23 +18,38 @@ export default function FollowTopicButton({ topic, onChange }) {
   if (!topicKey) return null
 
   async function handleClick() {
-    const { topics, followed: nextFollowed } = await toggleFollow(user, topic)
-    setFollowed(nextFollowed)
-    onChange?.(topics, nextFollowed)
+    if (pending) return
+    setPending(true)
+    setMessage('')
+    try {
+      const { topics, followed: nextFollowed } = await toggleFollow(user, topic)
+      setFollowed(nextFollowed)
+      setMessage(nextFollowed ? '已关注这个主题。' : '已取消关注这个主题。')
+      onChange?.(topics, nextFollowed)
+    } catch {
+      setMessage('关注状态未保存，请检查网络后重试。')
+    } finally {
+      setPending(false)
+    }
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5"
-      style={{
-        backgroundColor: followed ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)',
-        color: followed ? '#2563eb' : 'var(--accent)',
-      }}
-    >
-      {followed ? <BellRing size={15} /> : <BellPlus size={15} />}
-      {followed ? '已关注主题' : '关注主题'}
-    </button>
+    <span className="inline-flex flex-col items-start gap-1">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={pending}
+        className="signal-button signal-button--ghost"
+        style={{
+          backgroundColor: followed ? 'var(--signal-violet-soft)' : 'var(--accent-soft)',
+          color: followed ? 'var(--signal-violet)' : 'var(--accent)',
+        }}
+        aria-pressed={followed}
+      >
+        {followed ? <BellRing size={15} aria-hidden="true" /> : <BellPlus size={15} aria-hidden="true" />}
+        {pending ? '正在同步…' : followed ? '已关注主题' : '关注主题'}
+      </button>
+      <span className="sr-only" role="status" aria-live="polite">{message}</span>
+    </span>
   )
 }

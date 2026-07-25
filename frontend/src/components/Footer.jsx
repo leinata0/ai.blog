@@ -1,27 +1,46 @@
 import { Link } from 'react-router-dom'
+import { ArrowUpRight, Command, Radio } from 'lucide-react'
 
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
+import { openCommandPalette } from '../utils/uiEvents'
 
 export default function Footer() {
   return (
-    <footer
-      className="border-t px-6 sm:px-10 lg:px-20 py-8"
-      style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-surface)' }}
-    >
-      <div className="mx-auto max-w-7xl flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-6 text-sm" style={{ color: 'var(--text-faint)' }}>
-          <Link to="/" className="transition-colors duration-200 hover:text-[var(--accent)]">首页</Link>
-          <Link to="/feeds" className="transition-colors duration-200 hover:text-[var(--accent)]">订阅</Link>
-          <Link to="/archive" className="transition-colors duration-200 hover:text-[var(--accent)]">归档</Link>
-          <Link to="/tags" className="transition-colors duration-200 hover:text-[var(--accent)]">标签</Link>
-          <a href={buildPublicApiUrl('/feed.xml')} className="transition-colors duration-200 hover:text-[var(--accent)]">RSS</a>
+    <footer className="editorial-footer">
+      <div className="editorial-footer__grid">
+        <div className="editorial-footer__brand">
+          <span className="signal-board__live"><span aria-hidden="true" /> INTELLIGENCE DESK</span>
+          <h2>让每一条 AI 变化<br />拥有可追踪的上下文。</h2>
+          <p>不是堆积新闻，而是持续校准信号、主题与长期变化。</p>
+          <button type="button" onClick={openCommandPalette} className="signal-button signal-button--primary">
+            <Command size={16} aria-hidden="true" /> 打开智能搜索
+          </button>
         </div>
-        <div className="flex items-center gap-4 text-sm" style={{ color: 'var(--text-faint)' }}>
+
+        <nav aria-label="页脚导航" className="editorial-footer__links">
+          <div>
+            <span>EXPLORE</span>
+            <Link to="/discover">发现</Link>
+            <Link to="/topics">主题</Link>
+            <Link to="/series">系列</Link>
+            <Link to="/archive">归档</Link>
+          </div>
+          <div>
+            <span>FOLLOW</span>
+            <Link to="/feeds">订阅中心</Link>
+            <Link to="/following">我的追踪</Link>
+            <Link to="/start-here">开始阅读</Link>
+            <a href={buildPublicApiUrl('/feed.xml')}>RSS <ArrowUpRight size={13} aria-hidden="true" /></a>
+          </div>
+        </nav>
+      </div>
+
+      <div className="editorial-footer__bottom">
+        <span className="inline-flex items-center gap-2"><Radio size={13} aria-hidden="true" /> Signal online</span>
+        <div>
           <span>&copy; {new Date().getFullYear()} AI 资讯观察</span>
           <span>&middot;</span>
-          <span>持续更新的 AI 资讯与观察</span>
-          <span>&middot;</span>
-          <Link to="/admin/login" className="transition-colors duration-200 hover:text-[var(--accent)] opacity-40 hover:opacity-70">管理</Link>
+          <Link to="/admin/login">管理</Link>
         </div>
       </div>
     </footer>

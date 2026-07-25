@@ -567,6 +567,25 @@ function renderPostDetailPage(template, post, siteUrl) {
   })
 }
 
+export function renderStaticPage(template, { routePath, title, description, eyebrow = 'AI Intelligence Desk' }, siteUrl) {
+  const rootHtml = `
+    <main class="prerender-shell">
+      <section class="prerender-hero">
+        <span class="prerender-kicker">${escapeHtml(eyebrow)}</span>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="prerender-lead">${escapeHtml(description)}</p>
+      </section>
+    </main>
+  `
+  return injectTemplate(template, {
+    routePath,
+    title: `${title} - ${SITE_TITLE}`,
+    description,
+    rootHtml,
+    siteUrl,
+  })
+}
+
 export async function main() {
   if (envFlag(process.env.SKIP_PRERENDER)) {
     console.warn('[prerender] explicitly skipped because SKIP_PRERENDER is enabled.')
@@ -600,6 +619,17 @@ export async function main() {
   await writeRouteHtml('/archive', renderArchivePage(template, archiveGroups, siteUrl))
   await writeRouteHtml('/topics', renderTopicsListPage(template, topicsPayload?.items || [], siteUrl))
   await writeRouteHtml('/series', renderSeriesListPage(template, Array.isArray(seriesList) ? seriesList : [], siteUrl))
+  const staticRoutes = [
+    ['/discover', '发现', '按内容类型、系列和关键词发现值得持续追踪的 AI 内容。'],
+    ['/search', '搜索', '搜索文章、主题、系列与关键变化。'],
+    ['/following', '追踪', '继续阅读并查看你关注的主题。'],
+    ['/start-here', '开始阅读', '从今日信号、主题与系列开始建立 AI 阅读路径。'],
+    ['/feeds', '订阅中心', '订阅主题、系列和内容更新。'],
+    ['/tags', '标签', '按标签浏览 AI 文章与观察。'],
+    ['/friends', '友链', '发现值得关注的技术与 AI 站点。'],
+  ]
+  await Promise.all(staticRoutes.map(([routePath, title, description]) =>
+    writeRouteHtml(routePath, renderStaticPage(template, { routePath, title, description }, siteUrl))))
   await writeRouteHtml(
     '/daily',
     renderContentTypePage(

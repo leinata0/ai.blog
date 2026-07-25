@@ -146,7 +146,7 @@ export default function CommentSection({ slug }) {
               <div className="flex items-center justify-between mb-2">
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--accent)' }}>
                   {c.avatar_url ? (
-                    <img src={c.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover" />
+                    <img src={c.avatar_url} alt="" width="20" height="20" className="h-5 w-5 rounded-full object-cover" />
                   ) : null}
                   {c.nickname}
                   {c.is_registered ? <BadgeCheck size={13} aria-label="注册用户" /> : null}

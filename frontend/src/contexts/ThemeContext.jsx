@@ -22,6 +22,9 @@ export function ThemeProvider({ children }) {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    const themeMeta = document.querySelector('meta[name="theme-color"]')
+    const standard = document.documentElement.dataset.surface === 'standard'
+    if (themeMeta) themeMeta.setAttribute('content', standard ? (dark ? '#09111d' : '#edf3f8') : (dark ? '#071016' : '#f3f3ef'))
     try {
       window.localStorage.setItem('theme', dark ? 'dark' : 'light')
     } catch {

@@ -94,6 +94,7 @@ function SearchResultCard({ post, seriesTitle, topicTitle, onPrefetch }) {
 export default function SearchPage() {
   const { settings } = useSite()
   const [searchParams, setSearchParams] = useSearchParams()
+  const searchParamKey = searchParams.toString()
   const [queryInput, setQueryInput] = useState(searchParams.get('q') || '')
   const [query, setQuery] = useState(searchParams.get('q') || '')
   const [filters, setFilters] = useState({
@@ -124,9 +125,14 @@ export default function SearchPage() {
     return ''
   }, [settings?.site_url])
   const canonicalPath = useMemo(() => {
-    const queryString = searchParams.toString()
+    const canonicalParams = new URLSearchParams()
+    ;['q', 'content_type', 'series_slug', 'topic_key', 'date_from', 'date_to', 'sort'].forEach((key) => {
+      const value = searchParams.get(key)
+      if (value) canonicalParams.set(key, value)
+    })
+    const queryString = canonicalParams.toString()
     return queryString ? `/search?${queryString}` : '/search'
-  }, [searchParams])
+  }, [searchParamKey])
   const jsonLd = useMemo(() => ([
     buildCollectionPageJsonLd({
       siteUrl,
@@ -148,6 +154,21 @@ export default function SearchPage() {
   useEffect(() => {
     document.title = '搜索 - AI 资讯观察'
   }, [])
+
+  useEffect(() => {
+    const nextQuery = searchParams.get('q') || ''
+    setQueryInput(nextQuery)
+    setQuery(nextQuery)
+    setFilters({
+      ...DEFAULT_FILTERS,
+      content_type: searchParams.get('content_type') || '',
+      series_slug: searchParams.get('series_slug') || '',
+      topic_key: searchParams.get('topic_key') || '',
+      date_from: searchParams.get('date_from') || '',
+      date_to: searchParams.get('date_to') || '',
+      sort: searchParams.get('sort') || 'relevance',
+    })
+  }, [searchParamKey])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -309,6 +330,7 @@ export default function SearchPage() {
           className="editorial-panel rounded-[2rem] px-8 py-8"
         >
           <EditorialSectionHeader
+            titleAs="h1"
             eyebrow="站内搜索"
             title="搜索主题、文章与主线变化"
             description="先找到具体信息，再顺着同一条主题主线继续阅读日报、周报与系列内容。"
@@ -321,7 +343,11 @@ export default function SearchPage() {
                 <input
                   value={queryInput}
                   onChange={(event) => setQueryInput(event.target.value)}
-                  placeholder="例如：OpenAI、推理模型、Agent、MCP"
+                  name="site-search"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="搜索主题、文章与主线变化"
+                  placeholder="例如：OpenAI、推理模型、Agent、MCP…"
                   className="w-full rounded-[1.3rem] border px-10 py-3 text-sm outline-none"
                   style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
                 />
@@ -330,6 +356,7 @@ export default function SearchPage() {
               <select
                 value={filters.content_type}
                 onChange={(event) => setFilters((current) => ({ ...current, content_type: event.target.value }))}
+                aria-label="筛选内容类型"
                 className="rounded-[1.3rem] border px-4 py-3 text-sm outline-none"
                 style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
               >
@@ -341,6 +368,7 @@ export default function SearchPage() {
               <select
                 value={filters.series_slug}
                 onChange={(event) => setFilters((current) => ({ ...current, series_slug: event.target.value }))}
+                aria-label="筛选系列"
                 className="rounded-[1.3rem] border px-4 py-3 text-sm outline-none"
                 style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
               >
@@ -357,6 +385,7 @@ export default function SearchPage() {
               <select
                 value={filters.topic_key}
                 onChange={(event) => setFilters((current) => ({ ...current, topic_key: event.target.value }))}
+                aria-label="筛选主题"
                 className="rounded-[1.3rem] border px-4 py-3 text-sm outline-none"
                 style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
               >
@@ -374,6 +403,7 @@ export default function SearchPage() {
                   type="date"
                   value={filters.date_from}
                   onChange={(event) => setFilters((current) => ({ ...current, date_from: event.target.value }))}
+                  aria-label="开始日期"
                   className="min-w-0 bg-transparent outline-none"
                 />
               </label>
@@ -384,6 +414,7 @@ export default function SearchPage() {
                   type="date"
                   value={filters.date_to}
                   onChange={(event) => setFilters((current) => ({ ...current, date_to: event.target.value }))}
+                  aria-label="结束日期"
                   className="min-w-0 bg-transparent outline-none"
                 />
               </label>
@@ -391,6 +422,7 @@ export default function SearchPage() {
               <select
                 value={filters.sort}
                 onChange={(event) => setFilters((current) => ({ ...current, sort: event.target.value }))}
+                aria-label="选择排序方式"
                 className="rounded-[1.3rem] border px-4 py-3 text-sm outline-none"
                 style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
               >
@@ -445,7 +477,7 @@ export default function SearchPage() {
                               to={`/topics/${topic.topic_key}`}
                               onMouseEnter={() => prefetchTopic(topic.topic_key)}
                               onFocus={() => prefetchTopic(topic.topic_key)}
-                              className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+                              className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-[background-color,border-color,color,transform] duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
                             >
                               <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                                 {getTopicTitle(topic)}
@@ -473,7 +505,7 @@ export default function SearchPage() {
                               to={`/series/${series.slug}`}
                               onMouseEnter={() => prefetchSeries(series.slug)}
                               onFocus={() => prefetchSeries(series.slug)}
-                              className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+                              className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-[background-color,border-color,color,transform] duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
                             >
                               <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                                 {getSeriesTitle(series)}
@@ -526,7 +558,7 @@ export default function SearchPage() {
                 {(topicSuggestions.length > 0 ? topicSuggestions : topics.slice(0, 5)).map((topic) => (
                   <div
                     key={topic.topic_key}
-                    className="rounded-[1.2rem] border border-transparent px-4 py-3 transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+                    className="rounded-[1.2rem] border border-transparent px-4 py-3 transition-[background-color,border-color,color,transform] duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
                   >
                     <Link
                       to={`/topics/${topic.topic_key}`}
@@ -568,7 +600,7 @@ export default function SearchPage() {
                     topicKey: filters.topic_key || topicSuggestions[0]?.topic_key || '',
                     seriesSlug: filters.series_slug,
                   })}
-                  className="inline-flex items-center justify-between rounded-[1.2rem] border px-4 py-3 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5"
+                  className="inline-flex items-center justify-between rounded-[1.2rem] border px-4 py-3 text-sm font-semibold transition-[background-color,border-color,color,transform] duration-200 hover:-translate-y-0.5"
                   style={{ borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
                 >
                   <span>保存当前搜索方向的订阅偏好</span>

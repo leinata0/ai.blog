@@ -63,7 +63,7 @@ export default function FriendsPage() {
               >
                 <div className="w-16 h-16 rounded-full overflow-hidden mb-4 bg-gradient-to-br from-[#E3F2FD] to-[#BBDEFB] flex items-center justify-center">
                   {friend.avatar ? (
-                    <img src={proxyImageUrl(friend.avatar)} alt={friend.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={proxyImageUrl(friend.avatar)} alt={friend.name} width="128" height="128" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   ) : (
                     <span className="text-2xl">🌐</span>
                   )}

@@ -70,6 +70,7 @@ export default function SeriesPage() {
         >
           <EditorialSectionHeader
             eyebrow="系列总览"
+            titleAs="h1"
             title="把文章整理成更容易持续阅读的路径"
             description="系列强调的是“如何组织阅读”。它会把日报、周报与专题文章串成长期栏目，帮助你从单篇阅读走向整条内容主线。"
             actionLabel="去发现页继续浏览"

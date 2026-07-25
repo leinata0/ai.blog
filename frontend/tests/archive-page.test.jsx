@@ -1,10 +1,15 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 
 import { ThemeProvider } from '../src/contexts/ThemeContext'
 import ArchivePage from '../src/pages/ArchivePage'
+
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location">{location.search}</output>
+}
 
 vi.mock('../src/api/posts', () => ({
   fetchArchive: vi.fn(() =>
@@ -52,6 +57,7 @@ it('renders archive groups and supports content-type filtering', async () => {
     <MemoryRouter>
       <ThemeProvider>
         <ArchivePage />
+        <LocationProbe />
       </ThemeProvider>
     </MemoryRouter>
   )
@@ -66,4 +72,5 @@ it('renders archive groups and supports content-type filtering', async () => {
   expect(await screen.findByText('Weekly AI review')).toBeInTheDocument()
   expect(screen.queryByText('OpenAI model update')).not.toBeInTheDocument()
   expect(container.querySelector('[data-ui="archive-type-chip"][data-content-type="weekly_review"]')).toBeTruthy()
+  expect(screen.getByTestId('location')).toHaveTextContent('type=weekly_review')
 })
