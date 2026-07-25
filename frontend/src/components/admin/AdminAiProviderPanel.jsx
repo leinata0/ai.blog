@@ -10,6 +10,7 @@ import {
 } from './adminSettingsShared'
 
 export default function AdminAiProviderPanel({
+  panel = 'providers',
   providerSources,
   modelInstances,
   runtimePlan,
@@ -66,14 +67,14 @@ export default function AdminAiProviderPanel({
           </div>
         ) : null}
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-          <div className="space-y-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
+        <div className="grid gap-4">
+          <div className={panel === 'providers' ? 'space-y-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4' : 'hidden'}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm font-semibold text-[var(--text-primary)]">服务源</div>
               <button
                 type="button"
                 onClick={() => setProviderSourceForm(EMPTY_PROVIDER_SOURCE_FORM)}
-                className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
+                className="min-h-11 rounded-lg border border-[var(--border-muted)] px-3 text-xs font-semibold text-[var(--accent)]"
               >
                 新建服务源
               </button>
@@ -83,9 +84,11 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 服务源名称
                 <input
+                  name="provider_source_name"
+                  autoComplete="off"
                   value={providerSourceForm.name}
                   onChange={(event) => setProviderSourceForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                   placeholder="例如 OpenAI Gateway"
                 />
@@ -93,9 +96,10 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 Provider
                 <select
+                  name="provider_type"
                   value={providerSourceForm.provider}
                   onChange={(event) => handleSourceProviderChange(event.target.value)}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                 >
                   {Object.entries(PROVIDER_GROUPS).map(([groupLabel, options]) => (
@@ -113,9 +117,10 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 Protocol
                 <select
+                  name="provider_protocol"
                   value={providerSourceForm.protocol}
                   onChange={(event) => setProviderSourceForm((prev) => ({ ...prev, protocol: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                 >
                   <option value="openai">OpenAI Compatible</option>
@@ -125,9 +130,10 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 启用
                 <select
+                  name="provider_enabled"
                   value={providerSourceForm.enabled ? 'yes' : 'no'}
                   onChange={(event) => setProviderSourceForm((prev) => ({ ...prev, enabled: event.target.value === 'yes' }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                 >
                   <option value="yes">启用</option>
@@ -139,9 +145,12 @@ export default function AdminAiProviderPanel({
             <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
               Base URL
               <input
+                type="url"
+                name="provider_base_url"
+                autoComplete="url"
                 value={providerSourceForm.base_url}
                 onChange={(event) => setProviderSourceForm((prev) => ({ ...prev, base_url: event.target.value }))}
-                className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 style={inputStyle}
                 placeholder="https://api.example.com/v1"
               />
@@ -151,9 +160,12 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 API Key 环境变量
                 <input
+                  name="provider_api_key_env_var"
+                  autoComplete="off"
+                  spellCheck={false}
                   value={providerSourceForm.api_key_env_var}
                   onChange={(event) => setProviderSourceForm((prev) => ({ ...prev, api_key_env_var: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                   placeholder="AI_API_KEY"
                 />
@@ -162,9 +174,12 @@ export default function AdminAiProviderPanel({
                 服务源 API Key
                 <input
                   type="password"
+                  name="provider_api_key"
+                  autoComplete="new-password"
+                  spellCheck={false}
                   value={providerSourceForm.api_key_value}
                   onChange={(event) => setProviderSourceForm((prev) => ({ ...prev, api_key_value: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                   placeholder="留空则不更新"
                 />
@@ -192,11 +207,14 @@ export default function AdminAiProviderPanel({
               </div>
             </div>
 
-            <textarea
+              <textarea
+              name="provider_extra_json"
+              autoComplete="off"
+              spellCheck={false}
               value={providerSourceForm.extra_json}
               onChange={(event) => setProviderSourceForm((prev) => ({ ...prev, extra_json: event.target.value }))}
               rows={2}
-              className="w-full resize-none rounded-lg px-3 py-2 text-xs outline-none"
+              className="w-full resize-none rounded-lg px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               style={inputStyle}
               aria-label="服务源扩展 JSON"
             />
@@ -210,9 +228,9 @@ export default function AdminAiProviderPanel({
                       <div className="mt-1 text-[var(--text-faint)]">{source.provider} · {source.protocol} · {source.api_key_source}{source.masked_api_key ? ` · ${source.masked_api_key}` : ''}</div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => setProviderSourceForm(providerFormFromSource(source))} className="rounded border border-[var(--border-muted)] px-2 py-1 text-[var(--accent)]">编辑</button>
-                      <button type="button" disabled={providerBusy === `source:models:${source.id}`} onClick={() => handleDiscoverProviderModels(source.id)} className="rounded border border-[var(--border-muted)] px-2 py-1 text-[var(--accent)] disabled:opacity-50">{providerBusy === `source:models:${source.id}` ? '发现中…' : '发现模型'}</button>
-                      <button type="button" disabled={providerBusy === `source:delete:${source.id}`} onClick={() => handleDeleteProviderSource(source.id)} className="rounded border border-[var(--border-muted)] px-2 py-1 text-[#ef4444] disabled:opacity-50">删除</button>
+                      <button type="button" onClick={() => setProviderSourceForm(providerFormFromSource(source))} className="min-h-11 rounded border border-[var(--border-muted)] px-3 text-[var(--accent)]">编辑</button>
+                      <button type="button" disabled={providerBusy === `source:models:${source.id}`} onClick={() => handleDiscoverProviderModels(source.id)} className="min-h-11 rounded border border-[var(--border-muted)] px-3 text-[var(--accent)] disabled:opacity-50">{providerBusy === `source:models:${source.id}` ? '发现中…' : '发现模型'}</button>
+                      <button type="button" disabled={providerBusy === `source:delete:${source.id}`} onClick={() => handleDeleteProviderSource(source.id)} className="min-h-11 rounded border border-[var(--border-muted)] px-3 text-[#ef4444] disabled:opacity-50">删除</button>
                     </div>
                   </div>
                   <div className="mt-2 truncate text-[var(--text-secondary)]">{source.base_url || '未配置 Base URL'}</div>
@@ -221,13 +239,13 @@ export default function AdminAiProviderPanel({
             </div>
           </div>
 
-          <div className="space-y-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
+          <div className={panel === 'models' ? 'space-y-4 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4' : 'hidden'}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm font-semibold text-[var(--text-primary)]">模型实例</div>
               <button
                 type="button"
                 onClick={() => setModelInstanceForm(EMPTY_MODEL_INSTANCE_FORM)}
-                className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-semibold text-[var(--accent)]"
+                className="min-h-11 rounded-lg border border-[var(--border-muted)] px-3 text-xs font-semibold text-[var(--accent)]"
               >
                 新建模型实例
               </button>
@@ -237,9 +255,10 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 服务源
                 <select
+                  name="model_source_id"
                   value={modelInstanceForm.source_id}
                   onChange={(event) => setModelInstanceForm((prev) => ({ ...prev, source_id: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                 >
                   <option value="">选择服务源</option>
@@ -249,9 +268,10 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 Purpose
                 <select
+                  name="model_purpose"
                   value={modelInstanceForm.purpose}
                   onChange={(event) => setModelInstanceForm((prev) => ({ ...prev, purpose: event.target.value, capabilities: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                 >
                   <option value="text_generation">生文字 API</option>
@@ -264,9 +284,11 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 实例名称
                 <input
+                  name="model_instance_name"
+                  autoComplete="off"
                   value={modelInstanceForm.name}
                   onChange={(event) => setModelInstanceForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                   placeholder="例如 Claude 文本主力"
                 />
@@ -274,9 +296,12 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 Model
                 <input
+                  name="model_id"
+                  autoComplete="off"
+                  spellCheck={false}
                   value={modelInstanceForm.model}
                   onChange={(event) => setModelInstanceForm((prev) => ({ ...prev, model: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                   placeholder="模型 ID"
                 />
@@ -285,9 +310,10 @@ export default function AdminAiProviderPanel({
 
             {providerModels.length && providerModelSourceId === Number(modelInstanceForm.source_id) ? (
               <select
+                name="discovered_model"
                 value=""
                 onChange={(event) => event.target.value && setModelInstanceForm((prev) => ({ ...prev, model: event.target.value }))}
-                className="w-full rounded-lg px-3 py-2 text-xs outline-none"
+                className="w-full rounded-lg px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 style={inputStyle}
                 aria-label="服务源模型列表"
               >
@@ -300,9 +326,12 @@ export default function AdminAiProviderPanel({
               <label className="space-y-1 text-xs font-medium text-[var(--text-secondary)]">
                 Capabilities
                 <input
+                  name="model_capabilities"
+                  autoComplete="off"
+                  spellCheck={false}
                   value={modelInstanceForm.capabilities}
                   onChange={(event) => setModelInstanceForm((prev) => ({ ...prev, capabilities: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                   placeholder="逗号分隔"
                 />
@@ -311,10 +340,11 @@ export default function AdminAiProviderPanel({
                 Priority
                 <input
                   type="number"
+                  name="model_priority"
                   min="1"
                   value={modelInstanceForm.priority}
                   onChange={(event) => setModelInstanceForm((prev) => ({ ...prev, priority: event.target.value }))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                  className="w-full rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   style={inputStyle}
                 />
               </label>
@@ -336,10 +366,13 @@ export default function AdminAiProviderPanel({
             </div>
 
             <textarea
+              name="model_extra_json"
+              autoComplete="off"
+              spellCheck={false}
               value={modelInstanceForm.extra_json}
               onChange={(event) => setModelInstanceForm((prev) => ({ ...prev, extra_json: event.target.value }))}
               rows={2}
-              className="w-full resize-none rounded-lg px-3 py-2 text-xs outline-none"
+              className="w-full resize-none rounded-lg px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               style={inputStyle}
               aria-label="模型实例扩展 JSON"
             />
@@ -367,7 +400,7 @@ export default function AdminAiProviderPanel({
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-[7rem_1fr] sm:items-center">
                         <label className="inline-flex items-center gap-2 text-[var(--text-secondary)]"><input type="checkbox" checked={Boolean(item.is_default)} onChange={(event) => updateModelInstanceLocal(item.id, 'is_default', event.target.checked)} />默认</label>
-                        <label className="flex items-center gap-2 text-[var(--text-secondary)]">优先级<input type="number" min="1" value={item.priority || 1} onChange={(event) => updateModelInstanceLocal(item.id, 'priority', Number(event.target.value) || 1)} className="w-20 rounded px-2 py-1 outline-none" style={inputStyle} /></label>
+                        <label className="flex items-center gap-2 text-[var(--text-secondary)]">优先级<input name={`model_priority_${item.id}`} type="number" min="1" value={item.priority || 1} onChange={(event) => updateModelInstanceLocal(item.id, 'priority', Number(event.target.value) || 1)} className="min-h-11 w-20 rounded px-2 focus-visible:ring-2 focus-visible:ring-[var(--accent)]" style={inputStyle} /></label>
                       </div>
                       {testResult ? (
                         <div className="mt-2 rounded px-3 py-2" style={{ backgroundColor: testResult.ok ? 'var(--accent-soft)' : 'var(--danger-soft)', color: testResult.ok ? 'var(--accent)' : '#ef4444' }}>
@@ -382,7 +415,7 @@ export default function AdminAiProviderPanel({
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className={panel === 'runtime' ? 'grid gap-3 md:grid-cols-2' : 'hidden'}>
           {['image_generation', 'text_generation'].map((purpose) => (
             <div key={purpose} className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
               <div className="text-xs font-semibold text-[var(--text-primary)]">{CHANNEL_LABELS[purpose]} Runtime Plan</div>

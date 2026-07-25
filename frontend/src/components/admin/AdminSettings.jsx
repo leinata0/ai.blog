@@ -23,6 +23,7 @@ import {
 import { trackAdminImageJob } from './adminJobsStore'
 import AdminAiProviderPanel from './AdminAiProviderPanel'
 import AdminSiteBasicsPanel from './AdminSiteBasicsPanel'
+import { useAdminConfirm } from './AdminConfirmDialog'
 import {
   EMPTY_MODEL_INSTANCE_FORM,
   EMPTY_PROVIDER_SOURCE_FORM,
@@ -37,11 +38,16 @@ import {
 
 const SETTINGS_TABS = [
   { id: 'site', label: '站点与展示' },
-  { id: 'ai', label: 'AI Provider' },
+  { id: 'providers', label: 'AI Provider' },
+  { id: 'models', label: '模型实例' },
+  { id: 'runtime', label: '运行计划' },
 ]
 
-export default function AdminSettings() {
-  const [activeTab, setActiveTab] = useState('site')
+const SETTINGS_PANELS = new Set(SETTINGS_TABS.map((tab) => tab.id))
+
+export default function AdminSettings({ panel, onPanelChange }) {
+  const confirm = useAdminConfirm()
+  const [localPanel, setLocalPanel] = useState('site')
   const [siteSettings, setSiteSettings] = useState(EMPTY_SETTINGS)
   const [saving, setSaving] = useState(false)
   const [assetUploading, setAssetUploading] = useState(false)
@@ -61,6 +67,13 @@ export default function AdminSettings() {
   const [providerModels, setProviderModels] = useState([])
   const [providerModelSourceId, setProviderModelSourceId] = useState(null)
   const [modelTestResults, setModelTestResults] = useState({})
+  const activePanel = SETTINGS_PANELS.has(panel) ? panel : localPanel
+
+  function selectPanel(nextPanel) {
+    if (!SETTINGS_PANELS.has(nextPanel)) return
+    if (panel === undefined) setLocalPanel(nextPanel)
+    onPanelChange?.(nextPanel)
+  }
 
   useEffect(() => {
     void loadSettings()
@@ -184,6 +197,13 @@ export default function AdminSettings() {
   }
 
   async function handleDeleteProviderSource(id) {
+    const source = providerSources.find((item) => item.id === id)
+    const confirmed = await confirm({
+      title: '删除 Provider 服务源',
+      description: `删除“${source?.name || source?.provider || id}”后，依赖它的模型实例可能立即不可用。此操作不可撤销。`,
+      confirmLabel: '删除服务源',
+    })
+    if (!confirmed) return
     setProviderBusy(`source:delete:${id}`)
     setProviderResult(null)
     try {
@@ -250,6 +270,13 @@ export default function AdminSettings() {
   }
 
   async function handleDeleteModelInstance(id) {
+    const instance = modelInstances.find((item) => item.id === id)
+    const confirmed = await confirm({
+      title: '删除模型实例',
+      description: `将永久删除“${instance?.name || instance?.model || id}”，相关运行计划可能随即改变。`,
+      confirmLabel: '删除模型实例',
+    })
+    if (!confirmed) return
     setProviderBusy(`model:delete:${id}`)
     setProviderResult(null)
     try {
@@ -427,15 +454,16 @@ export default function AdminSettings() {
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">站点设置</h2>
         <div className="inline-flex rounded-xl border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-1" role="tablist" aria-label="设置分区">
           {SETTINGS_TABS.map((tab) => {
-            const selected = activeTab === tab.id
+            const selected = activePanel === tab.id
             return (
               <button
                 key={tab.id}
                 type="button"
                 role="tab"
                 aria-selected={selected}
-                onClick={() => setActiveTab(tab.id)}
-                className="rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                aria-controls={`admin-settings-panel-${tab.id}`}
+                onClick={() => selectPanel(tab.id)}
+                className="min-h-11 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
                 style={{
                   backgroundColor: selected ? 'var(--bg-surface)' : 'transparent',
                   color: selected ? 'var(--accent)' : 'var(--text-secondary)',
@@ -450,16 +478,18 @@ export default function AdminSettings() {
       </div>
 
       {error ? (
-        <div className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+        <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
       ) : null}
 
       {channelLoadError ? (
-        <div className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{channelLoadError}</div>
+        <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{channelLoadError}</div>
       ) : null}
 
       {msg ? (
         <div
           className="rounded-lg px-4 py-2 text-sm"
+          role={isSuccess ? 'status' : 'alert'}
+          aria-live="polite"
           style={{
             backgroundColor: isSuccess ? 'var(--accent-soft)' : 'var(--danger-soft)',
             color: isSuccess ? 'var(--accent)' : '#ef4444',
@@ -469,47 +499,50 @@ export default function AdminSettings() {
         </div>
       ) : null}
 
-      {activeTab === 'site' ? (
-        <AdminSiteBasicsPanel
-          siteSettings={siteSettings}
-          setSiteSettings={setSiteSettings}
-          saving={saving}
-          assetUploading={assetUploading}
-          heroGenerating={heroGenerating}
-          coverStatus={coverStatus}
-          heroDiagnostics={heroDiagnostics}
-          handleSave={handleSave}
-          handleAssetUpload={handleAssetUpload}
-          handleGenerateHero={handleGenerateHero}
-          addFriendLink={addFriendLink}
-          removeFriendLink={removeFriendLink}
-          updateFriendLink={updateFriendLink}
-        />
-      ) : (
-        <AdminAiProviderPanel
-          providerSources={providerSources}
-          modelInstances={modelInstances}
-          runtimePlan={runtimePlan}
-          providerSourceForm={providerSourceForm}
-          setProviderSourceForm={setProviderSourceForm}
-          modelInstanceForm={modelInstanceForm}
-          setModelInstanceForm={setModelInstanceForm}
-          providerBusy={providerBusy}
-          providerResult={providerResult}
-          providerModels={providerModels}
-          providerModelSourceId={providerModelSourceId}
-          modelTestResults={modelTestResults}
-          handleSourceProviderChange={handleSourceProviderChange}
-          handleSaveProviderSource={handleSaveProviderSource}
-          handleDeleteProviderSource={handleDeleteProviderSource}
-          handleDiscoverProviderModels={handleDiscoverProviderModels}
-          handleSaveModelInstance={handleSaveModelInstance}
-          handleDeleteModelInstance={handleDeleteModelInstance}
-          handleTestModelInstance={handleTestModelInstance}
-          updateModelInstanceLocal={updateModelInstanceLocal}
-          handleSaveModelOrder={handleSaveModelOrder}
-        />
-      )}
+      <div id={`admin-settings-panel-${activePanel}`} role="tabpanel">
+        {activePanel === 'site' ? (
+          <AdminSiteBasicsPanel
+            siteSettings={siteSettings}
+            setSiteSettings={setSiteSettings}
+            saving={saving}
+            assetUploading={assetUploading}
+            heroGenerating={heroGenerating}
+            coverStatus={coverStatus}
+            heroDiagnostics={heroDiagnostics}
+            handleSave={handleSave}
+            handleAssetUpload={handleAssetUpload}
+            handleGenerateHero={handleGenerateHero}
+            addFriendLink={addFriendLink}
+            removeFriendLink={removeFriendLink}
+            updateFriendLink={updateFriendLink}
+          />
+        ) : (
+          <AdminAiProviderPanel
+            panel={activePanel}
+            providerSources={providerSources}
+            modelInstances={modelInstances}
+            runtimePlan={runtimePlan}
+            providerSourceForm={providerSourceForm}
+            setProviderSourceForm={setProviderSourceForm}
+            modelInstanceForm={modelInstanceForm}
+            setModelInstanceForm={setModelInstanceForm}
+            providerBusy={providerBusy}
+            providerResult={providerResult}
+            providerModels={providerModels}
+            providerModelSourceId={providerModelSourceId}
+            modelTestResults={modelTestResults}
+            handleSourceProviderChange={handleSourceProviderChange}
+            handleSaveProviderSource={handleSaveProviderSource}
+            handleDeleteProviderSource={handleDeleteProviderSource}
+            handleDiscoverProviderModels={handleDiscoverProviderModels}
+            handleSaveModelInstance={handleSaveModelInstance}
+            handleDeleteModelInstance={handleDeleteModelInstance}
+            handleTestModelInstance={handleTestModelInstance}
+            updateModelInstanceLocal={updateModelInstanceLocal}
+            handleSaveModelOrder={handleSaveModelOrder}
+          />
+        )}
+      </div>
     </div>
   )
 }

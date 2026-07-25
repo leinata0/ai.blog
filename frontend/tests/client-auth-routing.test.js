@@ -24,14 +24,20 @@ vi.mock('../src/api/base', () => ({
 let apiGet
 let apiPost
 let USER_UNAUTHORIZED_EVENT
+let ADMIN_UNAUTHORIZED_EVENT
 
 beforeEach(async () => {
   vi.clearAllMocks()
   vi.resetModules()
   // jsdom navigation guard
   delete window.location
-  window.location = { href: '' }
-  ;({ apiGet, apiPost, USER_UNAUTHORIZED_EVENT } = await import('../src/api/client'))
+  window.location = { href: '', assign: vi.fn() }
+  ;({
+    apiGet,
+    apiPost,
+    USER_UNAUTHORIZED_EVENT,
+    ADMIN_UNAUTHORIZED_EVENT,
+  } = await import('../src/api/client'))
 })
 
 afterEach(() => {
@@ -69,7 +75,20 @@ describe('client auth routing', () => {
     await expect(apiPost('/api/admin/something', {}, { auth: 'admin' })).rejects.toThrow()
     expect(mocks.clearToken).toHaveBeenCalled()
     expect(mocks.clearUserToken).not.toHaveBeenCalled()
-    expect(window.location.href).toBe('/admin/login')
+    expect(window.location.assign).toHaveBeenCalledWith('/admin/login')
+  })
+
+  it('lets the mounted router handle an admin 401 without a document reload', async () => {
+    mocks.getToken.mockReturnValue('admin-token')
+    mockFetch(401, { detail: 'expired' })
+    const unauthorizedListener = vi.fn((event) => event.preventDefault())
+    window.addEventListener(ADMIN_UNAUTHORIZED_EVENT, unauthorizedListener, { once: true })
+
+    await expect(apiPost('/api/admin/posts', {}, { auth: 'admin' })).rejects.toThrow('登录已过期')
+
+    expect(unauthorizedListener).toHaveBeenCalledOnce()
+    expect(unauthorizedListener.mock.calls[0][0].detail).toEqual({ path: '/api/admin/posts' })
+    expect(window.location.assign).not.toHaveBeenCalled()
   })
 
   it('injects the user token for auth:user requests', async () => {

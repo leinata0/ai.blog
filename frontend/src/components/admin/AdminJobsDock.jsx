@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, CircleDashed, Loader2, RefreshCw, X, XCircle, ListTodo } from 'lucide-react'
 
 import { fetchAdminGenerationJobs } from '../../api/admin'
@@ -47,6 +47,8 @@ export default function AdminJobsDock() {
   const [open, setOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState('')
+  const triggerRef = useRef(null)
+  const panelRef = useRef(null)
 
   useEffect(() => subscribeAdminJobs(setJobs), [])
 
@@ -77,6 +79,45 @@ export default function AdminJobsDock() {
     return () => window.clearInterval(timer)
   }, [open, jobs])
 
+  useEffect(() => {
+    if (!open) return undefined
+
+    const panel = panelRef.current
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const focusable = () => Array.from(panel?.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) || [])
+    focusable()[0]?.focus()
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (!items.length) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousOverflow
+      triggerRef.current?.focus()
+    }
+  }, [open])
+
   const activeCount = useMemo(() => countActiveAdminJobs(jobs), [jobs])
   const recent = useMemo(() => jobs.slice(0, 16), [jobs])
 
@@ -85,12 +126,14 @@ export default function AdminJobsDock() {
     return (
       <div className="relative" data-ui="admin-jobs-dock">
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => {
             setOpen(true)
             hydrateFromServer()
           }}
           className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
+          aria-label="打开任务面板"
           aria-expanded={false}
           aria-controls="admin-jobs-panel"
         >
@@ -104,12 +147,14 @@ export default function AdminJobsDock() {
   return (
     <div className="relative" data-ui="admin-jobs-dock">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
           setOpen((value) => !value)
           if (!open) hydrateFromServer({ silent: true })
         }}
         className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
+        aria-label={open ? '关闭任务面板' : '打开任务面板'}
         aria-expanded={open}
         aria-controls="admin-jobs-panel"
       >
@@ -128,16 +173,27 @@ export default function AdminJobsDock() {
       </button>
 
       {open ? (
-        <div
-          id="admin-jobs-panel"
-          role="dialog"
-          aria-label="后台生成任务"
-          className="absolute right-0 top-[calc(100%+0.5rem)] z-[80] w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[var(--border-muted)] bg-[var(--bg-surface)] shadow-[var(--card-shadow)]"
-        >
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[79] cursor-default bg-black/40"
+            onClick={() => setOpen(false)}
+            aria-label="关闭任务面板"
+            tabIndex={-1}
+          />
+          <div
+            ref={panelRef}
+            id="admin-jobs-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-jobs-title"
+            aria-describedby="admin-jobs-description"
+            className="fixed inset-x-0 bottom-0 z-[80] max-h-[min(88dvh,46rem)] overflow-hidden rounded-t-2xl border border-[var(--border-muted)] bg-[var(--bg-surface)] shadow-[var(--card-shadow)] overscroll-contain sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-20 sm:w-[min(26rem,calc(100vw-2rem))] sm:rounded-2xl"
+          >
           <div className="flex items-center justify-between border-b border-[var(--border-muted)] px-4 py-3">
             <div>
-              <div className="text-sm font-semibold text-[var(--text-primary)]">生成任务</div>
-              <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+              <h2 id="admin-jobs-title" className="text-sm font-semibold text-[var(--text-primary)]">生成任务</h2>
+              <div id="admin-jobs-description" className="mt-0.5 text-xs text-[var(--text-faint)]">
                 {activeCount > 0 ? `${activeCount} 个进行中 · 含服务端历史` : '图片 / 文本 · 跨设备可同步'}
               </div>
             </div>
@@ -146,7 +202,7 @@ export default function AdminJobsDock() {
                 type="button"
                 onClick={() => hydrateFromServer()}
                 disabled={syncing}
-                className="rounded-lg p-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-50"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-50"
                 aria-label="从服务器同步任务"
                 title="同步服务端历史"
               >
@@ -155,14 +211,14 @@ export default function AdminJobsDock() {
               <button
                 type="button"
                 onClick={clearFinishedAdminJobs}
-                className="rounded-lg px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
+                className="min-h-11 rounded-lg px-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
               >
                 清理已完成
               </button>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-lg p-1.5 text-[var(--text-faint)] hover:bg-[var(--bg-canvas)]"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-[var(--text-faint)] hover:bg-[var(--bg-canvas)]"
                 aria-label="关闭任务面板"
               >
                 <X size={14} />
@@ -171,7 +227,7 @@ export default function AdminJobsDock() {
           </div>
 
           {syncError ? (
-            <div className="border-b border-[var(--border-muted)] px-4 py-2 text-xs text-[#ef4444]">{syncError}</div>
+            <div role="alert" className="border-b border-[var(--border-muted)] px-4 py-2 text-xs text-[#ef4444]">{syncError}</div>
           ) : null}
 
           {recent.length === 0 ? (
@@ -179,7 +235,7 @@ export default function AdminJobsDock() {
               暂无任务记录。生成封面或调用文本 API 后会出现在这里。
             </div>
           ) : (
-            <ul className="max-h-[22rem] space-y-2 overflow-y-auto p-3">
+            <ul className="max-h-[calc(min(88dvh,46rem)-5rem)] space-y-2 overflow-y-auto p-3 overscroll-contain sm:max-h-[30rem]">
               {recent.map((job) => {
                 const tone = statusTone(job.status)
                 return (
@@ -199,8 +255,8 @@ export default function AdminJobsDock() {
                       <button
                         type="button"
                         onClick={() => dismissAdminJob(job.localId)}
-                        className="shrink-0 rounded p-1 text-[var(--text-faint)] hover:bg-[var(--bg-surface)]"
-                        aria-label="移除任务记录"
+                        className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded text-[var(--text-faint)] hover:bg-[var(--bg-surface)]"
+                        aria-label={`移除任务记录：${job.label}`}
                       >
                         <X size={12} />
                       </button>
@@ -244,7 +300,8 @@ export default function AdminJobsDock() {
               })}
             </ul>
           )}
-        </div>
+          </div>
+        </>
       ) : null}
     </div>
   )

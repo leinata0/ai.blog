@@ -60,12 +60,12 @@ export default function AdminContentHealth() {
       </div>
 
       {error ? (
-        <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">
           内容健康接口暂不可用：{error}
         </div>
       ) : null}
 
-      {loading && !data ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
+      {loading && !data ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard label="文章总数" value={overview.total_posts} />

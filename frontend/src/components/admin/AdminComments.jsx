@@ -2,8 +2,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { Trash2, Check } from 'lucide-react'
 import { fetchAdminComments, approveComment, deleteComment } from '../../api/admin'
 import { formatDate } from '../../utils/date'
+import { useAdminConfirm } from './AdminConfirmDialog'
 
 export default function AdminComments() {
+  const confirm = useAdminConfirm()
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -26,7 +28,12 @@ export default function AdminComments() {
   }
 
   async function handleDelete(id) {
-    if (!window.confirm('确定删除此评论？')) return
+    const confirmed = await confirm({
+      title: '删除评论',
+      description: '这条评论将从文章讨论中永久移除，此操作不可撤销。',
+      confirmLabel: '删除评论',
+    })
+    if (!confirmed) return
     try { await deleteComment(id); loadComments() } catch (err) { setError(err.message || '删除失败') }
   }
 
@@ -34,11 +41,11 @@ export default function AdminComments() {
     <div>
       <h2 className="text-lg font-semibold mb-6 text-[var(--text-primary)]">评论管理</h2>
       {error && (
-        <div className="mb-4 text-sm py-2 px-4 rounded-lg bg-[var(--danger-soft)] text-[#ef4444]">{error}</div>
+        <div role="alert" className="mb-4 text-sm py-2 px-4 rounded-lg bg-[var(--danger-soft)] text-[#ef4444]">{error}</div>
       )}
       <div className="rounded-xl overflow-hidden bg-[var(--bg-surface)]" style={{ boxShadow: 'var(--card-shadow)' }}>
         {loading ? (
-          <div className="px-6 py-8 text-center text-[var(--text-faint)]">加载中...</div>
+          <div role="status" className="px-6 py-8 text-center text-[var(--text-faint)]">加载中…</div>
         ) : comments.length === 0 ? (
           <div className="px-6 py-8 text-center text-[var(--text-faint)]">暂无评论</div>
         ) : (
@@ -71,10 +78,10 @@ export default function AdminComments() {
                     </td>
                     <td className="px-6 py-4 text-[var(--text-tertiary)]">{formatDate(c.created_at)}</td>
                     <td className="px-6 py-4 text-right whitespace-nowrap">
-                      <button onClick={() => handleApprove(c.id)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-gray-100" title={c.is_approved ? '取消审核' : '审核通过'}>
+                      <button type="button" onClick={() => handleApprove(c.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg transition-colors duration-200 hover:bg-[var(--bg-canvas)]" aria-label={`${c.is_approved ? '取消审核' : '审核通过'}：${c.nickname || '匿名评论'}`} title={c.is_approved ? '取消审核' : '审核通过'}>
                         <Check size={15} className="text-[var(--accent)]" />
                       </button>
-                      <button onClick={() => handleDelete(c.id)} className="p-2 rounded-lg transition-colors duration-200 hover:bg-red-50 ml-1" title="删除">
+                      <button type="button" onClick={() => handleDelete(c.id)} className="ml-1 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg transition-colors duration-200 hover:bg-[var(--danger-soft)]" aria-label={`删除评论：${c.nickname || '匿名评论'}`} title="删除">
                         <Trash2 size={15} className="text-[#ef4444]" />
                       </button>
                     </td>

@@ -100,12 +100,12 @@ export default function AdminEndpointHealth() {
       </div>
 
       {error ? (
-        <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">
           {error}
         </div>
       ) : null}
 
-      {loading && !data ? <div className="text-sm text-[var(--text-faint)]">正在探测公开接口...</div> : null}
+      {loading && !data ? <div role="status" className="text-sm text-[var(--text-faint)]">正在探测公开接口…</div> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="检查项总数" value={overview.total} />

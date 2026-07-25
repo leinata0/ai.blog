@@ -1,11 +1,14 @@
-import { Suspense, lazy, useEffect } from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
-import { AnimatePresence, MotionConfig } from 'framer-motion'
+import { lazy, useEffect, useLayoutEffect } from 'react'
+import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
+import { MotionConfig } from 'framer-motion'
 import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import UserProtectedRoute from './components/UserProtectedRoute'
 import CommandPalette from './components/CommandPalette'
 import PageTransition from './components/PageTransition'
+import { subscribeToAdminUnauthorized } from './api/client'
+import { applyDocumentSurface, getSurfaceForPath, SURFACES } from './utils/surface'
+import './styles/auth-surface.css'
 
 // Keep first-paint routes eager; secondary public pages stay code-split.
 import HomePage from './pages/HomePage'
@@ -47,24 +50,27 @@ function PageLoader() {
 
 export default function App() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const surface = getSurfaceForPath(location.pathname)
 
-  useEffect(() => {
-    const standardSurface = /^(\/admin|\/account|\/login|\/register|\/forgot-password|\/reset-password|\/verify-email)/.test(location.pathname)
-    document.documentElement.dataset.surface = standardSurface ? 'standard' : 'editorial'
-    const dark = document.documentElement.dataset.theme === 'dark'
-    const themeMeta = document.querySelector('meta[name="theme-color"]')
-    if (themeMeta) themeMeta.setAttribute('content', standardSurface ? (dark ? '#09111d' : '#edf3f8') : (dark ? '#071016' : '#f3f3ef'))
+  useLayoutEffect(() => {
+    applyDocumentSurface(location.pathname)
   }, [location.pathname])
+
+  useEffect(() => subscribeToAdminUnauthorized((event) => {
+    event.preventDefault()
+    if (location.pathname !== '/admin/login') {
+      navigate('/admin/login', { replace: true })
+    }
+  }), [location.pathname, navigate])
 
   return (
     <ErrorBoundary>
       <MotionConfig reducedMotion="user">
         <a className="skip-link" href="#main-content">跳到主要内容</a>
-        <CommandPalette />
-        <Suspense fallback={<PageLoader />}>
-          <AnimatePresence mode="sync" initial={false}>
-            <PageTransition key={location.pathname}>
-              <Routes location={location}>
+        {surface === SURFACES.EDITORIAL ? <CommandPalette /> : null}
+        <PageTransition key={location.pathname} fallback={<PageLoader />}>
+          <Routes location={location}>
               <Route path="/" element={<HomePage />} />
               <Route path="/posts/:slug" element={<PostDetailPage />} />
               <Route path="/archive" element={<ArchivePage />} />
@@ -104,10 +110,8 @@ export default function App() {
                 }
               />
               <Route path="*" element={<NotFoundPage />} />
-              </Routes>
-            </PageTransition>
-          </AnimatePresence>
-        </Suspense>
+          </Routes>
+        </PageTransition>
       </MotionConfig>
     </ErrorBoundary>
   )

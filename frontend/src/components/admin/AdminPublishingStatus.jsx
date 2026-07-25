@@ -184,10 +184,10 @@ export default function AdminPublishingStatus() {
         </button>
       </div>
 
-      {error ? <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
+      {error ? <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
 
       {loading && !data ? (
-        <div className="text-sm text-[var(--text-faint)]">加载中...</div>
+        <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div>
       ) : (
         <div className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-2">

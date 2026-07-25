@@ -11,6 +11,7 @@ import {
 } from '../../api/admin'
 import { trackAdminImageJob } from './adminJobsStore'
 import { proxyImageUrl } from '../../utils/proxyImage'
+import { useAdminConfirm } from './AdminConfirmDialog'
 
 const emptyForm = {
   slug: '',
@@ -58,6 +59,8 @@ function CoverPreview({ src, alt }) {
       <img
         src={proxyImageUrl(src)}
         alt={alt}
+        width="640"
+        height="360"
         className="h-24 w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
@@ -110,6 +113,7 @@ function getContentTypeLabel(contentType) {
 }
 
 export default function AdminSeriesManager() {
+  const confirm = useAdminConfirm()
   const [series, setSeries] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -237,7 +241,14 @@ export default function AdminSeriesManager() {
 
   async function handleGenerateCover(item, overwrite = false) {
     if (!item?.id) return
-    if (overwrite && !window.confirm(`确定重生成“${item.title || item.slug}”的封面吗？`)) return
+    if (overwrite) {
+      const confirmed = await confirm({
+        title: '重生成系列封面',
+        description: `新封面将替换“${item.title || item.slug}”当前使用的封面。`,
+        confirmLabel: '重生成封面',
+      })
+      if (!confirmed) return
+    }
 
     setGeneratingId(item.id)
     setError('')
@@ -309,7 +320,7 @@ export default function AdminSeriesManager() {
       <StatusPanel status={coverStatus} />
 
       {error ? (
-        <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
       ) : null}
       {notice ? (
         <div className="mb-4 rounded-lg bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)]">{notice}</div>
@@ -318,7 +329,7 @@ export default function AdminSeriesManager() {
       <div className="grid gap-6 xl:grid-cols-[1.35fr,1fr]">
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">已有系列</h3>
-          {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
+          {loading ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
           {!loading && !sortedSeries.length ? (
             <div className="text-sm text-[var(--text-faint)]">还没有系列，可以先创建第一条。</div>
           ) : null}
@@ -368,7 +379,7 @@ export default function AdminSeriesManager() {
                           className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-60"
                         >
                           <Sparkles size={13} />
-                          {isGenerating && !hasCover ? '生成中...' : hasCover ? '补生成封面' : '生成封面'}
+                          {isGenerating && !hasCover ? '生成中…' : hasCover ? '补生成封面' : '生成封面'}
                         </button>
                         {hasCover ? (
                           <button
@@ -378,7 +389,7 @@ export default function AdminSeriesManager() {
                             className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
                           >
                             <Sparkles size={13} />
-                            {isGenerating ? '重生成中...' : '重生成封面'}
+                            {isGenerating ? '重生成中…' : '重生成封面'}
                           </button>
                         ) : null}
                       </div>
@@ -401,36 +412,46 @@ export default function AdminSeriesManager() {
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               Slug
               <input
+                name="series_slug"
+                autoComplete="off"
+                spellCheck={false}
                 value={form.slug}
                 onChange={(event) => setForm((prev) => ({ ...prev, slug: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
-                placeholder="tooling-workflow"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                placeholder="例如 tooling-workflow…"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               中文标题
               <input
+                name="series_title"
+                autoComplete="off"
                 value={form.title}
                 onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 placeholder="工具与工作流"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               简介
               <textarea
+                name="series_description"
+                autoComplete="off"
                 rows={4}
                 value={form.description}
                 onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               封面图 URL
               <input
+                name="series_cover_image"
+                type="url"
+                autoComplete="url"
                 value={form.cover_image}
                 onChange={(event) => setForm((prev) => ({ ...prev, cover_image: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 placeholder="https://..."
               />
             </label>
@@ -438,9 +459,12 @@ export default function AdminSeriesManager() {
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               内容类型（逗号分隔）
               <input
+                name="series_content_types"
+                autoComplete="off"
+                spellCheck={false}
                 value={form.content_types}
                 onChange={(event) => setForm((prev) => ({ ...prev, content_types: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 placeholder="daily_brief, weekly_review"
               />
             </label>
@@ -448,14 +472,16 @@ export default function AdminSeriesManager() {
               排序权重
               <input
                 type="number"
+                name="series_sort_order"
                 value={form.sort_order}
                 onChange={(event) => setForm((prev) => ({ ...prev, sort_order: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
             </label>
             <label className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]">
               <input
                 type="checkbox"
+                name="series_is_featured"
                 checked={form.is_featured}
                 onChange={(event) => setForm((prev) => ({ ...prev, is_featured: event.target.checked }))}
               />
@@ -471,7 +497,7 @@ export default function AdminSeriesManager() {
               className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
               <Save size={14} />
-              {saving ? '保存中...' : editing ? '保存修改' : '创建系列'}
+              {saving ? '保存中…' : editing ? '保存修改' : '创建系列'}
             </button>
             {editing ? (
               <>
@@ -482,7 +508,7 @@ export default function AdminSeriesManager() {
                   className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-60"
                 >
                   <Sparkles size={14} />
-                  {generatingId === editing.id ? '生成中...' : '生成封面'}
+                  {generatingId === editing.id ? '生成中…' : '生成封面'}
                 </button>
                 <button
                   type="button"
@@ -491,7 +517,7 @@ export default function AdminSeriesManager() {
                   className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-60"
                 >
                   <Sparkles size={14} />
-                  {generatingId === editing.id ? '重生成中...' : '重生成封面'}
+                  {generatingId === editing.id ? '重生成中…' : '重生成封面'}
                 </button>
                 <button
                   type="button"

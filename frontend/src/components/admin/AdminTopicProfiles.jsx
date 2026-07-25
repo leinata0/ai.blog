@@ -11,6 +11,7 @@ import {
 } from '../../api/admin'
 import { trackAdminImageJob } from './adminJobsStore'
 import { proxyImageUrl } from '../../utils/proxyImage'
+import { useAdminConfirm } from './AdminConfirmDialog'
 
 const emptyForm = {
   topic_key: '',
@@ -84,6 +85,8 @@ function CoverPreview({ src, alt }) {
       <img
         src={proxyImageUrl(src)}
         alt={alt}
+        width="640"
+        height="360"
         className="h-24 w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
@@ -130,6 +133,7 @@ function formatGenerateMessage(result, overwrite) {
 }
 
 export default function AdminTopicProfiles() {
+  const confirm = useAdminConfirm()
   const [topics, setTopics] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -265,7 +269,14 @@ export default function AdminTopicProfiles() {
       setError('自动汇总主题需先保存为正式主题，才能生成封面。')
       return
     }
-    if (overwrite && !window.confirm(`确定重新生成“${item.display_title || item.topic_key}”的封面吗？`)) return
+    if (overwrite) {
+      const confirmed = await confirm({
+        title: '重生成主题封面',
+        description: `新封面将替换“${item.display_title || item.topic_key}”当前使用的封面。`,
+        confirmLabel: '重生成封面',
+      })
+      if (!confirmed) return
+    }
 
     setGeneratingId(item.id)
     setError('')
@@ -337,7 +348,7 @@ export default function AdminTopicProfiles() {
       <StatusPanel status={coverStatus} />
 
       {error ? (
-        <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
       ) : null}
       {notice ? (
         <div className="mb-4 rounded-lg bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)]">{notice}</div>
@@ -346,7 +357,7 @@ export default function AdminTopicProfiles() {
       <div className="grid gap-6 xl:grid-cols-[1.45fr,1fr]">
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">主题汇总列表</h3>
-          {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
+          {loading ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
           {!loading && !sortedTopics.length ? (
             <div className="text-sm text-[var(--text-faint)]">
               暂无可展示主题。请先发布包含 topic_key 的文章，或手动创建第一条主题资料。
@@ -425,7 +436,7 @@ export default function AdminTopicProfiles() {
                           className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-60"
                         >
                           <Sparkles size={13} />
-                          {isGenerating && !hasCover ? '生成中...' : hasCover ? '补生成封面' : '生成封面'}
+                          {isGenerating && !hasCover ? '生成中…' : hasCover ? '补生成封面' : '生成封面'}
                         </button>
                         {hasCover ? (
                           <button
@@ -435,7 +446,7 @@ export default function AdminTopicProfiles() {
                             className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
                           >
                             <Sparkles size={13} />
-                            {isGenerating ? '重新生成中...' : '重新生成封面'}
+                            {isGenerating ? '重新生成中…' : '重新生成封面'}
                           </button>
                         ) : null}
                       </div>
@@ -460,36 +471,46 @@ export default function AdminTopicProfiles() {
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               topic_key
               <input
+                name="topic_key"
+                autoComplete="off"
+                spellCheck={false}
                 value={form.topic_key}
                 onChange={(event) => setForm((prev) => ({ ...prev, topic_key: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 placeholder="openai-agents"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               中文展示标题
               <input
+                name="topic_display_title"
+                autoComplete="off"
                 value={form.display_title}
                 onChange={(event) => setForm((prev) => ({ ...prev, display_title: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 placeholder="OpenAI 智能体"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               简介
               <textarea
+                name="topic_description"
+                autoComplete="off"
                 rows={4}
                 value={form.description}
                 onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               封面图 URL
               <input
+                name="topic_cover_image"
+                type="url"
+                autoComplete="url"
                 value={form.cover_image}
                 onChange={(event) => setForm((prev) => ({ ...prev, cover_image: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 placeholder="https://..."
               />
             </label>
@@ -497,9 +518,11 @@ export default function AdminTopicProfiles() {
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               别名关键词（逗号分隔）
               <input
+                name="topic_aliases"
+                autoComplete="off"
                 value={form.aliases}
                 onChange={(event) => setForm((prev) => ({ ...prev, aliases: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 placeholder="GPT-5, agents, agentic AI"
               />
             </label>
@@ -507,14 +530,16 @@ export default function AdminTopicProfiles() {
               排序权重
               <input
                 type="number"
+                name="topic_sort_order"
                 value={form.sort_order}
                 onChange={(event) => setForm((prev) => ({ ...prev, sort_order: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
             </label>
             <label className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]">
               <input
                 type="checkbox"
+                name="topic_is_featured"
                 checked={form.is_featured}
                 onChange={(event) => setForm((prev) => ({ ...prev, is_featured: event.target.checked }))}
               />
@@ -530,7 +555,7 @@ export default function AdminTopicProfiles() {
               className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
               <Save size={14} />
-              {saving ? '保存中...' : editing?.profile_exists ? '保存修改' : '保存为正式主题'}
+              {saving ? '保存中…' : editing?.profile_exists ? '保存修改' : '保存为正式主题'}
             </button>
             {editing ? (
               <>
@@ -541,7 +566,7 @@ export default function AdminTopicProfiles() {
                   className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-60"
                 >
                   <Sparkles size={14} />
-                  {generatingId === editing.id ? '生成中...' : '生成封面'}
+                  {generatingId === editing.id ? '生成中…' : '生成封面'}
                 </button>
                 <button
                   type="button"
@@ -550,7 +575,7 @@ export default function AdminTopicProfiles() {
                   className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-muted)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)] disabled:opacity-60"
                 >
                   <Sparkles size={14} />
-                  {generatingId === editing.id ? '重新生成中...' : '重新生成封面'}
+                  {generatingId === editing.id ? '重新生成中…' : '重新生成封面'}
                 </button>
                 <button
                   type="button"

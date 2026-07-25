@@ -8,6 +8,14 @@
     { "source": "/uploads/(.*)", "destination": "https://ai-blog-hbur.onrender.com/uploads/$1" },
     { "source": "/feed.xml", "destination": "https://ai-blog-hbur.onrender.com/feed.xml" },
     { "source": "/sitemap.xml", "destination": "https://ai-blog-hbur.onrender.com/sitemap.xml" },
+    { "source": "/login", "destination": "/login/index.html" },
+    { "source": "/register", "destination": "/register/index.html" },
+    { "source": "/forgot-password", "destination": "/forgot-password/index.html" },
+    { "source": "/reset-password", "destination": "/reset-password/index.html" },
+    { "source": "/verify-email", "destination": "/verify-email/index.html" },
+    { "source": "/account", "destination": "/account/index.html" },
+    { "source": "/admin/login", "destination": "/admin/login/index.html" },
+    { "source": "/admin/dashboard", "destination": "/admin/dashboard/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

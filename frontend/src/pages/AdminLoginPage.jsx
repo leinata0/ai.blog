@@ -1,9 +1,11 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { Eye, EyeOff, ArrowLeft } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 
 import { adminLogin } from '../api/admin'
 import { setToken } from '../api/auth'
+import { AdminEyebrow, AdminField, AdminLiveNotice } from '../components/admin/adminUi'
+import '../styles/operations.css'
 
 function resolveLoginErrorMessage(error) {
   const message = String(error?.message || '')
@@ -27,6 +29,10 @@ export default function AdminLoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    document.title = '管理员登录 · Signal Desk Operations'
+  }, [])
+
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
@@ -35,7 +41,7 @@ export default function AdminLoginPage() {
     try {
       const data = await adminLogin(username, password)
       setToken(data.access_token)
-      navigate('/admin/dashboard')
+      navigate('/admin/dashboard', { replace: true })
     } catch (submitError) {
       setError(resolveLoginErrorMessage(submitError))
     } finally {
@@ -44,94 +50,103 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center" style={{ backgroundColor: 'var(--bg-canvas)' }}>
-      <Link
-        to="/"
-        className="absolute left-6 top-6 flex items-center gap-1.5 text-sm transition-colors duration-200 hover:text-[var(--accent)]"
-        style={{ color: 'var(--text-faint)' }}
-      >
-        <ArrowLeft size={14} /> 返回首页
-      </Link>
-
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-5 rounded-xl p-8"
-        style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
-      >
-        <h1 className="text-center text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-          管理员登录
-        </h1>
-
-        {error ? (
-          <div
-            className="flex items-center gap-2 rounded-lg px-4 py-3 text-sm"
-            style={{ backgroundColor: 'var(--danger-soft)', color: '#ef4444', border: '1px solid var(--danger-border)' }}
-          >
-            <span>!</span>
-            {error}
+    <main className="ops-auth" data-ui="admin-login">
+      <section className="ops-auth__brief" aria-labelledby="ops-auth-brief-title">
+        <div className="ops-brand">
+          <span className="ops-brand__mark" aria-hidden="true"><span /></span>
+          <div>
+            <strong>SIGNAL DESK</strong>
+            <small>OPERATIONS / SECURE CHANNEL</small>
           </div>
-        ) : null}
-
-        <div className="space-y-1">
-          <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }} htmlFor="admin-username">
-            用户名
-          </label>
-          <input
-            id="admin-username"
-            type="text"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-all duration-200"
-            style={{
-              backgroundColor: 'var(--bg-canvas)',
-              border: '1px solid var(--border-muted)',
-              color: 'var(--text-primary)',
-            }}
-            placeholder="admin"
-            required
-          />
         </div>
+        <div className="ops-auth__brief-copy">
+          <AdminEyebrow>EDITORIAL INTELLIGENCE SYSTEM</AdminEyebrow>
+          <p id="ops-auth-brief-title" className="ops-auth__statement">
+            让每一条信号，抵达正确的位置。
+          </p>
+          <p>
+            内容、质量与发布运行在同一个运营坐标系中。此入口仅面向获授权的编辑与系统管理员。
+          </p>
+        </div>
+        <div className="ops-auth__metrics" aria-label="系统安全状态">
+          <div><strong>JWT</strong><span>加密会话</span></div>
+          <div><strong>TLS</strong><span>安全传输</span></div>
+          <div><strong>LIVE</strong><span>运营通道</span></div>
+        </div>
+      </section>
 
-        <div className="space-y-1">
-          <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }} htmlFor="admin-password">
-            密码
-          </label>
-          <div className="relative">
-            <input
-              id="admin-password"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg px-4 py-2.5 pr-10 text-sm outline-none transition-all duration-200"
-              style={{
-                backgroundColor: 'var(--bg-canvas)',
-                border: '1px solid var(--border-muted)',
-                color: 'var(--text-primary)',
-              }}
-              placeholder="请输入密码"
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((current) => !current)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5"
-              style={{ color: 'var(--text-faint)' }}
-              aria-label={showPassword ? '隐藏密码' : '显示密码'}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+      <section className="ops-auth__form-column" aria-labelledby="admin-login-title">
+        <Link to="/" className="ops-auth__back">
+          <ArrowLeft size={15} />
+          返回公开站
+        </Link>
+
+        <div className="ops-auth__card">
+          <header className="ops-auth__card-header">
+            <AdminEyebrow>AUTHORIZED ACCESS</AdminEyebrow>
+            <h1 id="admin-login-title">进入运营驾驶舱</h1>
+            <p>使用管理员凭据继续。登录状态仅保存在当前设备。</p>
+          </header>
+
+          <AdminLiveNotice error={error} />
+
+          <form onSubmit={handleSubmit} className="ops-auth__form" aria-busy={loading}>
+            <AdminField label="管理员用户名" htmlFor="admin-username">
+              <span className="ops-auth__input-wrap">
+                <input
+                  id="admin-username"
+                  name="username"
+                  type="text"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="admin"
+                  autoComplete="username"
+                  spellCheck={false}
+                  required
+                  disabled={loading}
+                />
+              </span>
+            </AdminField>
+
+            <AdminField label="密码" htmlFor="admin-password">
+              <span className="ops-auth__input-wrap ops-auth__input-wrap--password">
+                <input
+                  id="admin-password"
+                  name="password"
+                  aria-label="密码"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="请输入密码"
+                  autoComplete="current-password"
+                  required
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="ops-auth__password-toggle"
+                  aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                  aria-pressed={showPassword}
+                  disabled={loading}
+                >
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </span>
+            </AdminField>
+
+            <button type="submit" disabled={loading} className="ops-auth__submit" aria-label="登录">
+              <span>{loading ? '正在验证…' : '验证并进入'}</span>
+              <ArrowRight size={16} aria-hidden="true" />
             </button>
-          </div>
-        </div>
+          </form>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg py-2.5 text-sm font-medium transition-all duration-200 disabled:opacity-50"
-          style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
-        >
-          {loading ? '登录中...' : '登录'}
-        </button>
-      </form>
+          <p className="ops-auth__security">
+            <ShieldCheck size={16} aria-hidden="true" />
+            <span>连续失败可能触发服务端限流。请勿在共享设备保存管理员凭据。</span>
+          </p>
+        </div>
+      </section>
     </main>
   )
 }

@@ -6,7 +6,7 @@ import AuthLayout from '../components/AuthLayout'
 import TurnstileWidget, { TURNSTILE_ENABLED } from '../components/TurnstileWidget'
 import { useUser } from '../contexts/UserContext'
 
-const inputClass = 'w-full rounded-lg border px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]'
+const inputClass = 'auth-input w-full rounded-xl border px-4 py-3 text-sm outline-none transition-colors focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]'
 const inputStyle = { backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }
 
 function maskEmail(value) {
@@ -103,6 +103,7 @@ export default function LoginPage() {
     <AuthLayout
       title="登录你的阅读空间"
       description="用邮箱登录后，可以跨设备同步关注主题、阅读历史、评论和点赞。验证码登录无需记忆密码。"
+      documentTitle="登录"
     >
       <div className="section-kicker"><ShieldCheck size={14} /> 安全登录</div>
       <h2 className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>欢迎回来</h2>
@@ -118,7 +119,7 @@ export default function LoginPage() {
             type="button"
             onClick={() => switchMode(value)}
             aria-pressed={mode === value}
-            className="rounded-md px-3 py-2.5 text-sm font-semibold transition-colors"
+            className="min-h-11 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors"
             style={{ backgroundColor: mode === value ? 'var(--bg-surface)' : 'transparent', color: mode === value ? 'var(--accent)' : 'var(--text-tertiary)' }}
           >
             {label}
@@ -131,7 +132,7 @@ export default function LoginPage() {
           <label htmlFor="login-email" className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>邮箱</label>
           <div className="relative">
             <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-faint)' }} />
-            <input id="login-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={`${inputClass} pl-11`} style={inputStyle} placeholder="you@example.com" autoComplete="email" required />
+            <input id="login-email" name="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={`${inputClass} pl-11`} style={inputStyle} placeholder="you@example.com" autoComplete="email" spellCheck={false} required />
           </div>
         </div>
 
@@ -142,8 +143,8 @@ export default function LoginPage() {
               <Link to="/forgot-password" className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>忘记密码？</Link>
             </div>
             <div className="relative">
-              <input id="login-password" type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} className={`${inputClass} pr-11`} style={inputStyle} placeholder="请输入密码" autoComplete="current-password" required />
-              <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1" style={{ color: 'var(--text-faint)' }} aria-label={showPassword ? '隐藏密码' : '显示密码'}>
+              <input id="login-password" name="password" type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} className={`${inputClass} pr-11`} style={inputStyle} placeholder="请输入密码" autoComplete="current-password" required />
+              <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-0.5 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg" style={{ color: 'var(--text-faint)' }} aria-label={showPassword ? '隐藏密码' : '显示密码'}>
                 {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>
             </div>
@@ -152,11 +153,11 @@ export default function LoginPage() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label htmlFor="login-code" className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>邮箱验证码</label>
-              <button type="button" onClick={handleSendCode} disabled={loading || cooldown > 0} className="min-w-20 text-right text-xs font-semibold disabled:opacity-50" style={{ color: 'var(--accent)' }}>
+              <button type="button" onClick={handleSendCode} disabled={loading || cooldown > 0} className="min-h-11 min-w-20 text-right text-xs font-semibold disabled:opacity-50" style={{ color: 'var(--accent)' }}>
                 {cooldown > 0 ? `${cooldown}s 后重发` : '发送验证码'}
               </button>
             </div>
-            <input id="login-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} className={inputClass} style={inputStyle} placeholder="输入 6 位验证码" autoComplete="one-time-code" />
+            <input id="login-code" name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} className={inputClass} style={inputStyle} placeholder="输入 6 位验证码" autoComplete="one-time-code" spellCheck={false} />
             <p className="text-xs leading-5" style={{ color: 'var(--text-faint)' }}>验证码 10 分钟内有效。未注册邮箱验证成功后会自动创建账号。</p>
           </div>
         )}
@@ -165,8 +166,8 @@ export default function LoginPage() {
         {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: '#ef4444' }}>{error}</div> : null}
         {message ? <div role="status" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>{message}</div> : null}
 
-        <button type="submit" disabled={loading} className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-50" style={{ backgroundColor: 'var(--accent)' }}>
-          {loading ? '处理中...' : mode === 'password' ? '登录' : '使用验证码登录'}
+        <button type="submit" disabled={loading} className="min-h-11 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-50" style={{ backgroundColor: 'var(--accent)' }}>
+          {loading ? '处理中…' : mode === 'password' ? '登录' : '使用验证码登录'}
         </button>
       </form>
 

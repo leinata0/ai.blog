@@ -49,7 +49,7 @@ export default function AdminTopicHealth() {
         </button>
       </div>
 
-      {error ? <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
+      {error ? <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-4">
         {summaryCards.map((item) => (
@@ -61,7 +61,7 @@ export default function AdminTopicHealth() {
       </div>
 
       <div className="mt-6 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
-        {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
+        {loading ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
         {!loading && !payload.items.length ? <div className="text-sm text-[var(--text-faint)]">暂时还没有主题健康数据。</div> : null}
         {payload.items.length ? (
           <div className="space-y-3">

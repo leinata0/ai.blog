@@ -206,6 +206,14 @@ export const fetchAdminPosts = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()
   return apiGet(`/api/admin/posts${qs ? `?${qs}` : ''}`, { ...ADMIN_LIST_CACHE_OPTIONS, ...requestOptions, auth: true })
 }
+export const fetchAdminPost = (id, requestOptions = {}) =>
+  apiGet(`/api/admin/posts/${id}`, {
+    auth: true,
+    cache: false,
+    forceRefresh: true,
+    dedupe: false,
+    ...requestOptions,
+  })
 
 export const fetchAdminComments = (params = {}) => {
   const qs = new URLSearchParams(params).toString()

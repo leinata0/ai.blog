@@ -12,6 +12,16 @@ describe('Vercel backend routing', () => {
     const sitemapIndex = rewrites.findIndex(({ source }) => source === '/sitemap.xml')
     const imageProxyIndex = rewrites.findIndex(({ source }) => source === '/proxy-image')
     const uploadsIndex = rewrites.findIndex(({ source }) => source === '/uploads/(.*)')
+    const privateRoutes = [
+      '/login',
+      '/register',
+      '/forgot-password',
+      '/reset-password',
+      '/verify-email',
+      '/account',
+      '/admin/login',
+      '/admin/dashboard',
+    ]
 
     expect(rewrites[feedIndex]).toEqual({
       source: '/feed.xml',
@@ -35,5 +45,11 @@ describe('Vercel backend routing', () => {
     expect(sitemapIndex).toBeLessThan(catchAllIndex)
     expect(imageProxyIndex).toBeLessThan(catchAllIndex)
     expect(uploadsIndex).toBeLessThan(catchAllIndex)
+    privateRoutes.forEach((source) => {
+      const routeIndex = rewrites.findIndex((rewrite) => rewrite.source === source)
+      expect(routeIndex).toBeGreaterThanOrEqual(0)
+      expect(routeIndex).toBeLessThan(catchAllIndex)
+      expect(rewrites[routeIndex].destination).toBe(`${source}/index.html`)
+    })
   })
 })
