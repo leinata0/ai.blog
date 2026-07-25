@@ -92,12 +92,13 @@ export default function TableOfContents({ markdown, mobile = false }) {
     if (!el) return
 
     const top = window.scrollY + el.getBoundingClientRect().top - READING_SCROLL_OFFSET_PX
-    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' })
     activeIdRef.current = id
     setActiveId(id)
 
     if (typeof window !== 'undefined' && window.history?.replaceState) {
-      window.history.replaceState(null, '', `#${id}`)
+      window.history.replaceState(window.history.state, '', `#${id}`)
     }
     if (mobile) setMobileOpen(false)
   }
@@ -124,7 +125,7 @@ export default function TableOfContents({ markdown, mobile = false }) {
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          className="fixed z-40 right-4 bottom-24 w-11 h-11 rounded-full flex items-center justify-center shadow-lg transition-all duration-200"
+          className="fixed z-40 right-4 bottom-24 w-11 h-11 rounded-full flex items-center justify-center shadow-lg transition-[transform,background-color,box-shadow] duration-200"
           style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
           aria-label="打开目录"
         >

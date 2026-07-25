@@ -15,13 +15,14 @@ export default function Pagination({ page, total, pageSize, onPageChange }) {
         className="pagination-btn"
         disabled={page <= 1}
         onClick={() => onPageChange(page - 1)}
+        aria-label="上一页"
       >
-        <ChevronLeft size={16} />
+        <ChevronLeft size={16} aria-hidden="true" />
       </button>
 
       {start > 1 && (
         <>
-          <button className="pagination-btn" onClick={() => onPageChange(1)}>1</button>
+          <button className="pagination-btn" onClick={() => onPageChange(1)} aria-label="第 1 页">1</button>
           {start > 2 && <span style={{ color: 'var(--text-faint)' }}>...</span>}
         </>
       )}
@@ -31,6 +32,8 @@ export default function Pagination({ page, total, pageSize, onPageChange }) {
           key={p}
           className={`pagination-btn ${p === page ? 'pagination-btn--active' : ''}`}
           onClick={() => onPageChange(p)}
+          aria-label={`第 ${p} 页`}
+          aria-current={p === page ? 'page' : undefined}
         >
           {p}
         </button>
@@ -39,7 +42,7 @@ export default function Pagination({ page, total, pageSize, onPageChange }) {
       {end < totalPages && (
         <>
           {end < totalPages - 1 && <span style={{ color: 'var(--text-faint)' }}>...</span>}
-          <button className="pagination-btn" onClick={() => onPageChange(totalPages)}>{totalPages}</button>
+          <button className="pagination-btn" onClick={() => onPageChange(totalPages)} aria-label={`第 ${totalPages} 页`}>{totalPages}</button>
         </>
       )}
 
@@ -47,8 +50,9 @@ export default function Pagination({ page, total, pageSize, onPageChange }) {
         className="pagination-btn"
         disabled={page >= totalPages}
         onClick={() => onPageChange(page + 1)}
+        aria-label="下一页"
       >
-        <ChevronRight size={16} />
+        <ChevronRight size={16} aria-hidden="true" />
       </button>
     </div>
   )

@@ -6,6 +6,7 @@ import { ThemeProvider } from '../src/contexts/ThemeContext'
 import SeriesPage from '../src/pages/SeriesPage'
 import SeriesDetailPage from '../src/pages/SeriesDetailPage'
 import DiscoverPage from '../src/pages/DiscoverPage'
+import { fetchDiscover, fetchSearch } from '../src/api/posts'
 
 vi.mock('../src/api/posts', () => ({
   fetchSeriesList: vi.fn(() => Promise.resolve([
@@ -86,4 +87,21 @@ it('renders series detail onboarding blocks and discover page', async () => {
 
   expect((await screen.findAllByText('Daily brief one')).length).toBeGreaterThan(0)
   expect(await screen.findByText('OpenAI Models')).toBeInTheDocument()
+})
+
+it('uses the discover endpoint when filters are present without a query', async () => {
+  render(
+    <MemoryRouter initialEntries={['/discover?content_type=daily_brief']}>
+      <ThemeProvider>
+        <DiscoverPage />
+      </ThemeProvider>
+    </MemoryRouter>,
+  )
+
+  expect((await screen.findAllByText('Daily brief one')).length).toBeGreaterThan(0)
+  expect(fetchDiscover).toHaveBeenCalledWith(
+    expect.objectContaining({ content_type: 'daily_brief' }),
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  )
+  expect(fetchSearch).not.toHaveBeenCalled()
 })

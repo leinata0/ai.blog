@@ -1,8 +1,11 @@
-import { Suspense, lazy } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Suspense, lazy, useEffect } from 'react'
+import { Routes, Route, useLocation } from 'react-router-dom'
+import { AnimatePresence, MotionConfig } from 'framer-motion'
 import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import UserProtectedRoute from './components/UserProtectedRoute'
+import CommandPalette from './components/CommandPalette'
+import PageTransition from './components/PageTransition'
 
 // Keep first-paint routes eager; secondary public pages stay code-split.
 import HomePage from './pages/HomePage'
@@ -43,51 +46,69 @@ function PageLoader() {
 }
 
 export default function App() {
+  const location = useLocation()
+
+  useEffect(() => {
+    const standardSurface = /^(\/admin|\/account|\/login|\/register|\/forgot-password|\/reset-password|\/verify-email)/.test(location.pathname)
+    document.documentElement.dataset.surface = standardSurface ? 'standard' : 'editorial'
+    const dark = document.documentElement.dataset.theme === 'dark'
+    const themeMeta = document.querySelector('meta[name="theme-color"]')
+    if (themeMeta) themeMeta.setAttribute('content', standardSurface ? (dark ? '#09111d' : '#edf3f8') : (dark ? '#071016' : '#f3f3ef'))
+  }, [location.pathname])
+
   return (
     <ErrorBoundary>
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/posts/:slug" element={<PostDetailPage />} />
-          <Route path="/archive" element={<ArchivePage />} />
-          <Route path="/series" element={<SeriesPage />} />
-          <Route path="/series/:slug" element={<SeriesDetailPage />} />
-          <Route path="/discover" element={<DiscoverPage />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/topics" element={<TopicsPage />} />
-          <Route path="/topics/:topicKey" element={<TopicDetailPage />} />
-          <Route path="/following" element={<FollowingPage />} />
-          <Route path="/start-here" element={<StartHerePage />} />
-          <Route path="/daily" element={<ContentTypePage contentType="daily_brief" />} />
-          <Route path="/weekly" element={<ContentTypePage contentType="weekly_review" />} />
-          <Route path="/feeds" element={<FeedsPage />} />
-          <Route path="/tags" element={<TagsPage />} />
-          <Route path="/friends" element={<FriendsPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/verify-email" element={<VerifyEmailPage />} />
-          <Route
-            path="/account"
-            element={
-              <UserProtectedRoute>
-                <AccountPage />
-              </UserProtectedRoute>
-            }
-          />
-          <Route path="/admin/login" element={<AdminLoginPage />} />
-          <Route
-            path="/admin/dashboard"
-            element={
-              <ProtectedRoute>
-                <AdminDashboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </Suspense>
+      <MotionConfig reducedMotion="user">
+        <a className="skip-link" href="#main-content">跳到主要内容</a>
+        <CommandPalette />
+        <Suspense fallback={<PageLoader />}>
+          <AnimatePresence mode="sync" initial={false}>
+            <PageTransition key={location.pathname}>
+              <Routes location={location}>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/posts/:slug" element={<PostDetailPage />} />
+              <Route path="/archive" element={<ArchivePage />} />
+              <Route path="/series" element={<SeriesPage />} />
+              <Route path="/series/:slug" element={<SeriesDetailPage />} />
+              <Route path="/discover" element={<DiscoverPage />} />
+              <Route path="/search" element={<SearchPage />} />
+              <Route path="/topics" element={<TopicsPage />} />
+              <Route path="/topics/:topicKey" element={<TopicDetailPage />} />
+              <Route path="/following" element={<FollowingPage />} />
+              <Route path="/start-here" element={<StartHerePage />} />
+              <Route path="/daily" element={<ContentTypePage contentType="daily_brief" />} />
+              <Route path="/weekly" element={<ContentTypePage contentType="weekly_review" />} />
+              <Route path="/feeds" element={<FeedsPage />} />
+              <Route path="/tags" element={<TagsPage />} />
+              <Route path="/friends" element={<FriendsPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/verify-email" element={<VerifyEmailPage />} />
+              <Route
+                path="/account"
+                element={
+                  <UserProtectedRoute>
+                    <AccountPage />
+                  </UserProtectedRoute>
+                }
+              />
+              <Route path="/admin/login" element={<AdminLoginPage />} />
+              <Route
+                path="/admin/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <AdminDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </PageTransition>
+          </AnimatePresence>
+        </Suspense>
+      </MotionConfig>
     </ErrorBoundary>
   )
 }

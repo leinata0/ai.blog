@@ -10,6 +10,8 @@ function PosterSurface({ imageSrc, imageAlt, priority = false, imageFailed = fal
         <img
           src={imageSrc}
           alt={imageAlt}
+          width="960"
+          height="1200"
           className="hero-poster-stage__image"
           loading={priority ? 'eager' : 'lazy'}
           fetchPriority={priority ? 'high' : 'auto'}

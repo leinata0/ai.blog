@@ -41,6 +41,8 @@ function MarkdownImage({ src, alt, title }) {
         src={proxyImageUrl(src)}
         alt={typeof alt === 'string' ? alt : ''}
         title={title}
+        width="1200"
+        height="675"
         loading="lazy"
         referrerPolicy="no-referrer"
         className="block h-auto w-full object-cover"

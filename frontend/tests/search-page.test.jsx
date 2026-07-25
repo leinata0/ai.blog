@@ -1,6 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
-import { expect, it, vi } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 
 import { SiteProvider } from '../src/contexts/SiteContext'
 import { ThemeProvider } from '../src/contexts/ThemeContext'
@@ -56,6 +56,8 @@ vi.mock('../src/api/posts', () => ({
   prefetchSeriesDetail: vi.fn(),
 }))
 
+afterEach(cleanup)
+
 it('shows zero-result rescue modules with topics, series, and popular queries', async () => {
   const { container } = render(
     <MemoryRouter initialEntries={['/search?q=missing-signal']}>
@@ -74,4 +76,27 @@ it('shows zero-result rescue modules with topics, series, and popular queries', 
   expect((await screen.findAllByRole('link', { name: /Agent 与 MCP/i }))[0]).toHaveAttribute('href', '/topics/agent-mcp')
   expect((await screen.findAllByRole('link', { name: /工具与工作流/i }))[0]).toHaveAttribute('href', '/series/tooling-workflow')
   expect(await screen.findByRole('button', { name: 'openai agent' })).toBeInTheDocument()
+})
+
+function BackButton() {
+  const navigate = useNavigate()
+  return <button type="button" onClick={() => navigate(-1)}>返回搜索</button>
+}
+
+it('restores the query controls when browser history changes', async () => {
+  render(
+    <MemoryRouter initialEntries={['/search?q=first', '/search?q=second']} initialIndex={1}>
+      <ThemeProvider>
+        <SiteProvider>
+          <SearchPage />
+          <BackButton />
+        </SiteProvider>
+      </ThemeProvider>
+    </MemoryRouter>,
+  )
+
+  const input = screen.getByRole('textbox', { name: '搜索主题、文章与主线变化' })
+  await waitFor(() => expect(input).toHaveValue('second'))
+  await screen.getByRole('button', { name: '返回搜索' }).click()
+  await waitFor(() => expect(input).toHaveValue('first'))
 })

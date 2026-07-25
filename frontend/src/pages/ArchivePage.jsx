@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Calendar, FileText, Pin } from 'lucide-react'
 
@@ -7,6 +7,7 @@ import { fetchArchive } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
+import SeoMeta from '../components/SeoMeta'
 
 const CONTENT_TYPE_META = {
   all: {
@@ -49,14 +50,22 @@ function groupPostsByDay(posts) {
 }
 
 export default function ArchivePage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
-  const [activeType, setActiveType] = useState('all')
-  const [activeSeries, setActiveSeries] = useState('all')
-  const [sortMode, setSortMode] = useState('latest')
+  const activeType = searchParams.get('type') || 'all'
+  const activeSeries = searchParams.get('series') || 'all'
+  const sortMode = searchParams.get('sort') || 'latest'
+
+  function updateFilter(key, value, defaultValue) {
+    const next = new URLSearchParams(searchParams)
+    if (!value || value === defaultValue) next.delete(key)
+    else next.set(key, value)
+    setSearchParams(next)
+  }
 
   useEffect(() => {
-    document.title = '归档 - 极客开发日志'
+    document.title = '归档 - AI 资讯观察'
     fetchArchive()
       .then(setGroups)
       .catch(() => setGroups([]))
@@ -121,6 +130,11 @@ export default function ArchivePage() {
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title="归档 - AI 资讯观察"
+        description="按时间、内容类型和系列回看 AI 日报、周报与长期观察。"
+        path="/archive"
+      />
       <Navbar />
 
       <div className="mx-auto max-w-5xl px-6 py-16 sm:px-10">
@@ -143,10 +157,10 @@ export default function ArchivePage() {
                 <button
                   key={type}
                   type="button"
-                  onClick={() => setActiveType(type)}
+                  onClick={() => updateFilter('type', type, 'all')}
                   data-ui="archive-type-chip"
                   data-content-type={type}
-                  className="rounded-full px-4 py-2 text-sm font-medium transition-all duration-200"
+                  className="rounded-full px-4 py-2 text-sm font-medium transition-[background-color,color,border-color,transform] duration-200"
                   style={{
                     backgroundColor: active ? meta.background : 'var(--bg-surface)',
                     color: active ? meta.accent : 'var(--text-secondary)',
@@ -162,7 +176,8 @@ export default function ArchivePage() {
           <div className="mb-12 grid gap-3 md:grid-cols-2">
             <select
               value={activeSeries}
-              onChange={(event) => setActiveSeries(event.target.value)}
+              onChange={(event) => updateFilter('series', event.target.value, 'all')}
+              aria-label="筛选系列"
               className="rounded-2xl border px-4 py-3 text-sm outline-none"
               style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
             >
@@ -174,7 +189,8 @@ export default function ArchivePage() {
 
             <select
               value={sortMode}
-              onChange={(event) => setSortMode(event.target.value)}
+              onChange={(event) => updateFilter('sort', event.target.value, 'latest')}
+              aria-label="选择排序方式"
               className="rounded-2xl border px-4 py-3 text-sm outline-none"
               style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}
             >

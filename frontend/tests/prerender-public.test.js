@@ -149,6 +149,22 @@ describe('renderHomePage', () => {
   })
 })
 
+describe('renderStaticPage', () => {
+  it('renders route-specific canonical metadata and a semantic heading', async () => {
+    const template = `<!doctype html><html><head><title>Template</title><meta name="description" content=""><meta property="og:title" content=""><meta property="og:description" content=""><meta property="og:url" content=""><link rel="canonical" href="https://example.com"></head><body><div id="root"></div></body></html>`
+    const { renderStaticPage } = await import('../scripts/prerender-public.mjs')
+    const html = renderStaticPage(template, {
+      routePath: '/discover',
+      title: '发现',
+      description: '发现值得追踪的 AI 内容。',
+    }, 'https://www.example.com')
+
+    expect(html).toContain('<h1>发现</h1>')
+    expect(html).toContain('https://www.example.com/discover')
+    expect(html).toContain('发现值得追踪的 AI 内容。')
+  })
+})
+
 describe('mapWithConcurrency', () => {
   it('preserves order and never exceeds the concurrency cap', async () => {
     const { mapWithConcurrency } = await import('../scripts/prerender-public.mjs')

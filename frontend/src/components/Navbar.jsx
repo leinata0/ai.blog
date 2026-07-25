@@ -4,6 +4,7 @@ import {
   BookOpen,
   ChevronDown,
   Clock3,
+  Command,
   Compass,
   Menu,
   Moon,
@@ -23,6 +24,7 @@ import {
   getRecentTopics,
 } from '../utils/topicRetention'
 import { SITE_COPY } from '../utils/contentPresentation'
+import { openCommandPalette } from '../utils/uiEvents'
 
 const NAV_ITEMS = [
   { label: '首页', to: '/' },
@@ -54,7 +56,7 @@ function NavLink({ to, active, children, onClick }) {
         <span className="absolute bottom-0 left-0 h-[2px] w-full rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
       ) : (
         <span
-          className="absolute bottom-0 left-0 h-[2px] w-0 rounded-full transition-all duration-300 group-hover:w-full"
+          className="absolute bottom-0 left-0 h-[2px] w-0 rounded-full transition-[width] duration-300 group-hover:w-full"
           style={{ backgroundColor: 'var(--accent)' }}
         />
       )}
@@ -87,7 +89,7 @@ function TrackingCard({ to, onNavigate, title, description }) {
     <Link
       to={to}
       onClick={onNavigate}
-      className="block rounded-[1.1rem] border border-transparent px-3 py-3 transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+      className="block rounded-[1.1rem] border border-transparent px-3 py-3 transition-[border-color,background-color,transform] duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
     >
       <div className="line-clamp-2 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
         {title}
@@ -403,7 +405,7 @@ export default function Navbar() {
   return (
     <nav
       ref={navRef}
-      className="sticky top-0 z-50 transition-all duration-300"
+      className="sticky top-0 z-50 transition-[background-color,border-color,box-shadow] duration-300"
       style={{
         backgroundColor: dark ? 'rgba(10, 17, 29, 0.82)' : 'rgba(255, 255, 255, 0.78)',
         backdropFilter: 'blur(18px)',
@@ -412,11 +414,12 @@ export default function Navbar() {
       }}
     >
       <div className="flex items-center justify-between px-6 sm:px-10 lg:px-20" style={{ minHeight: '72px' }}>
-        <Link to="/" className="min-w-0">
-          <div className="section-kicker !mb-2">AI Blog</div>
-          <div className="truncate text-lg font-semibold tracking-[-0.02em]" style={{ color: 'var(--text-primary)' }}>
-            {SITE_COPY.brand}
-          </div>
+        <Link to="/" className="brand-lockup min-w-0">
+          <span className="brand-lockup__mark" aria-hidden="true"><span /></span>
+          <span className="min-w-0">
+            <span className="brand-lockup__eyebrow" translate="no">SIGNAL DESK</span>
+            <span className="brand-lockup__title">{SITE_COPY.brand}</span>
+          </span>
         </Link>
 
         <div className="hidden items-center gap-4 lg:flex xl:gap-6">
@@ -443,7 +446,7 @@ export default function Navbar() {
               data-ui="desktop-browse-trigger"
               onClick={handleBrowseButtonClick}
               onFocus={openBrowsePreview}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-all duration-200"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-[background-color,color,transform] duration-200"
               style={{
                 backgroundColor: browseOpen ? 'var(--accent-soft)' : 'transparent',
                 color: browseOpen ? 'var(--accent)' : 'var(--text-secondary)',
@@ -471,7 +474,7 @@ export default function Navbar() {
 
           <Link
             to="/search"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-200"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors duration-200"
             style={{
               color: location.pathname === '/search' ? 'var(--accent)' : 'var(--text-secondary)',
               backgroundColor: 'var(--bg-surface)',
@@ -481,6 +484,19 @@ export default function Navbar() {
           >
             <Search size={18} />
           </Link>
+
+          <button
+            type="button"
+            data-ui="command-palette-trigger"
+            onClick={openCommandPalette}
+            className="command-trigger"
+            aria-label="打开智能命令搜索"
+            title="智能搜索（Ctrl 或 Command + K）"
+          >
+            <Command size={16} aria-hidden="true" />
+            <span>智能搜索</span>
+            <kbd>⌘K</kbd>
+          </button>
 
           <div
             ref={trackingPanelRef}
@@ -498,7 +514,7 @@ export default function Navbar() {
               type="button"
               onClick={handleTrackingButtonClick}
               onFocus={openTrackingPreview}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-all duration-200"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-[background-color,color,transform] duration-200"
               style={{
                 backgroundColor: trackingOpen ? 'var(--accent-soft)' : 'transparent',
                 color: trackingOpen ? 'var(--accent)' : 'var(--text-secondary)',
@@ -531,7 +547,7 @@ export default function Navbar() {
 
           <Link
             to={user ? '/account' : '/login'}
-            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 transition-colors duration-200"
+            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-full px-3 transition-colors duration-200"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             aria-label={user ? '个人中心' : '登录'}
             title={user ? '个人中心' : '登录'}
@@ -544,7 +560,7 @@ export default function Navbar() {
 
           <button
             onClick={toggleTheme}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-200"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors duration-200"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             aria-label="切换主题"
             aria-pressed={dark}
@@ -556,8 +572,17 @@ export default function Navbar() {
 
         <div className="flex items-center gap-2 lg:hidden">
           <button
+            type="button"
+            onClick={openCommandPalette}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full"
+            style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
+            aria-label="打开智能命令搜索"
+          >
+            <Search size={18} aria-hidden="true" />
+          </button>
+          <button
             onClick={toggleTheme}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             aria-label="切换主题"
             aria-pressed={dark}
@@ -568,7 +593,7 @@ export default function Navbar() {
           <button
             ref={mobileMenuButtonRef}
             onClick={() => setMobileOpen((open) => !open)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             aria-label="菜单"
             aria-expanded={mobileOpen}
@@ -592,6 +617,18 @@ export default function Navbar() {
           ))}
 
           <div data-ui="mobile-quick-links" className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileOpen(false)
+                openCommandPalette()
+              }}
+              className="flex items-center gap-2 rounded-lg border px-4 py-3 text-left text-sm font-semibold"
+              style={{ borderColor: 'var(--accent-border)', color: 'var(--accent)', backgroundColor: 'var(--accent-soft)' }}
+            >
+              <Command size={16} aria-hidden="true" />
+              智能搜索
+            </button>
             <Link
               to="/search"
               onClick={() => setMobileOpen(false)}

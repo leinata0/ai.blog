@@ -99,6 +99,7 @@ export default function TopicsPage() {
         >
           <EditorialSectionHeader
             eyebrow="主题总览"
+            titleAs="h1"
             title="用主题，把分散消息串成长期主线"
             description="这里聚合的是“内容在讲什么”。日报、周报和系列里的相关文章会沿着同一条主题继续沉淀，帮助你更快看清某家公司、模型或产品方向的持续变化。"
           />

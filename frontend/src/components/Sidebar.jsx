@@ -78,6 +78,8 @@ export default function Sidebar() {
               <img
                 src={proxyImageUrl(avatarUrl)}
                 alt={name}
+                width="160"
+                height="160"
                 className="h-full w-full object-cover"
                 referrerPolicy="no-referrer"
                 onError={() => setAvatarBroken(true)}
