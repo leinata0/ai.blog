@@ -31,7 +31,7 @@ function SummaryCard({ label, value, hint }) {
   return (
     <div className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
       <div className="text-xs font-medium text-[var(--text-faint)]">{label}</div>
-      <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">{value ?? '-'}</div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums text-[var(--text-primary)]">{value ?? '-'}</div>
       {hint ? <div className="mt-1 text-xs text-[var(--text-faint)]">{hint}</div> : null}
     </div>
   )
@@ -146,7 +146,7 @@ export default function AdminQualityInbox() {
       </div>
 
       {error ? (
-        <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -164,16 +164,19 @@ export default function AdminQualityInbox() {
             <div className="mt-1 flex items-center rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-2">
               <Search size={14} className="text-[var(--text-faint)]" />
               <input
+                name="quality_q"
+                autoComplete="off"
                 value={filters.q}
                 onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))}
-                placeholder="标题 / slug"
-                className="w-full bg-transparent px-2 py-2 text-sm text-[var(--text-primary)] outline-none"
+                placeholder="标题或 slug…"
+                className="w-full bg-transparent px-2 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
             </div>
           </label>
           <label className="text-xs font-medium text-[var(--text-secondary)]">
             内容类型
             <select
+              name="quality_content_type"
               value={filters.content_type}
               onChange={(event) => setFilters((prev) => ({ ...prev, content_type: event.target.value }))}
               className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
@@ -187,10 +190,13 @@ export default function AdminQualityInbox() {
           <label className="text-xs font-medium text-[var(--text-secondary)]">
             系列 slug
             <input
+              name="quality_series_slug"
+              autoComplete="off"
+              spellCheck={false}
               value={filters.series_slug}
               onChange={(event) => setFilters((prev) => ({ ...prev, series_slug: event.target.value }))}
-              placeholder="例如 ai-daily-brief"
-              className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+              placeholder="例如 ai-daily-brief…"
+              className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             />
           </label>
         </div>
@@ -214,7 +220,7 @@ export default function AdminQualityInbox() {
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr,1fr]">
         <section className="space-y-4">
-          {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
+          {loading ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
           {!loading && data.items.length === 0 ? (
             <div className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] px-5 py-10 text-center text-sm text-[var(--text-faint)]">
               暂无质量记录。
@@ -291,7 +297,7 @@ export default function AdminQualityInbox() {
             </p>
           </div>
 
-          {detailLoading ? <div className="text-sm text-[var(--text-faint)]">加载详情中...</div> : null}
+          {detailLoading ? <div role="status" className="text-sm text-[var(--text-faint)]">加载详情中…</div> : null}
           {!detailLoading && activePostId && detail?.quality_snapshot ? (
             <div className="mb-4 rounded-lg bg-[var(--bg-canvas)] p-4 text-sm text-[var(--text-secondary)]">
               <div>总分：{detail.quality_snapshot.overall_score ?? '-'}</div>
@@ -304,6 +310,7 @@ export default function AdminQualityInbox() {
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               人工结论
               <select
+                name="editor_verdict"
                 value={reviewForm.editor_verdict}
                 onChange={(event) => setReviewForm((prev) => ({ ...prev, editor_verdict: event.target.value }))}
                 className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
@@ -317,25 +324,30 @@ export default function AdminQualityInbox() {
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               标签
               <input
+                name="editor_labels"
+                autoComplete="off"
                 value={reviewForm.editor_labels_text}
                 onChange={(event) => setReviewForm((prev) => ({ ...prev, editor_labels_text: event.target.value }))}
-                placeholder="例如 结构完整，适合继续跟进"
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                placeholder="例如：结构完整，适合继续跟进…"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
               编辑备注
               <textarea
+                name="editor_note"
+                autoComplete="off"
                 rows={5}
                 value={reviewForm.editor_note}
                 onChange={(event) => setReviewForm((prev) => ({ ...prev, editor_note: event.target.value }))}
                 placeholder="记录这篇文章为什么值得继续追踪，或下一次应补强哪些地方。"
-                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
             </label>
             <label className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]">
               <input
                 type="checkbox"
+                name="followup_recommended"
                 checked={reviewForm.followup_recommended}
                 onChange={(event) => setReviewForm((prev) => ({ ...prev, followup_recommended: event.target.checked }))}
               />
@@ -350,7 +362,7 @@ export default function AdminQualityInbox() {
             className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
             <Save size={14} />
-            {savingReview ? '保存中...' : '保存人工复盘'}
+            {savingReview ? '保存中…' : '保存人工复盘'}
           </button>
         </section>
       </div>

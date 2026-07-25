@@ -586,6 +586,26 @@ export function renderStaticPage(template, { routePath, title, description, eyeb
   })
 }
 
+export function renderPrivateShell(template, { routePath, title, description, surface = 'auth' }, siteUrl) {
+  const rootHtml = `
+    <main class="prerender-shell prerender-private-shell" data-prerender-private="${escapeHtml(surface)}">
+      <section class="prerender-hero">
+        <span class="prerender-kicker">${surface === 'operations' ? 'Signal Desk Operations' : 'Signal Desk Identity'}</span>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="prerender-lead">${escapeHtml(description)}</p>
+      </section>
+    </main>
+  `
+  return injectTemplate(template, {
+    routePath,
+    title: `${title} - ${SITE_TITLE}`,
+    description,
+    rootHtml,
+    siteUrl,
+    extraHead: '<meta name="robots" content="noindex,nofollow" data-surface-managed>',
+  })
+}
+
 export async function main() {
   if (envFlag(process.env.SKIP_PRERENDER)) {
     console.warn('[prerender] explicitly skipped because SKIP_PRERENDER is enabled.')
@@ -630,6 +650,22 @@ export async function main() {
   ]
   await Promise.all(staticRoutes.map(([routePath, title, description]) =>
     writeRouteHtml(routePath, renderStaticPage(template, { routePath, title, description }, siteUrl))))
+
+  const privateRoutes = [
+    ['/login', '登录', '登录后同步你的关注、阅读历史与互动记录。', 'auth'],
+    ['/register', '注册', '建立你的 Signal Desk 阅读档案。', 'auth'],
+    ['/forgot-password', '找回密码', '通过邮箱验证码安全恢复账号。', 'auth'],
+    ['/reset-password', '重置密码', '验证邮箱后设置新的登录密码。', 'auth'],
+    ['/verify-email', '邮箱验证', '确认邮箱归属并完善账号安全状态。', 'auth'],
+    ['/account', '账号中心', '管理个人资料、同步内容与账号安全。', 'auth'],
+    ['/admin/login', '管理员登录', '进入 Signal Desk 运营驾驶舱。', 'operations'],
+    ['/admin/dashboard', '管理控制台', 'Signal Desk 受保护的运营工作区。', 'operations'],
+  ]
+  await Promise.all(privateRoutes.map(([routePath, title, description, surface]) =>
+    writeRouteHtml(
+      routePath,
+      renderPrivateShell(template, { routePath, title, description, surface }, siteUrl),
+    )))
   await writeRouteHtml(
     '/daily',
     renderContentTypePage(

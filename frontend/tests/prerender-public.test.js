@@ -165,6 +165,25 @@ describe('renderStaticPage', () => {
   })
 })
 
+describe('renderPrivateShell', () => {
+  it('emits an inert noindex auth shell without bootstrap data', async () => {
+    const template = `<!doctype html><html><head><title>Template</title><meta name="description" content=""><meta property="og:title" content=""><meta property="og:description" content=""><meta property="og:url" content=""></head><body><div id="root"></div></body></html>`
+    const { renderPrivateShell } = await import('../scripts/prerender-public.mjs')
+    const html = renderPrivateShell(template, {
+      routePath: '/login',
+      title: '登录',
+      description: '登录你的阅读空间。',
+      surface: 'auth',
+    }, 'https://www.example.com')
+
+    expect(html).toContain('data-prerender-private="auth"')
+    expect(html).toContain('<meta name="robots" content="noindex,nofollow" data-surface-managed>')
+    expect(html).toContain('https://www.example.com/login')
+    expect(html).not.toContain('__BLOG_BOOTSTRAP__')
+    expect(html).not.toContain('type="password"')
+  })
+})
+
 describe('mapWithConcurrency', () => {
   it('preserves order and never exceeds the concurrency cap', async () => {
     const { mapWithConcurrency } = await import('../scripts/prerender-public.mjs')

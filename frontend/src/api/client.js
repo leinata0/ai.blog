@@ -6,6 +6,7 @@ const GET_CACHE_TTL = 15000
 const GET_STALE_TTL = 60000
 const SESSION_CACHE_PREFIX = 'blog.api-cache:'
 export const USER_UNAUTHORIZED_EVENT = 'blog:user-unauthorized'
+export const ADMIN_UNAUTHORIZED_EVENT = 'blog:admin-unauthorized'
 const SESSION_CACHE_MATCHERS = [
   /^public:\/api\/settings(?:\?|$)/,
   /^public:\/api\/stats(?:\?|$)/,
@@ -27,10 +28,26 @@ function notifyUserUnauthorized() {
   window.dispatchEvent(new Event(USER_UNAUTHORIZED_EVENT))
 }
 
+function notifyAdminUnauthorized(path) {
+  if (typeof window === 'undefined') return false
+  const event = new CustomEvent(ADMIN_UNAUTHORIZED_EVENT, {
+    cancelable: true,
+    detail: { path },
+  })
+  window.dispatchEvent(event)
+  return event.defaultPrevented
+}
+
 export function subscribeToUserUnauthorized(listener) {
   if (typeof window === 'undefined') return () => {}
   window.addEventListener(USER_UNAUTHORIZED_EVENT, listener)
   return () => window.removeEventListener(USER_UNAUTHORIZED_EVENT, listener)
+}
+
+export function subscribeToAdminUnauthorized(listener) {
+  if (typeof window === 'undefined') return () => {}
+  window.addEventListener(ADMIN_UNAUTHORIZED_EVENT, listener)
+  return () => window.removeEventListener(ADMIN_UNAUTHORIZED_EVENT, listener)
 }
 
 function isAbortError(err) {
@@ -270,7 +287,10 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
     if (!resp.ok) {
       if (resp.status === 401 && authMode === 'admin') {
         clearToken()
-        window.location.href = '/admin/login'
+        const handled = notifyAdminUnauthorized(path)
+        if (!handled && typeof window !== 'undefined') {
+          window.location.assign('/admin/login')
+        }
         throw new Error('登录已过期，请重新登录')
       }
       if (resp.status === 401 && authMode === 'user') {

@@ -62,7 +62,7 @@ export default function AdminSearchInsights() {
         </button>
       </div>
 
-      {error ? <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
+      {error ? <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-3">
         {summaryCards.map((item) => (
@@ -76,7 +76,7 @@ export default function AdminSearchInsights() {
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">热门搜索词</h3>
-          {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
+          {loading ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
           {!loading && !payload.topQueries.length ? <div className="text-sm text-[var(--text-faint)]">暂时还没有热门搜索词。</div> : null}
           {payload.topQueries.length ? (
             <div className="space-y-3">
@@ -94,7 +94,7 @@ export default function AdminSearchInsights() {
 
         <section className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">零结果搜索词</h3>
-          {loading ? <div className="text-sm text-[var(--text-faint)]">加载中...</div> : null}
+          {loading ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
           {!loading && !payload.zeroResultQueries.length ? <div className="text-sm text-[var(--text-faint)]">没有零结果搜索词，当前覆盖情况不错。</div> : null}
           {payload.zeroResultQueries.length ? (
             <div className="space-y-3">

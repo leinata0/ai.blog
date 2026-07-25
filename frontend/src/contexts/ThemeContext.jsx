@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { applyDocumentTheme } from '../utils/surface'
 
 const ThemeContext = createContext()
 
@@ -21,10 +22,7 @@ export function ThemeProvider({ children }) {
   const [dark, setDark] = useState(readInitialDarkMode)
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
-    const themeMeta = document.querySelector('meta[name="theme-color"]')
-    const standard = document.documentElement.dataset.surface === 'standard'
-    if (themeMeta) themeMeta.setAttribute('content', standard ? (dark ? '#09111d' : '#edf3f8') : (dark ? '#071016' : '#f3f3ef'))
+    applyDocumentTheme(dark)
     try {
       window.localStorage.setItem('theme', dark ? 'dark' : 'light')
     } catch {

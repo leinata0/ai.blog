@@ -17,10 +17,21 @@
         try {
           dark = localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && matchMedia('(prefers-color-scheme: dark)').matches)
         } catch {}
-        const standard = /^(\/admin|\/account|\/login|\/register|\/forgot-password|\/reset-password|\/verify-email)/.test(location.pathname)
+        const pathname = location.pathname.replace(/\/+$/, '') || '/'
+        const authRoutes = new Set(['/account', '/login', '/register', '/forgot-password', '/reset-password', '/verify-email'])
+        const surface = pathname === '/admin' || pathname.startsWith('/admin/')
+          ? 'operations'
+          : authRoutes.has(pathname)
+            ? 'auth'
+            : 'editorial'
+        const themeColors = {
+          editorial: { light: '#f3f3ef', dark: '#071016' },
+          auth: { light: '#eeefe9', dark: '#080f13' },
+          operations: { light: '#e9edef', dark: '#05090d' },
+        }
         document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-        document.documentElement.dataset.surface = standard ? 'standard' : 'editorial'
-        document.querySelector('meta[name="theme-color"]').content = standard ? (dark ? '#09111d' : '#edf3f8') : (dark ? '#071016' : '#f3f3ef')
+        document.documentElement.dataset.surface = surface
+        document.querySelector('meta[name="theme-color"]').content = themeColors[surface][dark ? 'dark' : 'light']
       })()
     </script>
     <title>AI 资讯观察</title>

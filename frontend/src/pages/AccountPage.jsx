@@ -30,7 +30,7 @@ import {
   revokeSessions as revokeSessionsApi,
 } from '../api/user'
 
-const inputClass = 'w-full rounded-lg border px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]'
+const inputClass = 'auth-input w-full rounded-xl border px-4 py-3 text-sm outline-none transition-colors focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]'
 const inputStyle = { backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }
 const tabs = [
   ['overview', '概览', UserRound],
@@ -165,7 +165,7 @@ export default function AccountPage() {
   }
 
   if (loading) {
-    return <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}><Navbar /><div role="status" className="mx-auto max-w-6xl px-6 py-16 text-sm" style={{ color: 'var(--text-tertiary)' }}>正在加载账号...</div></main>
+    return <main data-ui="account-page" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}><Navbar /><div role="status" className="mx-auto max-w-6xl px-6 py-16 text-sm" style={{ color: 'var(--text-tertiary)' }}>正在加载账号…</div></main>
   }
 
   const summary = [
@@ -176,26 +176,26 @@ export default function AccountPage() {
   ]
 
   return (
-    <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+    <main data-ui="account-page" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <Navbar />
       <div className="mx-auto max-w-7xl px-6 py-10 sm:px-10 lg:px-20">
         <header className="flex flex-col gap-5 border-b pb-8 sm:flex-row sm:items-end sm:justify-between" style={{ borderColor: 'var(--border-muted)' }}>
           <div>
-            <div className="section-kicker">账号中心</div>
+            <div className="section-kicker">Signal Desk Identity</div>
             <h1 className="mt-3 text-3xl font-semibold" style={{ color: 'var(--text-primary)' }}>{user?.nickname || '我的账号'}</h1>
             <p className="mt-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>{user?.email}</p>
           </div>
-          <button type="button" onClick={() => { logout(); navigate('/') }} className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}><LogOut size={16} /> 退出登录</button>
+          <button type="button" onClick={() => { logout(); navigate('/') }} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}><LogOut size={16} /> 退出登录</button>
         </header>
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[14rem_minmax(0,1fr)]">
           <nav aria-label="账号中心导航" className="grid grid-cols-2 gap-2 pb-2 sm:grid-cols-3 lg:flex lg:flex-col">
             {tabs.map(([value, label, Icon]) => (
-              <button key={value} type="button" onClick={() => setActiveTab(value)} aria-current={activeTab === value ? 'page' : undefined} className="flex w-full items-center gap-2 rounded-lg px-4 py-3 text-left text-sm font-semibold transition-colors" style={{ backgroundColor: activeTab === value ? 'var(--accent-soft)' : 'transparent', color: activeTab === value ? 'var(--accent)' : 'var(--text-secondary)' }}><Icon size={16} /> {label}</button>
+              <button key={value} type="button" onClick={() => setActiveTab(value)} aria-current={activeTab === value ? 'page' : undefined} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-semibold transition-colors" style={{ backgroundColor: activeTab === value ? 'var(--accent-soft)' : 'transparent', color: activeTab === value ? 'var(--accent)' : 'var(--text-secondary)' }}><Icon size={16} /> {label}</button>
             ))}
           </nav>
 
-          <div className="min-w-0 rounded-lg border p-6 sm:p-8" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-muted)', boxShadow: 'var(--card-shadow-soft)' }}>
+          <div className="auth-card min-w-0 rounded-[1.4rem] border p-6 sm:p-8">
             {activeTab === 'overview' ? (
               <Panel title="账号概览" description="查看账号安全状态和已同步的数据。">
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -213,7 +213,7 @@ export default function AccountPage() {
             {activeTab === 'profile' ? (
               <Panel title="个人资料" description="昵称会显示在公开评论中，邮箱不会公开。">
                 <div className="flex items-center gap-4">
-                  <div className="h-20 w-20 overflow-hidden rounded-full border" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-canvas)' }}>{user?.avatar_url ? <img src={user.avatar_url} alt="头像" className="h-full w-full object-cover" /> : null}</div>
+                  <div className="h-20 w-20 overflow-hidden rounded-full border" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-canvas)' }}>{user?.avatar_url ? <img src={user.avatar_url} alt="头像" width="80" height="80" className="h-full w-full object-cover" /> : null}</div>
                   <input ref={fileInputRef} aria-label="上传头像" type="file" accept="image/*" onChange={handleAvatar} className="max-w-[15rem] text-sm" style={{ color: 'var(--text-secondary)' }} />
                 </div>
                 <form onSubmit={handleProfile} className="mt-6 space-y-4">

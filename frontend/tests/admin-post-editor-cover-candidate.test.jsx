@@ -34,6 +34,7 @@ vi.mock('../src/api/admin', () => ({
 }))
 
 import AdminPostEditor from '../src/components/admin/AdminPostEditor'
+import { AdminConfirmProvider } from '../src/components/admin/AdminConfirmDialog'
 
 const existingPost = { id: 123, slug: 'post-slug' }
 const postDetail = {
@@ -45,6 +46,14 @@ const postDetail = {
   cover_image: 'https://example.com/current.jpg',
   is_published: true,
   is_pinned: false,
+}
+
+function renderEditor(props) {
+  return render(
+    <AdminConfirmProvider>
+      <AdminPostEditor {...props} />
+    </AdminConfirmProvider>,
+  )
 }
 
 afterEach(() => {
@@ -66,7 +75,7 @@ beforeEach(() => {
 
 describe('AdminPostEditor cover candidate chooser', () => {
   it('previews generated cover for posts with an existing cover and only applies after choosing it', async () => {
-    render(<AdminPostEditor editingPost={existingPost} onBack={vi.fn()} onSaved={vi.fn()} />)
+    renderEditor({ editingPost: existingPost, onBack: vi.fn(), onSaved: vi.fn() })
 
     await screen.findByDisplayValue('https://example.com/current.jpg')
     fireEvent.click(screen.getByRole('button', { name: '重生成封面' }))
@@ -91,7 +100,7 @@ describe('AdminPostEditor cover candidate chooser', () => {
   it('applies generation directly for posts without a cover', async () => {
     fetchPostDetailMock.mockResolvedValue({ ...postDetail, cover_image: '' })
 
-    render(<AdminPostEditor editingPost={existingPost} onBack={vi.fn()} onSaved={vi.fn()} />)
+    renderEditor({ editingPost: existingPost, onBack: vi.fn(), onSaved: vi.fn() })
 
     await screen.findByPlaceholderText('https://... 或留空')
     fireEvent.click(screen.getByRole('button', { name: '生成封面' }))

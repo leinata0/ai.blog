@@ -25,31 +25,41 @@ export default function AdminSiteBasicsPanel({
   return (
     <div className="space-y-5" data-ui="admin-settings-site">
       <div className="space-y-1">
-        <label className="text-sm font-medium text-[var(--text-secondary)]">博主名称</label>
+        <label htmlFor="settings-author-name" className="text-sm font-medium text-[var(--text-secondary)]">博主名称</label>
         <input
+          id="settings-author-name"
+          name="author_name"
+          autoComplete="name"
           value={siteSettings.author_name}
           onChange={(event) => setSiteSettings((prev) => ({ ...prev, author_name: event.target.value }))}
-          className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+          className="w-full rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           style={inputStyle}
         />
       </div>
 
       <div className="space-y-1">
-        <label className="text-sm font-medium text-[var(--text-secondary)]">个人简介</label>
+        <label htmlFor="settings-bio" className="text-sm font-medium text-[var(--text-secondary)]">个人简介</label>
         <input
+          id="settings-bio"
+          name="bio"
+          autoComplete="off"
           value={siteSettings.bio}
           onChange={(event) => setSiteSettings((prev) => ({ ...prev, bio: event.target.value }))}
-          className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+          className="w-full rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           style={inputStyle}
         />
       </div>
 
       <div className="space-y-1">
-        <label className="text-sm font-medium text-[var(--text-secondary)]">站点 URL</label>
+        <label htmlFor="settings-site-url" className="text-sm font-medium text-[var(--text-secondary)]">站点 URL</label>
         <input
+          id="settings-site-url"
+          name="site_url"
+          type="url"
+          autoComplete="url"
           value={siteSettings.site_url}
           onChange={(event) => setSiteSettings((prev) => ({ ...prev, site_url: event.target.value }))}
-          className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+          className="w-full rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           style={inputStyle}
           placeholder="https://your-site.example"
         />
@@ -62,18 +72,24 @@ export default function AdminSiteBasicsPanel({
         </p>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
+            name="avatar_url"
+            type="url"
+            aria-label="头像 URL"
+            autoComplete="url"
             value={siteSettings.avatar_url}
             onChange={(event) => setSiteSettings((prev) => ({ ...prev, avatar_url: event.target.value }))}
-            className="min-w-0 flex-1 rounded-lg px-4 py-2.5 text-sm outline-none"
+            className="min-w-0 flex-1 rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             style={inputStyle}
             placeholder="https://... 或 /uploads/..."
           />
           <input
             ref={avatarFileRef}
+            name="avatar_file"
             type="file"
             accept="image/*"
             className="hidden"
             onChange={(event) => handleAssetUpload('avatar_url', event)}
+            aria-label="选择头像文件"
           />
           <button
             type="button"
@@ -97,18 +113,24 @@ export default function AdminSiteBasicsPanel({
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
+            name="hero_image"
+            type="url"
+            aria-label="Hero 海报 URL"
+            autoComplete="url"
             value={siteSettings.hero_image}
             onChange={(event) => setSiteSettings((prev) => ({ ...prev, hero_image: event.target.value }))}
-            className="min-w-0 flex-1 rounded-lg px-4 py-2.5 text-sm outline-none"
+            className="min-w-0 flex-1 rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             style={inputStyle}
             placeholder="https://... 或 /uploads/..."
           />
           <input
             ref={heroFileRef}
+            name="hero_file"
             type="file"
             accept="image/*"
             className="hidden"
             onChange={(event) => handleAssetUpload('hero_image', event)}
+            aria-label="选择 Hero 海报文件"
           />
           <button
             type="button"
@@ -171,6 +193,8 @@ export default function AdminSiteBasicsPanel({
                 alt="当前 Hero 海报预览"
                 className="aspect-[4/5] h-full w-full object-cover"
                 referrerPolicy="no-referrer"
+                width="640"
+                height="800"
               />
             ) : (
               <div className="flex aspect-[4/5] items-center justify-center px-6 text-center text-sm text-[var(--text-faint)]">
@@ -181,22 +205,29 @@ export default function AdminSiteBasicsPanel({
         </div>
       </div>
       <div className="space-y-1">
-        <label className="text-sm font-medium text-[var(--text-secondary)]">GitHub 链接</label>
+        <label htmlFor="settings-github-link" className="text-sm font-medium text-[var(--text-secondary)]">GitHub 链接</label>
         <input
+          id="settings-github-link"
+          name="github_link"
+          type="url"
+          autoComplete="url"
           value={siteSettings.github_link}
           onChange={(event) => setSiteSettings((prev) => ({ ...prev, github_link: event.target.value }))}
-          className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+          className="w-full rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           style={inputStyle}
         />
       </div>
 
       <div className="space-y-1">
-        <label className="text-sm font-medium text-[var(--text-secondary)]">公告内容</label>
+        <label htmlFor="settings-announcement" className="text-sm font-medium text-[var(--text-secondary)]">公告内容</label>
         <textarea
+          id="settings-announcement"
+          name="announcement"
+          autoComplete="off"
           value={siteSettings.announcement}
           onChange={(event) => setSiteSettings((prev) => ({ ...prev, announcement: event.target.value }))}
           rows={3}
-          className="w-full resize-none rounded-lg px-4 py-2.5 text-sm outline-none"
+          className="w-full resize-none rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           style={inputStyle}
         />
       </div>
@@ -207,7 +238,7 @@ export default function AdminSiteBasicsPanel({
           <button
             type="button"
             onClick={addFriendLink}
-            className="flex items-center gap-1 rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition-colors duration-200"
+            className="flex min-h-11 items-center gap-1 rounded-lg border border-[var(--border-muted)] px-3 text-xs font-medium text-[var(--accent)] transition-colors duration-200"
           >
             <Plus size={12} />
             添加友链
@@ -219,7 +250,8 @@ export default function AdminSiteBasicsPanel({
             <button
               type="button"
               onClick={() => removeFriendLink(index)}
-              className="absolute right-2 top-2 rounded p-1 hover:bg-red-50"
+              className="absolute right-2 top-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-[var(--danger-soft)]"
+              aria-label={`移除友情链接：${link.name || index + 1}`}
               title="移除"
             >
               <X size={14} className="text-[#ef4444]" />
@@ -227,30 +259,44 @@ export default function AdminSiteBasicsPanel({
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <input
+                name={`friend_name_${index}`}
+                autoComplete="off"
+                aria-label={`友情链接 ${index + 1} 名称`}
                 value={link.name}
                 onChange={(event) => updateFriendLink(index, 'name', event.target.value)}
-                className="rounded-lg px-3 py-2 text-sm outline-none"
+                className="rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 style={inputStyle}
                 placeholder="名称"
               />
               <input
+                name={`friend_url_${index}`}
+                type="url"
+                autoComplete="url"
+                aria-label={`友情链接 ${index + 1} URL`}
                 value={link.url}
                 onChange={(event) => updateFriendLink(index, 'url', event.target.value)}
-                className="rounded-lg px-3 py-2 text-sm outline-none"
+                className="rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 style={inputStyle}
                 placeholder="https://..."
               />
               <input
+                name={`friend_description_${index}`}
+                autoComplete="off"
+                aria-label={`友情链接 ${index + 1} 描述`}
                 value={link.description}
                 onChange={(event) => updateFriendLink(index, 'description', event.target.value)}
-                className="rounded-lg px-3 py-2 text-sm outline-none"
+                className="rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 style={inputStyle}
                 placeholder="描述"
               />
               <input
+                name={`friend_avatar_${index}`}
+                type="url"
+                autoComplete="url"
+                aria-label={`友情链接 ${index + 1} 头像 URL`}
                 value={link.avatar}
                 onChange={(event) => updateFriendLink(index, 'avatar', event.target.value)}
-                className="rounded-lg px-3 py-2 text-sm outline-none"
+                className="rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 style={inputStyle}
                 placeholder="头像 URL"
               />
@@ -260,9 +306,10 @@ export default function AdminSiteBasicsPanel({
       </div>
 
       <button
+        type="button"
         onClick={handleSave}
         disabled={saving}
-        className="rounded-lg bg-[var(--accent)] px-6 py-2.5 text-sm font-medium text-white transition-all duration-200 disabled:opacity-50"
+        className="min-h-11 rounded-lg bg-[var(--accent)] px-6 py-2.5 text-sm font-medium text-white transition-[background-color,opacity,transform] duration-200 disabled:opacity-50"
       >
         {saving ? '保存中…' : '保存站点设置'}
       </button>

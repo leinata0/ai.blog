@@ -6,6 +6,10 @@ import { MemoryRouter } from 'react-router-dom'
 import AdminDashboardPage from '../src/pages/AdminDashboardPage'
 import { dismissAdminJob, getAdminJobs } from '../src/components/admin/adminJobsStore'
 
+vi.mock('../src/contexts/ThemeContext', () => ({
+  useTheme: () => ({ dark: false, toggleTheme: vi.fn() }),
+}))
+
 const mocks = vi.hoisted(() => ({
   fetchAdminPosts: vi.fn(() =>
     Promise.resolve({
@@ -280,6 +284,7 @@ vi.mock('../src/api/auth', async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.fetchAdminPosts.mockReset()
   mocks.fetchAdminPosts.mockResolvedValue({
     items: [
       {
@@ -324,7 +329,7 @@ it('renders the posts tab by default', async () => {
   )
 
   expect(await screen.findByText('OpenAI released a new model')).toBeInTheDocument()
-  expect(screen.getByRole('tab', { name: /文章管理/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '文章' })).toHaveAttribute('aria-current', 'page')
   expect(mocks.fetchAdminPosts).toHaveBeenCalledWith({ page: 1, page_size: 20 }, expect.anything())
 })
 
@@ -431,7 +436,7 @@ it('resets pagination to the first page when applying filters', async () => {
   await userEvent.click(screen.getByRole('button', { name: '下一页' }))
   await screen.findByText('Second page post')
 
-  await userEvent.type(screen.getByPlaceholderText('标题 / slug / topic_key'), 'filtered')
+  await userEvent.type(screen.getByRole('textbox', { name: '搜索' }), 'filtered')
   await userEvent.click(screen.getByRole('button', { name: '应用筛选' }))
 
   expect(await screen.findByText('Filtered post')).toBeInTheDocument()
@@ -595,15 +600,15 @@ it('opens topic management, topic health, and search insights tabs', async () =>
 
   await screen.findByText('OpenAI released a new model')
 
-  await userEvent.click(screen.getByRole('tab', { name: /主题管理/ }))
+  await userEvent.click(screen.getByRole('button', { name: '主题' }))
   expect(await screen.findByText('OpenAI 新模型')).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-topic-profiles"]')).toBeTruthy()
 
-  await userEvent.click(screen.getByRole('tab', { name: /主题健康/ }))
+  await userEvent.click(screen.getByRole('button', { name: '主题健康' }))
   expect(await screen.findByText(/平均质量分/)).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-topic-health"]')).toBeTruthy()
 
-  await userEvent.click(screen.getByRole('tab', { name: /搜索洞察/ }))
+  await userEvent.click(screen.getByRole('button', { name: '搜索洞察' }))
   expect(await screen.findByText('OpenAI')).toBeInTheDocument()
   expect(await screen.findByText('Mamba 2')).toBeInTheDocument()
   expect(document.querySelector('[data-ui="admin-search-insights"]')).toBeTruthy()
@@ -618,7 +623,7 @@ it('opens endpoint health tab and renders probe and subscription results', async
 
   await screen.findByText('OpenAI released a new model')
 
-  await userEvent.click(screen.getByRole('tab', { name: /接口与订阅健康/ }))
+  await userEvent.click(screen.getByRole('button', { name: '接口与订阅' }))
 
   expect(await screen.findByRole('heading', { name: /接口与订阅健康/ })).toBeInTheDocument()
   expect(await screen.findByText('/feed.xml')).toBeInTheDocument()
@@ -640,7 +645,7 @@ it('opens settings and manages AI provider sources and model instances', async (
   )
 
   await screen.findByText('OpenAI released a new model')
-  await userEvent.click(screen.getByRole('tab', { name: /站点设置/ }))
+  await userEvent.click(screen.getByRole('button', { name: '系统设置' }))
   expect(await screen.findByRole('tab', { name: /AI Provider/ })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('tab', { name: /AI Provider/ }))
 
@@ -665,4 +670,3 @@ it('opens settings and manages AI provider sources and model instances', async (
     items: expect.arrayContaining([expect.objectContaining({ id: 11, priority: 1, is_default: true })]),
   }))
 })
-

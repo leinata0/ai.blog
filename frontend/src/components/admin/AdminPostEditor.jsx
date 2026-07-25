@@ -4,6 +4,7 @@ import { ArrowLeft, Eye, EyeOff, Pin } from 'lucide-react'
 
 import { fetchPostDetail } from '../../api/posts'
 import { proxyImageUrl } from '../../utils/proxyImage'
+import { useTheme } from '../../contexts/ThemeContext'
 import {
   adminCreatePost,
   adminUpdatePost,
@@ -12,6 +13,7 @@ import {
   waitForAdminImageGenerationJob,
 } from '../../api/admin'
 import { trackAdminImageJob } from './adminJobsStore'
+import { useAdminConfirm } from './AdminConfirmDialog'
 
 const emptyForm = {
   title: '',
@@ -34,7 +36,18 @@ function generateSlug(title) {
     .slice(0, 80)
 }
 
-export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
+function useEditorDarkMode() {
+  try {
+    return useTheme().dark
+  } catch {
+    // Keep this leaf component renderable in isolated previews and legacy tests.
+    return typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark'
+  }
+}
+
+export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyChange }) {
+  const confirm = useAdminConfirm()
+  const dark = useEditorDarkMode()
   const [editingId, setEditingId] = useState(editingPost?.id || null)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
@@ -47,6 +60,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
   const [autoSaveMsg, setAutoSaveMsg] = useState('')
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
+  const initialFormRef = useRef(emptyForm)
 
   const inputStyle = {
     backgroundColor: 'var(--bg-canvas)',
@@ -58,7 +72,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     if (editingPost) {
       loadPostDetail(editingPost)
     } else {
-      restoreDraft()
+      void restoreDraft()
     }
   }, [editingPost])
 
@@ -72,6 +86,23 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     formRef.current = form
     editingIdRef.current = editingId
   }, [form, editingId])
+
+  const isDirty = JSON.stringify(form) !== JSON.stringify(initialFormRef.current)
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty && !saving)
+    return () => onDirtyChange?.(false)
+  }, [isDirty, onDirtyChange, saving])
+
+  useEffect(() => {
+    function handleBeforeUnload(event) {
+      if (!isDirty || saving) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isDirty, saving])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -94,7 +125,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     setCoverCandidate(null)
     try {
       const detail = await fetchPostDetail(post.slug)
-      setForm({
+      const nextForm = {
         title: detail.title,
         slug: detail.slug,
         summary: detail.summary || '',
@@ -103,13 +134,15 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
         cover_image: detail.cover_image || '',
         is_published: detail.is_published !== false,
         is_pinned: detail.is_pinned || false,
-      })
+      }
+      initialFormRef.current = nextForm
+      setForm(nextForm)
     } catch {
       setError('加载文章内容失败')
     }
   }
 
-  function restoreDraft() {
+  async function restoreDraft() {
     setEditingId(null)
     setError('')
     setUploadError('')
@@ -118,6 +151,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
 
     const draft = localStorage.getItem('admin_draft')
     if (!draft) {
+      initialFormRef.current = emptyForm
       setForm(emptyForm)
       return
     }
@@ -125,9 +159,18 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     try {
       const parsed = JSON.parse(draft)
       if (parsed.title || parsed.content_md) {
-        if (window.confirm('检测到未保存的草稿，是否恢复？')) {
+        const shouldRestore = await confirm({
+          title: '恢复未保存草稿',
+          description: '检测到本机自动保存的文章草稿。恢复后可以继续编辑；选择放弃会清除这份草稿。',
+          confirmLabel: '恢复草稿',
+          cancelLabel: '放弃草稿',
+          tone: 'accent',
+        })
+        if (shouldRestore) {
+          initialFormRef.current = emptyForm
           setForm({ ...emptyForm, ...parsed })
         } else {
+          initialFormRef.current = emptyForm
           setForm(emptyForm)
           localStorage.removeItem('admin_draft')
         }
@@ -137,6 +180,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
       // fall through to reset form
     }
 
+    initialFormRef.current = emptyForm
     setForm(emptyForm)
   }
 
@@ -224,6 +268,12 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
 
   async function handleDangerousDirectOverwriteCover() {
     if (!editingId) return
+    const confirmed = await confirm({
+      title: '直接覆盖文章封面',
+      description: `新生成的图片将直接替换“${form.title || `文章 #${editingId}`}”当前封面，不保留候选确认步骤。`,
+      confirmLabel: '覆盖并生成',
+    })
+    if (!confirmed) return
 
     setCoverGenerating(true)
     setCoverMessage('')
@@ -289,6 +339,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
       }
       setCoverCandidate(null)
       localStorage.removeItem('admin_draft')
+      initialFormRef.current = form
       onSaved()
     } catch (err) {
       setError(err.message || '保存失败')
@@ -297,25 +348,30 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
     }
   }
 
+  function handleLeaveEditor() {
+    onBack()
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <button
-          onClick={onBack}
+          type="button"
+          onClick={handleLeaveEditor}
           className="flex items-center gap-2 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200"
         >
           <ArrowLeft size={16} />
           返回列表
         </button>
         {autoSaveMsg && (
-          <span className="rounded bg-[var(--accent-soft)] px-2 py-1 text-xs text-[var(--accent)]">
+          <span role="status" aria-live="polite" className="rounded bg-[var(--accent-soft)] px-2 py-1 text-xs text-[var(--accent)]">
             {autoSaveMsg}
           </span>
         )}
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">
           {error}
         </div>
       )}
@@ -330,23 +386,30 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">标题</label>
+            <label htmlFor="admin-post-title" className="text-sm font-medium text-[var(--text-secondary)]">标题</label>
             <input
+              id="admin-post-title"
+              name="title"
+              autoComplete="off"
               value={form.title}
               onChange={(event) => setForm({ ...form, title: event.target.value })}
-              className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+              className="w-full rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               style={inputStyle}
-              placeholder="文章标题"
+              placeholder="输入文章标题…"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">固定链接 Slug</label>
+            <label htmlFor="admin-post-slug" className="text-sm font-medium text-[var(--text-secondary)]">固定链接 Slug</label>
             <div className="flex gap-2">
               <input
+                id="admin-post-slug"
+                name="slug"
+                autoComplete="off"
+                spellCheck={false}
                 value={form.slug}
                 onChange={(event) => setForm({ ...form, slug: event.target.value })}
-                className="flex-1 rounded-lg px-4 py-2.5 text-sm outline-none"
+                className="min-w-0 flex-1 rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 style={inputStyle}
                 placeholder="url-friendly-slug"
               />
@@ -362,37 +425,47 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-[var(--text-secondary)]">摘要</label>
+          <label htmlFor="admin-post-summary" className="text-sm font-medium text-[var(--text-secondary)]">摘要</label>
           <input
+            id="admin-post-summary"
+            name="summary"
+            autoComplete="off"
             value={form.summary}
             onChange={(event) => setForm({ ...form, summary: event.target.value })}
-            className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+            className="w-full rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             style={inputStyle}
-            placeholder="简短摘要"
+            placeholder="概括文章的核心内容…"
           />
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">标签，逗号分隔</label>
+            <label htmlFor="admin-post-tags" className="text-sm font-medium text-[var(--text-secondary)]">标签，逗号分隔</label>
             <input
+              id="admin-post-tags"
+              name="tags"
+              autoComplete="off"
               value={form.tags}
               onChange={(event) => setForm({ ...form, tags: event.target.value })}
-              className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+              className="w-full rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               style={inputStyle}
               placeholder="ai, product, tooling"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">封面图 URL</label>
+            <label htmlFor="admin-post-cover" className="text-sm font-medium text-[var(--text-secondary)]">封面图 URL</label>
             <input
+              id="admin-post-cover"
+              name="cover_image"
+              type="url"
+              autoComplete="url"
               value={form.cover_image}
               onChange={(event) => {
                 setCoverCandidate(null)
                 setForm({ ...form, cover_image: event.target.value })
               }}
-              className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+              className="w-full rounded-lg px-4 py-2.5 text-sm focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               style={inputStyle}
               placeholder="https://... 或留空"
             />
@@ -414,6 +487,8 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
                   alt="文章封面预览"
                   className="h-44 w-full object-cover"
                   referrerPolicy="no-referrer"
+                  width="1280"
+                  height="720"
                 />
               </div>
             ) : null}
@@ -425,7 +500,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
                   disabled={coverGenerating}
                   className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition-colors duration-200 disabled:opacity-50"
                 >
-                  {coverGenerating ? '生成中...' : form.cover_image ? '重生成封面' : '生成封面'}
+                  {coverGenerating ? '生成中…' : form.cover_image ? '重生成封面' : '生成封面'}
                 </button>
                 {form.cover_image && (
                   <button
@@ -448,6 +523,8 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
                       src={coverCandidate.original}
                       alt="当前封面"
                       className="h-32 w-full rounded-lg object-cover"
+                      width="640"
+                      height="360"
                     />
                   </div>
                   <div className="space-y-2">
@@ -456,6 +533,8 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
                       src={coverCandidate.candidate}
                       alt="生成候选封面"
                       className="h-32 w-full rounded-lg object-cover"
+                      width="640"
+                      height="360"
                     />
                   </div>
                 </div>
@@ -478,7 +557,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
               </div>
             )}
             {coverMessage && (
-              <div className="pt-2 text-xs text-[var(--text-secondary)]">{coverMessage}</div>
+              <div role="status" aria-live="polite" className="pt-2 text-xs text-[var(--text-secondary)]">{coverMessage}</div>
             )}
           </div>
         </div>
@@ -489,7 +568,8 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
             <button
               type="button"
               onClick={() => setForm({ ...form, is_published: !form.is_published })}
-              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+              aria-pressed={form.is_published}
+              className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-[background-color,color,border-color] duration-200"
               style={{
                 backgroundColor: form.is_published ? 'var(--accent-soft)' : 'var(--danger-soft)',
                 color: form.is_published ? 'var(--accent)' : '#ef4444',
@@ -515,7 +595,8 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
             <button
               type="button"
               onClick={() => setForm({ ...form, is_pinned: !form.is_pinned })}
-              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+              aria-pressed={form.is_pinned}
+              className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-[background-color,color,border-color] duration-200"
               style={{
                 backgroundColor: form.is_pinned ? 'var(--accent-soft)' : 'var(--bg-canvas)',
                 color: form.is_pinned ? 'var(--accent)' : 'var(--text-tertiary)',
@@ -534,10 +615,12 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
             <>
               <input
                 ref={fileInputRef}
+                name="content_image"
                 type="file"
                 accept="image/*"
                 className="hidden"
                 onChange={handleImageUpload}
+                aria-label="选择正文图片"
               />
               <button
                 type="button"
@@ -545,16 +628,16 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
                 disabled={uploadingImage}
                 className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-sm font-medium text-[var(--accent)] transition-colors duration-200 disabled:opacity-50"
               >
-                {uploadingImage ? '上传中...' : '上传正文图片'}
+                {uploadingImage ? '上传中…' : '上传正文图片'}
               </button>
             </>
           </div>
           {uploadError && (
-            <div className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-sm text-[#ef4444]">
+            <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-sm text-[#ef4444]">
               {uploadError}
             </div>
           )}
-          <div ref={editorRef} data-color-mode="light">
+          <div ref={editorRef} data-color-mode={dark ? 'dark' : 'light'}>
             <MDEditor
               value={form.content_md}
               onChange={(value) => setForm({ ...form, content_md: value || '' })}
@@ -566,13 +649,15 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved }) {
         <div className="flex items-center gap-3 pt-2">
           <button
             onClick={handleSave}
+            type="button"
             disabled={saving}
-            className="rounded-lg bg-[var(--accent)] px-6 py-2.5 text-sm font-medium text-white transition-all duration-200 disabled:opacity-50"
+            className="min-h-11 rounded-lg bg-[var(--accent)] px-6 py-2.5 text-sm font-medium text-white transition-[background-color,opacity,transform] duration-200 disabled:opacity-50"
           >
-            {saving ? '保存中...' : editingId ? '保存修改' : form.is_published ? '发布文章' : '保存草稿'}
+            {saving ? '保存中…' : editingId ? '保存修改' : form.is_published ? '发布文章' : '保存草稿'}
           </button>
           <button
-            onClick={onBack}
+            type="button"
+            onClick={handleLeaveEditor}
             className="rounded-lg border border-[var(--border-muted)] px-6 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition-colors duration-200"
           >
             取消

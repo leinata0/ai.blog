@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 
+import AuthLayout from '../components/AuthLayout'
 import { verifyEmail } from '../api/user'
 import { useUser } from '../contexts/UserContext'
 
@@ -12,7 +13,6 @@ export default function VerifyEmailPage() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    document.title = '邮箱验证 - AI 资讯观察'
     const token = params.get('token')
     if (!token) {
       setStatus('error')
@@ -38,29 +38,30 @@ export default function VerifyEmailPage() {
   }, [params, refresh])
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center" style={{ backgroundColor: 'var(--bg-canvas)' }}>
-      <div
-        className="w-full max-w-sm space-y-5 rounded-xl p-8 text-center"
-        style={{ backgroundColor: 'var(--bg-surface)', boxShadow: 'var(--card-shadow)' }}
-      >
+    <AuthLayout
+      title="确认你的邮箱"
+      description="我们正在核对邮件中的一次性验证信号。此过程不会读取你的邮件内容。"
+      documentTitle="邮箱验证"
+    >
+      <div className="space-y-5 py-2 text-center" aria-live="polite" aria-busy={status === 'pending'}>
         <div className="flex justify-center">
-          {status === 'pending' && <Loader2 size={40} className="animate-spin" style={{ color: 'var(--accent)' }} />}
-          {status === 'success' && <CheckCircle2 size={40} style={{ color: '#16a34a' }} />}
-          {status === 'error' && <XCircle size={40} style={{ color: '#ef4444' }} />}
+          {status === 'pending' ? <Loader2 size={40} className="animate-spin" aria-hidden="true" style={{ color: 'var(--accent)' }} /> : null}
+          {status === 'success' ? <CheckCircle2 size={40} aria-hidden="true" style={{ color: '#16a34a' }} /> : null}
+          {status === 'error' ? <XCircle size={40} aria-hidden="true" style={{ color: '#ef4444' }} /> : null}
         </div>
-        <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-          {status === 'pending' ? '正在验证邮箱...' : status === 'success' ? '验证成功' : '验证失败'}
-        </h1>
+        <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          {status === 'pending' ? '正在验证邮箱…' : status === 'success' ? '验证成功' : '验证失败'}
+        </h2>
         {message ? (
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{message}</p>
         ) : null}
         {status !== 'pending' ? (
-          <div className="flex justify-center gap-3 pt-2">
-            <Link to="/account" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>个人中心</Link>
-            <Link to="/" className="text-sm font-medium" style={{ color: 'var(--text-tertiary)' }}>返回首页</Link>
+          <div className="flex flex-wrap justify-center gap-2 pt-2">
+            <Link to="/account" className="inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold text-white" style={{ backgroundColor: 'var(--accent)' }}>个人中心</Link>
+            <Link to="/" className="inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold" style={{ color: 'var(--text-tertiary)' }}>返回首页</Link>
           </div>
         ) : null}
       </div>
-    </main>
+    </AuthLayout>
   )
 }

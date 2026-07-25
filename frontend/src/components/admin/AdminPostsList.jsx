@@ -8,6 +8,7 @@ import {
   getPublishedModeLabel,
   getPublishStateLabel,
 } from './adminDisplay'
+import { useAdminConfirm } from './AdminConfirmDialog'
 
 const CONTENT_TYPE_OPTIONS = [
   { value: '', label: '全部类型' },
@@ -39,6 +40,25 @@ const BULK_ACTION_OPTIONS = [
   { value: 'replace_covers', label: '一键替换封面' },
 ]
 
+function useAdminMobileLayout() {
+  const [mobile, setMobile] = useState(() => (
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(max-width: 767px)').matches
+      : false
+  ))
+
+  useEffect(() => {
+    if (!window.matchMedia) return undefined
+    const media = window.matchMedia('(max-width: 767px)')
+    const update = (event) => setMobile(event.matches)
+    setMobile(media.matches)
+    media.addEventListener?.('change', update)
+    return () => media.removeEventListener?.('change', update)
+  }, [])
+
+  return mobile
+}
+
 export default function AdminPostsList({
   posts,
   filters,
@@ -55,11 +75,13 @@ export default function AdminPostsList({
   onPageSizeChange,
   onRunBulkAction,
 }) {
+  const confirm = useAdminConfirm()
   const [selectedPostIds, setSelectedPostIds] = useState(new Set())
   const [bulkAction, setBulkAction] = useState('publish')
   const [bulkValue, setBulkValue] = useState('')
   const [draftFilters, setDraftFilters] = useState(filters)
   const [bulkNotice, setBulkNotice] = useState('')
+  const isMobile = useAdminMobileLayout()
 
   useEffect(() => {
     setDraftFilters(filters)
@@ -116,12 +138,17 @@ export default function AdminPostsList({
         setBulkNotice(targetPosts.length ? '所选文章均已有封面，无需生成。' : '当前页没有可生成封面的文章。')
         return
       }
-      setBulkNotice(`正在提交 ${ids.length} 篇文章的封面生成任务，请稍候...`)
+      setBulkNotice(`正在提交 ${ids.length} 篇文章的封面生成任务，请稍候…`)
     } else if (action === 'replace_covers') {
       if (!ids.length) return
       const selectedWithCoverCount = posts.filter((post) => selectedPostIds.has(post.id) && String(post.cover_image || '').trim()).length
-      if (!window.confirm(`确定为当前选中的 ${ids.length} 篇文章重新生成并覆盖封面吗？其中 ${selectedWithCoverCount} 篇已有封面会被替换。`)) return
-      setBulkNotice(`正在提交 ${ids.length} 篇文章的封面替换任务，请稍候...`)
+      const confirmed = await confirm({
+        title: '替换文章封面',
+        description: `将为选中的 ${ids.length} 篇文章重新生成封面，其中 ${selectedWithCoverCount} 篇现有封面会被替换。`,
+        confirmLabel: '提交替换任务',
+      })
+      if (!confirmed) return
+      setBulkNotice(`正在提交 ${ids.length} 篇文章的封面替换任务，请稍候…`)
     } else if (!ids.length) {
       return
     } else {
@@ -170,6 +197,7 @@ export default function AdminPostsList({
             刷新
           </button>
           <button
+            type="button"
             onClick={onNew}
             className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white"
           >
@@ -184,18 +212,21 @@ export default function AdminPostsList({
           <label className="text-xs font-medium text-[var(--text-secondary)]">
             搜索
             <div className="mt-1 flex items-center rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-2">
-              <Search size={14} className="text-[var(--text-faint)]" />
+              <Search size={14} aria-hidden="true" className="text-[var(--text-faint)]" />
               <input
+                name="q"
+                autoComplete="off"
                 value={draftFilters.search || ''}
                 onChange={(event) => setDraftFilters((prev) => ({ ...prev, search: event.target.value }))}
-                placeholder="标题 / slug / topic_key"
-                className="w-full bg-transparent px-2 py-2 text-sm text-[var(--text-primary)] outline-none"
+                placeholder="标题、slug 或 topic_key…"
+                className="w-full bg-transparent px-2 py-2 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               />
             </div>
           </label>
           <label className="text-xs font-medium text-[var(--text-secondary)]">
             内容类型
             <select
+              name="content_type"
               value={draftFilters.content_type || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, content_type: event.target.value }))}
               className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
@@ -210,6 +241,7 @@ export default function AdminPostsList({
           <label className="text-xs font-medium text-[var(--text-secondary)]">
             发布状态
             <select
+              name="published"
               value={draftFilters.published || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, published: event.target.value }))}
               className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
@@ -224,6 +256,7 @@ export default function AdminPostsList({
           <label className="text-xs font-medium text-[var(--text-secondary)]">
             发布模式
             <select
+              name="published_mode"
               value={draftFilters.published_mode || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, published_mode: event.target.value }))}
               className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
@@ -238,6 +271,7 @@ export default function AdminPostsList({
           <label className="text-xs font-medium text-[var(--text-secondary)]">
             覆盖日期
             <input
+              name="coverage_date"
               type="date"
               value={draftFilters.coverage_date || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, coverage_date: event.target.value }))}
@@ -247,9 +281,12 @@ export default function AdminPostsList({
           <label className="text-xs font-medium text-[var(--text-secondary)]">
             系列 slug
             <input
+              name="series_slug"
+              autoComplete="off"
+              spellCheck={false}
               value={draftFilters.series_slug || ''}
               onChange={(event) => setDraftFilters((prev) => ({ ...prev, series_slug: event.target.value }))}
-              placeholder="ai-daily-brief"
+              placeholder="例如 ai-daily-brief…"
               className="mt-1 w-full rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
             />
           </label>
@@ -276,6 +313,8 @@ export default function AdminPostsList({
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-sm text-[var(--text-secondary)]">已选择当前页：{selectedCurrentPageCount}</div>
           <select
+            name="bulk_action"
+            aria-label="批量操作"
             value={bulkAction}
             onChange={(event) => setBulkAction(event.target.value)}
             className="rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
@@ -288,6 +327,8 @@ export default function AdminPostsList({
           </select>
           {bulkAction === 'set_content_type' ? (
             <select
+              name="bulk_content_type"
+              aria-label="批量设置内容类型"
               value={bulkValue}
               onChange={(event) => setBulkValue(event.target.value)}
               className="rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
@@ -300,9 +341,13 @@ export default function AdminPostsList({
           ) : null}
           {bulkAction === 'set_series' ? (
             <input
+              name="bulk_series_slug"
+              aria-label="批量设置系列 slug"
+              autoComplete="off"
+              spellCheck={false}
               value={bulkValue}
               onChange={(event) => setBulkValue(event.target.value)}
-              placeholder="输入系列 slug"
+              placeholder="输入系列 slug…"
               className="rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-primary)]"
             />
           ) : null}
@@ -313,7 +358,7 @@ export default function AdminPostsList({
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
             {bulkApplying
-              ? '执行中...'
+              ? '执行中…'
               : bulkAction === 'generate_missing_covers'
                 ? '提交封面生成任务'
                 : bulkAction === 'replace_covers'
@@ -327,7 +372,7 @@ export default function AdminPostsList({
             className="rounded-lg border border-[var(--accent-border)] px-4 py-2 text-sm font-medium text-[var(--accent)] disabled:opacity-60"
           >
             {bulkApplying
-              ? '提交中...'
+              ? '提交中…'
               : selectedCurrentPageCount
                 ? `为已选无封面生成封面 (${selectedMissingCoverCount})`
                 : `为当前页无封面生成封面 (${currentPageMissingCoverCount})`}
@@ -337,18 +382,19 @@ export default function AdminPostsList({
           批量操作仅影响当前页；未勾选时，“为无封面文章生成封面”会处理当前页所有无封面文章；“一键替换封面”会覆盖所有已选文章的当前封面。
         </div>
         {bulkNotice ? (
-          <div className="mt-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+          <div role="status" aria-live="polite" className="mt-3 rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--text-secondary)]">
             {bulkNotice}
           </div>
         ) : null}
       </section>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-        <div>显示 {rangeStart}–{rangeEnd} / 共 {total} 篇</div>
+        <div className="tabular-nums">显示 {rangeStart}–{rangeEnd} / 共 {total} 篇</div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-xs text-[var(--text-faint)]">
             每页
             <select
+              name="page_size"
               value={pageSize}
               onChange={(event) => onPageSizeChange(Number(event.target.value))}
               className="rounded-lg border border-[var(--border-muted)] bg-[var(--bg-canvas)] px-2 py-1 text-sm text-[var(--text-primary)]"
@@ -361,16 +407,16 @@ export default function AdminPostsList({
             type="button"
             onClick={handlePreviousPage}
             disabled={loading || page <= 1}
-            className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-[var(--border-muted)] px-3 text-xs font-medium disabled:opacity-50"
           >
             上一页
           </button>
-          <span className="text-xs text-[var(--text-faint)]">第 {page} / {totalPages} 页</span>
+          <span className="text-xs tabular-nums text-[var(--text-faint)]">第 {page} / {totalPages} 页</span>
           <button
             type="button"
             onClick={handleNextPage}
             disabled={loading || page >= totalPages}
-            className="rounded-lg border border-[var(--border-muted)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-[var(--border-muted)] px-3 text-xs font-medium disabled:opacity-50"
           >
             下一页
           </button>
@@ -378,7 +424,32 @@ export default function AdminPostsList({
       </div>
 
       <div className="overflow-hidden rounded-xl bg-[var(--bg-surface)]" style={{ boxShadow: 'var(--card-shadow)' }}>
-        <div className="overflow-x-auto">
+        {isMobile ? (
+          <div className="space-y-3 p-3">
+            {loading ? <div role="status" className="px-3 py-8 text-center text-sm text-[var(--text-faint)]">加载文章中…</div> : null}
+            {!loading && posts.map((post) => (
+              <article key={`mobile-${post.slug || post.id}`} className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-canvas)] p-4">
+                <div className="flex items-start gap-3">
+                  <input type="checkbox" checked={selectedPostIds.has(post.id)} onChange={() => toggleSingle(post.id)} aria-label={`选择文章 ${post.title}`} />
+                  {post.cover_image ? (
+                    <img src={proxyImageUrl(post.cover_image)} alt="" width="80" height="80" loading="lazy" className="h-16 w-16 shrink-0 rounded-lg object-cover" referrerPolicy="no-referrer" />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <h3 className="line-clamp-2 text-sm font-semibold text-[var(--text-primary)]">{post.title}</h3>
+                    <p className="mt-1 text-xs text-[var(--text-faint)]">{getContentTypeLabel(post.content_type || 'post')} · {getPublishStateLabel(post.is_published !== false ? 'published' : 'draft')}</p>
+                    <p className="mt-2 text-xs tabular-nums text-[var(--text-tertiary)]">质量 {post.quality_score ?? '-'} · 来源 {post.source_count ?? '-'}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end gap-2 border-t border-[var(--border-muted)] pt-3">
+                  <button type="button" onClick={() => onEdit(post)} className="min-h-11 rounded-lg border border-[var(--border-muted)] px-4 text-sm text-[var(--accent)]">编辑</button>
+                  <button type="button" onClick={() => onDelete(post)} className="min-h-11 rounded-lg border border-[var(--danger-border)] px-4 text-sm text-[#ef4444]">删除</button>
+                </div>
+              </article>
+            ))}
+            {!loading && posts.length === 0 ? <div className="px-3 py-8 text-center text-sm text-[var(--text-faint)]">当前筛选条件下没有文章。</div> : null}
+          </div>
+        ) : (
+        <div className="overflow-x-auto overscroll-contain">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border-muted)]">
@@ -406,7 +477,7 @@ export default function AdminPostsList({
               {loading ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-8 text-center text-[var(--text-faint)]">
-                    加载文章中...
+                    加载文章中…
                   </td>
                 </tr>
               ) : null}
@@ -429,6 +500,9 @@ export default function AdminPostsList({
                             alt=""
                             className="h-10 w-10 flex-shrink-0 rounded object-cover"
                             referrerPolicy="no-referrer"
+                            width="40"
+                            height="40"
+                            loading="lazy"
                           />
                         ) : null}
                         <div>
@@ -452,21 +526,25 @@ export default function AdminPostsList({
                     <td className="px-4 py-4 text-[var(--text-tertiary)]">{getPublishedModeLabel(post.published_mode || '')}</td>
                     <td className="px-4 py-4 text-[var(--text-tertiary)]">{post.coverage_date || '-'}</td>
                     <td className="px-4 py-4 text-[var(--text-tertiary)]">{post.series_slug || '-'}</td>
-                    <td className="px-4 py-4 text-[var(--text-tertiary)]">
+                    <td className="px-4 py-4 tabular-nums text-[var(--text-tertiary)]">
                       {post.quality_score ?? '-'} / 来源 {post.source_count ?? '-'}
                     </td>
                     <td className="px-4 py-4 text-[var(--text-tertiary)]">{formatDate(post.created_at)}</td>
                     <td className="px-4 py-4 text-right">
                       <button
+                        type="button"
                         onClick={() => onEdit(post)}
-                        className="rounded-lg p-2 transition-colors duration-200 hover:bg-gray-100"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg transition-colors duration-200 hover:bg-[var(--bg-canvas)]"
+                        aria-label={`编辑文章：${post.title}`}
                         title="编辑"
                       >
                         <Pencil size={15} className="text-[var(--accent)]" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => onDelete(post)}
-                        className="ml-1 rounded-lg p-2 transition-colors duration-200 hover:bg-red-50"
+                        className="ml-1 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg transition-colors duration-200 hover:bg-[var(--danger-soft)]"
+                        aria-label={`删除文章：${post.title}`}
                         title="删除"
                       >
                         <Trash2 size={15} className="text-[#ef4444]" />
@@ -484,6 +562,7 @@ export default function AdminPostsList({
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </>
   )

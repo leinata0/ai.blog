@@ -19,10 +19,10 @@ export default function AdminStats() {
     <div>
       <h2 className="text-lg font-semibold mb-6 text-[var(--text-primary)]">数据统计</h2>
       {error && (
-        <div className="mb-4 text-sm py-2 px-4 rounded-lg bg-[var(--danger-soft)] text-[#ef4444]">{error}</div>
+        <div role="alert" className="mb-4 text-sm py-2 px-4 rounded-lg bg-[var(--danger-soft)] text-[#ef4444]">{error}</div>
       )}
       {loading ? (
-        <div className="text-sm text-[var(--text-faint)]">加载中...</div>
+        <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div>
       ) : stats ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           {[
@@ -36,7 +36,7 @@ export default function AdminStats() {
               <div className="mb-2">
                 {typeof Icon === 'string' ? <span className="text-2xl">{Icon}</span> : <Icon size={24} className="text-[var(--accent)] mx-auto" />}
               </div>
-              <div className="text-2xl font-bold mb-1 text-[var(--text-primary)]">{value}</div>
+              <div className="mb-1 text-2xl font-bold tabular-nums text-[var(--text-primary)]">{value}</div>
               <div className="text-xs text-[var(--text-faint)]">{label}</div>
             </div>
           ))}

@@ -4,7 +4,7 @@ import AuthLayout from '../components/AuthLayout'
 import TurnstileWidget, { TURNSTILE_ENABLED } from '../components/TurnstileWidget'
 import { useUser } from '../contexts/UserContext'
 
-const inputClass = 'w-full rounded-lg border px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]'
+const inputClass = 'auth-input w-full rounded-xl border px-4 py-3 text-sm outline-none transition-colors focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]'
 const inputStyle = { backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }
 
 export default function ForgotPasswordPage() {
@@ -34,19 +34,19 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <AuthLayout title="找回你的账号" description="输入注册邮箱，我们会发送一次性验证码。整个过程不会显示该邮箱是否已注册。">
+    <AuthLayout title="找回你的账号" description="输入注册邮箱，我们会发送一次性验证码。整个过程不会显示该邮箱是否已注册。" documentTitle="找回密码">
       <div className="section-kicker">账号恢复</div>
       <h2 className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>找回密码</h2>
       <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-tertiary)' }}>验证码有效期 10 分钟，验证后可以设置新密码。</p>
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div className="space-y-1.5">
           <label htmlFor="forgot-email" className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>邮箱</label>
-          <input id="forgot-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} style={inputStyle} placeholder="you@example.com" autoComplete="email" required />
+          <input id="forgot-email" name="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} style={inputStyle} placeholder="you@example.com" autoComplete="email" spellCheck={false} required />
         </div>
         <TurnstileWidget onVerify={setToken} />
         {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: '#ef4444' }}>{error}</div> : null}
-        <button type="submit" disabled={loading} className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--accent)' }}>
-          {loading ? '发送中...' : '发送重置验证码'}
+        <button type="submit" disabled={loading} className="min-h-11 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--accent)' }}>
+          {loading ? '发送中…' : '发送重置验证码'}
         </button>
       </form>
       <p className="mt-6 text-center text-sm" style={{ color: 'var(--text-tertiary)' }}>

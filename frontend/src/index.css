@@ -90,46 +90,6 @@
   --selection: rgba(114, 181, 255, 0.26);
 }
 
-[data-surface="standard"] {
-  --bg-canvas: #edf3f8;
-  --bg-canvas-deep: #dfe9f3;
-  --bg-surface: rgba(255, 255, 255, 0.88);
-  --bg-surface-strong: #ffffff;
-  --bg-surface-muted: rgba(255, 255, 255, 0.66);
-  --border-muted: rgba(148, 163, 184, 0.22);
-  --border-strong: rgba(148, 163, 184, 0.36);
-  --text-primary: #10233f;
-  --text-secondary: #475569;
-  --text-tertiary: #64748b;
-  --text-faint: #718096;
-  --accent: #2f8cff;
-  --accent-dim: #2479df;
-  --accent-soft: rgba(47, 140, 255, 0.12);
-  --accent-border: rgba(47, 140, 255, 0.24);
-  --accent-glow: rgba(47, 140, 255, 0.18);
-  --selection: rgba(47, 140, 255, 0.22);
-}
-
-[data-theme="dark"][data-surface="standard"] {
-  --bg-canvas: #09111d;
-  --bg-canvas-deep: #050b14;
-  --bg-surface: rgba(14, 24, 41, 0.88);
-  --bg-surface-strong: #101b2d;
-  --bg-surface-muted: rgba(14, 24, 41, 0.72);
-  --border-muted: rgba(100, 116, 139, 0.28);
-  --border-strong: rgba(148, 163, 184, 0.34);
-  --text-primary: #edf3fb;
-  --text-secondary: #c3d2e5;
-  --text-tertiary: #8fa6c1;
-  --text-faint: #8095ad;
-  --accent: #72b5ff;
-  --accent-dim: #5da6f5;
-  --accent-soft: rgba(114, 181, 255, 0.16);
-  --accent-border: rgba(114, 181, 255, 0.26);
-  --accent-glow: rgba(114, 181, 255, 0.18);
-  --selection: rgba(114, 181, 255, 0.26);
-}
-
 * {
   box-sizing: border-box;
 }
@@ -163,20 +123,6 @@ body {
     radial-gradient(circle at 95% 15%, rgba(169, 151, 255, 0.1), transparent 28rem),
     var(--bg-canvas-deep);
   background-size: 56px 56px, 56px 56px, auto, auto, auto;
-}
-
-[data-surface="standard"] body {
-  background:
-    radial-gradient(circle at top left, rgba(47, 140, 255, 0.12), transparent 28%),
-    radial-gradient(circle at 85% 18%, rgba(108, 182, 255, 0.1), transparent 24%),
-    linear-gradient(180deg, var(--bg-canvas) 0%, #f7fbff 100%);
-}
-
-[data-theme="dark"][data-surface="standard"] body {
-  background:
-    radial-gradient(circle at top left, rgba(114, 181, 255, 0.14), transparent 30%),
-    radial-gradient(circle at 86% 18%, rgba(80, 130, 210, 0.1), transparent 26%),
-    linear-gradient(180deg, var(--bg-canvas) 0%, var(--bg-canvas-deep) 100%);
 }
 
 a {
@@ -805,7 +751,7 @@ a {
   font-size: 0.86rem;
   color: var(--text-tertiary);
   border-left: 2px solid transparent;
-  transition: all 200ms ease;
+  transition: color 200ms ease, border-color 200ms ease;
   text-decoration: none;
 }
 
@@ -838,7 +784,7 @@ a {
   background: var(--bg-surface);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 200ms ease;
+  transition: transform 200ms ease, color 200ms ease, border-color 200ms ease, background-color 200ms ease;
 }
 
 .pagination-btn:hover:not(:disabled) {
