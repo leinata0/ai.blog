@@ -20,6 +20,12 @@ services:
       # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       - key: FIELD_ENCRYPTION_KEY
         sync: false
+      # Comma-separated extensions for custom OpenAI-compatible gateways.
+      # Built-in provider hosts and key variable names are allowed automatically.
+      - key: AI_PROVIDER_ALLOWED_BASE_URL_HOSTS
+        sync: false
+      - key: AI_PROVIDER_ALLOWED_KEY_ENV_VARS
+        sync: false
       # Honor the X-Forwarded-For hop appended by Render. CF-Connecting-IP stays
       # disabled unless direct origin access is separately restricted.
       - key: TRUST_PROXY_HEADERS

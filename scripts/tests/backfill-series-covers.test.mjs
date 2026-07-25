@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { parseSeriesCoverArgs } from '../backfill-series-covers.mjs'
+import { parseSeriesCoverArgs, seriesBackfillExitCode } from '../backfill-series-covers.mjs'
 
 test('parseSeriesCoverArgs parses and bounds values', () => {
   const parsed = parseSeriesCoverArgs(['--dry-run', '--force', '--limit=999', '--offset=7'])
@@ -11,3 +11,7 @@ test('parseSeriesCoverArgs parses and bounds values', () => {
   assert.equal(parsed.offset, 7)
 })
 
+test('seriesBackfillExitCode fails the workflow when any item failed', () => {
+  assert.equal(seriesBackfillExitCode({ failed_count: 0 }), 0)
+  assert.equal(seriesBackfillExitCode({ failed_count: 2 }), 1)
+})

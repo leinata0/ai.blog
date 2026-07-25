@@ -2,17 +2,31 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 const ThemeContext = createContext()
 
-export function ThemeProvider({ children }) {
-  const [dark, setDark] = useState(() => {
-    if (typeof window === 'undefined') return false
-    const saved = localStorage.getItem('theme')
+function readInitialDarkMode() {
+  if (typeof window === 'undefined') return false
+  try {
+    const saved = window.localStorage.getItem('theme')
     if (saved) return saved === 'dark'
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-  })
+  } catch {
+    // Storage can be blocked by browser privacy or embedding policies.
+  }
+  try {
+    return Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches)
+  } catch {
+    return false
+  }
+}
+
+export function ThemeProvider({ children }) {
+  const [dark, setDark] = useState(readInitialDarkMode)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
-    localStorage.setItem('theme', dark ? 'dark' : 'light')
+    try {
+      window.localStorage.setItem('theme', dark ? 'dark' : 'light')
+    } catch {
+      // The theme still works in memory when persistence is unavailable.
+    }
   }, [dark])
 
   const toggleTheme = useCallback(() => {

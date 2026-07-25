@@ -25,7 +25,7 @@ from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.http_cache import build_public_cache_control, public_json_response, public_text_response
 from app.models import Post, Series, SiteSettings, Tag
 from app.rate_limit import limiter
-from app.routers.admin import router as admin_router
+from app.routers.admin import fail_orphaned_generation_jobs, router as admin_router
 from app.routers.home import (
     build_home_modules_payload,
     build_lightweight_home_modules_payload,
@@ -58,6 +58,7 @@ READINESS_TIMEOUT_SECONDS = 2.0
 @asynccontextmanager
 async def lifespan(app):
     initialize_runtime(seed_on_empty=AUTO_SEED_ON_EMPTY)
+    fail_orphaned_generation_jobs()
     yield
     aclose = getattr(_http_client, "aclose", None)
     if aclose is not None:
@@ -331,6 +332,12 @@ async def proxy_image(request: Request, url: str = Query(..., min_length=8)):
             return Response(status_code=400, content="Invalid URL")
         try:
             async with _http_client.stream("GET", current_url) as resp:
+                # Fail closed when the transport cannot prove which peer accepted
+                # the connection. A DNS pre-check alone leaves a rebinding gap.
+                peer_ip = _connected_peer_ip(resp)
+                if peer_ip is None or _ip_is_blocked(peer_ip):
+                    return Response(status_code=400, content="Invalid URL")
+
                 if resp.status_code in PROXY_REDIRECT_STATUSES:
                     if redirect_count >= MAX_PROXY_REDIRECTS:
                         return Response(status_code=502, content="Upstream image unavailable")
@@ -343,10 +350,6 @@ async def proxy_image(request: Request, url: str = Query(..., min_length=8)):
                 # DNS rebinding guard: the pre-fetch check resolved the hostname,
                 # but httpx resolved again to connect. Reject if the IP we actually
                 # reached is private/loopback/etc.
-                peer_ip = _connected_peer_ip(resp)
-                if peer_ip is not None and _ip_is_blocked(peer_ip):
-                    return Response(status_code=400, content="Invalid URL")
-
                 content_type = resp.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                 content_length = resp.headers.get("content-length")
                 if content_length:

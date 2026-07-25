@@ -5,7 +5,12 @@ import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { buildTopicMetadataPayload } from './auto-blog.mjs'
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  fetchAdminPostsByOffset,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+} from './lib/blog-api.mjs'
 import {
   generateTopicCoverViaAdminJob,
   imageGenerationJobImageUrl,
@@ -136,23 +141,12 @@ async function getAdminToken() {
 }
 
 async function fetchAdminPosts(token, { limit, offset }) {
-  const candidates = [
-    `${BLOG_API_BASE}/api/admin/posts?limit=${limit}&offset=${offset}`,
-    `${BLOG_API_BASE}/api/admin/posts?limit=${limit}&skip=${offset}`,
-  ]
-  for (const url of candidates) {
-    const resp = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!resp.ok) {
-      if (resp.status === 404 || resp.status === 405) continue
-      throw new Error(`Fetch posts failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-    }
-    const data = await resp.json()
-    const items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : data?.posts || [])
-    return Array.isArray(items) ? items : []
-  }
-  return []
+  return fetchAdminPostsByOffset({
+    blogApiBase: BLOG_API_BASE,
+    token,
+    limit,
+    offset,
+  })
 }
 
 async function fetchExistingTopicMetadata(token, postId) {

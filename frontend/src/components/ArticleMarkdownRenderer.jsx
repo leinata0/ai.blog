@@ -15,7 +15,6 @@ function flattenToText(children) {
 
 function MarkdownImage({ src, alt, title }) {
   const [visible, setVisible] = useState(true)
-  const canFallbackToOriginal = /^https?:\/\//i.test(src || '')
 
   useEffect(() => {
     setVisible(true)
@@ -45,14 +44,7 @@ function MarkdownImage({ src, alt, title }) {
         loading="lazy"
         referrerPolicy="no-referrer"
         className="block h-auto w-full object-cover"
-        onError={(event) => {
-          if (canFallbackToOriginal && event.currentTarget.dataset.fallbackAttempted !== 'true' && proxyImageUrl(src) !== src) {
-            event.currentTarget.dataset.fallbackAttempted = 'true'
-            event.currentTarget.setAttribute('src', src)
-            return
-          }
-          setVisible(false)
-        }}
+        onError={() => setVisible(false)}
       />
     </span>
   )

@@ -144,6 +144,12 @@ def download_public_image_bytes(
                 raise ValueError("image url is not a public http(s) address")
             try:
                 with client.stream("GET", current_url) as resp:
+                    peer_ip = connected_peer_ip(resp)
+                    if peer_ip is None:
+                        raise ValueError("unable to verify connected peer")
+                    if is_blocked_ip(peer_ip):
+                        raise ValueError("connected peer is not a public address")
+
                     if resp.status_code in REDIRECT_STATUSES:
                         location = (resp.headers.get("location") or "").strip()
                         if not location:
@@ -151,10 +157,6 @@ def download_public_image_bytes(
                         # Absolute or relative redirect target
                         current_url = str(resp.url.join(location))
                         continue
-
-                    peer_ip = connected_peer_ip(resp)
-                    if peer_ip is not None and is_blocked_ip(peer_ip):
-                        raise ValueError("connected peer is not a public address")
 
                     content_type = (
                         (resp.headers.get("content-type") or "").split(";", 1)[0].strip().lower()

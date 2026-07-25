@@ -973,6 +973,7 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
         )
         db.add(ViewLog(post_id=post.id, ip_address=client_ip))
         db.commit()
+        db.refresh(post, attribute_names=["view_count"])
 
     series = None
     if (post.series_slug or "").strip():

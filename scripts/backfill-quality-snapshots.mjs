@@ -4,7 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
 import { buildQualitySnapshotPayload } from './auto-blog.mjs'
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  fetchAdminPostsByOffset,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+} from './lib/blog-api.mjs'
 
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
@@ -158,6 +163,9 @@ export function inferReferenceMetrics(post) {
 
 export function buildBackfillGate(post) {
   const contentMd = String(post?.content_md || '')
+  if (!contentMd.trim()) {
+    throw new Error('Cannot backfill quality snapshot without complete content_md')
+  }
   const inferred = inferReferenceMetrics(post)
   const sourceCount = Math.max(Number(post?.source_count || 0), inferred.sourceCount)
   const highQualitySourceCount = Math.max(
@@ -197,25 +205,35 @@ async function getAdminToken() {
 }
 
 async function fetchAdminPosts(token, { limit, offset }) {
-  const page = Math.floor(offset / limit) + 1
-  const candidates = [
-    `${BLOG_API_BASE}/api/admin/posts?page=${page}&page_size=${limit}`,
-    `${BLOG_API_BASE}/api/admin/posts?limit=${limit}&offset=${offset}`,
-    `${BLOG_API_BASE}/api/admin/posts?limit=${limit}&skip=${offset}`,
-  ]
-  for (const url of candidates) {
-    const resp = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!resp.ok) {
-      if (resp.status === 404 || resp.status === 405) continue
-      throw new Error(`Fetch posts failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-    }
-    const data = await resp.json()
-    const items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : data?.posts || [])
-    return Array.isArray(items) ? items : []
+  return fetchAdminPostsByOffset({
+    blogApiBase: BLOG_API_BASE,
+    token,
+    limit,
+    offset,
+  })
+}
+
+async function fetchAdminPostDetail(token, postId) {
+  const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${postId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!resp.ok) {
+    throw new Error(`Fetch post detail failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
-  return []
+  return resp.json()
+}
+
+async function fetchExistingQualitySnapshot(token, postId) {
+  const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${postId}/quality`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000),
+  })
+  if (!resp.ok) {
+    throw new Error(`Fetch post quality failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
+  }
+  const data = await resp.json()
+  return data?.quality_snapshot || null
 }
 
 async function upsertQualitySnapshot(token, payload) {
@@ -258,21 +276,27 @@ export async function runBackfillQualitySnapshots(options = {}) {
     offset: Number.isFinite(Number(options.offset)) ? Number(options.offset) : 0,
     maxPages: Number.isFinite(Number(options.maxPages)) ? Number(options.maxPages) : 20,
   }
-  const token = await getAdminToken()
+  const getTokenImpl = options.getAdminTokenImpl || getAdminToken
+  const fetchPostsImpl = options.fetchAdminPostsImpl || fetchAdminPosts
+  const fetchPostDetailImpl = options.fetchAdminPostDetailImpl || fetchAdminPostDetail
+  const fetchQualitySnapshotImpl = options.fetchExistingQualitySnapshotImpl || fetchExistingQualitySnapshot
+  const upsertQualitySnapshotImpl = options.upsertQualitySnapshotImpl || upsertQualitySnapshot
+  const token = await getTokenImpl()
   const processed = []
 
   for (let page = 0; page < args.maxPages; page += 1) {
     const currentOffset = args.offset + page * args.limit
-    const posts = await fetchAdminPosts(token, { limit: args.limit, offset: currentOffset })
+    const posts = await fetchPostsImpl(token, { limit: args.limit, offset: currentOffset })
     if (!posts.length) break
 
-    for (const post of posts) {
-      const postId = Number(post?.id)
+    for (const postSummary of posts) {
+      const postId = Number(postSummary?.id)
       if (!Number.isFinite(postId)) continue
-      if (!args.force && post?.quality_snapshot) {
+      if (!args.force && await fetchQualitySnapshotImpl(token, postId)) {
         processed.push({ post_id: postId, status: 'skipped_existing' })
         continue
       }
+      const post = await fetchPostDetailImpl(token, postId)
       const metadata = {
         content_type: String(post?.content_type || 'post').trim(),
         topic_key: String(post?.topic_key || '').trim(),
@@ -292,7 +316,7 @@ export async function runBackfillQualitySnapshots(options = {}) {
         processed.push({ post_id: postId, status: 'dry_run', quality_snapshot: payload.quality_snapshot })
         continue
       }
-      const result = await upsertQualitySnapshot(token, payload)
+      const result = await upsertQualitySnapshotImpl(token, payload)
       processed.push({
         post_id: postId,
         status: result.ok ? 'updated' : 'skipped',

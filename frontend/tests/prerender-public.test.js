@@ -5,6 +5,29 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
+
+describe('prerender configuration', () => {
+  it('fails the build when no prerender API is configured', async () => {
+    vi.stubEnv('PRERENDER_API_BASE', '')
+    vi.stubEnv('VITE_API_BASE', '')
+    vi.stubEnv('SKIP_PRERENDER', '')
+    const { main } = await import('../scripts/prerender-public.mjs')
+
+    await expect(main()).rejects.toThrow('PRERENDER_API_BASE or VITE_API_BASE is required')
+  })
+
+  it('only skips prerendering through the explicit opt-out', async () => {
+    vi.stubEnv('PRERENDER_API_BASE', '')
+    vi.stubEnv('VITE_API_BASE', '')
+    vi.stubEnv('SKIP_PRERENDER', '1')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { main } = await import('../scripts/prerender-public.mjs')
+
+    await expect(main()).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('explicitly skipped'))
+  })
 })
 
 describe('loadHomeBootstrap', () => {
@@ -17,10 +40,12 @@ describe('loadHomeBootstrap', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        status: 200,
         json: async () => ({ site_name: 'AI 资讯观察' }),
       })
       .mockResolvedValueOnce({
         ok: true,
+        status: 200,
         json: async () => ({ items: [{ slug: 'hello-world' }] }),
       })
 
@@ -45,6 +70,44 @@ describe('loadHomeBootstrap', () => {
     )
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(fetchMock.mock.calls.some(([url]) => url.includes('/api/home/modules'))).toBe(false)
+  })
+})
+
+describe('fetchWithRetry', () => {
+  it('retries transient network failures and 5xx responses', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce({
+        status: 503,
+        body: { cancel: vi.fn() },
+      })
+      .mockResolvedValueOnce({ status: 200 })
+    const waitMock = vi.fn()
+    const { fetchWithRetry } = await import('../scripts/prerender-public.mjs')
+
+    await expect(fetchWithRetry('https://api.example.com/health', {}, {
+      attempts: 3,
+      fetchImpl: fetchMock,
+      waitImpl: waitMock,
+    })).resolves.toEqual({ status: 200 })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(waitMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry deterministic 4xx responses', async () => {
+    const response = { status: 404 }
+    const fetchMock = vi.fn().mockResolvedValue(response)
+    const waitMock = vi.fn()
+    const { fetchWithRetry } = await import('../scripts/prerender-public.mjs')
+
+    await expect(fetchWithRetry('https://api.example.com/missing', {}, {
+      attempts: 3,
+      fetchImpl: fetchMock,
+      waitImpl: waitMock,
+    })).resolves.toBe(response)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(waitMock).not.toHaveBeenCalled()
   })
 })
 

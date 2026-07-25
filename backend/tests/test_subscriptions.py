@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from app.models import EmailSubscription, PostNotificationDispatch, WebPushSubscription
+from app.models import EmailSubscription, Post, PostNotificationDispatch, WebPushSubscription
 from app.notifications import send_subscription_confirmation_email
 from app.subscription_tokens import SUBSCRIBE_PURPOSE, issue_subscription_token
 
@@ -155,6 +155,55 @@ def test_manual_post_dispatches_email_notification(client, db_session, monkeypat
     assert dispatch.email_sent_at is not None
 
 
+def test_failed_email_dispatch_retries_only_failed_recipients(client, db_session, monkeypatch):
+    from app.notifications import _dispatch_post_notifications
+
+    monkeypatch.setenv("RESEND_API_KEY", "resend_test")
+    monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
+    recipients = [
+        EmailSubscription(email="ok@example.com", is_active=True),
+        EmailSubscription(email="retry@example.com", is_active=True),
+    ]
+    db_session.add_all(recipients)
+    db_session.commit()
+    post = Post(
+        title="Retry delivery",
+        slug="retry-delivery",
+        summary="Retry only failed recipients.",
+        content_md="content",
+        is_published=True,
+    )
+    db_session.add(post)
+    db_session.commit()
+
+    calls = []
+    retry_should_fail = True
+
+    def _send(email, _post, _site_url):
+        nonlocal retry_should_fail
+        calls.append(email)
+        if email == "retry@example.com" and retry_should_fail:
+            retry_should_fail = False
+            raise RuntimeError("temporary outage")
+
+    monkeypatch.setattr("app.notifications._send_email_notification", _send)
+
+    _dispatch_post_notifications(db_session, post.id)
+    dispatch = db_session.query(PostNotificationDispatch).filter_by(post_id=post.id).one()
+    assert dispatch.email_sent_at is None
+    assert dispatch.email_recipient_count == 1
+    assert "email_pending_ids" in dispatch.last_error
+    assert "retry@example.com" not in dispatch.last_error
+
+    _dispatch_post_notifications(db_session, post.id)
+    db_session.refresh(dispatch)
+    assert calls.count("ok@example.com") == 1
+    assert calls.count("retry@example.com") == 2
+    assert dispatch.email_recipient_count == 2
+    assert dispatch.email_sent_at is not None
+    assert dispatch.last_error == ""
+
+
 def test_auto_post_dispatches_after_publishing_metadata(client, db_session, monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "resend_test")
     monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
@@ -220,6 +269,68 @@ def test_auto_post_dispatches_after_publishing_metadata(client, db_session, monk
     assert sent_emails == [("reader@example.com", "auto-daily-subscription-alert")]
 
     dispatch = db_session.query(PostNotificationDispatch).filter_by(post_id=create_resp.json()["id"]).one()
+    assert dispatch.email_recipient_count == 1
+
+
+def test_staged_auto_post_dispatches_only_after_final_publish(client, db_session, monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "resend_test")
+    monkeypatch.setenv("EMAIL_FROM", "AI 资讯观察 <noreply@example.com>")
+    sent_emails = []
+    confirmations = _capture_confirmations(monkeypatch)
+    monkeypatch.setattr(
+        "app.notifications._send_email_notification",
+        lambda email, post, site_url: sent_emails.append((email, post.slug)),
+    )
+    _subscribe_and_confirm(
+        client,
+        confirmations,
+        {"email": "reader@example.com", "content_types": ["daily_brief"]},
+    )
+
+    token = _login(client)
+    create_resp = client.post(
+        "/api/admin/posts",
+        headers=_auth(token),
+        json={
+            "title": "分阶段自动发布提醒测试",
+            "slug": "staged-auto-subscription-alert",
+            "summary": "验证桥接成功之前保持草稿。",
+            "content_md": "## 内容\n\n用于分阶段自动发文测试。",
+            "content_type": "daily_brief",
+            "published_mode": "auto",
+            "is_published": False,
+            "tags": [],
+        },
+    )
+    assert create_resp.status_code == 200
+
+    metadata_resp = client.post(
+        "/api/admin/publishing-metadata",
+        headers=_auth(token),
+        json={
+            "post_id": create_resp.json()["id"],
+            "metadata": {"series_slug": "ai-daily-brief", "source_count": 1},
+            "sources": [],
+            "artifact": {
+                "workflow_key": "daily_auto",
+                "coverage_date": "2026-04-17",
+            },
+        },
+    )
+    assert metadata_resp.status_code == 200
+    assert sent_emails == []
+
+    publish_resp = client.put(
+        f"/api/admin/posts/{create_resp.json()['id']}",
+        headers=_auth(token),
+        json={"is_published": True},
+    )
+    assert publish_resp.status_code == 200
+    assert sent_emails == [("reader@example.com", "staged-auto-subscription-alert")]
+
+    dispatch = db_session.query(PostNotificationDispatch).filter_by(
+        post_id=create_resp.json()["id"]
+    ).one()
     assert dispatch.email_recipient_count == 1
 
 

@@ -1,3 +1,6 @@
+import { lookup as dnsLookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
+
 // Server-side fetches of third-party URLs (RSS <link>/<guid>, image candidates
 // parsed out of source pages, URLs pulled from already-published article bodies)
 // are an SSRF vector: the worker runs next to internal services and, by default,
@@ -41,7 +44,8 @@ function normalizeIPv6(host) {
 function isPrivateIPv6(host) {
   const value = normalizeIPv6(host)
   if (value === '::1' || value === '::') return true // loopback / unspecified
-  if (value.startsWith('fe80')) return true // link-local
+  const firstGroup = Number.parseInt(value.split(':')[0] || '0', 16)
+  if (Number.isFinite(firstGroup) && (firstGroup & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
   if (value.startsWith('fc') || value.startsWith('fd')) return true // unique-local
   // IPv4-mapped (::ffff:a.b.c.d) — re-check the embedded IPv4.
   const mappedDotted = /::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(value)
@@ -95,6 +99,27 @@ export function assertPublicHttpUrl(rawUrl) {
   }
   if (isPrivateIPv4(host) || isPrivateIPv6(parsed.hostname)) {
     throw new Error(`Unsafe URL: private or link-local address ${host}`)
+  }
+  return parsed
+}
+
+export async function assertPublicResolvedHttpUrl(rawUrl, {
+  lookupImpl = dnsLookup,
+} = {}) {
+  const parsed = assertPublicHttpUrl(rawUrl)
+  const host = parsed.hostname.includes(':') || parsed.hostname.startsWith('[')
+    ? normalizeIPv6(parsed.hostname)
+    : parsed.hostname.toLowerCase()
+  if (isIP(host)) return parsed
+
+  const records = await lookupImpl(host, { all: true, verbatim: true })
+  if (!Array.isArray(records) || records.length === 0) {
+    throw new Error(`Unsafe URL: hostname ${host} did not resolve`)
+  }
+  for (const record of records) {
+    if (!isPublicHttpHostname(record?.address)) {
+      throw new Error(`Unsafe URL: hostname ${host} resolves to non-public address ${record?.address || ''}`)
+    }
   }
   return parsed
 }

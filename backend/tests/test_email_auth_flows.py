@@ -312,10 +312,7 @@ def test_password_reset_request_does_not_reveal_whether_email_exists(
     reset_deliveries = [
         item for item in auth_mailbox if item["purpose"] == PASSWORD_RESET_PURPOSE
     ]
-    assert {item["email"] for item in reset_deliveries} == {
-        known_email,
-        unknown_email,
-    }
+    assert {item["email"] for item in reset_deliveries} == {known_email}
     assert db_session.get(AuthChallenge, known_body["challenge_id"]) is not None
     assert db_session.get(AuthChallenge, unknown_body["challenge_id"]) is not None
 

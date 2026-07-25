@@ -186,7 +186,7 @@ cd scripts && npm test                               # 脚本 node --test
 
 ### 前端（Vercel / 本地）
 
-`VITE_API_BASE` · `PUBLIC_SITE_URL` · `VITE_IMAGE_PROXY_BASE` · `VITE_IMAGE_DIRECT_BASES` · `VITE_ALLOW_CROSS_ORIGIN_API`（仅需跨域时）· `VITE_TURNSTILE_SITE_KEY`（Turnstile 公开 site key，需与后端 secret 配套）。
+`VITE_API_BASE` · `PRERENDER_API_BASE`（构建期必须可达；仅在明确不需要 SSG 时设置 `SKIP_PRERENDER=1`）· `PUBLIC_SITE_URL` · `VITE_IMAGE_PROXY_BASE` · `VITE_IMAGE_DIRECT_BASES` · `VITE_ALLOW_CROSS_ORIGIN_API`（仅需跨域时）· `VITE_TURNSTILE_SITE_KEY`（Turnstile 公开 site key，需与后端 secret 配套）。
 
 ### 脚本
 

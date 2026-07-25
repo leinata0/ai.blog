@@ -8,6 +8,7 @@ import {
   bridgeQualitySnapshot,
   bridgeTopicMetadata,
   fetchPublishedTopicKeys,
+  publishPost,
 } from '../auto-blog.mjs'
 import { findPostByExactSlug, publishArticle } from '../publish-article.mjs'
 
@@ -56,6 +57,89 @@ test('publishing bridges propagate write failures and reject missing post ids', 
   )
   await assert.rejects(bridgeQualitySnapshot('token', {}), /missing post_id/)
   await assert.rejects(bridgeTopicMetadata('token', {}), /missing post_id/)
+})
+
+test('publishPost stages a draft and later publishes the same admin post', async () => {
+  let storedPost = null
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url)
+    if (parsed.pathname === '/api/admin/posts' && (!options.method || options.method === 'GET')) {
+      return jsonResponse({
+        items: storedPost ? [storedPost] : [],
+        total: storedPost ? 1 : 0,
+      })
+    }
+    if (parsed.pathname === '/api/admin/posts' && options.method === 'POST') {
+      storedPost = { id: 41, ...JSON.parse(options.body) }
+      return jsonResponse(storedPost, { status: 201 })
+    }
+    if (parsed.pathname === '/api/admin/posts/41' && options.method === 'PUT') {
+      storedPost = { ...storedPost, ...JSON.parse(options.body) }
+      return jsonResponse(storedPost)
+    }
+    throw new Error(`Unexpected request: ${options.method || 'GET'} ${url}`)
+  }
+  const payload = {
+    title: 'Recoverable publication',
+    slug: 'recoverable-publication',
+    summary: 'summary',
+    content_md: 'body',
+    content_type: 'daily_brief',
+    topic_key: 'recovery',
+    published_mode: 'auto',
+    coverage_date: '2026-07-25',
+    tags: ['ai'],
+  }
+
+  const draft = await publishPost('token', payload, null, {
+    isPublished: false,
+    fetchImpl,
+  })
+  assert.equal(draft.is_published, false)
+
+  const published = await publishPost('token', payload, null, {
+    isPublished: true,
+    fetchImpl,
+  })
+  assert.equal(published.id, 41)
+  assert.equal(published.is_published, true)
+})
+
+test('publishPost does not unpublish an existing live post while staging a rerun', async () => {
+  const storedPost = {
+    id: 42,
+    slug: 'already-live',
+    title: 'Current live version',
+    is_published: true,
+  }
+  const writes = []
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url)
+    if (parsed.pathname === '/api/admin/posts' && (!options.method || options.method === 'GET')) {
+      return jsonResponse({ items: [storedPost], total: 1 })
+    }
+    writes.push({ url, options })
+    throw new Error('The staging call must not overwrite the live post')
+  }
+
+  const result = await publishPost('token', {
+    title: 'Replacement',
+    slug: 'already-live',
+    summary: 'summary',
+    content_md: 'replacement body',
+    content_type: 'daily_brief',
+    topic_key: 'rerun',
+    published_mode: 'auto',
+    coverage_date: '2026-07-25',
+    tags: [],
+  }, null, {
+    isPublished: false,
+    fetchImpl,
+  })
+
+  assert.equal(result.id, 42)
+  assert.equal(result.is_published, true)
+  assert.deepEqual(writes, [])
 })
 
 test('findPostByExactSlug scans pages and returns only an exact slug match', async () => {

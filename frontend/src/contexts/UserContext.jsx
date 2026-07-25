@@ -85,8 +85,10 @@ export function UserProvider({ children }) {
       setUser(me)
       return me
     } catch {
-      clearUserToken()
-      setUser(null)
+      // The API client owns 401 handling: it clears the token and emits
+      // USER_UNAUTHORIZED_EVENT. Keep a valid token (and any current user)
+      // for transient network/5xx failures so a temporary outage does not
+      // turn into a forced logout.
       return null
     } finally {
       setLoading(false)

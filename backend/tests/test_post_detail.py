@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.models import Post, PostQualityReview, PostQualitySnapshot
+from app.models import Post, PostQualityReview, PostQualitySnapshot, ViewLog
 
 
 def test_get_post_detail_by_slug(client, seeded_db):
@@ -23,6 +23,20 @@ def test_get_post_detail_by_slug(client, seeded_db):
     assert isinstance(body["same_series_posts"], list)
     assert isinstance(body["same_topic_posts"], list)
     assert isinstance(body["same_week_posts"], list)
+
+
+def test_get_post_detail_returns_incremented_view_count(client, seeded_db):
+    post = seeded_db.execute(
+        select(Post).where(Post.slug == "python-automation-selenium-pandas")
+    ).scalar_one()
+    post.view_count = 41
+    seeded_db.query(ViewLog).filter(ViewLog.post_id == post.id).delete()
+    seeded_db.commit()
+
+    response = client.get(f"/api/posts/{post.slug}")
+
+    assert response.status_code == 200
+    assert response.json()["view_count"] == 42
 
 
 def test_get_post_detail_includes_quality_payload(client, seeded_db):

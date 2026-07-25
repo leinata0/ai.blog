@@ -1,4 +1,4 @@
-import { assertPublicHttpUrl, isPublicHttpUrl } from './url-guard.mjs'
+import { assertPublicResolvedHttpUrl, isPublicHttpUrl } from './url-guard.mjs'
 
 function absoluteUrl(baseUrl, candidate) {
   try {
@@ -112,7 +112,7 @@ function scoreCandidate(candidate, sectionHeading, topic, sourceItem = {}) {
 
 async function fetchPageHtml(url) {
   // url comes from third-party feed content; fail closed on non-public hosts (SSRF).
-  assertPublicHttpUrl(url)
+  await assertPublicResolvedHttpUrl(url)
   const resp = await fetch(url, {
     headers: { 'User-Agent': 'AutoBlogImagePicker/1.0' },
     signal: AbortSignal.timeout(15000),

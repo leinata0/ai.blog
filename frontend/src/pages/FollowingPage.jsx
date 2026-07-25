@@ -16,8 +16,24 @@ import { fetchCloudTopics, fetchCloudHistory } from '../api/user'
 import { useUser } from '../contexts/UserContext'
 import { motionContainerVariants, motionItemVariants } from '../utils/contentPresentation'
 
+function deriveRecentTopics(items) {
+  const seen = new Set()
+  const topics = []
+  for (const item of items) {
+    if (!item.topic_key || seen.has(item.topic_key)) continue
+    seen.add(item.topic_key)
+    topics.push({
+      topic_key: item.topic_key,
+      display_title: item.topic_display_title || item.topic_key,
+      latest_post_at: item.visited_at,
+    })
+  }
+  return topics.slice(0, 6)
+}
+
 export default function FollowingPage() {
   const { user } = useUser()
+  const userKey = user?.id ?? user?.email ?? null
   const [followedTopics, setFollowedTopics] = useState([])
   const [recentTopics, setRecentTopics] = useState([])
   const [historyItems, setHistoryItems] = useState([])
@@ -27,37 +43,43 @@ export default function FollowingPage() {
   }, [])
 
   useEffect(() => {
-    if (user) {
-      // Logged in: read the cloud-synced data (cross-device).
-      fetchCloudTopics().then(setFollowedTopics).catch(() => setFollowedTopics(getFollowedTopics()))
-      fetchCloudHistory()
-        .then((items) => {
-          setHistoryItems(items)
-          // derive recent topics from history order
-          const seen = new Set()
-          const topics = []
-          for (const item of items) {
-            if (!item.topic_key || seen.has(item.topic_key)) continue
-            seen.add(item.topic_key)
-            topics.push({
-              topic_key: item.topic_key,
-              display_title: item.topic_display_title || item.topic_key,
-              latest_post_at: item.visited_at,
-            })
-          }
-          setRecentTopics(topics.slice(0, 6))
-        })
-        .catch(() => {
-          setHistoryItems(getContinueReadingItems())
-          setRecentTopics(getRecentTopics())
-        })
-    } else {
-      // Anonymous: browser-local data.
-      setFollowedTopics(getFollowedTopics())
-      setRecentTopics(getRecentTopics())
-      setHistoryItems(getContinueReadingItems())
+    let cancelled = false
+    const localTopics = getFollowedTopics()
+    const localRecentTopics = getRecentTopics()
+    const localHistory = getContinueReadingItems()
+
+    // Reset immediately when the account identity changes so data from the
+    // previous account cannot remain visible while the next request is pending.
+    setFollowedTopics(localTopics)
+    setRecentTopics(localRecentTopics)
+    setHistoryItems(localHistory)
+
+    if (!userKey) {
+      return () => {
+        cancelled = true
+      }
     }
-  }, [user])
+
+    // These requests are independent. Resolve them together and only commit
+    // if this effect still belongs to the current account.
+    Promise.allSettled([fetchCloudTopics(), fetchCloudHistory()])
+      .then(([topicsResult, historyResult]) => {
+        if (cancelled) return
+        const nextTopics = topicsResult.status === 'fulfilled' ? topicsResult.value : localTopics
+        const nextHistory = historyResult.status === 'fulfilled' ? historyResult.value : localHistory
+        setFollowedTopics(nextTopics)
+        setHistoryItems(nextHistory)
+        setRecentTopics(
+          historyResult.status === 'fulfilled'
+            ? deriveRecentTopics(nextHistory)
+            : localRecentTopics,
+        )
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [userKey])
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>

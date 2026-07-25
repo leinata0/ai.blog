@@ -135,7 +135,7 @@ it('renders markdown images with proxy and lazy loading', async () => {
   expect(articleImage).toHaveAttribute('src', proxyImageUrl('https://example.com/markdown.jpg'))
 })
 
-it('falls back to the original markdown image when the proxy fails', async () => {
+it('does not bypass the image proxy when a markdown image fails', async () => {
   render(
     <MemoryRouter>
       <ThemeProvider>
@@ -147,7 +147,13 @@ it('falls back to the original markdown image when the proxy fails', async () =>
   const articleImage = await screen.findByRole('img', { name: 'Example image' })
   fireEvent.error(articleImage)
   await waitFor(() => {
-    expect(screen.getByRole('img', { name: 'Example image' })).toHaveAttribute('src', 'https://example.com/markdown.jpg')
+    const remainingImage = screen.queryByRole('img', { name: 'Example image' })
+    if (remainingImage) {
+      expect(remainingImage).toHaveAttribute('src', proxyImageUrl('https://example.com/markdown.jpg'))
+      expect(remainingImage).not.toHaveAttribute('src', 'https://example.com/markdown.jpg')
+    } else {
+      expect(screen.getByRole('status')).toHaveTextContent('图片暂时无法加载：Example image')
+    }
   })
 })
 

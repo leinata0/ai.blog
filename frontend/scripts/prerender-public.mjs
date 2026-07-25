@@ -14,6 +14,14 @@ const PRERENDER_FETCH_CONCURRENCY = Math.max(
   1,
   Number.parseInt(process.env.PRERENDER_FETCH_CONCURRENCY || '8', 10) || 8,
 )
+const PRERENDER_FETCH_ATTEMPTS = Math.max(
+  1,
+  Math.min(5, Number.parseInt(process.env.PRERENDER_FETCH_ATTEMPTS || '3', 10) || 3),
+)
+const PRERENDER_FETCH_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.PRERENDER_FETCH_TIMEOUT_MS || '30000', 10) || 30000,
+)
 
 const SITE_TITLE = 'AI 资讯观察'
 const HOME_TITLE = '持续更新 AI 最新动态与关键变化的中文博客'
@@ -52,6 +60,10 @@ const PRERENDER_STYLE = `
 
 function normalizeUrl(value, fallback = '') {
   return String(value || fallback || '').trim().replace(/\/$/, '')
+}
+
+function envFlag(value) {
+  return /^(1|true|yes)$/i.test(String(value || '').trim())
 }
 
 function escapeHtml(value) {
@@ -128,8 +140,39 @@ export async function mapWithConcurrency(items, concurrency, mapper) {
   return results
 }
 
+function wait(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs))
+}
+
+export async function fetchWithRetry(url, init = {}, {
+  attempts = PRERENDER_FETCH_ATTEMPTS,
+  fetchImpl = fetch,
+  waitImpl = wait,
+} = {}) {
+  let lastError = null
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, {
+        ...init,
+        signal: init.signal || AbortSignal.timeout(PRERENDER_FETCH_TIMEOUT_MS),
+      })
+      if (response.status !== 429 && response.status < 500) {
+        return response
+      }
+      lastError = new Error(`Transient prerender response: ${response.status}`)
+      await response.body?.cancel?.()
+    } catch (error) {
+      lastError = error
+    }
+    if (attempt < attempts) {
+      await waitImpl(250 * (2 ** (attempt - 1)))
+    }
+  }
+  throw lastError || new Error(`Failed to fetch ${url}`)
+}
+
 async function fetchJson(apiBase, path) {
-  const response = await fetch(`${apiBase}${path}`, {
+  const response = await fetchWithRetry(`${apiBase}${path}`, {
     headers: {
       Accept: 'application/json',
       'User-Agent': 'blog-prerender/1.0',
@@ -142,7 +185,7 @@ async function fetchJson(apiBase, path) {
 }
 
 async function fetchJsonWithStatus(apiBase, path) {
-  const response = await fetch(`${apiBase}${path}`, {
+  const response = await fetchWithRetry(`${apiBase}${path}`, {
     headers: {
       Accept: 'application/json',
       'User-Agent': 'blog-prerender/1.0',
@@ -525,15 +568,21 @@ function renderPostDetailPage(template, post, siteUrl) {
 }
 
 export async function main() {
-  const template = await readFile(templatePath, 'utf8')
+  if (envFlag(process.env.SKIP_PRERENDER)) {
+    console.warn('[prerender] explicitly skipped because SKIP_PRERENDER is enabled.')
+    return
+  }
+
   const apiBase = normalizeUrl(process.env.PRERENDER_API_BASE || process.env.VITE_API_BASE || '')
   const siteUrl = normalizeUrl(process.env.PUBLIC_SITE_URL || 'https://www.563118077.xyz')
 
   if (!apiBase) {
-    console.warn('[prerender] skipped because PRERENDER_API_BASE or VITE_API_BASE is not configured.')
-    return
+    throw new Error(
+      'PRERENDER_API_BASE or VITE_API_BASE is required. Set SKIP_PRERENDER=1 only for an intentional non-SSG build.',
+    )
   }
 
+  const template = await readFile(templatePath, 'utf8')
   console.log(`[prerender] using api base ${apiBase}`)
   console.log(`[prerender] detail fetch concurrency ${PRERENDER_FETCH_CONCURRENCY}`)
 

@@ -72,6 +72,7 @@ def test_proxy_image_returns_successful_image(client, monkeypatch):
         FakeStreamResponse(
             headers={"content-type": "image/png"},
             chunks=[b"image-bytes"],
+            peer_ip="93.184.216.34",
         )
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
@@ -94,6 +95,7 @@ def test_proxy_image_rejects_non_image_upstream(client, monkeypatch):
         FakeStreamResponse(
             headers={"content-type": "text/html"},
             chunks=[b"<html></html>"],
+            peer_ip="93.184.216.34",
         )
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
@@ -114,6 +116,7 @@ def test_proxy_image_rejects_declared_oversize_image(client, monkeypatch):
             "content-length": str(main_mod.MAX_PROXY_IMAGE_BYTES + 1),
         },
         chunks=[b"not-read"],
+        peer_ip="93.184.216.34",
     )
     fake_client = FakeHttpClient([upstream])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
@@ -133,6 +136,7 @@ def test_proxy_image_rejects_streamed_oversize_image(client, monkeypatch):
         FakeStreamResponse(
             headers={"content-type": "image/png"},
             chunks=[b"x" * main_mod.MAX_PROXY_IMAGE_BYTES, b"x"],
+            peer_ip="93.184.216.34",
         )
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
@@ -148,7 +152,11 @@ def test_proxy_image_rejects_redirect_to_private_host(client, monkeypatch):
     import app.main as main_mod
 
     fake_client = FakeHttpClient([
-        FakeStreamResponse(status_code=302, headers={"location": "http://127.0.0.1/private.png"}),
+        FakeStreamResponse(
+            status_code=302,
+            headers={"location": "http://127.0.0.1/private.png"},
+            peer_ip="93.184.216.34",
+        ),
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
     monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: hostname == "127.0.0.1")
@@ -164,8 +172,16 @@ def test_proxy_image_allows_redirect_to_public_image(client, monkeypatch):
     import app.main as main_mod
 
     fake_client = FakeHttpClient([
-        FakeStreamResponse(status_code=302, headers={"location": "/cdn/image.png"}),
-        FakeStreamResponse(headers={"content-type": "image/png"}, chunks=[b"redirect-image"]),
+        FakeStreamResponse(
+            status_code=302,
+            headers={"location": "/cdn/image.png"},
+            peer_ip="93.184.216.34",
+        ),
+        FakeStreamResponse(
+            headers={"content-type": "image/png"},
+            chunks=[b"redirect-image"],
+            peer_ip="93.184.216.34",
+        ),
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
     monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
@@ -194,6 +210,24 @@ def test_proxy_image_rejects_rebinding_to_private_peer(client, monkeypatch):
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
     # Pre-fetch DNS check passes (attacker's name still resolves public here).
+    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
+
+    response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})
+
+    assert response.status_code == 400
+    assert response.text == "Invalid URL"
+
+
+def test_proxy_image_rejects_when_connected_peer_cannot_be_verified(client, monkeypatch):
+    import app.main as main_mod
+
+    fake_client = FakeHttpClient([
+        FakeStreamResponse(
+            headers={"content-type": "image/png"},
+            chunks=[b"must-not-be-served"],
+        )
+    ])
+    monkeypatch.setattr(main_mod, "_http_client", fake_client)
     monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
 
     response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})

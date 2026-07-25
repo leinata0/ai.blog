@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from datetime import datetime, timezone
@@ -223,15 +224,20 @@ def _build_email_subject(post: Post) -> str:
 def _build_email_html(post: Post, site_url: str) -> str:
     post_url = _build_post_url(site_url, post)
     feed_url = f"{site_url}/feeds"
+    safe_title = escape(post.title or "")
+    safe_summary = escape(_trim_text(post.summary, 220))
+    safe_post_url = escape(post_url, quote=True)
+    safe_site_url = escape(site_url, quote=True)
+    safe_feed_url = escape(feed_url, quote=True)
     return f"""
     <div style="font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;line-height:1.7;color:#0f172a;padding:24px;background:#f8fbff">
       <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:18px;padding:32px;border:1px solid #dbeafe">
         <div style="font-size:12px;letter-spacing:0.08em;color:#2563eb;font-weight:700;">{_content_type_label(post.content_type)}</div>
-        <h1 style="font-size:28px;line-height:1.3;margin:12px 0 16px;">{post.title}</h1>
-        <p style="font-size:15px;color:#334155;margin:0 0 20px;">{_trim_text(post.summary, 220)}</p>
-        <a href="{post_url}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:999px;font-weight:700;">阅读全文</a>
+        <h1 style="font-size:28px;line-height:1.3;margin:12px 0 16px;">{safe_title}</h1>
+        <p style="font-size:15px;color:#334155;margin:0 0 20px;">{safe_summary}</p>
+        <a href="{safe_post_url}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:999px;font-weight:700;">阅读全文</a>
         <div style="margin-top:20px;font-size:13px;color:#64748b;">
-          也可以继续使用 <a href="{site_url}/feed.xml">RSS</a> 或访问 <a href="{feed_url}">订阅中心</a> 管理其他订阅方式。
+          也可以继续使用 <a href="{safe_site_url}/feed.xml">RSS</a> 或访问 <a href="{safe_feed_url}">订阅中心</a> 管理其他订阅方式。
         </div>
       </div>
     </div>
@@ -393,6 +399,21 @@ def dispatch_post_notifications_for_post(post_id: int) -> None:
         db.close()
 
 
+def _delivery_target_key(value: str) -> str:
+    """Stable non-secret identifier for retry state stored on the dispatch."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _load_delivery_state(raw: str | None) -> dict:
+    try:
+        parsed = json.loads(raw or "")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(parsed, dict) or parsed.get("version") != 1:
+        return {}
+    return parsed
+
+
 def _dispatch_post_notifications(db: Session, post_id: int) -> None:
     post = db.execute(select(Post).where(Post.id == post_id)).scalar_one_or_none()
     if post is None or not post.is_published:
@@ -407,6 +428,7 @@ def _dispatch_post_notifications(db: Session, post_id: int) -> None:
         db.flush()
 
     site_url = _site_url(db)
+    delivery_state = _load_delivery_state(dispatch.last_error)
     errors: list[str] = []
     now = datetime.now(timezone.utc)
 
@@ -414,7 +436,12 @@ def _dispatch_post_notifications(db: Session, post_id: int) -> None:
         recipients = db.execute(
             select(EmailSubscription).where(EmailSubscription.is_active == True)
         ).scalars().all()
+        previous_pending = delivery_state.get("email_pending_ids")
+        if isinstance(previous_pending, list):
+            pending_ids = {int(item) for item in previous_pending}
+            recipients = [item for item in recipients if item.id in pending_ids]
         sent_count = 0
+        failed_ids: list[int] = []
         for recipient in recipients:
             if not subscription_matches_preferences(
                 content_types_json=recipient.content_types_json,
@@ -429,27 +456,48 @@ def _dispatch_post_notifications(db: Session, post_id: int) -> None:
                 recipient.updated_at = now
                 sent_count += 1
             except Exception as exc:  # pragma: no cover - external delivery
-                errors.append(f"email:{recipient.email}:{exc}")
-        dispatch.email_recipient_count = sent_count
-        dispatch.email_sent_at = now
+                failed_ids.append(recipient.id)
+                errors.append(f"email:{recipient.id}:{exc}")
+        dispatch.email_recipient_count = (dispatch.email_recipient_count or 0) + sent_count
+        if failed_ids:
+            delivery_state["email_pending_ids"] = failed_ids
+        else:
+            delivery_state.pop("email_pending_ids", None)
+            dispatch.email_sent_at = now
 
     if wecom_delivery_ready() and dispatch.wecom_sent_at is None:
         urls = _get_wecom_webhook_urls()
+        previous_pending = delivery_state.get("wecom_pending_keys")
+        if isinstance(previous_pending, list):
+            pending_keys = {str(item) for item in previous_pending}
+            urls = [url for url in urls if _delivery_target_key(url) in pending_keys]
         sent_count = 0
+        failed_keys: list[str] = []
         for url in urls:
             try:
                 _send_wecom_notification(url, post, site_url)
                 sent_count += 1
             except Exception as exc:  # pragma: no cover - external delivery
-                errors.append(f"wecom:{url}:{exc}")
-        dispatch.wecom_target_count = sent_count
-        dispatch.wecom_sent_at = now
+                target_key = _delivery_target_key(url)
+                failed_keys.append(target_key)
+                errors.append(f"wecom:{target_key}:{exc}")
+        dispatch.wecom_target_count = (dispatch.wecom_target_count or 0) + sent_count
+        if failed_keys:
+            delivery_state["wecom_pending_keys"] = failed_keys
+        else:
+            delivery_state.pop("wecom_pending_keys", None)
+            dispatch.wecom_sent_at = now
 
     if web_push_delivery_ready() and dispatch.web_push_sent_at is None:
         subscriptions = db.execute(
             select(WebPushSubscription).where(WebPushSubscription.is_active == True)
         ).scalars().all()
+        previous_pending = delivery_state.get("web_push_pending_ids")
+        if isinstance(previous_pending, list):
+            pending_ids = {int(item) for item in previous_pending}
+            subscriptions = [item for item in subscriptions if item.id in pending_ids]
         sent_count = 0
+        failed_ids: list[int] = []
         for subscription in subscriptions:
             if not subscription_matches_preferences(
                 content_types_json=subscription.content_types_json,
@@ -466,10 +514,26 @@ def _dispatch_post_notifications(db: Session, post_id: int) -> None:
             except Exception as exc:  # pragma: no cover - external delivery
                 if "410" in str(exc) or "404" in str(exc):
                     subscription.is_active = False
-                errors.append(f"web_push:{subscription.endpoint[:60]}:{exc}")
-        dispatch.web_push_recipient_count = sent_count
-        dispatch.web_push_sent_at = now
+                else:
+                    failed_ids.append(subscription.id)
+                errors.append(f"web_push:{subscription.id}:{exc}")
+        dispatch.web_push_recipient_count = (dispatch.web_push_recipient_count or 0) + sent_count
+        if failed_ids:
+            delivery_state["web_push_pending_ids"] = failed_ids
+        else:
+            delivery_state.pop("web_push_pending_ids", None)
+            dispatch.web_push_sent_at = now
 
-    dispatch.last_error = "\n".join(errors[:12])
+    pending_keys = {
+        "email_pending_ids",
+        "wecom_pending_keys",
+        "web_push_pending_ids",
+    }
+    if pending_keys.intersection(delivery_state):
+        delivery_state["version"] = 1
+        delivery_state["messages"] = errors[:12]
+        dispatch.last_error = json.dumps(delivery_state, ensure_ascii=False)
+    else:
+        dispatch.last_error = ""
     dispatch.updated_at = now
     db.commit()

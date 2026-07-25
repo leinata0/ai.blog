@@ -87,6 +87,18 @@ describe('UserContext', () => {
     expect(mocks.clearUserToken).toHaveBeenCalled()
   })
 
+  it('preserves a valid token when session restoration fails transiently', async () => {
+    mocks.getUserToken.mockReturnValue('still-valid-token')
+    mocks.isUserTokenExpired.mockReturnValue(false)
+    mocks.fetchMe.mockRejectedValue(new Error('network down'))
+
+    render(<UserProvider><Consumer /></UserProvider>)
+
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'))
+    expect(screen.getByTestId('user').textContent).toBe('none')
+    expect(mocks.clearUserToken).not.toHaveBeenCalled()
+  })
+
   it('login sets the token, the user, and triggers local→cloud merge', async () => {
     mocks.getUserToken.mockReturnValue(null)
     mocks.isUserTokenExpired.mockReturnValue(true)

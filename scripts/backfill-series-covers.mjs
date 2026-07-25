@@ -121,9 +121,14 @@ export async function runBackfillSeriesCovers(options = {}) {
   }
 }
 
+export function seriesBackfillExitCode(report = {}) {
+  return Number(report?.failed_count || 0) > 0 ? 1 : 0
+}
+
 async function main() {
   const report = await runBackfillSeriesCovers(parseSeriesCoverArgs())
   console.log(JSON.stringify(report, null, 2))
+  process.exitCode = seriesBackfillExitCode(report)
 }
 
 const isMainModule = process.argv[1] ? resolve(process.argv[1]) === fileURLToPath(import.meta.url) : false

@@ -23,6 +23,20 @@ def test_new_user_starts_unverified(client):
     assert _register(client)["user"]["email_verified"] is False
 
 
+def test_verification_email_escapes_user_controlled_nickname():
+    from app.email_verification import _build_verify_email
+
+    _, html, text = _build_verify_email(
+        '<a href="https://evil.example">click</a>',
+        "https://example.test/verify-email?token=abc&next=1",
+    )
+
+    assert '<a href="https://evil.example">' not in html
+    assert "&lt;a href=&quot;https://evil.example&quot;&gt;" in html
+    assert "token=abc&amp;next=1" in html
+    assert '<a href="https://evil.example">click</a>' in text
+
+
 def test_verify_email_with_valid_token(client, db_session):
     reg = _register(client)
     user_id = reg["user"]["id"]

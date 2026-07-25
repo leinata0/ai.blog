@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { assertPublicHttpUrl, isPublicHttpUrl, isPublicHttpHostname } from '../lib/url-guard.mjs'
+import {
+  assertPublicHttpUrl,
+  assertPublicResolvedHttpUrl,
+  isPublicHttpUrl,
+  isPublicHttpHostname,
+} from '../lib/url-guard.mjs'
 
 test('isPublicHttpUrl accepts ordinary public http(s) URLs', () => {
   assert.equal(isPublicHttpUrl('https://openai.com/blog/post'), true)
@@ -27,6 +32,8 @@ test('isPublicHttpUrl rejects cloud metadata and link-local addresses', () => {
   assert.equal(isPublicHttpUrl('http://169.254.169.254/latest/meta-data/'), false)
   assert.equal(isPublicHttpUrl('http://metadata.google.internal/'), false)
   assert.equal(isPublicHttpUrl('http://[fe80::1]/'), false)
+  assert.equal(isPublicHttpUrl('http://[fe90::1]/'), false)
+  assert.equal(isPublicHttpUrl('http://[febf::1]/'), false)
 })
 
 test('isPublicHttpUrl rejects RFC1918 private ranges', () => {
@@ -64,4 +71,26 @@ test('isPublicHttpHostname classifies bare hostnames', () => {
   assert.equal(isPublicHttpHostname('127.0.0.1'), false)
   assert.equal(isPublicHttpHostname('10.1.2.3'), false)
   assert.equal(isPublicHttpHostname('localhost'), false)
+})
+
+test('assertPublicResolvedHttpUrl rejects public-looking DNS names that resolve privately', async () => {
+  const lookupImpl = async () => [
+    { address: '93.184.216.34', family: 4 },
+    { address: '127.0.0.1', family: 4 },
+  ]
+
+  await assert.rejects(
+    assertPublicResolvedHttpUrl('https://attacker.example/image.png', { lookupImpl }),
+    /resolves to non-public address 127\.0\.0\.1/,
+  )
+})
+
+test('assertPublicResolvedHttpUrl accepts hostnames only when every resolved address is public', async () => {
+  const lookupImpl = async () => [
+    { address: '93.184.216.34', family: 4 },
+    { address: '2606:2800:220:1:248:1893:25c8:1946', family: 6 },
+  ]
+
+  const parsed = await assertPublicResolvedHttpUrl('https://example.com/image.png', { lookupImpl })
+  assert.equal(parsed.hostname, 'example.com')
 })

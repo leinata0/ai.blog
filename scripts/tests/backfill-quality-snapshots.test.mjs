@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildBackfillGate, inferReferenceMetrics, parseBackfillArgs } from '../backfill-quality-snapshots.mjs'
+import {
+  buildBackfillGate,
+  inferReferenceMetrics,
+  parseBackfillArgs,
+  runBackfillQualitySnapshots,
+} from '../backfill-quality-snapshots.mjs'
 
 test('parseBackfillArgs parses flags and applies bounds', () => {
   const parsed = parseBackfillArgs(['--dry-run', '--force', '--limit=999', '--offset=5', '--max-pages=0'])
@@ -21,6 +26,13 @@ test('buildBackfillGate derives minimal metrics from a post', () => {
   assert.equal(gate.metrics.source_count, 4)
   assert.ok(gate.metrics.analysis_signal_count >= 1)
   assert.deepEqual(gate.metrics.missing_sections, [])
+})
+
+test('buildBackfillGate rejects list rows without complete article content', () => {
+  assert.throws(
+    () => buildBackfillGate({ id: 42, title: 'list row only' }),
+    /complete content_md/,
+  )
 })
 
 test('inferReferenceMetrics counts markdown references from article body', () => {
@@ -53,5 +65,34 @@ test('buildBackfillGate uses inferred references when stored source_count is mis
 
   assert.equal(gate.metrics.source_count, 2)
   assert.ok(gate.metrics.high_quality_source_count >= 1)
+})
+
+test('runBackfillQualitySnapshots skips existing snapshots and fetches full post content', async () => {
+  const detailCalls = []
+  const report = await runBackfillQualitySnapshots({
+    dryRun: true,
+    limit: 2,
+    maxPages: 1,
+    getAdminTokenImpl: async () => 'token',
+    fetchAdminPostsImpl: async () => [{ id: 1 }, { id: 2 }],
+    fetchExistingQualitySnapshotImpl: async (_token, postId) => (
+      postId === 1 ? { overall_score: 88 } : null
+    ),
+    fetchAdminPostDetailImpl: async (_token, postId) => {
+      detailCalls.push(postId)
+      return {
+        id: postId,
+        title: 'Full article',
+        summary: 'Summary',
+        content_md: 'Impact analysis.\n\n## References\n- source\n\n## Image Sources\n- image',
+        source_count: 2,
+      }
+    },
+  })
+
+  assert.deepEqual(detailCalls, [2])
+  assert.equal(report.items[0].status, 'skipped_existing')
+  assert.equal(report.items[1].status, 'dry_run')
+  assert.ok(report.items[1].quality_snapshot.packaging_score > 0)
 })
 

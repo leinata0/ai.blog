@@ -31,6 +31,11 @@ def _patch_runtime_env(monkeypatch):
     monkeypatch.setenv("FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("PUBLIC_SITE_URL", "https://example.test")
     monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    monkeypatch.setenv(
+        "AI_PROVIDER_ALLOWED_BASE_URL_HOSTS",
+        "gateway.example.com,primary.example.com,broken.example.com,history.example.com",
+    )
+    monkeypatch.setenv("AI_PROVIDER_ALLOWED_KEY_ENV_VARS", "GATEWAY_API_KEY")
     monkeypatch.delenv("SECRET_KEY", raising=False)
     monkeypatch.delenv("ADMIN_USERNAME", raising=False)
     monkeypatch.delenv("ADMIN_PASSWORD", raising=False)

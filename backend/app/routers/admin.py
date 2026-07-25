@@ -370,6 +370,38 @@ def _enqueue_text_generation_job(db: Session, body) -> dict:
     return text_generation_jobs.job_to_dict(job)
 
 
+def fail_orphaned_generation_jobs(db: Session | None = None) -> dict[str, int]:
+    """Fail process-local jobs left behind by a previous server process.
+
+    The worker pools are in-memory, so every queued/running row present during
+    application startup has lost its executor and cannot complete.
+    """
+    owns_session = db is None
+    if db is None:
+        from app.db import SessionLocal
+
+        db = SessionLocal()
+    try:
+        image_count = image_generation_jobs.mark_stale_running_failed(
+            db,
+            max_age_minutes=0,
+        )
+        text_count = text_generation_jobs.mark_stale_running_failed(
+            db,
+            max_age_minutes=0,
+        )
+        if image_count or text_count:
+            logger.warning(
+                "failed_orphaned_generation_jobs image=%s text=%s",
+                image_count,
+                text_count,
+            )
+        return {"image": image_count, "text": text_count}
+    finally:
+        if owns_session:
+            db.close()
+
+
 def _post_to_dict(post: Post) -> dict:
     return {
         "id": post.id,
@@ -2400,6 +2432,7 @@ def update_post(
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
+    was_published = bool(post.is_published)
     if body.title is not None:
         post.title = body.title
     if body.slug is not None:
@@ -2443,7 +2476,9 @@ def update_post(
         db.rollback()
         _raise_integrity_http_error(error)
     db.refresh(post)
-    if post.is_published and (post.published_mode or "").strip() != "auto":
+    if post.is_published and (
+        not was_published or (post.published_mode or "").strip() != "auto"
+    ):
         background_tasks.add_task(dispatch_post_notifications_for_post, post.id)
     return _post_to_dict(post)
 

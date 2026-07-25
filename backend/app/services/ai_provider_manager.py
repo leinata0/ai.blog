@@ -6,11 +6,12 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session, selectinload
 
 from app.encryption import decrypt_value, encrypt_value
-from app.env import clean_env
+from app.env import clean_env, clean_env_list, is_production_env
 from app.models import AiModelInstance, AiProviderSource
 from app.schema_compat import ensure_ai_provider_schema_compat
 from app.services import ai_channels
@@ -18,6 +19,102 @@ from app.services import ai_channels
 logger = logging.getLogger("blog.ai_provider_manager")
 
 T = TypeVar("T")
+
+
+def _default_allowed_api_key_env_vars() -> set[str]:
+    values = {
+        str(preset.get("api_key_env_var") or "").strip()
+        for preset in ai_channels.PROVIDER_PRESETS.values()
+    }
+    values.add("AI_API_KEY")
+    return {value for value in values if value}
+
+
+def _allowed_api_key_env_vars() -> set[str]:
+    return _default_allowed_api_key_env_vars() | set(
+        clean_env_list("AI_PROVIDER_ALLOWED_KEY_ENV_VARS")
+    )
+
+
+def _default_allowed_base_url_hosts() -> set[str]:
+    hosts: set[str] = set()
+    for preset in ai_channels.PROVIDER_PRESETS.values():
+        parsed = urlparse(str(preset.get("base_url") or "").strip())
+        if parsed.hostname:
+            hosts.add(parsed.hostname.lower())
+    return hosts
+
+
+def _allowed_base_url_hosts() -> set[str]:
+    return _default_allowed_base_url_hosts() | {
+        value.lower()
+        for value in clean_env_list("AI_PROVIDER_ALLOWED_BASE_URL_HOSTS")
+        if value
+    }
+
+
+def _is_allowed_base_url_host(hostname: str) -> bool:
+    for rule in _allowed_base_url_hosts():
+        normalized = rule.strip().lower()
+        if not normalized:
+            continue
+        if normalized.startswith("."):
+            if hostname.endswith(normalized) and hostname != normalized[1:]:
+                return True
+        elif hostname == normalized:
+            return True
+    return False
+
+
+def _validate_api_key_env_var(value: Any) -> str:
+    env_var = str(value or "").strip()
+    if not env_var:
+        return ""
+    if env_var not in _allowed_api_key_env_vars():
+        raise ai_channels.AiChannelError(
+            "invalid_api_key_env_var",
+            "API Key 环境变量不在允许列表中；请通过 AI_PROVIDER_ALLOWED_KEY_ENV_VARS 显式配置。",
+            allow_failover=False,
+        )
+    return env_var
+
+
+def _read_allowed_api_key_env_var(value: Any) -> str:
+    env_var = str(value or "").strip()
+    if not env_var or env_var not in _allowed_api_key_env_vars():
+        if env_var:
+            logger.warning("Blocked non-allowlisted AI API key environment variable: %s", env_var)
+        return ""
+    return clean_env(env_var)
+
+
+def _validate_base_url(value: Any) -> str:
+    base_url = str(value or "").strip().rstrip("/")
+    if not base_url:
+        return ""
+    parsed = urlparse(base_url)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
+        raise ai_channels.AiChannelError(
+            "invalid_base_url",
+            "Base URL 必须是无用户信息的有效 HTTP(S) 地址。",
+            allow_failover=False,
+        )
+    if parsed.scheme != "https" and (
+        is_production_env() or hostname not in {"localhost", "127.0.0.1", "::1"}
+    ):
+        raise ai_channels.AiChannelError(
+            "invalid_base_url",
+            "Base URL 必须使用 HTTPS；本地开发仅允许 localhost。",
+            allow_failover=False,
+        )
+    if not _is_allowed_base_url_host(hostname):
+        raise ai_channels.AiChannelError(
+            "base_url_not_allowed",
+            "Base URL 主机不在允许列表中；请通过 AI_PROVIDER_ALLOWED_BASE_URL_HOSTS 显式配置。",
+            allow_failover=False,
+        )
+    return base_url
 
 
 def _json_list(value: str | None) -> list[str]:
@@ -104,7 +201,7 @@ class ResolvedModelProvider:
 
 def source_to_public_dict(source: AiProviderSource) -> dict[str, Any]:
     db_key = decrypt_value((source.api_key_value or "").strip())
-    env_key = clean_env(source.api_key_env_var) if source.api_key_env_var else ""
+    env_key = _read_allowed_api_key_env_var(source.api_key_env_var)
     api_key = db_key or env_key
     return {
         "id": source.id,
@@ -124,7 +221,7 @@ def source_to_public_dict(source: AiProviderSource) -> dict[str, Any]:
 def instance_to_public_dict(instance: AiModelInstance) -> dict[str, Any]:
     source = instance.source
     db_key = decrypt_value((source.api_key_value or "").strip()) if source else ""
-    env_key = clean_env(source.api_key_env_var) if source and source.api_key_env_var else ""
+    env_key = _read_allowed_api_key_env_var(source.api_key_env_var) if source else ""
     return {
         "id": instance.id,
         "source_id": instance.source_id,
@@ -154,8 +251,10 @@ def create_source(db: Session, payload: dict[str, Any]) -> AiProviderSource:
         name=str(payload.get("name") or payload.get("provider") or provider).strip(),
         provider=provider,
         protocol=_normalize_protocol(payload.get("protocol") or defaults.get("protocol"), provider),
-        base_url=str(payload.get("base_url") or defaults.get("base_url") or "").strip().rstrip("/"),
-        api_key_env_var=str(payload.get("api_key_env_var") or defaults.get("api_key_env_var") or "AI_API_KEY").strip(),
+        base_url=_validate_base_url(payload.get("base_url") or defaults.get("base_url") or ""),
+        api_key_env_var=_validate_api_key_env_var(
+            payload.get("api_key_env_var") or defaults.get("api_key_env_var") or "AI_API_KEY"
+        ),
         enabled=True if payload.get("enabled") is None else bool(payload.get("enabled")),
         extra_json=_json_text(payload.get("extra_json"), default="{}"),
     )
@@ -177,12 +276,15 @@ def update_source(db: Session, source_id: int, payload: dict[str, Any]) -> AiPro
         source.provider = ai_channels.normalize_provider(payload.get("provider"), ai_channels.TEXT_PURPOSE)
     if payload.get("protocol") is not None:
         source.protocol = _normalize_protocol(payload.get("protocol"), source.provider)
-    for field in ("name", "base_url", "api_key_env_var"):
-        if payload.get(field) is not None:
-            setattr(source, field, str(payload.get(field) or "").strip())
+    if payload.get("name") is not None:
+        source.name = str(payload.get("name") or "").strip()
+    if payload.get("base_url") is not None:
+        source.base_url = _validate_base_url(payload.get("base_url"))
+    if payload.get("api_key_env_var") is not None:
+        source.api_key_env_var = _validate_api_key_env_var(payload.get("api_key_env_var"))
     if payload.get("extra_json") is not None:
         source.extra_json = _json_text(payload.get("extra_json"), default="{}")
-    source.base_url = (source.base_url or "").rstrip("/")
+    source.base_url = _validate_base_url(source.base_url)
     if payload.get("clear_api_key"):
         source.api_key_value = ""
     elif str(payload.get("api_key_value") or "").strip():
@@ -323,7 +425,7 @@ def resolve_instance(instance: AiModelInstance) -> ResolvedModelProvider:
     if source is None:
         raise ai_channels.AiChannelError("invalid_channel_config", "模型实例缺少服务源。")
     db_key = decrypt_value((source.api_key_value or "").strip())
-    env_key = clean_env(source.api_key_env_var) if source.api_key_env_var else ""
+    env_key = _read_allowed_api_key_env_var(source.api_key_env_var)
     api_key = db_key or env_key
     return ResolvedModelProvider(
         instance_id=instance.id,
@@ -333,7 +435,7 @@ def resolve_instance(instance: AiModelInstance) -> ResolvedModelProvider:
         source_name=source.name,
         provider=source.provider,
         protocol=source.protocol,
-        base_url=source.base_url,
+        base_url=_validate_base_url(source.base_url),
         model=instance.model,
         api_key=api_key,
         api_key_env_var=source.api_key_env_var,
@@ -496,7 +598,17 @@ def list_models_for_source(db: Session, source_id: int) -> dict[str, Any]:
     if source is None:
         raise ai_channels.AiChannelError("not_found", "AI 服务源不存在。")
     started = time.perf_counter()
-    config = {"provider": source.provider, "base_url": source.base_url, "api_key_env_var": source.api_key_env_var, "api_key_value": decrypt_value((source.api_key_value or "").strip())}
+    db_key = decrypt_value((source.api_key_value or "").strip())
+    env_key = _read_allowed_api_key_env_var(source.api_key_env_var)
+    config = {
+        "provider": source.provider,
+        "base_url": _validate_base_url(source.base_url),
+        # Resolve the allowlisted environment value here. Passing a mutable
+        # database-supplied variable name into the legacy helper would let old
+        # records bypass the provider-manager trust boundary.
+        "api_key_env_var": "",
+        "api_key_value": db_key or env_key,
+    }
     result = ai_channels.list_models_with_config(ai_channels.TEXT_PURPOSE, config)
     result["latency_ms"] = int((time.perf_counter() - started) * 1000)
     return result

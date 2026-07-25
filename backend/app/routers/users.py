@@ -155,14 +155,21 @@ def _validate_auth_email(email: str) -> str:
     return normalized
 
 
-def _dispatch_auth_code(request: Request, db: Session, body: AuthCodeRequest, purpose: str):
+def _dispatch_auth_code(
+    request: Request,
+    db: Session,
+    body: AuthCodeRequest,
+    purpose: str,
+    *,
+    deliver: bool = True,
+):
     _check_turnstile(request, body.turnstile_token)
     email = _validate_auth_email(body.email)
     if not email_delivery_ready():
         raise HTTPException(status_code=503, detail="邮件服务暂未配置，请稍后再试")
     try:
         challenge, code = create_challenge(db, email, purpose, client_ip_from_request(request))
-        if not send_auth_code_email(email, code, purpose):
+        if deliver and not send_auth_code_email(email, code, purpose):
             db.delete(challenge)
             db.commit()
             raise HTTPException(status_code=503, detail="邮件暂时发送失败，请稍后再试")
@@ -225,7 +232,17 @@ def verify_login_code(request: Request, body: AuthCodeVerifyRequest, db: Session
 @router.post("/password-reset/request", response_model=AuthCodeDispatchResponse)
 @limiter.limit("5/minute")
 def request_password_reset(request: Request, body: AuthCodeRequest, db: Session = Depends(get_db)):
-    response = _dispatch_auth_code(request, db, body, PASSWORD_RESET_PURPOSE)
+    email = _validate_auth_email(body.email)
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    # Still create a cooldown-protected challenge and return the same response for
+    # unknown/banned accounts, but do not turn this endpoint into an email relay.
+    response = _dispatch_auth_code(
+        request,
+        db,
+        body,
+        PASSWORD_RESET_PURPOSE,
+        deliver=bool(user is not None and user.status != "banned"),
+    )
     response.message = "如果该邮箱已注册，你会收到一封验证码邮件"
     return response
 

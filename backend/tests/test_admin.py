@@ -14,13 +14,43 @@ def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_startup_cleanup_fails_orphaned_generation_jobs(db_session):
+    from datetime import datetime, timezone
+
+    from app.models import AdminImageGenerationJob, AdminTextGenerationJob
+    from app.routers.admin import fail_orphaned_generation_jobs
+
+    image_job = AdminImageGenerationJob(
+        job_type="post_cover",
+        status="queued",
+        request_json="{}",
+    )
+    text_job = AdminTextGenerationJob(
+        status="running",
+        request_json="{}",
+        locked_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([image_job, text_job])
+    db_session.commit()
+
+    result = fail_orphaned_generation_jobs(db_session)
+
+    db_session.refresh(image_job)
+    db_session.refresh(text_job)
+    assert result == {"image": 1, "text": 1}
+    assert image_job.status == "failed"
+    assert text_job.status == "failed"
+    assert image_job.error_code == "stale_job"
+    assert text_job.error_code == "stale_job"
+
+
 def _resolve_image_job(client, token, payload):
     job_id = payload.get("job_id") or payload.get("id")
     terminal = {"succeeded", "failed", "canceled"}
     if not job_id or payload.get("status") in terminal:
         return payload
     latest = payload
-    for _ in range(20):
+    for _ in range(100):
         resp = client.get(f"/api/admin/image-generation-jobs/{job_id}", headers=_auth(token))
         assert resp.status_code == 200
         latest = resp.json()
@@ -36,7 +66,7 @@ def _resolve_text_job(client, token, payload):
     if not job_id or payload.get("status") in terminal:
         return payload
     latest = payload
-    for _ in range(40):
+    for _ in range(100):
         resp = client.get(f"/api/admin/text-generation-jobs/{job_id}", headers=_auth(token))
         assert resp.status_code == 200
         latest = resp.json()
@@ -1182,6 +1212,11 @@ def test_admin_post_generate_cover_image_url_preview_does_not_mutate(client):
 def test_ai_provider_sources_and_model_instances_crud(client, monkeypatch):
     from app.services import ai_channels as channel_mod
 
+    monkeypatch.setenv(
+        "AI_PROVIDER_ALLOWED_BASE_URL_HOSTS",
+        "gateway.example.com,primary.example.com,broken.example.com,history.example.com",
+    )
+    monkeypatch.setenv("AI_PROVIDER_ALLOWED_KEY_ENV_VARS", "GATEWAY_API_KEY")
     token = _login(client)
     unauthorized = client.get("/api/admin/ai-provider-sources")
     assert unauthorized.status_code in (401, 403)
@@ -1212,6 +1247,28 @@ def test_ai_provider_sources_and_model_instances_crud(client, monkeypatch):
         headers=_auth(token),
     )
     assert bad_json.status_code == 400
+
+    blocked_env = client.post(
+        "/api/admin/ai-provider-sources",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://gateway.example.com/v1",
+            "api_key_env_var": "SECRET_KEY",
+        },
+        headers=_auth(token),
+    )
+    assert blocked_env.status_code == 400
+
+    blocked_host = client.post(
+        "/api/admin/ai-provider-sources",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://attacker.example/v1",
+            "api_key_env_var": "GATEWAY_API_KEY",
+        },
+        headers=_auth(token),
+    )
+    assert blocked_host.status_code == 400
 
     first = client.post(
         "/api/admin/ai-model-instances",

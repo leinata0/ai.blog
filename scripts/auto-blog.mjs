@@ -20,13 +20,18 @@ import {
   resolveFormatProfileName,
   neutralizeBannedPhrases,
 } from './lib/blog-format.mjs'
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  findAdminPostByExactSlug,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+} from './lib/blog-api.mjs'
 import { buildPostCoverBrief } from './lib/cover-art.mjs'
 import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
 import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
 import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
-import { isPublicHttpUrl } from './lib/url-guard.mjs'
+import { assertPublicResolvedHttpUrl, isPublicHttpUrl } from './lib/url-guard.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -2531,6 +2536,7 @@ function logCoverGenerationResult(context, result) {
 
 async function downloadAndUploadImageResult(imageUrl, token) {
   try {
+    await assertPublicResolvedHttpUrl(imageUrl)
     const resp = await fetch(imageUrl, {
       signal: AbortSignal.timeout(15000),
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AutoBlogBot/3.0)' },
@@ -2702,9 +2708,17 @@ async function checkSlugExists(slug) {
   }
 }
 
-async function fetchExistingPost(slug) {
+async function fetchExistingPost(slug, token = '', fetchImpl = fetch) {
+  if (token) {
+    return findAdminPostByExactSlug({
+      blogApiBase: BLOG_API_BASE,
+      token,
+      slug,
+      fetchImpl,
+    })
+  }
   try {
-    const resp = await fetch(`${BLOG_API_BASE}/api/posts/${slug}`, {
+    const resp = await fetchImpl(`${BLOG_API_BASE}/api/posts/${slug}`, {
       signal: AbortSignal.timeout(10000),
     })
     if (!resp.ok) return null
@@ -2926,7 +2940,10 @@ export async function sendPublishRequest({
   throw lastError || new Error(`${label} failed`)
 }
 
-async function publishPost(token, payload, coverImage = null) {
+export async function publishPost(token, payload, coverImage = null, {
+  isPublished = true,
+  fetchImpl = fetch,
+} = {}) {
   const requestBody = {
     title: payload.title,
     slug: payload.slug,
@@ -2937,21 +2954,28 @@ async function publishPost(token, payload, coverImage = null) {
     published_mode: payload.published_mode,
     coverage_date: payload.coverage_date,
     tags: payload.tags,
-    is_published: true,
+    is_published: Boolean(isPublished),
     is_pinned: false,
   }
   if (coverImage !== null && coverImage !== undefined) {
     requestBody.cover_image = coverImage
   }
 
-  const existingPost = await fetchExistingPost(payload.slug)
+  const existingPost = await fetchExistingPost(payload.slug, token, fetchImpl)
   if (existingPost?.id) {
+    // A successful rerun must not take an already-public article offline while
+    // the metadata bridges are being refreshed. Keep the existing version live;
+    // the final publish call applies the new content after all bridges succeed.
+    if (!isPublished && existingPost.is_published) {
+      return existingPost
+    }
     const result = await sendPublishRequest({
       url: `${BLOG_API_BASE}/api/admin/posts/${existingPost.id}`,
       method: 'PUT',
       requestBody,
       token,
       label: 'Publish update',
+      fetchImpl,
     })
     return result.json
   }
@@ -2962,10 +2986,11 @@ async function publishPost(token, payload, coverImage = null) {
     requestBody,
     token,
     label: 'Publish',
+    fetchImpl,
   })
 
   if (result.status === 409) {
-    const conflictPost = await fetchExistingPost(payload.slug)
+    const conflictPost = await fetchExistingPost(payload.slug, token, fetchImpl)
     if (conflictPost?.id) {
       const retryResult = await sendPublishRequest({
         url: `${BLOG_API_BASE}/api/admin/posts/${conflictPost.id}`,
@@ -2973,6 +2998,7 @@ async function publishPost(token, payload, coverImage = null) {
         requestBody,
         token,
         label: 'Publish conflict-retry',
+        fetchImpl,
       })
       return retryResult.json
     }
@@ -3586,7 +3612,7 @@ async function runDailyMode(config, cliOptions) {
       continue
     }
 
-    const result = await publishPost(token, artifact.post)
+    let result = await publishPost(token, artifact.post, null, { isPublished: false })
     metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
     qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
     topicMetadataPayload.post_id = metadataBridgePayload.post_id
@@ -3603,6 +3629,7 @@ async function runDailyMode(config, cliOptions) {
     await bridgePublishingMetadata(token, metadataBridgePayload)
     await bridgeQualitySnapshot(token, qualitySnapshotPayload)
     await bridgeTopicMetadata(token, topicMetadataPayload)
+    result = await publishPost(token, artifact.post, null, { isPublished: true })
     console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
     results.push({
       ...artifact,
@@ -3822,7 +3849,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
   }
 
   const token = await getCachedAdminToken()
-  const result = await publishPost(token, artifact.post)
+  let result = await publishPost(token, artifact.post, null, { isPublished: false })
   metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
   qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
   topicMetadataPayload.post_id = metadataBridgePayload.post_id
@@ -3839,6 +3866,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
   await bridgePublishingMetadata(token, metadataBridgePayload)
   await bridgeQualitySnapshot(token, qualitySnapshotPayload)
   await bridgeTopicMetadata(token, topicMetadataPayload)
+  result = await publishPost(token, artifact.post, null, { isPublished: true })
   console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
   await reportPublishingRun(token, {
     workflow_key: 'weekly_review',
