@@ -39,11 +39,11 @@ jobs:
     steps:
       # 拉取仓库代码
       - name: 拉取仓库代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # 安装 Node.js 运行环境
       - name: 安装 Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
