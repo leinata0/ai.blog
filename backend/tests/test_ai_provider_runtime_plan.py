@@ -11,9 +11,23 @@ import json
 
 import pytest
 
+from test_url_safety_vectors import install_stub_resolver
+
 from app.encryption import encrypt_value
 from app.models import AiModelInstance, AiProviderSource
 from app.services import ai_channels, ai_provider_manager
+
+
+@pytest.fixture(autouse=True)
+def _provider_host_resolution(monkeypatch):
+    """本文件测的是"一条坏记录不能拖垮整个计划"，所有测试主机都按公网可解析处理。
+
+    私网拦截本身在 test_provider_allowlist.py 里单独断言。缓存必须清，它是模块级全局。
+    """
+    install_stub_resolver(monkeypatch, lambda host, port: ["93.184.216.34"])
+    ai_provider_manager.invalidate_allowed_base_url_host_cache()
+    yield
+    ai_provider_manager.invalidate_allowed_base_url_host_cache()
 
 
 def _source(db, *, name, base_url, enabled=True):

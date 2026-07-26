@@ -54,6 +54,8 @@ from app.schemas import (
     AiModelInstanceOut,
     AiModelInstanceUpdateRequest,
     AiModelOrderRequest,
+    AiProviderAllowedHostCreateRequest,
+    AiProviderAllowedHostOut,
     AiProviderSourceOut,
     AiProviderSourceUpdateRequest,
     AiRuntimePlanOut,
@@ -1917,6 +1919,13 @@ def get_cover_generation_status(
         _raise_ai_provider_http_error(exc)
 
 
+# Error codes that are not "the request was malformed". Everything else is a 400.
+_AI_PROVIDER_ERROR_STATUS = {
+    "not_found": 404,
+    "hostname_exists": 409,
+}
+
+
 def _raise_ai_provider_http_error(exc: Exception) -> None:
     """Map AI provider / encryption failures to HTTP errors."""
     if isinstance(exc, RuntimeError) and "FIELD_ENCRYPTION_KEY" in str(exc):
@@ -1932,12 +1941,49 @@ def _raise_ai_provider_http_error(exc: Exception) -> None:
         ) from exc
     if not isinstance(exc, AiChannelError):
         raise
-    status_code = 404 if exc.code == "not_found" else 400
+    status_code = _AI_PROVIDER_ERROR_STATUS.get(exc.code, 400)
     detail = {"message": exc.message, "error_code": exc.code}
     attempts = getattr(exc, "attempts", None)
     if attempts:
         detail["attempts"] = attempts
+    # base_url_not_allowed / base_url_not_public / hostname_not_public 会带上被拒绝的
+    # 主机名，前端据此提供"一键加入允许列表"。
+    rejected_hostname = getattr(exc, "rejected_hostname", "")
+    if rejected_hostname:
+        detail["rejected_hostname"] = rejected_hostname
     raise HTTPException(status_code=status_code, detail=detail)
+
+
+@router.get("/ai-provider-allowed-hosts", response_model=list[AiProviderAllowedHostOut])
+def list_ai_provider_allowed_hosts(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    return ai_provider_manager.list_allowed_hosts(db)
+
+
+@router.post("/ai-provider-allowed-hosts", response_model=AiProviderAllowedHostOut, status_code=201)
+def create_ai_provider_allowed_host(
+    body: AiProviderAllowedHostCreateRequest,
+    db: Session = Depends(get_db),
+    admin: str = Depends(get_current_admin),
+):
+    try:
+        return ai_provider_manager.create_allowed_host(db, body.model_dump(), actor=admin)
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
+
+
+@router.delete("/ai-provider-allowed-hosts/{host_id}")
+def delete_ai_provider_allowed_host(
+    host_id: int,
+    db: Session = Depends(get_db),
+    admin: str = Depends(get_current_admin),
+):
+    try:
+        return ai_provider_manager.delete_allowed_host(db, host_id, actor=admin)
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
 
 
 @router.get("/ai-provider-sources", response_model=list[AiProviderSourceOut])

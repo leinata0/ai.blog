@@ -24,6 +24,7 @@ PATH_PARAM_SAMPLES = {
     "job_id": "1",
     "source_id": "1",
     "instance_id": "1",
+    "host_id": "1",
     "series_id": "1",
     "profile_id": "1",
     "comment_id": "1",

@@ -4,6 +4,25 @@ import time
 import httpx
 import pytest
 
+from test_url_safety_vectors import install_stub_resolver
+
+
+@pytest.fixture(autouse=True)
+def _provider_host_resolution(monkeypatch):
+    """Base URL 校验现在带私网 DNS 拦截，本模块的测试主机必须可解析成公网地址。
+
+    这里把解析结果钉死成一个公网 IP：本文件测的是 AI Provider 的 CRUD/失败转移，
+    不是 SSRF 判定（那部分在 test_provider_allowlist.py / test_url_safety*.py）。
+    同时清掉进程内白名单缓存 —— 它是模块级全局，不清会跨测试串味。
+    """
+    from app.services import ai_provider_manager
+
+    install_stub_resolver(monkeypatch, lambda host, port: ["93.184.216.34"])
+    ai_provider_manager.invalidate_allowed_base_url_host_cache()
+    yield
+    ai_provider_manager.invalidate_allowed_base_url_host_cache()
+
+
 def _login(client):
     resp = client.post("/api/admin/login", json={"username": "admin", "password": "admin123"})
     assert resp.status_code == 200
