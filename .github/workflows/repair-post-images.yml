@@ -31,10 +31,10 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: 拉取仓库代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 安装 Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -85,7 +85,7 @@ jobs:
 
       - name: 归档审计产物
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: repair-post-images-audit-${{ github.run_id }}
           path: |
@@ -107,10 +107,10 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: 拉取仓库代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 安装 Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -139,7 +139,7 @@ jobs:
 
       - name: 归档写入产物
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: repair-post-images-apply-${{ github.run_id }}
           path: repair-apply.log
