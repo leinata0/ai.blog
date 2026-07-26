@@ -38,9 +38,11 @@ const HIGH_QUALITY_SOURCE_HINTS = [
   'stratechery',
 ]
 
+// Writing is opt-in (same convention as repair-post-media.mjs): a bare
+// `node backfill-quality-snapshots.mjs` used to write to whatever BLOG_API_BASE points at.
 export function parseBackfillArgs(argv = process.argv.slice(2)) {
   const options = {
-    dryRun: false,
+    dryRun: true,
     force: false,
     limit: 50,
     offset: 0,
@@ -49,6 +51,7 @@ export function parseBackfillArgs(argv = process.argv.slice(2)) {
   for (let index = 0; index < argv.length; index += 1) {
     const current = argv[index]
     if (current === '--dry-run') options.dryRun = true
+    else if (current === '--apply') options.dryRun = false
     else if (current === '--force') options.force = true
     else if (current === '--limit' && argv[index + 1]) options.limit = Number(argv[++index])
     else if (current.startsWith('--limit=')) options.limit = Number(current.split('=')[1])
@@ -197,6 +200,7 @@ async function getAdminToken() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    signal: AbortSignal.timeout(30000),
   })
   if (!resp.ok) {
     throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
@@ -239,43 +243,45 @@ async function fetchExistingQualitySnapshot(token, postId) {
 async function upsertQualitySnapshot(token, payload) {
   if (!payload?.post_id) return { ok: false, reason: 'missing_post_id' }
   const postId = Number(payload.post_id)
-  const endpoints = [
-    {
-      method: 'PUT',
-      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/quality-snapshot`,
-      body: payload,
+  // Verified against backend/app/routers/admin.py: the only quality write route is
+  // `PUT /api/admin/posts/{post_id}/quality`. The previously probed
+  // `/posts/{id}/quality-snapshot` does not exist, so every post cost an extra guaranteed
+  // 404 round trip before the real call.
+  const url = `${BLOG_API_BASE}/api/admin/posts/${postId}/quality`
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
     },
-    {
-      method: 'PUT',
-      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/quality`,
-      body: { quality_snapshot: payload.quality_snapshot },
-    },
-  ]
+    body: JSON.stringify({ quality_snapshot: payload.quality_snapshot }),
+    signal: AbortSignal.timeout(30000),
+  })
+  if (resp.ok) return { ok: true, endpoint: url }
+  throw new Error(`Upsert quality snapshot failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
+}
 
-  for (const endpoint of endpoints) {
-    const resp = await fetch(endpoint.url, {
-      method: endpoint.method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(endpoint.body),
-    })
-    if (resp.ok) return { ok: true, endpoint: endpoint.url }
-    if (resp.status === 404 || resp.status === 405) continue
-    throw new Error(`Upsert quality snapshot failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
+export function describeBackfillTarget(blogApiBase = BLOG_API_BASE) {
+  try {
+    return new URL(String(blogApiBase)).host
+  } catch {
+    return String(blogApiBase || 'unknown')
   }
-  return { ok: false, reason: 'no_supported_endpoint' }
 }
 
 export async function runBackfillQualitySnapshots(options = {}) {
   const args = {
-    dryRun: Boolean(options.dryRun),
+    dryRun: options.dryRun === undefined ? true : Boolean(options.dryRun),
     force: Boolean(options.force),
     limit: Number.isFinite(Number(options.limit)) ? Number(options.limit) : 50,
     offset: Number.isFinite(Number(options.offset)) ? Number(options.offset) : 0,
     maxPages: Number.isFinite(Number(options.maxPages)) ? Number(options.maxPages) : 20,
   }
+  const logger = options.logger === undefined ? console : options.logger
+  logger?.log?.(
+    `Quality snapshot backfill target: ${describeBackfillTarget()} `
+    + `(mode=${args.dryRun ? 'dry-run' : 'APPLY'}, force=${args.force}, max_scan=${args.maxPages * args.limit} post(s))`
+  )
   const getTokenImpl = options.getAdminTokenImpl || getAdminToken
   const fetchPostsImpl = options.fetchAdminPostsImpl || fetchAdminPosts
   const fetchPostDetailImpl = options.fetchAdminPostDetailImpl || fetchAdminPostDetail
@@ -339,6 +345,9 @@ async function main() {
   const options = parseBackfillArgs()
   const report = await runBackfillQualitySnapshots(options)
   console.log(JSON.stringify(report, null, 2))
+  if (report.dry_run) {
+    console.log(`Dry run: nothing was written to ${describeBackfillTarget()}. Re-run with --apply to persist.`)
+  }
 }
 
 const isMainModule = process.argv[1] ? resolve(process.argv[1]) === fileURLToPath(import.meta.url) : false

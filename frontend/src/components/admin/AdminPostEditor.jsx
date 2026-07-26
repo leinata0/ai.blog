@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import MDEditor from '@uiw/react-md-editor'
 import { ArrowLeft, Eye, EyeOff, Pin } from 'lucide-react'
 
@@ -24,6 +24,16 @@ const emptyForm = {
   cover_image: '',
   is_published: true,
   is_pinned: false,
+}
+
+const FORM_FIELDS = Object.keys(emptyForm)
+
+// Field-by-field comparison. The previous `JSON.stringify(form) !== JSON.stringify(initial)`
+// serialized the entire article body twice on every keystroke.
+function isSameForm(left, right) {
+  if (left === right) return true
+  if (!left || !right) return false
+  return FORM_FIELDS.every((key) => left[key] === right[key])
 }
 
 function generateSlug(title) {
@@ -60,7 +70,9 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
   const [autoSaveMsg, setAutoSaveMsg] = useState('')
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
-  const initialFormRef = useRef(emptyForm)
+  const [initialForm, setInitialForm] = useState(emptyForm)
+  const detailRequestRef = useRef(0)
+  const isDirtyRef = useRef(false)
 
   const inputStyle = {
     backgroundColor: 'var(--bg-canvas)',
@@ -70,10 +82,12 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
 
   useEffect(() => {
     if (editingPost) {
-      loadPostDetail(editingPost)
-    } else {
-      void restoreDraft()
+      const controller = new AbortController()
+      void loadPostDetail(editingPost, controller.signal)
+      return () => controller.abort()
     }
+    void restoreDraft()
+    return undefined
   }, [editingPost])
 
   // Keep the latest form in a ref so the autosave interval can read it without
@@ -87,7 +101,8 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
     editingIdRef.current = editingId
   }, [form, editingId])
 
-  const isDirty = JSON.stringify(form) !== JSON.stringify(initialFormRef.current)
+  const isDirty = useMemo(() => !isSameForm(form, initialForm), [form, initialForm])
+  isDirtyRef.current = isDirty
 
   useEffect(() => {
     onDirtyChange?.(isDirty && !saving)
@@ -105,6 +120,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
   }, [isDirty, saving])
 
   useEffect(() => {
+    let clearMessageTimer = null
     const timer = setInterval(() => {
       // Only the "new post" flow uses the draft. Editing an existing post must not
       // write admin_draft, or its content would later be offered as a restorable
@@ -112,19 +128,33 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
       if (editingIdRef.current) return
       localStorage.setItem('admin_draft', JSON.stringify(formRef.current))
       setAutoSaveMsg('已自动保存')
-      setTimeout(() => setAutoSaveMsg(''), 2000)
+      window.clearTimeout(clearMessageTimer)
+      clearMessageTimer = window.setTimeout(() => setAutoSaveMsg(''), 2000)
     }, 30000)
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      window.clearTimeout(clearMessageTimer)
+    }
   }, [])
 
-  async function loadPostDetail(post) {
+  async function loadPostDetail(post, signal) {
+    // The list refresh upstream hands us a brand-new `editingPost` object whenever the
+    // admin post cache expires, which re-runs this loader. Without a request guard the
+    // late response would overwrite whatever the user is currently typing — and rewrite
+    // the pristine baseline with it, so `isDirty` and the leave prompt both went wrong.
+    detailRequestRef.current += 1
+    const requestId = detailRequestRef.current
+    const isStale = () => requestId !== detailRequestRef.current || signal?.aborted
+    const previousEditingId = editingIdRef.current
+
     setEditingId(post.id)
     setError('')
     setUploadError('')
     setCoverMessage('')
     setCoverCandidate(null)
     try {
-      const detail = await fetchPostDetail(post.slug)
+      const detail = await fetchPostDetail(post.slug, { signal })
+      if (isStale()) return
       const nextForm = {
         title: detail.title,
         slug: detail.slug,
@@ -135,9 +165,15 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
         is_published: detail.is_published !== false,
         is_pinned: detail.is_pinned || false,
       }
-      initialFormRef.current = nextForm
+      // A refetch of the post we are already editing must never clobber unsaved edits.
+      if (isDirtyRef.current && String(previousEditingId) === String(post.id)) {
+        setInitialForm(nextForm)
+        return
+      }
+      setInitialForm(nextForm)
       setForm(nextForm)
-    } catch {
+    } catch (err) {
+      if (isStale() || err?.name === 'AbortError') return
       setError('加载文章内容失败')
     }
   }
@@ -151,7 +187,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
 
     const draft = localStorage.getItem('admin_draft')
     if (!draft) {
-      initialFormRef.current = emptyForm
+      setInitialForm(emptyForm)
       setForm(emptyForm)
       return
     }
@@ -167,10 +203,10 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
           tone: 'accent',
         })
         if (shouldRestore) {
-          initialFormRef.current = emptyForm
+          setInitialForm(emptyForm)
           setForm({ ...emptyForm, ...parsed })
         } else {
-          initialFormRef.current = emptyForm
+          setInitialForm(emptyForm)
           setForm(emptyForm)
           localStorage.removeItem('admin_draft')
         }
@@ -180,7 +216,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
       // fall through to reset form
     }
 
-    initialFormRef.current = emptyForm
+    setInitialForm(emptyForm)
     setForm(emptyForm)
   }
 
@@ -339,7 +375,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
       }
       setCoverCandidate(null)
       localStorage.removeItem('admin_draft')
-      initialFormRef.current = form
+      setInitialForm(form)
       onSaved()
     } catch (err) {
       setError(err.message || '保存失败')
@@ -371,7 +407,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
       </div>
 
       {error && (
-        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[var(--danger-text)]">
           {error}
         </div>
       )}
@@ -572,7 +608,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
               className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-[background-color,color,border-color] duration-200"
               style={{
                 backgroundColor: form.is_published ? 'var(--accent-soft)' : 'var(--danger-soft)',
-                color: form.is_published ? 'var(--accent)' : '#ef4444',
+                color: form.is_published ? 'var(--accent)' : 'var(--danger-text)',
                 border: `1px solid ${form.is_published ? 'var(--accent-border)' : 'var(--danger-border)'}`,
               }}
             >
@@ -633,7 +669,7 @@ export default function AdminPostEditor({ editingPost, onBack, onSaved, onDirtyC
             </>
           </div>
           {uploadError && (
-            <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-sm text-[#ef4444]">
+            <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-sm text-[var(--danger-text)]">
               {uploadError}
             </div>
           )}

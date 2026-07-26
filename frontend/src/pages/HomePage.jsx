@@ -29,6 +29,7 @@ import {
 import {
   CONTENT_TYPE_META,
   SITE_COPY,
+  SITE_SEO,
   getContentTypeMeta,
   hoverLift,
   motionContainerVariants,
@@ -81,16 +82,21 @@ function HeroSearch({ searchInput, onInputChange, onSubmit, onClear }) {
 
 function PostCard({ post, onTagSelect, onPrefetch, onPreview }) {
   const contentMeta = getContentTypeMeta(post.content_type)
+  const coverSrc = proxyImageUrl(post.cover_image)
+  const [coverBroken, setCoverBroken] = useState(false)
+
+  useEffect(() => {
+    setCoverBroken(false)
+  }, [coverSrc])
 
   return (
     <motion.article
-      key={post.slug}
       variants={motionItemVariants}
       whileHover={hoverLift}
       data-ui="post-card"
       className={`cover-card relative overflow-hidden ${post.is_pinned ? 'ring-2 ring-[var(--accent-border)] ring-offset-2 ring-offset-[var(--bg-canvas)]' : ''}`}
     >
-      {post.cover_image ? (
+      {coverSrc && !coverBroken ? (
         <Link
           to={`/posts/${post.slug}`}
           className="block"
@@ -100,13 +106,14 @@ function PostCard({ post, onTagSelect, onPrefetch, onPreview }) {
         >
           <div className="editorial-cover h-60 overflow-hidden">
             <img
-              src={proxyImageUrl(post.cover_image)}
+              src={coverSrc}
               alt={post.title}
               className="h-full w-full object-cover transition-transform duration-500 hover:scale-[1.05]"
               loading="lazy"
               width="1200"
               height="630"
               referrerPolicy="no-referrer"
+              onError={() => setCoverBroken(true)}
             />
           </div>
         </Link>
@@ -126,9 +133,14 @@ function PostCard({ post, onTagSelect, onPrefetch, onPreview }) {
             {post.is_pinned ? (
               <span
                 className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
-                style={{ backgroundColor: 'rgba(250, 204, 21, 0.14)', color: '#a16207' }}
+                // 固定色 #a16207 在暗色画布上只有 ~2.7:1；主题令牌在明暗两套画布下都达到 AA。
+                style={{
+                  backgroundColor: 'var(--signal-warm-soft)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border-muted)',
+                }}
               >
-                <Pin size={12} />
+                <Pin size={12} aria-hidden="true" />
                 推荐
               </span>
             ) : null}
@@ -214,20 +226,19 @@ export default function HomePage() {
     buildWebSiteJsonLd({
       siteUrl,
       name: SITE_COPY.brand,
-      description: SITE_COPY.homeSubtitle,
+      description: SITE_SEO.homeDescription,
     }),
     buildCollectionPageJsonLd({
       siteUrl,
       name: SITE_COPY.brand,
-      description: SITE_COPY.homeSubtitle,
+      description: SITE_SEO.homeDescription,
       path: '/',
       image: heroImage,
     }),
   ]), [heroImage, siteUrl])
 
-  useEffect(() => {
-    document.title = SITE_COPY.brand
-  }, [])
+  // No `document.title = ...` here: <SeoMeta> owns the title, and setting the bare
+  // brand on mount raced it back down to the short variant after hydration.
 
   useEffect(() => {
     setSearchInput(searchQuery)
@@ -355,8 +366,8 @@ export default function HomePage() {
   return (
     <main data-ui="home-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <SeoMeta
-        title={SITE_COPY.brand}
-        description={SITE_COPY.homeSubtitle}
+        title={SITE_SEO.homeTitle}
+        description={SITE_SEO.homeDescription}
         path="/"
         image={heroImage}
         jsonLd={homeJsonLd}

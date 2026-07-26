@@ -748,13 +748,29 @@ SQLite 的数据存储在文件里，而 Render 免费实例每次重启都会�
 """
 
 
+def _get_or_create_tag(db_session, *, name: str, slug: str) -> Tag:
+    """Seeding is gated on `posts` being empty, not on `tags` being empty.
+
+    Deleting every post (locally, or on a reset production database) leaves the
+    tag rows behind, so unconditionally constructing them makes the next startup
+    die on the tags.slug unique constraint before the app can serve anything.
+    """
+    existing = db_session.query(Tag).filter(Tag.slug == slug).first()
+    if existing is not None:
+        return existing
+    tag = Tag(name=name, slug=slug)
+    db_session.add(tag)
+    db_session.flush()
+    return tag
+
+
 def seed_data(db_session):
-    tag_python = Tag(name="Python", slug="python")
-    tag_automation = Tag(name="Automation", slug="automation")
-    tag_cpp = Tag(name="C/C++", slug="cpp")
-    tag_notes = Tag(name="Notes", slug="notes")
-    tag_devops = Tag(name="DevOps", slug="devops")
-    tag_openclaw = Tag(name="OpenClaw", slug="openclaw")
+    tag_python = _get_or_create_tag(db_session, name="Python", slug="python")
+    tag_automation = _get_or_create_tag(db_session, name="Automation", slug="automation")
+    tag_cpp = _get_or_create_tag(db_session, name="C/C++", slug="cpp")
+    tag_notes = _get_or_create_tag(db_session, name="Notes", slug="notes")
+    tag_devops = _get_or_create_tag(db_session, name="DevOps", slug="devops")
+    tag_openclaw = _get_or_create_tag(db_session, name="OpenClaw", slug="openclaw")
 
     now = datetime.now(timezone.utc)
 
@@ -798,8 +814,8 @@ def seed_data(db_session):
     db_session.commit()
 
     # Insert last to guarantee highest id -> appears first on homepage
-    tag_ai = Tag(name="AI", slug="ai")
-    tag_fullstack = Tag(name="全栈", slug="fullstack")
+    tag_ai = _get_or_create_tag(db_session, name="AI", slug="ai")
+    tag_fullstack = _get_or_create_tag(db_session, name="全栈", slug="fullstack")
 
     # Re-fetch tags that were already committed
     from sqlalchemy import select

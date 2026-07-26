@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, Link, useLocation } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Heart, Pin } from 'lucide-react'
 import { motion, useScroll, useSpring } from 'framer-motion'
@@ -111,12 +111,14 @@ function SourceSummarySection({ post }) {
 
 function InsightMetric({ label, score, summary }) {
   const numeric = Number(score)
+  // 底色是半透明色块，会与当前主题画布合成：原先的固定文字色在暗色下只有 2.8~3.2:1。
+  // 改用主题令牌后明暗两套画布都满足 AA 正文对比度。
   const tone =
     Number.isFinite(numeric) && numeric >= 85
-      ? { bg: 'rgba(16,185,129,0.12)', text: '#047857' }
+      ? { bg: 'var(--success-soft)', text: 'var(--success-text)' }
       : Number.isFinite(numeric) && numeric >= 70
-        ? { bg: 'rgba(14,165,233,0.12)', text: '#0369A1' }
-        : { bg: 'rgba(245,158,11,0.12)', text: '#B45309' }
+        ? { bg: 'var(--accent-soft)', text: 'var(--accent)' }
+        : { bg: 'var(--warning-soft)', text: 'var(--warning-text)' }
 
   return (
     <div className="rounded-[1.4rem] border px-4 py-4" style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)' }}>
@@ -217,7 +219,7 @@ function TopicTrackingSection({ post }) {
           <Link
             to={buildSubscriptionCenterHref({ topicKey, contentType: post?.content_type })}
             className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
-            style={{ backgroundColor: 'rgba(37,99,235,0.12)', color: '#2563eb' }}
+            style={{ backgroundColor: 'var(--highlight-soft)', color: 'var(--highlight-text)' }}
           >
             订阅相关更新
           </Link>
@@ -301,7 +303,6 @@ export default function PostDetailPage({ slug: overrideSlug }) {
     const controller = new AbortController()
     setLoading(true)
     setError('')
-    setRelatedPosts([])
     setSameSeriesPosts([])
     setSameTopicPosts([])
     setSameWeekPosts([])
@@ -317,7 +318,10 @@ export default function PostDetailPage({ slug: overrideSlug }) {
         // Logged-in users get account-based liked state from the server;
         // anonymous users fall back to the per-browser localStorage marker.
         if (user) {
-          fetchLikeState(slug)
+          // Read path must carry the same visitor token as the write path (likePost),
+          // otherwise the server answers `liked: false` for everyone and the next tap
+          // sends an *un*like for a like the reader never saw.
+          fetchLikeState(slug, { auth: 'user' })
             .then((state) => {
               if (controller.signal.aborted) return
               setLiked(Boolean(state?.liked))
@@ -347,11 +351,20 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       })
 
     return () => controller.abort()
-  }, [slug, user])
+    // user?.id (not `user`) — UserContext hands back a new object on every refresh,
+    // and an identity change is the only thing this effect actually cares about.
+  }, [slug, user?.id])
 
   useEffect(() => {
-    if (!post?.slug) return
+    if (!post?.slug) {
+      setRelatedPosts([])
+      return undefined
+    }
 
+    // Reset lives here, next to its own fetch. When it lived in the detail effect
+    // (which also depends on `user`), a late /api/me response cleared the list while
+    // post.slug stayed the same, so this effect never re-ran and 相关阅读 vanished.
+    setRelatedPosts([])
     const controller = new AbortController()
     fetchRelatedPosts(
       post.slug,
@@ -406,7 +419,8 @@ export default function PostDetailPage({ slug: overrideSlug }) {
     ]
   }, [post, siteUrl])
 
-  async function handleCopy(code) {
+  // Stable identity so the markdown renderer is not re-rendered by every parent update.
+  const handleCopy = useCallback(async (code) => {
     try {
       await navigator.clipboard.writeText(code)
       setCopiedCode(code)
@@ -419,7 +433,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       // stays in its default "复制" state rather than falsely showing "已复制".
       setCopiedCode((current) => (current === code ? '' : current))
     }
-  }
+  }, [])
 
   async function handleLike() {
     // Logged-in users can toggle (like / unlike); the server returns the
@@ -539,6 +553,8 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             badge={post.is_pinned ? (
               <span
                 className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
+                // 保留固定色：底色是不透明的琥珀渐变，不随主题变化，#78350F 在渐变两端为 8.15:1 / 5.43:1。
+                // 换成 --warning-text 反而会在暗色主题下把深棕文字压到浅色渐变上失衡。
                 style={{ background: 'linear-gradient(135deg, #FEF3C7 0%, #FBBF24 100%)', color: '#78350F' }}
               >
                 <Pin size={12} />
@@ -580,12 +596,13 @@ export default function PostDetailPage({ slug: overrideSlug }) {
                 className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-[transform,background-color,color,border-color,box-shadow] duration-200 disabled:cursor-default"
                 style={{
                   backgroundColor: liked ? 'var(--danger-soft)' : 'var(--bg-surface)',
-                  color: liked ? '#ef4444' : 'var(--text-secondary)',
+                  color: liked ? 'var(--danger-text)' : 'var(--text-secondary)',
                   border: `1px solid ${liked ? 'var(--danger-border)' : 'var(--border-muted)'}`,
                   boxShadow: 'var(--card-shadow-soft)',
                 }}
               >
-                <Heart size={18} fill={liked ? '#ef4444' : 'none'} />
+                {/* fill 是 SVG 呈现属性，var() 在部分浏览器里不生效；currentColor 会继承上面的 --danger-text */}
+                <Heart size={18} fill={liked ? 'currentColor' : 'none'} />
                 {liked ? '已点赞' : '点赞'} · {likeCount}
               </motion.button>
             </div>

@@ -1,14 +1,53 @@
 import json
+import logging
 import re
 from functools import lru_cache
 from hashlib import sha1
 from pathlib import Path
 
+from app.env import clean_env
 from app.models import Post, Series, SiteSettings, TopicProfile
 
-_COVER_ART_CONFIG_PATH = (
-    Path(__file__).resolve().parents[3] / "scripts" / "config" / "cover-art-direction.json"
-)
+logger = logging.getLogger("blog.cover_art")
+
+_COVER_ART_CONFIG_FILENAME = "cover-art-direction.json"
+_APP_ROOT = Path(__file__).resolve().parents[2]  # .../backend
+
+
+def _cover_art_config_candidates() -> list[Path]:
+    """Every place the pipeline art-direction config may live.
+
+    The repo layout puts it in `<repo>/scripts/config`, but the backend image
+    only copies `backend/`, so the container path differs. An explicit
+    `AUTO_BLOG_CONFIG_DIR` always wins.
+    """
+    candidates: list[Path] = []
+    configured_dir = clean_env("AUTO_BLOG_CONFIG_DIR")
+    if configured_dir:
+        candidates.append(Path(configured_dir) / _COVER_ART_CONFIG_FILENAME)
+    candidates.extend(
+        [
+            _APP_ROOT.parent / "scripts" / "config" / _COVER_ART_CONFIG_FILENAME,  # repo checkout
+            _APP_ROOT / "scripts" / "config" / _COVER_ART_CONFIG_FILENAME,  # image: /app/scripts/config
+            Path("/app/scripts/config") / _COVER_ART_CONFIG_FILENAME,
+            Path.cwd() / "scripts" / "config" / _COVER_ART_CONFIG_FILENAME,
+        ]
+    )
+    deduped: list[Path] = []
+    for item in candidates:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
+def resolve_cover_art_config_path() -> Path | None:
+    for candidate in _cover_art_config_candidates():
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:  # pragma: no cover - unreadable mount
+            continue
+    return None
 
 _MANUAL_PROMPT_PREFIX_RE = re.compile(
     r"^(?:wide|horizontal|landscape|vertical|4:5|banner|poster|cinematic|high quality|premium|homepage hero)[^:]*:\s*",
@@ -18,10 +57,25 @@ _MANUAL_PROMPT_PREFIX_RE = re.compile(
 
 @lru_cache(maxsize=1)
 def load_cover_art_config() -> dict:
-    try:
-        raw = _COVER_ART_CONFIG_PATH.read_text(encoding="utf-8")
-        parsed = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
+    config_path = resolve_cover_art_config_path()
+    if config_path is None:
+        # Silently degrading here is how a production image shipped without
+        # scripts/config ran on bland fallback defaults unnoticed for months.
+        logger.error(
+            "cover_art_config_missing searched=%s; falling back to built-in defaults "
+            "(brand palette, presets and negative rules are unavailable). Set "
+            "AUTO_BLOG_CONFIG_DIR or ship scripts/config with the image.",
+            " | ".join(str(item) for item in _cover_art_config_candidates()),
+        )
+        parsed = {}
+    else:
+        try:
+            parsed = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("cover_art_config_unreadable path=%s error=%s", config_path, exc)
+            parsed = {}
+    if not isinstance(parsed, dict):
+        logger.error("cover_art_config_invalid path=%s (expected a JSON object)", config_path)
         parsed = {}
 
     presets = parsed.get("presets") if isinstance(parsed.get("presets"), dict) else {}

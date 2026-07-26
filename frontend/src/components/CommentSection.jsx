@@ -4,9 +4,32 @@ import { motion } from 'framer-motion'
 import { MessageCircle, Send, BadgeCheck } from 'lucide-react'
 import { fetchComments, postComment } from '../api/posts'
 import { timeAgo } from '../utils/date'
+import { proxyImageUrl } from '../utils/proxyImage'
 import { useUser } from '../contexts/UserContext'
 
 const MAX_CONTENT_LENGTH = 500
+
+// avatar_url 是用户可控的任意 URL：必须走 /proxy-image（SSRF/类型/体积校验 + 不泄露访客 IP），
+// 并且在 CDN 抖动时静默降级，而不是留一个破图。
+function CommentAvatar({ url }) {
+  const [broken, setBroken] = useState(false)
+  const src = proxyImageUrl(url)
+  if (!src || broken) return null
+
+  return (
+    <img
+      src={src}
+      alt=""
+      width="20"
+      height="20"
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      className="h-5 w-5 rounded-full object-cover"
+      onError={() => setBroken(true)}
+    />
+  )
+}
 
 export default function CommentSection({ slug }) {
   const { user } = useUser()
@@ -88,18 +111,27 @@ export default function CommentSection({ slug }) {
               <span className="truncate">{user.nickname || user.email}</span>
             </div>
           ) : (
-            <input
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              className="sm:flex-shrink-0 sm:w-40 w-full px-4 py-2.5 rounded-lg text-sm outline-none"
-              style={inputStyle}
-              placeholder="你的昵称"
-              maxLength={50}
-              required
-            />
+            <>
+              <label htmlFor="comment-nickname" className="sr-only">你的昵称</label>
+              <input
+                id="comment-nickname"
+                name="nickname"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                className="sm:flex-shrink-0 sm:w-40 w-full px-4 py-2.5 rounded-lg text-sm outline-none"
+                style={inputStyle}
+                placeholder="你的昵称"
+                autoComplete="nickname"
+                maxLength={50}
+                required
+              />
+            </>
           )}
           <div className="flex-1 relative">
+            <label htmlFor="comment-content" className="sr-only">评论内容</label>
             <textarea
+              id="comment-content"
+              name="content"
               value={content}
               onChange={(e) => setContent(e.target.value.slice(0, MAX_CONTENT_LENGTH))}
               className="w-full px-4 py-2.5 rounded-lg text-sm outline-none resize-none"
@@ -108,8 +140,13 @@ export default function CommentSection({ slug }) {
               maxLength={MAX_CONTENT_LENGTH}
               rows={2}
               required
+              aria-describedby="comment-content-counter"
             />
-            <span className="absolute right-3 bottom-2 text-xs" style={{ color: content.length >= MAX_CONTENT_LENGTH ? '#ef4444' : 'var(--text-faint)' }}>
+            <span
+              id="comment-content-counter"
+              className="absolute right-3 bottom-2 text-xs"
+              style={{ color: content.length >= MAX_CONTENT_LENGTH ? 'var(--danger-text)' : 'var(--text-faint)' }}
+            >
               {content.length}/{MAX_CONTENT_LENGTH}
             </span>
           </div>
@@ -124,7 +161,7 @@ export default function CommentSection({ slug }) {
           </button>
         </div>
         {error && (
-          <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>
+          <p className="text-sm" style={{ color: 'var(--danger-text)' }}>{error}</p>
         )}
       </form>
 
@@ -145,9 +182,7 @@ export default function CommentSection({ slug }) {
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--accent)' }}>
-                  {c.avatar_url ? (
-                    <img src={c.avatar_url} alt="" width="20" height="20" className="h-5 w-5 rounded-full object-cover" />
-                  ) : null}
+                  {c.avatar_url ? <CommentAvatar url={c.avatar_url} /> : null}
                   {c.nickname}
                   {c.is_registered ? <BadgeCheck size={13} aria-label="注册用户" /> : null}
                 </span>

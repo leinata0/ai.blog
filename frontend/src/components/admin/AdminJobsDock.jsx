@@ -17,9 +17,9 @@ function statusTone(status) {
     case 'succeeded':
       return { color: 'var(--accent)', bg: 'var(--accent-soft)' }
     case 'failed':
-      return { color: '#ef4444', bg: 'var(--danger-soft)' }
+      return { color: 'var(--danger-text)', bg: 'var(--danger-soft)' }
     case 'timeout':
-      return { color: '#b45309', bg: 'rgba(245,158,11,0.12)' }
+      return { color: 'var(--warning-text)', bg: 'var(--warning-soft)' }
     case 'running':
     case 'queued':
       return { color: 'var(--accent)', bg: 'var(--accent-soft)' }
@@ -42,13 +42,14 @@ function kindBadge(kind) {
   return '图片'
 }
 
-export default function AdminJobsDock() {
+export default function AdminJobsDock({ openSignal = 0 }) {
   const [jobs, setJobs] = useState(() => getAdminJobs())
   const [open, setOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState('')
   const triggerRef = useRef(null)
   const panelRef = useRef(null)
+  const hydrateRef = useRef(null)
 
   useEffect(() => subscribeAdminJobs(setJobs), [])
 
@@ -58,26 +59,43 @@ export default function AdminJobsDock() {
     try {
       const payload = await fetchAdminGenerationJobs({ limit: 40 })
       mergeServerHistory(payload?.items || [])
+      setSyncError('')
     } catch (err) {
-      if (!silent) setSyncError(err?.message || '同步任务历史失败')
+      // Background polls used to swallow every failure, so an expired token or a 500
+      // left the dock frozen on stale statuses with no visible explanation.
+      setSyncError(err?.message || '同步任务历史失败')
     } finally {
       if (!silent) setSyncing(false)
     }
   }
 
+  hydrateRef.current = hydrateFromServer
+
+  const activeCount = useMemo(() => countActiveAdminJobs(jobs), [jobs])
+
   // Cross-device history on mount + light poll while dock is open / active jobs exist.
   useEffect(() => {
-    hydrateFromServer({ silent: true })
+    hydrateRef.current?.({ silent: true })
   }, [])
 
+  // Depend on the *number* of active jobs, not on `jobs`. Every store upsert produces a
+  // new array (and a new `updatedAt`), so depending on `jobs` tore down and recreated the
+  // interval on each emit — during a bulk cover submit the timer never reached its 8s/20s
+  // deadline and the dock stopped refreshing exactly when progress mattered most.
   useEffect(() => {
-    const active = countActiveAdminJobs(jobs)
-    if (!open && active === 0) return undefined
+    if (!open && activeCount === 0) return undefined
     const timer = window.setInterval(() => {
-      hydrateFromServer({ silent: true })
+      hydrateRef.current?.({ silent: true })
     }, open ? 8000 : 20000)
     return () => window.clearInterval(timer)
-  }, [open, jobs])
+  }, [open, activeCount])
+
+  // Explicit open request from the command palette (see AdminShell.openJobs).
+  useEffect(() => {
+    if (!openSignal) return
+    setOpen(true)
+    hydrateRef.current?.({ silent: true })
+  }, [openSignal])
 
   useEffect(() => {
     if (!open) return undefined
@@ -118,7 +136,6 @@ export default function AdminJobsDock() {
     }
   }, [open])
 
-  const activeCount = useMemo(() => countActiveAdminJobs(jobs), [jobs])
   const recent = useMemo(() => jobs.slice(0, 16), [jobs])
 
   // Always show dock once server or local has history potential — keep hidden only when empty.
@@ -140,6 +157,11 @@ export default function AdminJobsDock() {
           <ListTodo size={15} />
           <span>任务</span>
         </button>
+        {syncError ? (
+          <span role="alert" data-ui="admin-jobs-sync-error" className="ml-2 text-xs text-[var(--danger-text)]">
+            {syncError}
+          </span>
+        ) : null}
       </div>
     )
   }
@@ -171,6 +193,11 @@ export default function AdminJobsDock() {
           <span className="text-xs text-[var(--text-faint)]">{jobs.length}</span>
         )}
       </button>
+      {syncError && !open ? (
+        <span role="alert" data-ui="admin-jobs-sync-error" className="ml-2 text-xs text-[var(--danger-text)]">
+          {syncError}
+        </span>
+      ) : null}
 
       {open ? (
         <>
@@ -227,7 +254,7 @@ export default function AdminJobsDock() {
           </div>
 
           {syncError ? (
-            <div role="alert" className="border-b border-[var(--border-muted)] px-4 py-2 text-xs text-[#ef4444]">{syncError}</div>
+            <div role="alert" data-ui="admin-jobs-sync-error" className="border-b border-[var(--border-muted)] px-4 py-2 text-xs text-[var(--danger-text)]">{syncError}</div>
           ) : null}
 
           {recent.length === 0 ? (
@@ -280,7 +307,7 @@ export default function AdminJobsDock() {
                       ) : null}
                     </div>
                     {job.error ? (
-                      <p className="mt-2 text-xs leading-5 text-[#ef4444]">{job.error}</p>
+                      <p className="mt-2 text-xs leading-5 text-[var(--danger-text)]">{job.error}</p>
                     ) : null}
                     {job.resultPreview ? (
                       <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">{job.resultPreview}</p>

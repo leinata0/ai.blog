@@ -1,6 +1,17 @@
 import { useEffect, useMemo } from 'react'
 
 import { useSite } from '../contexts/SiteContext'
+import { SITE_CANONICAL_ORIGIN } from '../utils/contentPresentation'
+
+// Stable identity: a fresh `[]` default would be a new value on every render and would
+// re-run the whole head-writing effect on every keystroke of pages with an input.
+const EMPTY_JSON_LD = []
+
+// Tags this component owns by upserting. They are snapshotted on mount and restored on
+// unmount, otherwise a page without <SeoMeta> (404, 追踪, 标签, 友链…) keeps serving the
+// canonical / og:image of whatever article the visitor came from.
+const MANAGED_META_NAMES = ['description', 'robots', 'twitter:card', 'twitter:title', 'twitter:description', 'twitter:image']
+const MANAGED_META_PROPERTIES = ['og:title', 'og:description', 'og:type', 'og:url', 'og:image']
 
 function ensureMeta(selector, createTag) {
   let node = document.head.querySelector(selector)
@@ -68,21 +79,70 @@ function cleanupManagedNodes(prefix) {
     .forEach((node) => node.parentNode?.removeChild(node))
 }
 
+function snapshotManagedHead() {
+  if (typeof document === 'undefined') return []
+  const entries = MANAGED_META_NAMES.map((name) => ({
+    kind: 'name',
+    key: name,
+    value: document.head.querySelector(`meta[name="${name}"]`)?.getAttribute('content') || '',
+  }))
+  MANAGED_META_PROPERTIES.forEach((property) => {
+    entries.push({
+      kind: 'property',
+      key: property,
+      value: document.head.querySelector(`meta[property="${property}"]`)?.getAttribute('content') || '',
+    })
+  })
+  entries.push({
+    kind: 'canonical',
+    key: 'canonical',
+    value: document.head.querySelector('link[rel="canonical"]')?.getAttribute('href') || '',
+  })
+  return entries
+}
+
+function restoreManagedHead(entries) {
+  entries.forEach(({ kind, key, value }) => {
+    if (kind === 'name') upsertMetaByName(key, value)
+    else if (kind === 'property') upsertMetaByProperty(key, value)
+    else upsertLink('canonical', value)
+  })
+}
+
+/**
+ * Origin of the canonical link the prerendered HTML shipped with.
+ *
+ * `settings.site_url` is the primary source, but when it is missing we must not fall
+ * back to `window.location.origin`: on the apex domain or a Vercel preview host that
+ * would rewrite the www canonical the prerender wrote, and Google renders JS — the
+ * rewritten value is the one it keeps.
+ */
+function readPrerenderedCanonicalOrigin() {
+  if (typeof document === 'undefined') return ''
+  const href = document.head.querySelector('link[rel="canonical"]')?.getAttribute('href') || ''
+  if (!href) return ''
+  try {
+    return new URL(href, typeof window !== 'undefined' ? window.location.origin : undefined).origin
+  } catch {
+    return ''
+  }
+}
+
 export default function SeoMeta({
   title,
   description,
   path = '',
   image = '',
   type = 'website',
-  jsonLd = [],
+  jsonLd = EMPTY_JSON_LD,
   rssUrl = '',
+  noindex = false,
 }) {
   const { settings } = useSite()
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
-    if (typeof window !== 'undefined') return window.location.origin
-    return ''
+    return readPrerenderedCanonicalOrigin() || SITE_CANONICAL_ORIGIN
   }, [settings?.site_url])
 
   useEffect(() => {
@@ -93,10 +153,12 @@ export default function SeoMeta({
   useEffect(() => {
     const canonicalUrl = path
       ? `${siteUrl}${path.startsWith('/') ? path : `/${path}`}`
-      : (typeof window !== 'undefined' ? window.location.href : siteUrl)
+      : siteUrl
     const owner = `seo-${canonicalUrl}`
+    const previous = snapshotManagedHead()
 
     upsertMetaByName('description', description)
+    upsertMetaByName('robots', noindex ? 'noindex,follow' : '')
     upsertMetaByProperty('og:title', title)
     upsertMetaByProperty('og:description', description)
     upsertMetaByProperty('og:type', type)
@@ -138,8 +200,9 @@ export default function SeoMeta({
 
     return () => {
       cleanupManagedNodes(owner)
+      restoreManagedHead(previous)
     }
-  }, [description, image, jsonLd, path, rssUrl, siteUrl, title, type])
+  }, [description, image, jsonLd, noindex, path, rssUrl, siteUrl, title, type])
 
   return null
 }

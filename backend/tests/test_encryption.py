@@ -60,3 +60,72 @@ def test_decrypt_legacy_plaintext_is_passthrough(monkeypatch):
     _clear_fernet_cache()
 
     assert enc.decrypt_value("plain-legacy-value") == "plain-legacy-value"
+
+
+def test_ciphertext_carries_a_version_prefix(monkeypatch):
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    _clear_fernet_cache()
+
+    ciphertext = enc.encrypt_value("sk-live-secret")
+
+    assert ciphertext.startswith(enc.ENCRYPTION_PREFIX)
+    assert enc.is_encrypted_value(ciphertext)
+    assert not enc.is_encrypted_value("sk-live-secret")
+
+
+def test_rotated_key_makes_ciphertext_unusable_instead_of_leaking_it(monkeypatch):
+    """Fail closed: returning the undecryptable token would send
+    `Authorization: Bearer gAAAAAB...` upstream while the console still claimed
+    the credential was present."""
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    _clear_fernet_cache()
+    ciphertext = enc.encrypt_value("sk-live-secret")
+
+    monkeypatch.setenv("FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    _clear_fernet_cache()
+
+    assert enc.decrypt_value(ciphertext) == ""
+
+
+def test_legacy_unprefixed_ciphertext_also_fails_closed_after_rotation(monkeypatch):
+    """Rows written before the version prefix are still recognisably Fernet tokens."""
+    from cryptography.fernet import Fernet
+
+    old_key = Fernet.generate_key()
+    legacy_ciphertext = Fernet(old_key).encrypt(b"sk-live-secret").decode()
+    assert legacy_ciphertext.startswith("gAAAAA")
+
+    monkeypatch.setenv("FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    _clear_fernet_cache()
+
+    assert enc.decrypt_value(legacy_ciphertext) == ""
+
+
+def test_legacy_unprefixed_ciphertext_still_decrypts_with_the_same_key(monkeypatch):
+    from cryptography.fernet import Fernet
+
+    key = Fernet.generate_key()
+    legacy_ciphertext = Fernet(key).encrypt(b"sk-live-secret").decode()
+
+    monkeypatch.setenv("FIELD_ENCRYPTION_KEY", key.decode())
+    _clear_fernet_cache()
+
+    assert enc.decrypt_value(legacy_ciphertext) == "sk-live-secret"
+
+
+def test_missing_key_does_not_expose_ciphertext(monkeypatch):
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    _clear_fernet_cache()
+    ciphertext = enc.encrypt_value("sk-live-secret")
+
+    monkeypatch.delenv("FIELD_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    _clear_fernet_cache()
+
+    assert enc.decrypt_value(ciphertext) == ""

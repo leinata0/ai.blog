@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   adminUploadImage,
@@ -67,6 +67,11 @@ export default function AdminSettings({ panel, onPanelChange }) {
   const [providerModels, setProviderModels] = useState([])
   const [providerModelSourceId, setProviderModelSourceId] = useState(null)
   const [modelTestResults, setModelTestResults] = useState({})
+  // AdminDashboardPage lazy-mounts one panel per section, so switching sections
+  // unmounts this component while settings/provider requests (and multi-minute
+  // hero generation jobs) are still in flight. Every setState after an await has
+  // to be gated on the component still being mounted.
+  const activeRef = useRef(true)
   const activePanel = SETTINGS_PANELS.has(panel) ? panel : localPanel
 
   function selectPanel(nextPanel) {
@@ -76,14 +81,21 @@ export default function AdminSettings({ panel, onPanelChange }) {
   }
 
   useEffect(() => {
+    activeRef.current = true
     void loadSettings()
     void loadCoverStatus()
     void loadProviderConfig()
+    return () => {
+      activeRef.current = false
+    }
+    // Mount-only bootstrap; the loaders are stable closures over setState only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function loadSettings() {
     try {
       const settings = await fetchAdminSettings()
+      if (!activeRef.current) return
       setSiteSettings({
         author_name: settings.author_name || '',
         bio: settings.bio || '',
@@ -96,6 +108,7 @@ export default function AdminSettings({ panel, onPanelChange }) {
       })
       setError('')
     } catch (err) {
+      if (!activeRef.current) return
       setError(err.message || '加载站点设置失败')
     }
   }
@@ -103,9 +116,11 @@ export default function AdminSettings({ panel, onPanelChange }) {
   async function loadCoverStatus() {
     try {
       const status = await fetchAdminCoverGenerationStatus()
+      if (!activeRef.current) return
       setCoverStatus(status)
       setChannelLoadError('')
     } catch (err) {
+      if (!activeRef.current) return
       setCoverStatus(null)
       setChannelLoadError(err.message || '加载后台生图状态失败')
     }
@@ -118,11 +133,13 @@ export default function AdminSettings({ panel, onPanelChange }) {
         fetchAdminAiModelInstances(),
         fetchAdminAiRuntimePlan(),
       ])
+      if (!activeRef.current) return
       setProviderSources(Array.isArray(sources) ? sources : [])
       setModelInstances(Array.isArray(instances) ? instances : [])
       setRuntimePlan(plan || { image_generation: [], text_generation: [] })
       setChannelLoadError('')
     } catch (err) {
+      if (!activeRef.current) return
       setProviderSources([])
       setModelInstances([])
       setRuntimePlan({ image_generation: [], text_generation: [] })
@@ -183,16 +200,19 @@ export default function AdminSettings({ panel, onPanelChange }) {
       } else {
         await createAdminAiProviderSource(payload)
       }
+      if (!activeRef.current) return
       setProviderSourceForm(EMPTY_PROVIDER_SOURCE_FORM)
       setProviderModels([])
       setProviderModelSourceId(null)
       await loadProviderConfig()
       await loadCoverStatus()
+      if (!activeRef.current) return
       setProviderResult({ ok: true, message: '服务源已保存' })
     } catch (err) {
+      if (!activeRef.current) return
       setProviderResult({ ok: false, message: err.message || '服务源保存失败' })
     } finally {
-      setProviderBusy('')
+      if (activeRef.current) setProviderBusy('')
     }
   }
 
@@ -203,19 +223,22 @@ export default function AdminSettings({ panel, onPanelChange }) {
       description: `删除“${source?.name || source?.provider || id}”后，依赖它的模型实例可能立即不可用。此操作不可撤销。`,
       confirmLabel: '删除服务源',
     })
-    if (!confirmed) return
+    if (!confirmed || !activeRef.current) return
     setProviderBusy(`source:delete:${id}`)
     setProviderResult(null)
     try {
       await deleteAdminAiProviderSource(id)
+      if (!activeRef.current) return
       if (providerSourceForm.id === id) setProviderSourceForm(EMPTY_PROVIDER_SOURCE_FORM)
       await loadProviderConfig()
       await loadCoverStatus()
+      if (!activeRef.current) return
       setProviderResult({ ok: true, message: '服务源已删除' })
     } catch (err) {
+      if (!activeRef.current) return
       setProviderResult({ ok: false, message: err.message || '服务源删除失败' })
     } finally {
-      setProviderBusy('')
+      if (activeRef.current) setProviderBusy('')
     }
   }
 
@@ -224,6 +247,7 @@ export default function AdminSettings({ panel, onPanelChange }) {
     setProviderResult(null)
     try {
       const result = await fetchAdminAiProviderSourceModels(sourceId)
+      if (!activeRef.current) return
       const models = Array.isArray(result?.models) ? result.models : []
       setProviderModels(models)
       setProviderModelSourceId(sourceId)
@@ -232,9 +256,10 @@ export default function AdminSettings({ panel, onPanelChange }) {
         message: `${result?.message || (result?.ok ? '已获取模型列表' : '获取模型失败')}${Number.isFinite(result?.latency_ms) ? `，耗时 ${result.latency_ms} ms` : ''}`,
       })
     } catch (err) {
+      if (!activeRef.current) return
       setProviderResult({ ok: false, message: err.message || '模型发现失败' })
     } finally {
-      setProviderBusy('')
+      if (activeRef.current) setProviderBusy('')
     }
   }
 
@@ -258,14 +283,17 @@ export default function AdminSettings({ panel, onPanelChange }) {
       } else {
         await createAdminAiModelInstance(payload)
       }
+      if (!activeRef.current) return
       setModelInstanceForm(EMPTY_MODEL_INSTANCE_FORM)
       await loadProviderConfig()
       await loadCoverStatus()
+      if (!activeRef.current) return
       setProviderResult({ ok: true, message: '模型实例已保存' })
     } catch (err) {
+      if (!activeRef.current) return
       setProviderResult({ ok: false, message: err.message || '模型实例保存失败' })
     } finally {
-      setProviderBusy('')
+      if (activeRef.current) setProviderBusy('')
     }
   }
 
@@ -276,19 +304,22 @@ export default function AdminSettings({ panel, onPanelChange }) {
       description: `将永久删除“${instance?.name || instance?.model || id}”，相关运行计划可能随即改变。`,
       confirmLabel: '删除模型实例',
     })
-    if (!confirmed) return
+    if (!confirmed || !activeRef.current) return
     setProviderBusy(`model:delete:${id}`)
     setProviderResult(null)
     try {
       await deleteAdminAiModelInstance(id)
+      if (!activeRef.current) return
       if (modelInstanceForm.id === id) setModelInstanceForm(EMPTY_MODEL_INSTANCE_FORM)
       await loadProviderConfig()
       await loadCoverStatus()
+      if (!activeRef.current) return
       setProviderResult({ ok: true, message: '模型实例已删除' })
     } catch (err) {
+      if (!activeRef.current) return
       setProviderResult({ ok: false, message: err.message || '模型实例删除失败' })
     } finally {
-      setProviderBusy('')
+      if (activeRef.current) setProviderBusy('')
     }
   }
 
@@ -297,11 +328,13 @@ export default function AdminSettings({ panel, onPanelChange }) {
     setModelTestResults((prev) => ({ ...prev, [id]: null }))
     try {
       const result = await testAdminAiModelInstance(id)
+      if (!activeRef.current) return
       setModelTestResults((prev) => ({ ...prev, [id]: result }))
     } catch (err) {
+      if (!activeRef.current) return
       setModelTestResults((prev) => ({ ...prev, [id]: { ok: false, message: err.message || '模型实例测试失败' } }))
     } finally {
-      setProviderBusy('')
+      if (activeRef.current) setProviderBusy('')
     }
   }
 
@@ -326,13 +359,16 @@ export default function AdminSettings({ panel, onPanelChange }) {
         .filter((item) => item.purpose === purpose)
         .map((item, index) => ({ id: item.id, priority: item.priority || index + 1, is_default: Boolean(item.is_default) }))
       await updateAdminAiModelOrder({ purpose, items })
+      if (!activeRef.current) return
       await loadProviderConfig()
       await loadCoverStatus()
+      if (!activeRef.current) return
       setProviderResult({ ok: true, message: `${CHANNEL_LABELS[purpose]} 模型顺序已保存` })
     } catch (err) {
+      if (!activeRef.current) return
       setProviderResult({ ok: false, message: err.message || '模型顺序保存失败' })
     } finally {
-      setProviderBusy('')
+      if (activeRef.current) setProviderBusy('')
     }
   }
 
@@ -347,6 +383,7 @@ export default function AdminSettings({ panel, onPanelChange }) {
         friend_links: JSON.stringify((siteSettings.friend_links || []).map(({ _key, ...rest }) => rest)),
       }
       const updated = await updateSettings(payload)
+      if (!activeRef.current) return
       setSiteSettings({
         author_name: updated.author_name || '',
         bio: updated.bio || '',
@@ -359,9 +396,10 @@ export default function AdminSettings({ panel, onPanelChange }) {
       })
       setMsg('站点设置已保存')
     } catch (err) {
+      if (!activeRef.current) return
       setMsg(err.message || '保存站点设置失败')
     } finally {
-      setSaving(false)
+      if (activeRef.current) setSaving(false)
     }
   }
 
@@ -373,13 +411,15 @@ export default function AdminSettings({ panel, onPanelChange }) {
     setMsg('')
     try {
       const { url } = await adminUploadImage(file)
+      if (!activeRef.current) return
       setSiteSettings((prev) => ({ ...prev, [field]: url }))
       setMsg('图片已上传并写入地址，点击下方“保存站点设置”后会持久生效。')
     } catch (err) {
+      if (!activeRef.current) return
       setMsg(err.message || '图片上传失败')
     } finally {
       event.target.value = ''
-      setAssetUploading(false)
+      if (activeRef.current) setAssetUploading(false)
     }
   }
 
@@ -395,6 +435,8 @@ export default function AdminSettings({ panel, onPanelChange }) {
         submit: () => generateAdminHeroImage({ overwrite: true }),
         wait: waitForAdminImageGenerationJob,
       })
+      // Hero generation polls for minutes; the panel is very likely unmounted by now.
+      if (!activeRef.current) return
       setHeroDiagnostics({
         prompt: result?.prompt || '',
         preset: result?.preset || '',
@@ -413,9 +455,10 @@ export default function AdminSettings({ panel, onPanelChange }) {
       setMsg('Hero 海报已生成并直接替换当前首页主海报。')
       await loadCoverStatus()
     } catch (err) {
+      if (!activeRef.current) return
       setMsg(err.message || 'Hero 海报生成失败')
     } finally {
-      setHeroGenerating(false)
+      if (activeRef.current) setHeroGenerating(false)
     }
   }
 
@@ -478,11 +521,11 @@ export default function AdminSettings({ panel, onPanelChange }) {
       </div>
 
       {error ? (
-        <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+        <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[var(--danger-text)]">{error}</div>
       ) : null}
 
       {channelLoadError ? (
-        <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{channelLoadError}</div>
+        <div role="alert" className="rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[var(--danger-text)]">{channelLoadError}</div>
       ) : null}
 
       {msg ? (
@@ -492,7 +535,7 @@ export default function AdminSettings({ panel, onPanelChange }) {
           aria-live="polite"
           style={{
             backgroundColor: isSuccess ? 'var(--accent-soft)' : 'var(--danger-soft)',
-            color: isSuccess ? 'var(--accent)' : '#ef4444',
+            color: isSuccess ? 'var(--accent)' : 'var(--danger-text)',
           }}
         >
           {msg}

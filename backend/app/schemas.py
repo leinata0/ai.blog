@@ -122,6 +122,9 @@ class PostUpdateRequest(BaseModel):
     is_published: bool | None = None
     is_pinned: bool | None = None
     tags: list[str] | None = None
+    # Content-only maintenance writes (e.g. the media repair script running over
+    # the whole archive) must not re-notify subscribers about old posts.
+    suppress_notifications: bool = False
 
 
 class PostAdminOut(BaseModel):
@@ -623,13 +626,17 @@ class CoverGenerateResponse(BaseModel):
 
 class IllustrationGenerateRequest(BaseModel):
     # Caller passes an already-built English image prompt. Unlike cover generation this is
-    # not bound to a post_id: inline illustrations are produced before the post is published,
-    # so the endpoint generates synchronously and returns a hosted URL the pipeline can embed.
+    # not bound to a post_id: inline illustrations are produced before the post is published.
     prompt: str = Field(min_length=8)
     aspect: str = Field(default="landscape", pattern=r"^(landscape|square)$")
 
 
 class IllustrationGenerateResponse(BaseModel):
+    # Enqueue-only response: `job_id` + `status` are the contract, and the caller polls
+    # GET /api/admin/image-generation-jobs/{job_id} until it reaches a terminal status.
+    # image_url/generated/error stay for compatibility and are only filled once terminal.
+    job_id: int | None = None
+    status: str = ""
     image_url: str = ""
     generated: bool = False
     error: str = ""

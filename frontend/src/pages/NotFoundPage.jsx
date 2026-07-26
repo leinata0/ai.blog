@@ -1,16 +1,23 @@
-import { useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
+import SeoMeta from '../components/SeoMeta'
+import { SITE_COPY } from '../utils/contentPresentation'
 
 export default function NotFoundPage() {
-  useEffect(() => {
-    document.title = '404 - 极客开发日志'
-  }, [])
+  const location = useLocation()
 
   return (
     <main className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      {/* Without SeoMeta this page inherits the canonical / og:image of whatever article
+          the visitor arrived from, and the SPA catch-all serves it under any unknown URL. */}
+      <SeoMeta
+        title={`404 页面未找到 - ${SITE_COPY.brand}`}
+        description="你访问的页面不存在或已被移除，可以从首页重新进入 AI 日报、周报与主题追踪。"
+        path={location.pathname}
+        noindex
+      />
       <Navbar />
       <div className="flex-1 flex items-center justify-center px-6">
         <motion.div

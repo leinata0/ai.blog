@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Layers3 } from 'lucide-react'
@@ -22,6 +22,7 @@ export default function SeriesPage() {
   const { settings } = useSite()
   const [seriesList, setSeriesList] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
@@ -44,13 +45,23 @@ export default function SeriesPage() {
     }),
   ]), [siteUrl])
 
-  useEffect(() => {
-    document.title = '内容系列 - AI 资讯观察'
+  // A failed request must not be presented as "系列内容正在整理中" — that hides a
+  // backend outage behind an empty state and leaves no way to retry.
+  const loadSeries = useCallback(() => {
+    setLoading(true)
+    setError('')
     fetchSeriesList()
-      .then(setSeriesList)
-      .catch(() => setSeriesList([]))
+      .then((items) => setSeriesList(Array.isArray(items) ? items : []))
+      .catch((err) => {
+        setSeriesList([])
+        setError(err?.message || '系列内容加载失败，请稍后重试。')
+      })
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    loadSeries()
+  }, [loadSeries])
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
@@ -82,6 +93,23 @@ export default function SeriesPage() {
         <div className="mt-8">
           {loading ? (
             <LoadingSkeletonSet count={2} className="space-y-4" minHeight="22rem" />
+          ) : error ? (
+            <div
+              role="alert"
+              data-ui="series-page-error"
+              className="rounded-[1.8rem] px-6 py-6"
+              style={{ backgroundColor: 'var(--danger-soft)' }}
+            >
+              <p className="text-sm font-medium" style={{ color: 'var(--danger-text)' }}>{error}</p>
+              <button
+                type="button"
+                onClick={loadSeries}
+                className="mt-4 min-h-11 rounded-xl px-5 text-sm font-semibold text-white"
+                style={{ backgroundColor: 'var(--accent)' }}
+              >
+                重新加载系列
+              </button>
+            </div>
           ) : (
             <SeriesEditorialStack
               items={seriesList}

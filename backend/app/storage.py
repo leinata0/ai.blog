@@ -1,6 +1,7 @@
+import logging
 import os
 from dataclasses import dataclass
-from mimetypes import guess_extension
+from mimetypes import guess_extension, guess_type
 from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
@@ -19,7 +20,19 @@ except ImportError:  # pragma: no cover - dependency is installed in production
 from app.env import clean_env, is_production_env
 from app.uploads import UPLOADS_URL_PREFIX, get_uploads_dir
 
+logger = logging.getLogger("blog.storage")
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"}
+
+# `/uploads/{filename}` is a public endpoint and the admin media library runs on
+# a request thread, so R2 calls must never inherit botocore's 60s connect+read
+# defaults (plus retries) — a slow bucket would otherwise exhaust the pool.
+R2_READ_TIMEOUT_SECONDS = 10.0
+R2_LIST_TIMEOUT_SECONDS = 10.0
+R2_WRITE_TIMEOUT_SECONDS = 30.0
+# Upper bound for a single `list_uploaded_images` call so an unbounded bucket
+# cannot be paged through in one admin request.
+MAX_IMAGE_LIST_PAGE_SIZE = 200
 R2_REQUIRED_ENV_VARS = (
     "R2_ACCESS_KEY_ID",
     "R2_SECRET_ACCESS_KEY",
@@ -135,10 +148,10 @@ def _build_generated_name(filename: str, content_type: str = "") -> str:
 
 
 def _looks_like_image_key(key: str) -> bool:
-    suffix = Path(key).suffix.lower()
-    if suffix:
-        return suffix in IMAGE_EXTENSIONS
-    return True
+    # Extensionless keys are not listed: the media library is an image browser,
+    # and a shared bucket can hold unrelated objects that would otherwise show
+    # up as broken thumbnails.
+    return Path(key).suffix.lower() in IMAGE_EXTENSIONS
 
 
 def get_r2_bucket_name() -> str:
@@ -200,7 +213,7 @@ def build_storage_url(filename: str) -> str:
     return f"{UPLOADS_URL_PREFIX}/{quote(safe_name)}"
 
 
-def build_r2_client(*, request_timeout_seconds: float | None = None):
+def build_r2_client(*, request_timeout_seconds: float | None = None, max_attempts: int = 1):
     endpoint = get_r2_endpoint()
     if not endpoint:
         raise RuntimeError("Missing R2 endpoint")
@@ -213,7 +226,7 @@ def build_r2_client(*, request_timeout_seconds: float | None = None):
             {
                 "connect_timeout": request_timeout_seconds,
                 "read_timeout": request_timeout_seconds,
-                "retries": {"total_max_attempts": 1, "mode": "standard"},
+                "retries": {"total_max_attempts": max(1, int(max_attempts)), "mode": "standard"},
             }
         )
 
@@ -254,7 +267,10 @@ def save_upload(filename: str, contents: bytes, content_type: str = "") -> Store
     effective_type = content_type or "application/octet-stream"
 
     if is_r2_enabled():
-        client = build_r2_client()
+        client = build_r2_client(
+            request_timeout_seconds=R2_WRITE_TIMEOUT_SECONDS,
+            max_attempts=3,
+        )
         client.put_object(
             Bucket=get_r2_bucket_name(),
             Key=target_name,
@@ -281,14 +297,26 @@ def save_upload(filename: str, contents: bytes, content_type: str = "") -> Store
     )
 
 
-def list_uploaded_images() -> list[dict]:
-    if is_r2_enabled():
-        client = build_r2_client()
-        items = []
-        continuation_token = None
+def list_uploaded_images_page(
+    *,
+    limit: int = MAX_IMAGE_LIST_PAGE_SIZE,
+    cursor: str = "",
+) -> tuple[list[dict], str]:
+    """Return one page of stored images plus the cursor for the next page.
 
-        while True:
-            params = {"Bucket": get_r2_bucket_name(), "MaxKeys": 1000}
+    Bounded on purpose: the previous implementation walked an entire bucket in a
+    single admin request, which grows without limit as the pipeline publishes.
+    """
+    page_size = max(1, min(int(limit or MAX_IMAGE_LIST_PAGE_SIZE), MAX_IMAGE_LIST_PAGE_SIZE))
+    cursor = str(cursor or "").strip()
+
+    if is_r2_enabled():
+        client = build_r2_client(request_timeout_seconds=R2_LIST_TIMEOUT_SECONDS)
+        items: list[dict] = []
+        continuation_token = cursor or None
+
+        while len(items) < page_size:
+            params = {"Bucket": get_r2_bucket_name(), "MaxKeys": page_size}
             if continuation_token:
                 params["ContinuationToken"] = continuation_token
             response = client.list_objects_v2(**params)
@@ -301,15 +329,20 @@ def list_uploaded_images() -> list[dict]:
                     "url": build_storage_url(key),
                     "size": obj.get("Size", 0),
                 })
-            if not response.get("IsTruncated"):
+            continuation_token = response.get("NextContinuationToken") if response.get("IsTruncated") else None
+            if not continuation_token:
                 break
-            continuation_token = response.get("NextContinuationToken")
 
-        return items
+        return items[:page_size], str(continuation_token or "")
 
     uploads_dir = get_uploads_dir()
     if not uploads_dir.exists():
-        return []
+        return [], ""
+
+    try:
+        offset = max(0, int(cursor or 0))
+    except ValueError:
+        offset = 0
 
     images = []
     for file_path in sorted(uploads_dir.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
@@ -319,14 +352,22 @@ def list_uploaded_images() -> list[dict]:
                 "url": build_storage_url(file_path.name),
                 "size": file_path.stat().st_size,
             })
-    return images
+
+    page = images[offset:offset + page_size]
+    next_cursor = str(offset + page_size) if offset + page_size < len(images) else ""
+    return page, next_cursor
+
+
+def list_uploaded_images() -> list[dict]:
+    items, _next_cursor = list_uploaded_images_page()
+    return items
 
 
 def delete_uploaded_image(filename: str) -> None:
     safe_name = _safe_filename(filename)
 
     if is_r2_enabled():
-        client = build_r2_client()
+        client = build_r2_client(request_timeout_seconds=R2_WRITE_TIMEOUT_SECONDS)
         try:
             client.head_object(Bucket=get_r2_bucket_name(), Key=safe_name)
         except ClientError as exc:
@@ -343,16 +384,43 @@ def delete_uploaded_image(filename: str) -> None:
     target.unlink()
 
 
+def _guess_local_content_type(path: Path, contents: bytes) -> str:
+    detected = detect_image_content_type(contents)
+    if detected:
+        return detected
+    guessed, _encoding = guess_type(path.name)
+    return guessed or ""
+
+
 def get_uploaded_image_bytes(filename: str) -> tuple[bytes, str]:
     safe_name = _safe_filename(filename)
 
     if is_r2_enabled():
-        client = build_r2_client()
-        response = client.get_object(Bucket=get_r2_bucket_name(), Key=safe_name)
+        client = build_r2_client(request_timeout_seconds=R2_READ_TIMEOUT_SECONDS)
+        try:
+            response = client.get_object(Bucket=get_r2_bucket_name(), Key=safe_name)
+        except ClientError as exc:
+            error = exc.response.get("Error", {}) if hasattr(exc, "response") else {}
+            status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") if hasattr(exc, "response") else None
+            # A missing object must behave like the local branch (404), not like
+            # an unhandled server error — `/uploads/{name}` is public, so every
+            # bogus filename would otherwise log a full stack trace.
+            if status == 404 or error.get("Code") in {"NoSuchKey", "404", "NotFound"}:
+                raise FileNotFoundError(safe_name) from exc
+            logger.warning(
+                "r2_get_object_failed key=%s code=%s status=%s",
+                safe_name,
+                error.get("Code") or "",
+                status,
+            )
+            raise
         content_type = response.get("ContentType") or "application/octet-stream"
         return response["Body"].read(), content_type
 
     target = _local_upload_path(safe_name)
     if not target.exists():
         raise FileNotFoundError(safe_name)
-    return target.read_bytes(), ""
+    contents = target.read_bytes()
+    # Local mode used to return an empty content type, so every image was served
+    # as application/octet-stream and browsers refused to render it.
+    return contents, _guess_local_content_type(target, contents)

@@ -36,6 +36,95 @@ def test_register_duplicate_email_conflict(client):
     assert resp.status_code == 409
 
 
+def test_register_reports_409_when_the_unique_index_wins_the_race(client, monkeypatch):
+    """Two simultaneous submits both pass the existence check; the loser must get 409, not 500."""
+    from app.routers import users as users_mod
+
+    original = users_mod._find_user_by_email
+    calls = {"n": 0}
+
+    def _blind_first_lookup(db, email):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Simulate the competing transaction committing after our SELECT.
+            original_user = original(db, email)
+            if original_user is not None:
+                return None
+        return original(db, email)
+
+    assert _register(client).status_code == 200
+
+    monkeypatch.setattr(users_mod, "_find_user_by_email", _blind_first_lookup)
+    resp = _register(client)
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "该邮箱已注册"
+
+
+def test_followed_topics_and_history_sync_are_idempotent(client):
+    token = _register(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    topic = {"topic_key": "agent-runtime", "display_title": "Agent 运行时"}
+
+    for _ in range(2):
+        resp = client.post("/api/users/me/topics", json=topic, headers=headers)
+        assert resp.status_code == 200, resp.text
+    assert [item["topic_key"] for item in resp.json()] == ["agent-runtime"]
+
+    merge = client.post(
+        "/api/users/me/topics/merge",
+        json={"topics": [topic, topic]},
+        headers=headers,
+    )
+    assert merge.status_code == 200
+    assert len(merge.json()) == 1
+
+    entry = {
+        "slug": "agent-runtime-weekly",
+        "title": "Agent 运行时周报",
+        "topic_key": "agent-runtime",
+        "topic_display_title": "Agent 运行时",
+        "content_type": "weekly_review",
+        "coverage_date": "2026-07-20",
+    }
+    for _ in range(2):
+        resp = client.post("/api/users/me/history", json=entry, headers=headers)
+        assert resp.status_code == 200, resp.text
+    assert len(resp.json()) == 1
+
+
+def test_topic_sync_recovers_from_unique_constraint_race(client, monkeypatch):
+    """uq_user_topic violations must resolve into the idempotent result, not a 500."""
+    from app.models import FollowedTopic
+    from app.routers import users as users_mod
+
+    token = _register(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    topic = {"topic_key": "agent-runtime", "display_title": "Agent 运行时"}
+    assert client.post("/api/users/me/topics", json=topic, headers=headers).status_code == 200
+
+    original = users_mod._upsert_followed_topic
+    calls = {"n": 0}
+
+    def _racing_upsert(db, user_id, item):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Stand in for a concurrent request that inserted the row after our SELECT.
+            row = FollowedTopic(
+                user_id=user_id,
+                topic_key=item.topic_key.strip(),
+                display_title=item.display_title.strip(),
+            )
+            db.add(row)
+            return row
+        return original(db, user_id, item)
+
+    monkeypatch.setattr(users_mod, "_upsert_followed_topic", _racing_upsert)
+    resp = client.post("/api/users/me/topics", json=topic, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert calls["n"] == 2, "the commit must be retried after the unique-constraint failure"
+    assert [item["topic_key"] for item in resp.json()] == ["agent-runtime"]
+
+
 def test_register_invalid_email(client):
     resp = _register(client, email="not-an-email")
     assert resp.status_code == 400

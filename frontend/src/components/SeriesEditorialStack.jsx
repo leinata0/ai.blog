@@ -61,16 +61,24 @@ function buildDesktopCardStyle(index, activeIndex, compact, edgeNudge) {
 }
 
 function SeriesCover({ series }) {
-  if (series.cover_image) {
+  const coverSrc = proxyImageUrl(series.cover_image)
+  const [coverBroken, setCoverBroken] = useState(false)
+
+  useEffect(() => {
+    setCoverBroken(false)
+  }, [coverSrc])
+
+  if (coverSrc && !coverBroken) {
     return (
       <img
-        src={proxyImageUrl(series.cover_image)}
+        src={coverSrc}
         alt={getSeriesTitle(series)}
         width="1200"
         height="630"
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
+        onError={() => setCoverBroken(true)}
       />
     )
   }
@@ -78,7 +86,7 @@ function SeriesCover({ series }) {
   return (
     <div className="flex h-full w-full items-end bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.32),transparent_46%),linear-gradient(140deg,rgba(47,140,255,0.28),rgba(15,23,42,0.08))] p-6">
       <div>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: '#2563eb' }}>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: 'var(--accent)' }}>
           Curated Series
         </div>
         <div className="mt-2 font-display text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -97,6 +105,9 @@ function SeriesCardContent({ series, compact = false }) {
       <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-5 py-5 sm:px-6">
         <span
           className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
+          // 保留固定色：底是压在封面图上的近白药丸，不随主题变化。换成 --highlight-text
+          // 会在暗色主题下变成浅蓝配近白底。（该药丸随封面图明暗在 3.76~5.17:1 之间浮动，
+          // 属独立的既有问题，不在这轮状态色收口范围内。）
           style={{ backgroundColor: 'rgba(255,255,255,0.84)', color: '#2563eb' }}
         >
           <Layers3 size={12} />
@@ -153,7 +164,7 @@ function StackTabs({ items, activeIndex, onActivate }) {
               boxShadow: isActive ? '0 16px 36px rgba(47,140,255,0.12)' : 'none',
             }}
           >
-            <div className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: isActive ? '#2563eb' : 'var(--text-faint)' }}>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: isActive ? 'var(--accent)' : 'var(--text-faint)' }}>
               系列
             </div>
             <div className="mt-2 line-clamp-2 font-display text-base font-semibold leading-6">
@@ -327,7 +338,7 @@ function MobileStack({ items, activeIndex, onActivate }) {
               className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
             >
               <div>
-                <div className="text-xs font-semibold" style={{ color: '#2563eb' }}>
+                <div className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>
                   系列
                 </div>
                 <div className="mt-1 font-display text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -357,7 +368,7 @@ function MobileStack({ items, activeIndex, onActivate }) {
                 <Link
                   to={`/series/${series.slug}`}
                   className="mt-4 inline-flex items-center gap-2 text-sm font-medium"
-                  style={{ color: '#2563eb' }}
+                  style={{ color: 'var(--accent)' }}
                 >
                   查看系列详情
                   <ArrowRight size={14} />

@@ -1,13 +1,13 @@
 import json
 import logging
 import re
+import threading
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -17,6 +17,10 @@ from app.rate_limit import limiter
 logger = logging.getLogger("blog.admin")
 
 from app.auth import create_access_token, get_current_admin, verify_admin
+# Safe at module level: app.bootstrap imports only db/env/models/schema_compat/
+# seed/storage and nothing from app.routers, so this cannot close an import cycle.
+from app.bootstrap import startup_diagnostics
+from app.client_ip import client_ip_diagnostics
 from app.db import get_db
 from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.models import (
@@ -92,9 +96,10 @@ from app.schemas import (
 )
 from app.storage import (
     ImageValidationError,
+    MAX_IMAGE_LIST_PAGE_SIZE,
     MAX_UPLOAD_SIZE,
     delete_uploaded_image,
-    list_uploaded_images,
+    list_uploaded_images_page,
     save_upload,
     validate_image_upload,
 )
@@ -231,10 +236,13 @@ def _download_image_bytes(image_url: str) -> tuple[bytes, str]:
             timeout=30.0,
         )
     except ValueError as exc:
+        logger.warning("cover_image_download_rejected error=%s", exc)
         raise CoverGenerationError("download_failed", f"拒绝下载不安全的图片地址：{exc}") from exc
     except httpx.HTTPStatusError as exc:
+        logger.warning("cover_image_download_http_error status=%s", exc.response.status_code)
         raise CoverGenerationError("download_failed", f"下载图片失败，HTTP {exc.response.status_code}。") from exc
     except httpx.HTTPError as exc:
+        logger.warning("cover_image_download_failed error=%s", exc.__class__.__name__)
         raise CoverGenerationError("download_failed", "下载图片失败，请稍后重试。") from exc
 
     sniffed = detect_image_content_type(body)
@@ -304,6 +312,9 @@ def _generate_cover_asset(
     try:
         stored = save_upload(filename_hint, contents, content_type)
     except Exception as exc:
+        # The generation was already paid for; without the trace the real cause
+        # (AccessDenied / NoSuchBucket / timeout) is unrecoverable after the fact.
+        logger.exception("cover_asset_upload_failed filename_hint=%s", filename_hint)
         raise CoverGenerationError("upload_failed", "图片已生成，但上传到博客存储失败。") from exc
     return stored.url
 
@@ -351,6 +362,41 @@ _IMAGE_GENERATION_EXECUTOR = _ImageGenerationExecutor()
 _IMAGE_GENERATION_JOB_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="admin-image-generation")
 _TEXT_GENERATION_JOB_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="admin-text-generation")
 
+# Age thresholds for declaring a job orphaned. They must stay above the longest
+# possible upstream call (image generation can legitimately run for minutes).
+IMAGE_JOB_STALE_MINUTES = 60
+TEXT_JOB_STALE_MINUTES = 30
+GENERATION_JOB_SWEEP_INTERVAL_SECONDS = 600
+
+_sweeper_thread: threading.Thread | None = None
+_sweeper_stop = threading.Event()
+
+
+def _log_job_future_error(future, *, kind: str, job_id: int) -> None:
+    """Surface exceptions from a pool Future nobody awaits."""
+    try:
+        error = future.exception()
+    except CancelledError:
+        logger.warning("%s_generation_job_cancelled job_id=%s", kind, job_id)
+        return
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("%s_generation_job_future_inspect_failed job_id=%s", kind, job_id)
+        return
+    if error is not None:
+        logger.error(
+            "%s_generation_job_worker_error job_id=%s error=%s",
+            kind,
+            job_id,
+            error,
+            exc_info=error,
+        )
+
+
+def _submit_job(pool: ThreadPoolExecutor, fn, job_id: int, *, kind: str, **kwargs):
+    future = pool.submit(fn, job_id, **kwargs)
+    future.add_done_callback(lambda done: _log_job_future_error(done, kind=kind, job_id=job_id))
+    return future
+
 
 def _enqueue_image_generation_job(
     db: Session,
@@ -360,21 +406,34 @@ def _enqueue_image_generation_job(
     body,
 ) -> dict:
     job = image_generation_jobs.create_job(db, job_type=job_type, target_id=target_id, body=body)
-    _IMAGE_GENERATION_JOB_POOL.submit(image_generation_jobs.run_job, job.id, executor=_IMAGE_GENERATION_EXECUTOR)
+    _submit_job(
+        _IMAGE_GENERATION_JOB_POOL,
+        image_generation_jobs.run_job,
+        job.id,
+        kind="image",
+        executor=_IMAGE_GENERATION_EXECUTOR,
+    )
     return image_generation_jobs.job_to_dict(job)
 
 
 def _enqueue_text_generation_job(db: Session, body) -> dict:
     job = text_generation_jobs.create_job(db, body)
-    _TEXT_GENERATION_JOB_POOL.submit(text_generation_jobs.run_job, job.id)
+    _submit_job(_TEXT_GENERATION_JOB_POOL, text_generation_jobs.run_job, job.id, kind="text")
     return text_generation_jobs.job_to_dict(job)
 
 
-def fail_orphaned_generation_jobs(db: Session | None = None) -> dict[str, int]:
-    """Fail process-local jobs left behind by a previous server process.
+def fail_orphaned_generation_jobs(
+    db: Session | None = None,
+    *,
+    image_max_age_minutes: int = IMAGE_JOB_STALE_MINUTES,
+    text_max_age_minutes: int = TEXT_JOB_STALE_MINUTES,
+) -> dict[str, int]:
+    """Fail generation jobs whose in-process worker is gone.
 
-    The worker pools are in-memory, so every queued/running row present during
-    application startup has lost its executor and cannot complete.
+    Age-based on purpose: worker pools are process-local, but a zero-downtime
+    deploy runs the old and new instances side by side, so a fresh instance must
+    not declare the other instance's in-flight jobs dead. Anything older than the
+    threshold has outlived any legitimate upstream call.
     """
     owns_session = db is None
     if db is None:
@@ -384,11 +443,11 @@ def fail_orphaned_generation_jobs(db: Session | None = None) -> dict[str, int]:
     try:
         image_count = image_generation_jobs.mark_stale_running_failed(
             db,
-            max_age_minutes=0,
+            max_age_minutes=image_max_age_minutes,
         )
         text_count = text_generation_jobs.mark_stale_running_failed(
             db,
-            max_age_minutes=0,
+            max_age_minutes=text_max_age_minutes,
         )
         if image_count or text_count:
             logger.warning(
@@ -400,6 +459,44 @@ def fail_orphaned_generation_jobs(db: Session | None = None) -> dict[str, int]:
     finally:
         if owns_session:
             db.close()
+
+
+def _generation_job_sweep_loop(interval_seconds: float) -> None:
+    # `wait` returns True only when stop was set, so the first sweep happens one
+    # interval after startup (startup already ran one synchronously).
+    while not _sweeper_stop.wait(interval_seconds):
+        try:
+            fail_orphaned_generation_jobs()
+        except Exception:
+            logger.exception("generation_job_sweep_failed")
+
+
+def start_generation_job_sweeper(
+    interval_seconds: float = GENERATION_JOB_SWEEP_INTERVAL_SECONDS,
+) -> threading.Thread | None:
+    """Periodically retire orphaned jobs instead of only doing it at startup."""
+    global _sweeper_thread
+    if _sweeper_thread is not None and _sweeper_thread.is_alive():
+        return _sweeper_thread
+    _sweeper_stop.clear()
+    thread = threading.Thread(
+        target=_generation_job_sweep_loop,
+        args=(interval_seconds,),
+        name="generation-job-sweeper",
+        daemon=True,
+    )
+    thread.start()
+    _sweeper_thread = thread
+    return thread
+
+
+def stop_generation_job_sweeper(timeout: float = 2.0) -> None:
+    global _sweeper_thread
+    _sweeper_stop.set()
+    thread = _sweeper_thread
+    if thread is not None:
+        thread.join(timeout=timeout)
+    _sweeper_thread = None
 
 
 def _post_to_dict(post: Post) -> dict:
@@ -935,10 +1032,19 @@ def _upsert_topic_metadata_payload(
         if not profile.series_slug and post.series_slug:
             profile.series_slug = post.series_slug
 
+    # publishing_artifacts has no unique index on post_id and the pipeline upserts
+    # one row per (workflow_key, coverage_date, run), so a post accumulates rows
+    # across runs. Without the limit this raised MultipleResultsFound and 500'd
+    # every topic-metadata write.
     artifact = db.execute(
         select(PublishingArtifact)
         .where(PublishingArtifact.post_id == post.id)
-        .order_by(PublishingArtifact.updated_at.desc(), PublishingArtifact.created_at.desc())
+        .order_by(
+            PublishingArtifact.updated_at.desc(),
+            PublishingArtifact.created_at.desc(),
+            PublishingArtifact.id.desc(),
+        )
+        .limit(1)
     ).scalar_one_or_none()
 
     if artifact is None:
@@ -1110,6 +1216,64 @@ def get_subscription_health(_admin: str = Depends(get_current_admin)):
     return subscription_health_payload()
 
 
+@router.get("/diagnostics/client-ip")
+def get_client_ip_diagnostics(_admin: str = Depends(get_current_admin)):
+    """Calibration state for TRUSTED_PROXY_DEPTH, read from live traffic.
+
+    Nothing in the code can prove how many hops actually append to
+    X-Forwarded-For in front of the origin, and guessing wrong silently collapses
+    every per-IP rate limit onto one shared counter. `app.client_ip` samples the
+    real chain; this surfaces the snapshot plus a `recommendation` naming the
+    next action.
+
+    Admin-only on purpose: the payload exposes resolved visitor addresses and the
+    shape of the proxy chain, which is reconnaissance for anyone else.
+    """
+    return client_ip_diagnostics()
+
+
+@router.get("/diagnostics/encryption")
+def get_api_key_encryption_diagnostics(
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    """Which stored AI provider API keys are still plaintext at rest.
+
+    The same counts startup logs once and /readyz echoes as a bare number; this
+    is the surface that names *which* sources need attention, which is why it is
+    admin-only. The payload carries source ids and names only — never a key, a
+    fragment of one, or its length — so an operator can act on it without the
+    response itself becoming the leak it is reporting.
+
+    `startup` is the cached boot snapshot (environment tiering + database session
+    TimeZone + the same key check as it looked at startup); `api_key_encryption`
+    is re-read live, so re-saving a source in the console is reflected here
+    without a redeploy.
+    """
+    return {
+        "startup": startup_diagnostics(),
+        "api_key_encryption": ai_provider_manager.api_key_encryption_report(db),
+    }
+
+
+@router.post("/diagnostics/encryption/reencrypt")
+def reencrypt_legacy_api_keys(
+    dry_run: bool = Query(default=True),
+    db: Session = Depends(get_db),
+    _admin: str = Depends(get_current_admin),
+):
+    """Encrypt every AI provider API key still stored as plaintext.
+
+    Defaults to `dry_run=True`: the destructive-looking direction has to be asked
+    for explicitly (`?dry_run=false`), because a wrong FIELD_ENCRYPTION_KEY would
+    turn one bad call into unreadable credentials. Idempotent either way — rows
+    already holding ciphertext are skipped, so calling it twice changes nothing.
+
+    Returns counts plus source ids and names, never key material.
+    """
+    return ai_provider_manager.reencrypt_legacy_plaintext_api_keys(db, dry_run=dry_run)
+
+
 @router.get("/publishing-status", response_model=PublishingStatusResponse)
 def get_publishing_status(
     limit: int = Query(default=8, ge=1, le=20),
@@ -1149,11 +1313,16 @@ def upsert_publishing_status(
 ):
     existing = None
     if body.external_run_id:
+        # publishing_runs has plain indexes on these two columns, not a unique
+        # constraint, so an unlucky duplicate must not 500 the upsert.
         existing = db.execute(
-            select(PublishingRun).where(
+            select(PublishingRun)
+            .where(
                 PublishingRun.workflow_key == body.workflow_key,
                 PublishingRun.external_run_id == body.external_run_id,
             )
+            .order_by(PublishingRun.id.desc())
+            .limit(1)
         ).scalar_one_or_none()
 
     candidate_topics = _normalize_topic_payload(body.candidate_topics, body.run_mode, body.coverage_date)
@@ -1740,7 +1909,12 @@ def get_cover_generation_status(
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
-    return _get_cover_generation_status_payload(db)
+    # A provider misconfiguration must surface as a readable error code, not a
+    # 500 — this endpoint is how the admin console diagnoses the AI layer.
+    try:
+        return _get_cover_generation_status_payload(db)
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
 
 
 def _raise_ai_provider_http_error(exc: Exception) -> None:
@@ -1917,7 +2091,10 @@ def get_ai_runtime_plan(
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
-    return ai_provider_manager.runtime_plan_public(db)
+    try:
+        return ai_provider_manager.runtime_plan_public(db)
+    except AiChannelError as exc:
+        _raise_ai_provider_http_error(exc)
 
 
 @router.post("/ai-text/generate", response_model=AdminTextGenerationJobOut)
@@ -2051,36 +2228,30 @@ def admin_generate_illustration(
     db: Session = Depends(get_db),
     _admin: str = Depends(get_current_admin),
 ):
-    # Inline illustrations are inserted into content_md *before* the post is published, so
-    # unlike cover generation (which is async and keyed on an existing post_id) this must be
-    # synchronous and post-independent: take a prompt, return a self-hosted image URL. The
-    # prompt comes from the trusted admin pipeline; the generated image is downloaded and
-    # re-uploaded to our own storage (R2/local) so the article never references a third-party
-    # hotlink.
+    # Inline illustrations are post-independent (they are inserted into content_md before the
+    # post exists), but they are *not* cheap: image generation legitimately runs for minutes
+    # while every HTTP client gives up far sooner. Running it synchronously meant a client
+    # timeout abandoned an image that was still generated, paid for and uploaded to R2 as an
+    # orphan. Same job model as covers now: enqueue here, poll
+    # GET /api/admin/image-generation-jobs/{job_id} for the hosted URL.
     prompt = str(body.prompt or "").strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt is required")
 
-    framing_hint = (
-        "Square editorial explanatory illustration, clean and minimal, high quality"
-        if body.aspect == "square"
-        else "Wide landscape editorial explanatory illustration, clean and minimal, high quality"
+    job = _enqueue_image_generation_job(
+        db,
+        job_type=image_generation_jobs.JOB_ILLUSTRATION,
+        target_id=None,
+        body=body,
     )
-    try:
-        image_url = _generate_cover_asset(
-            db,
-            prompt,
-            f"auto-illust-{uuid4().hex[:12]}",
-            framing_hint=framing_hint,
-        )
-    except CoverGenerationError as exc:
-        return IllustrationGenerateResponse(
-            image_url="",
-            generated=False,
-            error=exc.message,
-            error_code=exc.code,
-        )
-    return IllustrationGenerateResponse(image_url=image_url, generated=True)
+    return IllustrationGenerateResponse(
+        job_id=job["job_id"],
+        status=job["status"],
+        image_url=job.get("result_image_url") or "",
+        generated=bool(job.get("generated")),
+        error=job.get("error") or "",
+        error_code=job.get("error_code") or "",
+    )
 
 
 @router.get("/image-generation-jobs/{job_id}", response_model=AdminImageGenerationJobOut)
@@ -2259,13 +2430,18 @@ def upsert_post_publishing_metadata(
     if metadata.source_count is None:
         post.source_count = inserted_source_count
 
+    # No unique index backs this tuple, so concurrent pipeline runs can leave two
+    # matching rows; take the newest instead of raising MultipleResultsFound.
     artifact = db.execute(
-        select(PublishingArtifact).where(
+        select(PublishingArtifact)
+        .where(
             PublishingArtifact.post_id == post.id,
             PublishingArtifact.workflow_key == artifact_input.workflow_key,
             PublishingArtifact.coverage_date == artifact_input.coverage_date,
             PublishingArtifact.publishing_run_id == artifact_input.publishing_run_id,
         )
+        .order_by(PublishingArtifact.id.desc())
+        .limit(1)
     ).scalar_one_or_none()
 
     if artifact is None:
@@ -2476,8 +2652,10 @@ def update_post(
         db.rollback()
         _raise_integrity_http_error(error)
     db.refresh(post)
-    if post.is_published and (
-        not was_published or (post.published_mode or "").strip() != "auto"
+    if (
+        not body.suppress_notifications
+        and post.is_published
+        and (not was_published or (post.published_mode or "").strip() != "auto")
     ):
         background_tasks.add_task(dispatch_post_notifications_for_post, post.id)
     return _post_to_dict(post)
@@ -2663,8 +2841,20 @@ def upload_image(
 
 
 @router.get("/images")
-def list_images(_admin: str = Depends(get_current_admin)):
-    return list_uploaded_images()
+def list_images(
+    response: Response,
+    limit: int = Query(default=MAX_IMAGE_LIST_PAGE_SIZE, ge=1, le=MAX_IMAGE_LIST_PAGE_SIZE),
+    cursor: str = Query(default=""),
+    _admin: str = Depends(get_current_admin),
+):
+    """One bounded page of stored images.
+
+    Still a plain JSON array for the existing admin UI; the continuation token
+    for the next page travels in `X-Next-Cursor` (empty when exhausted).
+    """
+    items, next_cursor = list_uploaded_images_page(limit=limit, cursor=cursor)
+    response.headers["X-Next-Cursor"] = next_cursor
+    return items
 
 
 @router.delete("/images/{filename}")

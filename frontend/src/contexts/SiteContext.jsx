@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { apiGet } from '../api/client'
 import { fetchHomeBootstrap } from '../api/home'
+import { normalizePostList } from '../api/posts'
 
 const defaultSiteContextValue = {
   settings: null,
@@ -15,15 +16,68 @@ const defaultSiteContextValue = {
 
 const SiteContext = createContext(defaultSiteContextValue)
 
+// window.__BLOG_BOOTSTRAP__ 是构建期快照。它只该在冷启动时当首屏占位用一次；
+// 一个 SPA 开一整天，每次回到 "/" 都拿构建期数据覆盖当前 state 会反复闪陈旧列表。
+const RUNTIME_BOOTSTRAP_MAX_AGE_MS = 30 * 60 * 1000
+const consumedRuntimeBootstraps = new WeakSet()
+
+/** Keep the shape contract identical to api/home.js normalizeSettings. */
+function normalizeBootstrapSettings(payload) {
+  if (!payload || typeof payload !== 'object') return null
+  return {
+    author_name: payload.author_name ?? '',
+    bio: payload.bio ?? '',
+    avatar_url: payload.avatar_url ?? '',
+    hero_image: payload.hero_image ?? '',
+    github_link: payload.github_link ?? '',
+    announcement: payload.announcement ?? '',
+    site_url: payload.site_url ?? '',
+    friend_links: payload.friend_links ?? '[]',
+  }
+}
+
 function readRuntimeBootstrap() {
   if (typeof window === 'undefined') return null
   const payload = window.__BLOG_BOOTSTRAP__
   if (!payload || typeof payload !== 'object') return null
-  return payload
+
+  const settings = normalizeBootstrapSettings(payload.settings)
+  if (!settings && !payload.posts) return null
+
+  // HomePage consumes bootstrap.posts.items directly, so it must go through the same
+  // normalizer as the API path instead of relying on the raw backend JSON shape.
+  return {
+    ...payload,
+    settings,
+    posts: payload.posts ? normalizePostList(payload.posts) : null,
+  }
+}
+
+/** Fresh enough to seed first paint, and only ever consumed once per page load. */
+function readUnconsumedRuntimeBootstrap() {
+  if (typeof window === 'undefined') return null
+  const raw = window.__BLOG_BOOTSTRAP__
+  if (!raw || typeof raw !== 'object') return null
+  if (consumedRuntimeBootstraps.has(raw)) return null
+
+  const generatedAt = Date.parse(raw.generatedAt ?? raw.generated_at ?? '')
+  if (Number.isFinite(generatedAt) && Date.now() - generatedAt > RUNTIME_BOOTSTRAP_MAX_AGE_MS) return null
+
+  return readRuntimeBootstrap()
+}
+
+function markRuntimeBootstrapConsumed() {
+  if (typeof window === 'undefined') return
+  const raw = window.__BLOG_BOOTSTRAP__
+  if (raw && typeof raw === 'object') consumedRuntimeBootstraps.add(raw)
 }
 
 function scheduleBackgroundTask(task) {
-  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+  if (typeof window === 'undefined') {
+    const id = setTimeout(task, 180)
+    return () => clearTimeout(id)
+  }
+  if (typeof window.requestIdleCallback === 'function') {
     const id = window.requestIdleCallback(task, { timeout: 800 })
     return () => window.cancelIdleCallback(id)
   }
@@ -39,6 +93,12 @@ export function SiteProvider({ children }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(() => readRuntimeBootstrap()?.settings == null)
   const [homeBootstrapSettled, setHomeBootstrapSettled] = useState(() => Boolean(readRuntimeBootstrap()?.posts))
+
+  // 这个 effect 只按路由重跑，但闭包里要读 settings —— 用 ref 取当前值，避免陈旧闭包。
+  const settingsRef = useRef(settings)
+  useEffect(() => {
+    settingsRef.current = settings
+  }, [settings])
 
   useEffect(() => {
     let active = true
@@ -71,7 +131,7 @@ export function SiteProvider({ children }) {
     }
 
     function loadSettingsFallback(requestOptions = {}) {
-      if (!settings) {
+      if (!settingsRef.current) {
         setLoading(true)
       }
 
@@ -85,6 +145,11 @@ export function SiteProvider({ children }) {
         .catch(() => null)
         .then((payload) => {
           if (!active) return
+          // A network blip must not blank out author info / site_url that we already have.
+          if (!payload && settingsRef.current) {
+            setLoading(false)
+            return
+          }
           applySettings(payload, null)
         })
     }
@@ -115,21 +180,22 @@ export function SiteProvider({ children }) {
     }
 
     if (isHomeRoute) {
-      const runtimeBootstrap = readRuntimeBootstrap()
+      const runtimeBootstrap = readUnconsumedRuntimeBootstrap()
       if (runtimeBootstrap?.settings) {
+        markRuntimeBootstrapConsumed()
         setHomeBootstrapSettled(true)
         applySettings(runtimeBootstrap.settings, runtimeBootstrap)
         // Background revalidation only — do not bypass the client cache.
         refreshHomeBootstrap(true)
       } else {
         setHomeBootstrapSettled(false)
-        if (!settings) {
+        if (!settingsRef.current) {
           setLoading(true)
         }
 
         refreshHomeBootstrap(false)
       }
-    } else if (!settings) {
+    } else if (!settingsRef.current) {
       loadSettingsFallback()
     } else {
       setLoading(false)
@@ -145,7 +211,13 @@ export function SiteProvider({ children }) {
   }, [location.pathname])
 
   const refreshSettings = useCallback(
-    () => apiGet('/api/settings', { forceRefresh: true }).then(setSettings).catch(() => {}),
+    () => apiGet('/api/settings', { forceRefresh: true })
+      .then((payload) => {
+        // Never downgrade to null: an empty/failed response leaves the current site
+        // identity (author, site_url, friend links) in place instead of clearing it.
+        if (payload) setSettings(payload)
+      })
+      .catch(() => {}),
     [],
   )
   const refreshStats = useCallback(

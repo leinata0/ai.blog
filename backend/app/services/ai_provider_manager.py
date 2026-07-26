@@ -10,7 +10,13 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session, selectinload
 
-from app.encryption import decrypt_value, encrypt_value
+import app.db as db_mod
+from app.encryption import (
+    decrypt_value,
+    encrypt_value,
+    is_legacy_plaintext_value,
+    uses_current_encryption_envelope,
+)
 from app.env import clean_env, clean_env_list, is_production_env
 from app.models import AiModelInstance, AiProviderSource
 from app.schema_compat import ensure_ai_provider_schema_compat
@@ -420,13 +426,35 @@ def _clear_other_defaults(db: Session, instance: AiModelInstance) -> None:
         other.is_default = False
 
 
-def resolve_instance(instance: AiModelInstance) -> ResolvedModelProvider:
+def _resolve_base_url_for_read(source: AiProviderSource) -> str:
+    """Base URL for the *read* path — never raises.
+
+    Strict validation belongs to create/update. Applying it while building the
+    runtime plan meant one record whose host fell out of
+    ``AI_PROVIDER_ALLOWED_BASE_URL_HOSTS`` took down every other model as well
+    as the admin views that would have shown which record was broken.
+    """
+    try:
+        return _validate_base_url(source.base_url)
+    except ai_channels.AiChannelError as exc:
+        logger.warning(
+            "Skipping AI provider source with an unusable base URL source_id=%s name=%s error=%s message=%s",
+            source.id,
+            source.name,
+            exc.code,
+            exc.message,
+        )
+        return ""
+
+
+def resolve_instance(instance: AiModelInstance, *, strict: bool = False) -> ResolvedModelProvider:
     source = instance.source
     if source is None:
         raise ai_channels.AiChannelError("invalid_channel_config", "模型实例缺少服务源。")
     db_key = decrypt_value((source.api_key_value or "").strip())
     env_key = _read_allowed_api_key_env_var(source.api_key_env_var)
     api_key = db_key or env_key
+    base_url = _validate_base_url(source.base_url) if strict else _resolve_base_url_for_read(source)
     return ResolvedModelProvider(
         instance_id=instance.id,
         source_id=source.id,
@@ -435,7 +463,7 @@ def resolve_instance(instance: AiModelInstance) -> ResolvedModelProvider:
         source_name=source.name,
         provider=source.provider,
         protocol=source.protocol,
-        base_url=_validate_base_url(source.base_url),
+        base_url=base_url,
         model=instance.model,
         api_key=api_key,
         api_key_env_var=source.api_key_env_var,
@@ -444,6 +472,19 @@ def resolve_instance(instance: AiModelInstance) -> ResolvedModelProvider:
         is_default=instance.is_default,
         enabled=bool(source.enabled and instance.enabled),
     )
+
+
+def instance_supports_purpose(instance: AiModelInstance, purpose: str) -> bool:
+    """Honour the capability tags stored on the instance.
+
+    ``capabilities_json`` was written and exposed but never read, so an instance
+    tagged text-only could still be picked for image generation. Rows with no
+    tags predate the field and stay eligible.
+    """
+    capabilities = _json_list(instance.capabilities_json)
+    if not capabilities:
+        return True
+    return purpose in capabilities
 
 
 def resolve_runtime_plan(db: Session, purpose: str) -> list[ResolvedModelProvider]:
@@ -459,8 +500,41 @@ def resolve_runtime_plan(db: Session, purpose: str) -> list[ResolvedModelProvide
         )
         .all()
     )
-    plan = [resolve_instance(instance) for instance in instances if instance.source and instance.source.enabled]
-    return [item for item in plan if item.is_configured]
+    plan: list[ResolvedModelProvider] = []
+    for instance in instances:
+        if not instance.source or not instance.source.enabled:
+            continue
+        if not instance_supports_purpose(instance, normalized):
+            logger.warning(
+                "Skipping AI model instance without the required capability instance_id=%s model=%s purpose=%s capabilities=%s",
+                instance.id,
+                instance.model,
+                normalized,
+                _json_list(instance.capabilities_json),
+            )
+            continue
+        try:
+            resolved = resolve_instance(instance)
+        except ai_channels.AiChannelError as exc:
+            # One broken record must never hide the healthy ones.
+            logger.warning(
+                "Skipping unresolvable AI model instance instance_id=%s error=%s message=%s",
+                instance.id,
+                exc.code,
+                exc.message,
+            )
+            continue
+        if not resolved.is_configured:
+            logger.warning(
+                "AI model instance is not usable instance_id=%s model=%s has_api_key=%s base_url=%s",
+                instance.id,
+                instance.model,
+                resolved.has_api_key,
+                bool(resolved.base_url),
+            )
+            continue
+        plan.append(resolved)
+    return plan
 
 
 def runtime_plan_public(db: Session) -> dict[str, Any]:
@@ -579,7 +653,23 @@ def test_instance(db: Session, instance_id: int) -> dict[str, Any]:
     )
     if instance is None:
         raise ai_channels.AiChannelError("not_found", "AI 模型实例不存在。")
-    item = resolve_instance(instance)
+    try:
+        # Strict here on purpose: an explicit "test" click should name the
+        # configuration problem instead of silently reporting a generic failure.
+        item = resolve_instance(instance, strict=True)
+    except ai_channels.AiChannelError as exc:
+        return {
+            "purpose": instance.purpose,
+            "ok": False,
+            "provider": instance.source.provider if instance.source else "",
+            "model": instance.model,
+            "message": exc.message,
+            "error_code": exc.code,
+            "latency_ms": 0,
+            "attempts": [],
+            "selected_target_id": "",
+            "selected_priority": None,
+        }
     started = time.perf_counter()
     try:
         if item.purpose == ai_channels.IMAGE_PURPOSE:
@@ -591,6 +681,209 @@ def test_instance(db: Session, instance_id: int) -> dict[str, Any]:
     except ai_channels.AiChannelError as exc:
         latency_ms = int((time.perf_counter() - started) * 1000)
         return {"purpose": item.purpose, "ok": False, "provider": item.provider, "model": item.model, "message": exc.message, "error_code": exc.code, "latency_ms": latency_ms, "attempts": [_attempt(item, ok=False, latency_ms=latency_ms, message=exc.message, error_code=exc.code)], "selected_target_id": "", "selected_priority": None}
+
+
+# --------------------------------------------------------------------------- #
+# API key at-rest diagnostics
+#
+# `decrypt_value` still passes unprefixed, non-Fernet-shaped values through as
+# legacy plaintext, and it has to: refusing them would brick every row written
+# before at-rest encryption existed. The cost is that a database can keep
+# storing plaintext credentials indefinitely with nothing pointing it out — the
+# local development databases have zero provider rows, so the question can only
+# be answered by the deployment itself.
+#
+# The report below counts them, and only counts them: no key material, no
+# fragment of it and not even its length ever leaves this module. Identifying a
+# row needs its id and name, so that is all a caller gets.
+# --------------------------------------------------------------------------- #
+
+
+def _empty_api_key_encryption_report(status: str, recommendation: str) -> dict[str, Any]:
+    return {
+        "total_sources": 0,
+        "sources_with_stored_key": 0,
+        "encrypted": 0,
+        "unprefixed_ciphertext": 0,
+        "legacy_plaintext": 0,
+        "legacy_plaintext_sources": [],
+        "status": status,
+        "action_required": False,
+        "recommendation": recommendation,
+    }
+
+
+def api_key_encryption_report(db: Session) -> dict[str, Any]:
+    """How many stored AI provider API keys are still unencrypted at rest.
+
+    Exposed for an admin-only diagnostic surface (the source names identify which
+    integrations exist). ``status`` is the field to read, ``recommendation`` says
+    what to do:
+
+    - ``ok``              – every stored key is ciphertext
+    - ``action_required`` – at least one key is stored as plaintext
+    - ``unknown``         – the table could not be read (see the safe wrapper)
+
+    ``unprefixed_ciphertext`` counts rows encrypted before the ``fernet:v1:``
+    envelope existed. They decrypt normally and are not a security problem; they
+    are reported separately so a nonzero count is not mistaken for plaintext.
+    """
+    rows = db.query(
+        AiProviderSource.id, AiProviderSource.name, AiProviderSource.api_key_value
+    ).all()
+
+    stored = 0
+    encrypted = 0
+    unprefixed_ciphertext = 0
+    legacy_plaintext: list[dict[str, Any]] = []
+    for source_id, name, raw_value in rows:
+        value = str(raw_value or "").strip()
+        if not value:
+            continue
+        stored += 1
+        if uses_current_encryption_envelope(value):
+            encrypted += 1
+        elif is_legacy_plaintext_value(value):
+            # id and name only — never the value, a prefix of it or its length.
+            legacy_plaintext.append({"id": source_id, "name": str(name or "")})
+        else:
+            unprefixed_ciphertext += 1
+
+    return {
+        "total_sources": len(rows),
+        "sources_with_stored_key": stored,
+        "encrypted": encrypted,
+        "unprefixed_ciphertext": unprefixed_ciphertext,
+        "legacy_plaintext": len(legacy_plaintext),
+        "legacy_plaintext_sources": legacy_plaintext,
+        "status": "action_required" if legacy_plaintext else "ok",
+        "action_required": bool(legacy_plaintext),
+        "recommendation": _api_key_encryption_recommendation(
+            legacy_plaintext=len(legacy_plaintext),
+            unprefixed_ciphertext=unprefixed_ciphertext,
+            stored=stored,
+        ),
+    }
+
+
+def _api_key_encryption_recommendation(
+    *, legacy_plaintext: int, unprefixed_ciphertext: int, stored: int
+) -> str:
+    if legacy_plaintext:
+        return (
+            f"{legacy_plaintext} of {stored} stored AI provider API key(s) are still plaintext in "
+            "the database. Re-saving the source in the admin console re-encrypts it, or call "
+            "ai_provider_manager.reencrypt_legacy_plaintext_api_keys(db) once to migrate all of "
+            "them in place. Treat the affected credentials as exposed to anyone who has held a "
+            "database backup and rotate them at the provider afterwards."
+        )
+    if unprefixed_ciphertext:
+        return (
+            f"No action needed: all {stored} stored key(s) are encrypted. "
+            f"{unprefixed_ciphertext} of them were written before the fernet:v1: envelope existed; "
+            "they decrypt normally and re-saving the source is only cosmetic."
+        )
+    if not stored:
+        return (
+            "No AI provider source stores an API key in the database, so nothing is at rest to "
+            "encrypt. Keys resolved from environment variables are unaffected by this check."
+        )
+    return f"No change needed: all {stored} stored AI provider API key(s) are encrypted at rest."
+
+
+def api_key_encryption_report_safe() -> dict[str, Any]:
+    """`api_key_encryption_report` for callers that must not fail.
+
+    Startup and /readyz both read this, and neither may be taken down by a
+    diagnostic — a missing table on a half-migrated database would otherwise fail
+    the Render health check over a purely informational count.
+    """
+    try:
+        with db_mod.SessionLocal() as db:
+            return api_key_encryption_report(db)
+    except Exception as exc:
+        logger.warning("Could not read AI provider key encryption state: %s", exc.__class__.__name__)
+        return _empty_api_key_encryption_report(
+            "unknown",
+            f"Could not read the AI provider table ({exc.__class__.__name__}), so how many API "
+            "keys are still stored as plaintext is unanswered. Re-check once the schema is in place.",
+        )
+
+
+def reencrypt_legacy_plaintext_api_keys(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
+    """Encrypt every AI provider API key that is still stored as plaintext.
+
+    Idempotent — rows that already hold ciphertext are left untouched, so running
+    it twice changes nothing. Deliberately **not** called at startup: rewriting a
+    credentials column on every boot is not a health check's job, and a wrong
+    FIELD_ENCRYPTION_KEY would turn one bad deploy into unreadable keys. Trigger
+    it explicitly instead, either from a shell pointed at the target database:
+
+        uv run --project backend python -c "import app.db as d, \
+            app.services.ai_provider_manager as m; \
+            print(m.reencrypt_legacy_plaintext_api_keys(d.SessionLocal()))"
+
+    or by mounting it behind an admin-only POST route. Pass ``dry_run=True`` to
+    see what it would touch without writing. Returns counts plus source ids and
+    names — never key material.
+    """
+    sources = db.query(AiProviderSource).all()
+    migrated: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    unchanged = 0
+
+    for source in sources:
+        value = str(source.api_key_value or "").strip()
+        if not value or not is_legacy_plaintext_value(value):
+            unchanged += 1
+            continue
+        identity = {"id": source.id, "name": str(source.name or "")}
+        if dry_run:
+            migrated.append(identity)
+            continue
+        try:
+            source.api_key_value = encrypt_value(value)
+        except Exception as exc:
+            # One unusable row must not block the others, and the reason must not
+            # carry the value that failed to encrypt.
+            failed.append({**identity, "error": exc.__class__.__name__})
+            continue
+        source.updated_at = datetime.now(timezone.utc)
+        migrated.append(identity)
+
+    if migrated and not dry_run:
+        db.commit()
+        logger.info("Re-encrypted %d legacy plaintext AI provider API key(s)", len(migrated))
+
+    if failed:
+        recommendation = (
+            f"{len(failed)} source(s) could not be encrypted, most likely because no valid "
+            "FIELD_ENCRYPTION_KEY or SECRET_KEY is configured. Fix the key and run this again; "
+            "the rows that did migrate are already committed and will be skipped."
+        )
+    elif not migrated:
+        recommendation = "No change needed: no AI provider API key is stored as plaintext."
+    elif dry_run:
+        recommendation = (
+            f"{len(migrated)} plaintext key(s) would be encrypted. Re-run with dry_run=False to "
+            "apply, then rotate those credentials at the provider: a plaintext row may have been "
+            "readable from database backups."
+        )
+    else:
+        recommendation = (
+            f"{len(migrated)} plaintext key(s) are now encrypted at rest. Rotate them at the "
+            "provider as well: the plaintext may have been readable from database backups."
+        )
+
+    return {
+        "dry_run": dry_run,
+        "migrated": len(migrated),
+        "migrated_sources": migrated,
+        "unchanged": unchanged,
+        "failed": len(failed),
+        "failed_sources": failed,
+        "recommendation": recommendation,
+    }
 
 
 def list_models_for_source(db: Session, source_id: int) -> dict[str, Any]:

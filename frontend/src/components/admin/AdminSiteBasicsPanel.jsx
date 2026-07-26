@@ -166,7 +166,7 @@ export default function AdminSiteBasicsPanel({
                 className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
                 style={{
                   backgroundColor: coverStatus?.supports_site_hero ? 'var(--accent-soft)' : 'var(--danger-soft)',
-                  color: coverStatus?.supports_site_hero ? 'var(--accent)' : '#ef4444',
+                  color: coverStatus?.supports_site_hero ? 'var(--accent)' : 'var(--danger-text)',
                 }}
               >
                 {coverStatus?.supports_site_hero ? '后台生图已就绪' : '后台生图待配置'}
@@ -254,7 +254,7 @@ export default function AdminSiteBasicsPanel({
               aria-label={`移除友情链接：${link.name || index + 1}`}
               title="移除"
             >
-              <X size={14} className="text-[#ef4444]" />
+              <X size={14} className="text-[var(--danger-text)]" />
             </button>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

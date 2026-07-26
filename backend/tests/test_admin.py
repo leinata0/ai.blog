@@ -15,20 +15,23 @@ def _auth(token):
 
 
 def test_startup_cleanup_fails_orphaned_generation_jobs(db_session):
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from app.models import AdminImageGenerationJob, AdminTextGenerationJob
     from app.routers.admin import fail_orphaned_generation_jobs
 
+    long_ago = datetime.now(timezone.utc) - timedelta(hours=6)
     image_job = AdminImageGenerationJob(
         job_type="post_cover",
         status="queued",
         request_json="{}",
+        created_at=long_ago,
     )
     text_job = AdminTextGenerationJob(
         status="running",
         request_json="{}",
-        locked_at=datetime.now(timezone.utc),
+        created_at=long_ago,
+        locked_at=long_ago,
     )
     db_session.add_all([image_job, text_job])
     db_session.commit()
@@ -42,6 +45,67 @@ def test_startup_cleanup_fails_orphaned_generation_jobs(db_session):
     assert text_job.status == "failed"
     assert image_job.error_code == "stale_job"
     assert text_job.error_code == "stale_job"
+
+
+def test_startup_cleanup_spares_jobs_owned_by_another_live_instance(db_session):
+    """Zero-downtime deploys run two instances; a fresh boot must not kill
+    in-flight jobs that still belong to the instance being replaced."""
+    from datetime import datetime, timezone
+
+    from app.models import AdminImageGenerationJob, AdminTextGenerationJob
+    from app.routers.admin import fail_orphaned_generation_jobs
+
+    now = datetime.now(timezone.utc)
+    image_job = AdminImageGenerationJob(
+        job_type="post_cover",
+        status="running",
+        request_json="{}",
+        created_at=now,
+        locked_at=now,
+    )
+    text_job = AdminTextGenerationJob(
+        status="queued",
+        request_json="{}",
+        created_at=now,
+    )
+    db_session.add_all([image_job, text_job])
+    db_session.commit()
+
+    result = fail_orphaned_generation_jobs(db_session)
+
+    db_session.refresh(image_job)
+    db_session.refresh(text_job)
+    assert result == {"image": 0, "text": 0}
+    assert image_job.status == "running"
+    assert text_job.status == "queued"
+
+
+def test_generation_job_sweeper_runs_periodically(monkeypatch):
+    """The pools are in-memory: without a periodic sweep an orphaned row can
+    only be cleaned by a restart."""
+    import threading
+
+    from app.routers import admin as admin_mod
+
+    sweeps = []
+    swept = threading.Event()
+
+    def _fake_sweep(*args, **kwargs):
+        sweeps.append(kwargs)
+        swept.set()
+        return {"image": 0, "text": 0}
+
+    monkeypatch.setattr(admin_mod, "fail_orphaned_generation_jobs", _fake_sweep)
+    admin_mod.stop_generation_job_sweeper()
+    try:
+        thread = admin_mod.start_generation_job_sweeper(interval_seconds=0.01)
+        assert thread is not None
+        assert swept.wait(timeout=5.0)
+        # Starting twice must not spawn a second sweeper.
+        assert admin_mod.start_generation_job_sweeper(interval_seconds=0.01) is thread
+    finally:
+        admin_mod.stop_generation_job_sweeper()
+    assert sweeps
 
 
 def _resolve_image_job(client, token, payload):
@@ -1893,7 +1957,7 @@ def test_upload_image_success_with_r2(client, monkeypatch):
 
     from app import storage as storage_mod
 
-    monkeypatch.setattr(storage_mod, "build_r2_client", lambda: FakeR2Client())
+    monkeypatch.setattr(storage_mod, "build_r2_client", lambda **_kwargs: FakeR2Client())
 
     resp = client.post(
         "/api/admin/upload",
@@ -1959,3 +2023,294 @@ def test_subscription_health_reports_ready_channels(client, monkeypatch):
     assert data["web_push"]["configured"] is True
     assert data["web_push"]["has_public_key"] is True
     assert data["wecom"]["configured"] is True
+
+
+def test_topic_metadata_upsert_survives_multiple_publishing_artifacts(client, db_session):
+    """publishing_artifacts has no unique index on post_id: the pipeline writes
+    one row per (workflow_key, coverage_date, run), so a post that is republished
+    accumulates rows. The lookup used to explode with MultipleResultsFound and
+    500 all three topic-metadata endpoints."""
+    from app.models import PublishingArtifact
+
+    token = _login(client)
+    create = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Topic Metadata Post",
+            "slug": "topic-metadata-post",
+            "summary": "summary",
+            "content_md": "content",
+            "content_type": "daily_brief",
+            "published_mode": "auto",
+            "coverage_date": "2026-05-01",
+        },
+        headers=_auth(token),
+    )
+    assert create.status_code == 200
+    post_id = create.json()["id"]
+
+    db_session.add_all(
+        [
+            PublishingArtifact(post_id=post_id, workflow_key="daily_auto", coverage_date="2026-05-01"),
+            PublishingArtifact(post_id=post_id, workflow_key="daily_auto", coverage_date="2026-05-02"),
+        ]
+    )
+    db_session.commit()
+
+    payload = {
+        "post_id": post_id,
+        "topic_key": "topic-metadata-key",
+        "topic_metadata": {
+            "topic_key": "topic-metadata-key",
+            "topic_title": "Topic Metadata Title",
+            "coverage_date": "2026-05-02",
+        },
+    }
+
+    for method, url in (
+        ("put", f"/api/admin/posts/{post_id}/topic-metadata"),
+        ("put", f"/api/admin/posts/{post_id}/topic-profile"),
+        ("post", "/api/admin/topic-metadata"),
+    ):
+        resp = getattr(client, method)(url, json=payload, headers=_auth(token))
+        assert resp.status_code == 200, f"{method.upper()} {url} -> {resp.status_code} {resp.text}"
+        assert resp.json()["topic_key"] == "topic-metadata-key"
+        assert resp.json()["artifact_id"] is not None
+
+
+def test_post_update_can_suppress_notifications(client, monkeypatch):
+    """A bulk media repair pass rewrites content on old published posts; it must
+    not re-notify every subscriber about years-old articles."""
+    from app.routers import admin as admin_mod
+
+    dispatched = []
+    monkeypatch.setattr(
+        admin_mod,
+        "dispatch_post_notifications_for_post",
+        lambda post_id: dispatched.append(post_id),
+    )
+
+    token = _login(client)
+    create = client.post(
+        "/api/admin/posts",
+        json={
+            "title": "Repairable Post",
+            "slug": "repairable-post",
+            "summary": "summary",
+            "content_md": "content",
+            "published_mode": "manual",
+            "is_published": True,
+        },
+        headers=_auth(token),
+    )
+    assert create.status_code == 200
+    post_id = create.json()["id"]
+    dispatched.clear()
+
+    quiet = client.put(
+        f"/api/admin/posts/{post_id}",
+        json={"content_md": "repaired content", "suppress_notifications": True},
+        headers=_auth(token),
+    )
+    assert quiet.status_code == 200
+    assert dispatched == []
+
+    loud = client.put(
+        f"/api/admin/posts/{post_id}",
+        json={"content_md": "edited content"},
+        headers=_auth(token),
+    )
+    assert loud.status_code == 200
+    assert dispatched == [post_id]
+
+
+def test_illustration_generation_is_enqueued_not_run_inline(client, monkeypatch):
+    """Image generation legitimately runs for minutes while clients time out in
+    seconds; running it inline meant a paid image was produced and uploaded for a
+    connection that had already gone away."""
+    from app.routers import admin as admin_mod
+    from app.services import image_generation_jobs
+
+    submitted = []
+    monkeypatch.setattr(
+        admin_mod,
+        "_submit_job",
+        lambda pool, fn, job_id, *, kind, **kwargs: submitted.append((kind, job_id)),
+    )
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("illustration generation must not run on the request thread")
+
+    monkeypatch.setattr(admin_mod, "_generate_cover_asset", _fail_if_called)
+
+    token = _login(client)
+    resp = client.post(
+        "/api/admin/illustrations/generate",
+        json={"prompt": "An editorial illustration about agent tooling", "aspect": "landscape"},
+        headers=_auth(token),
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["job_id"]
+    assert data["status"] == image_generation_jobs.STATUS_QUEUED
+    assert data["generated"] is False
+    assert submitted == [("image", data["job_id"])]
+
+    poll = client.get(f"/api/admin/image-generation-jobs/{data['job_id']}", headers=_auth(token))
+    assert poll.status_code == 200
+    assert poll.json()["job_type"] == image_generation_jobs.JOB_ILLUSTRATION
+
+
+def test_illustration_job_uploads_and_returns_hosted_url(client, monkeypatch):
+    from app.routers import admin as admin_mod
+    from app.services import image_generation_jobs
+
+    monkeypatch.setattr(
+        admin_mod._IMAGE_GENERATION_EXECUTOR,
+        "generate_cover_asset",
+        staticmethod(lambda db, prompt, filename_hint, framing_hint="": "https://img.example.com/illust.png"),
+        raising=False,
+    )
+
+    token = _login(client)
+    resp = client.post(
+        "/api/admin/illustrations/generate",
+        json={"prompt": "An editorial illustration about agent tooling", "aspect": "square"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    job = _resolve_image_job(client, token, resp.json() | {"job_id": resp.json()["job_id"]})
+
+    assert job["status"] == "succeeded"
+    assert job["result_image_url"] == "https://img.example.com/illust.png"
+
+
+def test_uploads_endpoint_sets_nosniff_and_real_content_type(client, upload_dir):
+    (upload_dir / "served.png").write_bytes(b"\x89PNG\r\n\x1a\nimage-bytes")
+
+    resp = client.get("/uploads/served.png")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("image/png")
+    assert resp.headers["x-content-type-options"] == "nosniff"
+
+
+def test_missing_upload_is_404_in_r2_mode(client, monkeypatch):
+    from app import storage as storage_mod
+
+    class _FakeClient:
+        def get_object(self, **kwargs):
+            raise storage_mod.ClientError(
+                {"Error": {"Code": "NoSuchKey"}, "ResponseMetadata": {"HTTPStatusCode": 404}},
+                "GetObject",
+            )
+
+    monkeypatch.setenv("R2_ACCOUNT_ID", "test-account")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("R2_BUCKET_NAME", "blog-images")
+    monkeypatch.setenv("R2_PUBLIC_BASE_URL", "https://img.example.com")
+    monkeypatch.setattr(storage_mod, "build_r2_client", lambda **_kwargs: _FakeClient())
+
+    resp = client.get("/uploads/never-uploaded.png")
+
+    assert resp.status_code == 404
+
+
+def test_admin_images_are_paginated(client, upload_dir):
+    for index in range(4):
+        (upload_dir / f"listed-{index}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    token = _login(client)
+    resp = client.get("/api/admin/images?limit=2", headers=_auth(token))
+
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+    assert len(resp.json()) == 2
+    cursor = resp.headers["x-next-cursor"]
+    assert cursor
+
+    second = client.get(f"/api/admin/images?limit=2&cursor={cursor}", headers=_auth(token))
+    assert second.status_code == 200
+    assert len(second.json()) == 2
+    assert second.headers["x-next-cursor"] == ""
+
+
+def test_image_job_worker_crash_is_recorded_instead_of_hanging_forever(db_session, monkeypatch):
+    """The pool Future is never awaited: a failure around _execute_job (session
+    creation, the "running" commit, a dropped connection) used to disappear and
+    leave the row queued while the client polled forever."""
+    from app.models import AdminImageGenerationJob
+    from app.services import image_generation_jobs
+
+    job = image_generation_jobs.create_job(db_session, job_type="post_cover", target_id=1, body={})
+    job_id = job.id
+    db_session.commit()
+
+    real_session_local = image_generation_jobs.SessionLocal
+    calls = []
+
+    def _flaky_session_local():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("connection pool exhausted")
+        return real_session_local()
+
+    monkeypatch.setattr(image_generation_jobs, "SessionLocal", _flaky_session_local)
+
+    image_generation_jobs.run_job(job_id, executor=object())
+
+    db_session.expire_all()
+    refreshed = db_session.get(AdminImageGenerationJob, job_id)
+    assert refreshed.status == "failed"
+    assert refreshed.error_code == "worker_error"
+
+
+def test_text_job_worker_crash_is_recorded_instead_of_hanging_forever(db_session, monkeypatch):
+    from app.models import AdminTextGenerationJob
+    from app.services import text_generation_jobs
+
+    job = text_generation_jobs.create_job(db_session, {"messages": [{"role": "user", "content": "hi"}]})
+    job_id = job.id
+    db_session.commit()
+
+    real_session_local = text_generation_jobs.SessionLocal
+    calls = []
+
+    def _flaky_session_local():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("connection pool exhausted")
+        return real_session_local()
+
+    monkeypatch.setattr(text_generation_jobs, "SessionLocal", _flaky_session_local)
+
+    text_generation_jobs.run_job(job_id)
+
+    db_session.expire_all()
+    refreshed = db_session.get(AdminTextGenerationJob, job_id)
+    assert refreshed.status == "failed"
+    assert refreshed.error_code == "worker_error"
+
+
+def test_discarded_job_future_errors_are_logged(caplog):
+    """A Future nobody awaits must still leave a trace when its worker throws."""
+    import logging
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.routers import admin as admin_mod
+
+    def _boom(_job_id):
+        raise RuntimeError("worker exploded")
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        with caplog.at_level(logging.ERROR, logger="blog.admin"):
+            future = admin_mod._submit_job(pool, _boom, 42, kind="image")
+            pool.shutdown(wait=True)
+        assert future.exception() is not None
+    finally:
+        pool.shutdown(wait=True)
+
+    assert any("image_generation_job_worker_error" in record.message for record in caplog.records)

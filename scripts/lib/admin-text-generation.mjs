@@ -1,5 +1,7 @@
 const DEFAULT_TEXT_GENERATION_TIMEOUT_MS = 240000
 const DEFAULT_POLL_INTERVAL_MS = 1500
+const DEFAULT_SUBMIT_TIMEOUT_MS = 60000
+const DEFAULT_JOB_FETCH_TIMEOUT_MS = 30000
 
 function trimBaseUrl(value) {
   return String(value || '').trim().replace(/\/$/, '')
@@ -39,13 +41,17 @@ async function parseErrorBody(response) {
       // Fall through to returning the raw response body.
     }
     return raw.slice(0, 1000)
-  } catch {
-    return ''
+  } catch (error) {
+    // The status code still tells the operator what happened; leave a breadcrumb rather
+    // than reporting an empty reason.
+    return `<unreadable response body: ${error?.message || error}>`
   }
 }
 
-async function fetchJson(url, { token, method = 'GET', body, timeoutMs } = {}) {
-  const response = await fetch(url, {
+// `AbortSignal.timeout(undefined)` coerces to 0 and aborts instantly, so this must never
+// be left unset by a caller.
+async function fetchJson(url, { token, method = 'GET', body, timeoutMs = DEFAULT_JOB_FETCH_TIMEOUT_MS, fetchImpl = fetch } = {}) {
+  const response = await fetchImpl(url, {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -73,6 +79,9 @@ export async function generateTextViaAdminApi({
   jsonMode = false,
   timeoutMs = DEFAULT_TEXT_GENERATION_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  submitTimeoutMs = DEFAULT_SUBMIT_TIMEOUT_MS,
+  requestTimeoutMs = DEFAULT_JOB_FETCH_TIMEOUT_MS,
+  fetchImpl = fetch,
 } = {}) {
   const base = trimBaseUrl(blogApiBase)
   if (!base) throw new Error('Missing BLOG_API_BASE')
@@ -83,8 +92,10 @@ export async function generateTextViaAdminApi({
 
   const submitPayload = await fetchJson(`${base}/api/admin/ai-text/generate`, {
     token,
+    fetchImpl,
     method: 'POST',
-    timeoutMs: Math.min(timeoutMs, 60000),
+    // The submit call only enqueues a job; it must not inherit the whole generation budget.
+    timeoutMs: Math.min(timeoutMs, submitTimeoutMs),
     body: {
       messages: messages.map((message) => ({
         role: String(message?.role || '').trim(),
@@ -117,8 +128,9 @@ export async function generateTextViaAdminApi({
     await sleep(pollIntervalMs)
     latest = await fetchJson(`${base}/api/admin/text-generation-jobs/${jobId}`, {
       token,
+      fetchImpl,
       method: 'GET',
-      timeoutMs: 30000,
+      timeoutMs: requestTimeoutMs,
     })
   }
 

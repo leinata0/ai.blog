@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy import case, delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import USER_TOKEN_AUDIENCE, create_access_token
@@ -89,8 +90,31 @@ def _validate_password_or_400(password: str) -> None:
 
 
 def _site_url(db: Session) -> str:
-    settings = db.execute(select(SiteSettings)).scalar_one_or_none()
+    # limit(1): a duplicated site_settings row must not raise MultipleResultsFound here.
+    settings = db.execute(select(SiteSettings).limit(1)).scalar_one_or_none()
     return resolve_public_site_url(db, settings=settings)
+
+
+def _find_user_by_email(db: Session, email: str) -> User | None:
+    return db.execute(select(User).where(User.email == email).limit(1)).scalar_one_or_none()
+
+
+def _commit_with_conflict_retry(db: Session, apply_changes) -> None:
+    """Run ``apply_changes`` then commit, retrying once after a unique-constraint race.
+
+    followed_topics carries uq_user_topic and reading_history carries uq_user_slug. Two
+    concurrent syncs from the same account (double-click, or a client replaying a merge)
+    can both miss the SELECT in the upsert helpers and collide on INSERT. Re-running the
+    upsert after a rollback re-reads the row the winner committed, so the loser takes the
+    UPDATE branch and returns the same idempotent payload instead of a 500.
+    """
+    try:
+        apply_changes()
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        apply_changes()
+        db.commit()
 
 
 def _check_turnstile(request: Request, token: str | None) -> None:
@@ -112,7 +136,7 @@ def register(request: Request, body: UserRegisterRequest, db: Session = Depends(
     if not is_valid_email(email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
 
-    existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    existing = _find_user_by_email(db, email)
     if existing is not None:
         raise HTTPException(status_code=409, detail="该邮箱已注册")
 
@@ -123,7 +147,14 @@ def register(request: Request, body: UserRegisterRequest, db: Session = Depends(
         nickname=nickname,
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # users.email is UNIQUE: a double-submitted form (or two tabs) can both pass the
+        # existence check above and race here. That is a duplicate registration, not a
+        # server fault — answer with the same 409 the sequential path returns.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="该邮箱已注册") from None
     db.refresh(user)
     # Best-effort verification email (no-op when email delivery isn't configured).
     try:
@@ -138,7 +169,7 @@ def register(request: Request, body: UserRegisterRequest, db: Session = Depends(
 def login(request: Request, body: UserLoginRequest, db: Session = Depends(get_db)):
     _check_turnstile(request, body.turnstile_token)
     email = (body.email or "").strip().lower()
-    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    user = _find_user_by_email(db, email)
     if user is None or not user.password_set or not verify_password(body.password, user.password_hash):
         if user is not None and not user.password_set:
             raise HTTPException(status_code=400, detail="该账号尚未设置密码，请使用邮箱验证码登录")
@@ -213,7 +244,7 @@ def verify_login_code(request: Request, body: AuthCodeVerifyRequest, db: Session
         )
     except AuthCodeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    user = _find_user_by_email(db, email)
     if user is None:
         user = User(
             email=email,
@@ -223,8 +254,17 @@ def verify_login_code(request: Request, body: AuthCodeVerifyRequest, db: Session
             email_verified=True,
         )
         db.add(user)
-        db.flush()
-    elif user.status == "banned":
+        try:
+            db.flush()
+        except IntegrityError:
+            # Two concurrent code verifications for a brand-new address both reach the
+            # insert; users.email is UNIQUE so the loser must adopt the row the winner
+            # created instead of 500-ing on a successful login.
+            db.rollback()
+            user = _find_user_by_email(db, email)
+            if user is None:
+                raise HTTPException(status_code=400, detail="验证码无效或已过期") from None
+    if user.status == "banned":
         raise HTTPException(status_code=403, detail="账号已被封禁")
     user.email_verified = True
     user.last_login_at = datetime.now(timezone.utc)
@@ -237,7 +277,7 @@ def verify_login_code(request: Request, body: AuthCodeVerifyRequest, db: Session
 @limiter.limit("5/minute")
 def request_password_reset(request: Request, body: AuthCodeRequest, db: Session = Depends(get_db)):
     email = _validate_auth_email(body.email)
-    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    user = _find_user_by_email(db, email)
     # Still create a cooldown-protected challenge and return the same response for
     # unknown/banned accounts, but do not turn this endpoint into an email relay.
     response = _dispatch_auth_code(
@@ -266,7 +306,7 @@ def confirm_password_reset(request: Request, body: PasswordResetConfirmRequest, 
         )
     except AuthCodeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    user = _find_user_by_email(db, email)
     if user is None or user.status == "banned":
         raise HTTPException(status_code=400, detail="验证码无效或已过期")
     user.password_hash = hash_password(body.new_password)
@@ -414,8 +454,7 @@ def follow_topic(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _upsert_followed_topic(db, current_user.id, body)
-    db.commit()
+    _commit_with_conflict_retry(db, lambda: _upsert_followed_topic(db, current_user.id, body))
     return list_followed_topics(current_user, db)
 
 
@@ -444,14 +483,16 @@ def merge_topics(
     db: Session = Depends(get_db),
 ):
     # Idempotent: upsert each incoming topic; existing follows are preserved.
-    seen: set[str] = set()
-    for item in body.topics:
-        key = item.topic_key.strip()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        _upsert_followed_topic(db, current_user.id, item)
-    db.commit()
+    def _apply() -> None:
+        seen: set[str] = set()
+        for item in body.topics:
+            key = item.topic_key.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            _upsert_followed_topic(db, current_user.id, item)
+
+    _commit_with_conflict_retry(db, _apply)
     return list_followed_topics(current_user, db)
 
 
@@ -518,9 +559,11 @@ def record_history(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _upsert_history(db, current_user.id, body)
-    _trim_history(db, current_user.id)
-    db.commit()
+    def _apply() -> None:
+        _upsert_history(db, current_user.id, body)
+        _trim_history(db, current_user.id)
+
+    _commit_with_conflict_retry(db, _apply)
     return _list_history(db, current_user.id)
 
 
@@ -530,15 +573,17 @@ def merge_history(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    seen: set[str] = set()
-    for item in body.items:
-        slug = item.slug.strip()
-        if not slug or slug in seen:
-            continue
-        seen.add(slug)
-        _upsert_history(db, current_user.id, item)
-    _trim_history(db, current_user.id)
-    db.commit()
+    def _apply() -> None:
+        seen: set[str] = set()
+        for item in body.items:
+            slug = item.slug.strip()
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            _upsert_history(db, current_user.id, item)
+        _trim_history(db, current_user.id)
+
+    _commit_with_conflict_retry(db, _apply)
     return _list_history(db, current_user.id)
 
 

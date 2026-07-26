@@ -40,7 +40,7 @@ flowchart LR
 
 入口 `app/main.py`，启动时经 `bootstrap.initialize_runtime()` 完成 schema 同步与按需播种。
 
-### 数据模型（`models.py`，24 张表）
+### 数据模型（`models.py`，26 张表）
 
 - **内容核心**：`posts` / `series` / `tags`（M2M）/ `comments` / `post_sources`
 - **站点与 AI 配置**：`site_settings` / `ai_channel_configs`（旧）/ `ai_provider_sources` + `ai_model_instances`（新，服务源→模型实例两层）/ `admin_image_generation_jobs`
@@ -135,8 +135,8 @@ cd scripts && npm install && node auto-blog.mjs --mode daily-manual --dry-run --
 ### 测试
 
 ```bash
-uv run --project backend pytest backend/tests        # 后端（23 个测试文件）
-cd frontend && npm test                              # 前端 vitest（28 个测试文件）
+uv run --project backend pytest backend/tests        # 后端 pytest
+cd frontend && npm test                              # 前端 vitest
 cd scripts && npm test                               # 脚本 node --test
 ```
 
@@ -152,7 +152,7 @@ cd scripts && npm test                               # 脚本 node --test
 
 ### 后端 / Render
 
-`render.yaml` 定义 Docker 部署（端口 `8000`，就绪检查 `/readyz`）。`/livez` 和兼容入口 `/health` 只反映进程存活；`/readyz` 在 2 秒总时限内执行 DB `SELECT 1`、只读验证 `posts` / `site_settings` / `users` 映射，并检查存储依赖。R2 使用只读 `HeadBucket`，探针不会上传测试对象。
+`render.yaml` 定义 Docker 部署（端口 `8000`，就绪检查 `/readyz`）。构建上下文是**仓库根**：镜像除 `backend/app/` 外还必须打进 `scripts/config/*.json`（封面风格与主题展示规则），且容器内目录结构镜像仓库结构（`/app/backend/app`、`/app/scripts/config`、`/app/uploads`），否则后端里基于 `Path(__file__).parents[N]` 的配置定位会全部落空并静默降级。`APP_ENV=production` 由 `render.yaml` 与 Dockerfile 双重显式声明，不依赖 Render 注入变量做隐式推断。`/livez` 和兼容入口 `/health` 只反映进程存活；`/readyz` 在 2 秒总时限内执行 DB `SELECT 1`、只读验证 `posts` / `site_settings` / `users` 映射，并检查存储依赖。R2 使用只读 `HeadBucket`，探针不会上传测试对象。
 
 生产使用 Neon Postgres，关闭 `AUTO_SEED_ON_EMPTY`，明确设置 `PUBLIC_SITE_URL` 与 `ALLOWED_ORIGINS`，并完整配置 `R2_ACCOUNT_ID`（或 `R2_ENDPOINT`）、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`R2_BUCKET_NAME`、`R2_PUBLIC_BASE_URL`。缺少任一项会让 production/Render 启动失败；`ALLOW_EPHEMERAL_UPLOADS=1` 仅用于明确接受文件会随实例重启丢失的应急部署。Docker 镜像按 `uv.lock` 冻结安装生产依赖，并以非 root 用户运行。
 
@@ -186,11 +186,13 @@ cd scripts && npm test                               # 脚本 node --test
 
 ### 前端（Vercel / 本地）
 
-`VITE_API_BASE` · `PRERENDER_API_BASE`（构建期必须可达；仅在明确不需要 SSG 时设置 `SKIP_PRERENDER=1`）· `PUBLIC_SITE_URL` · `VITE_IMAGE_PROXY_BASE` · `VITE_IMAGE_DIRECT_BASES` · `VITE_ALLOW_CROSS_ORIGIN_API`（仅需跨域时）· `VITE_TURNSTILE_SITE_KEY`（Turnstile 公开 site key，需与后端 secret 配套）。
+`VITE_API_BASE`（浏览器请求目标；部署态若指向跨域地址会被 `api/base.js` 静默丢弃并回落同源 `/api/*`，因此 Vercel 上通常不设）· `PRERENDER_API_BASE`（**构建期**必须可达；仅在明确不需要 SSG 时设置 `SKIP_PRERENDER=1`）· `PUBLIC_SITE_URL` · `VITE_IMAGE_PROXY_BASE` · `VITE_IMAGE_DIRECT_BASES` · `VITE_TURNSTILE_SITE_KEY`（Turnstile 公开 site key，需与后端 secret 配套）。
 
 ### 脚本
 
-`BLOG_API_BASE` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · `SILICONFLOW_*` · `XAI_API_KEY` · `VERCEL_DEPLOY_HOOK_URL`。
+`BLOG_API_BASE` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · `PUBLIC_SITE_URL`（smoke-check）· `VERCEL_DEPLOY_HOOK_URL` · `R2_PUBLIC_BASE_URL`（`repair-post-media.mjs` 判定图片是否已本地化）。
+
+> LLM 与生图密钥已全部上收后端，`scripts/` 不再读取 `SILICONFLOW_*` / `XAI_API_KEY`，请勿在脚本侧重新引入。
 
 ---
 
@@ -201,11 +203,20 @@ cd scripts && npm test                               # 脚本 node --test
 | 注册/登录或某接口 500 | 是否新增了模型字段但生产库未补列（见 §7 schema 同步） |
 | Render 启动失败并提示 R2 配置不完整 | 补齐全部 R2 变量；只有明确接受实例重启后上传丢失时才设置 `ALLOW_EPHEMERAL_UPLOADS=1` |
 | `/readyz` 返回 503 | 检查 DB 连通性与 schema 是否补齐，并确认 R2 token 对目标 bucket 至少具备 `HeadBucket` 所需访问权限 |
-| Vercel 构建失败 | `VITE_API_BASE` 是否可达后端；`PUBLIC_SITE_URL` 是否与规范域名一致；后端是否已部署预渲染所需公开接口 |
+| Vercel 构建失败 | 构建期预渲染读的是 `PRERENDER_API_BASE`（不是 `VITE_API_BASE`）：确认它已设置且可达后端；`PUBLIC_SITE_URL` 是否与规范域名一致；后端是否已部署预渲染所需公开接口 |
 | 首访很慢 | 首页是否命中预渲染 HTML；Render 是否冷启动；一方图片是否走 `VITE_IMAGE_DIRECT_BASES` 直连 |
 | 图片不显示 | `R2_PUBLIC_BASE_URL`、`VITE_IMAGE_DIRECT_BASES`；第三方图片是否仍需经 `/proxy-image` |
 | 注册成功但收不到验证邮件 | Resend 发件域名是否验证；`RESEND_API_KEY` / `EMAIL_FROM` 是否配置 |
 | 访客被跳到 `/admin/login` | 确认访客请求用 `auth: 'user'`（client.js 按 token 类型分流） |
+
+历史文章正文图片可先执行只读审计，再显式写入迁移结果：
+
+```bash
+node scripts/repair-post-media.mjs --all
+node scripts/repair-post-media.mjs --all --apply --concurrency 3
+```
+
+批量模式会将验证通过的第三方图片去重上传至 R2，删除失效或伪图片；也可通过 GitHub Actions 的“历史文章正文图片修复”手动工作流执行。
 
 ---
 

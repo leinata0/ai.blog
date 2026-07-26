@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ActivitySquare,
@@ -216,6 +216,11 @@ function AdminDashboardContent() {
   const postFilters = useMemo(() => readPostFilters(searchParams), [searchKey])
 
   const [posts, setPosts] = useState([])
+  // Read-only mirror of `posts` for the editor-resolution effect below. Depending on the
+  // array itself would re-run that effect on every list refresh (the admin post cache
+  // expires after 12s), hand the editor a brand-new `editingPost` object and overwrite
+  // whatever the operator was typing.
+  const postsRef = useRef(posts)
   const [editingPost, setEditingPost] = useState(null)
   const [editorLoading, setEditorLoading] = useState(false)
   const [editorDirty, setEditorDirty] = useState(false)
@@ -316,6 +321,7 @@ function AdminDashboardContent() {
       const params = normalizePostFilters(nextFilters, { page: nextPage, pageSize: nextPageSize })
       const result = await fetchAdminPosts(params, requestOptions)
       const items = result.items || result || []
+      postsRef.current = items
       setPosts(items)
       setPostPagination({
         total: Number(result.total ?? items.length),
@@ -348,7 +354,7 @@ function AdminDashboardContent() {
       return undefined
     }
 
-    const matchingPost = posts.find((post) => String(post.id) === postParam)
+    const matchingPost = postsRef.current.find((post) => String(post.id) === postParam)
     if (matchingPost) {
       setEditingPost(matchingPost)
       setEditorLoading(false)
@@ -386,7 +392,7 @@ function AdminDashboardContent() {
       active = false
       controller.abort()
     }
-  }, [postParam, posts, updateQuery, view])
+  }, [postParam, updateQuery, view])
 
   const confirmEditorExit = useCallback(async () => {
     if (view !== 'editor' || !editorDirty) return true

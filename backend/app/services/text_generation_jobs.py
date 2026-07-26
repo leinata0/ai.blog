@@ -62,6 +62,14 @@ def _finish_success(
 
 
 def _finish_failure(job: AdminTextGenerationJob, code: str, message: str) -> None:
+    # Central failure log: without it a failed job is only visible in the admin
+    # UI, never in the server logs.
+    logger.warning(
+        "text_generation_job_failed job_id=%s code=%s message=%s",
+        job.id,
+        code or "unexpected_error",
+        message,
+    )
     job.status = STATUS_FAILED
     job.locked_at = None
     job.error_code = code or "unexpected_error"
@@ -173,9 +181,29 @@ def mark_stale_running_failed(db: Session, *, max_age_minutes: int = 30) -> int:
     return len(jobs)
 
 
-def run_job(job_id: int) -> None:
+def _fail_job_out_of_band(job_id: int, code: str, message: str) -> None:
+    """Mark a job failed from a fresh session when its own session is unusable."""
     db = SessionLocal()
     try:
+        job = db.get(AdminTextGenerationJob, job_id)
+        if job is None or job.status in TERMINAL_STATUSES:
+            return
+        _finish_failure(job, code, message)
+        db.commit()
+    except Exception:
+        logger.exception("text_generation_job_failure_write_failed job_id=%s", job_id)
+    finally:
+        db.close()
+
+
+def run_job(job_id: int) -> None:
+    # Guard the whole body, not just `_execute_job`: this runs on a pool thread
+    # whose Future is discarded, so a failure while opening the session or
+    # committing the "running" state would otherwise be swallowed and the row
+    # would stay queued forever while the client polls.
+    db = None
+    try:
+        db = SessionLocal()
         job = db.get(AdminTextGenerationJob, job_id)
         if job is None or job.status in TERMINAL_STATUSES:
             return
@@ -195,8 +223,12 @@ def run_job(job_id: int) -> None:
             if job is not None:
                 _finish_failure(job, "unexpected_error", "文本生成出现未预期错误，请查看后端日志。")
                 db.commit()
+    except Exception:
+        logger.exception("text_generation_job_crashed job_id=%s", job_id)
+        _fail_job_out_of_band(job_id, "worker_error", "文本生成任务未能启动或异常中断，请重新发起生成。")
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def _execute_job(db: Session, job: AdminTextGenerationJob) -> None:

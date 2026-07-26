@@ -4,8 +4,17 @@ import { MemoryRouter } from 'react-router-dom'
 
 import { ThemeProvider } from '../src/contexts/ThemeContext'
 import { proxyImageUrl } from '../src/utils/proxyImage'
-import { likePost } from '../src/api/posts'
+import { fetchLikeState, fetchRelatedPosts, likePost } from '../src/api/posts'
+import { MarkdownImage } from '../src/components/ArticleMarkdownRenderer'
 import PostDetailPage from '../src/pages/PostDetailPage'
+
+// Visitor identity is driven by /api/me, which can settle *after* the article loads
+// (Render cold start). Keep it swappable so those orderings can be reproduced.
+const userState = { current: { user: null } }
+vi.mock('../src/contexts/UserContext', () => ({
+  useUser: () => userState.current,
+  UserProvider: ({ children }) => children,
+}))
 
 vi.mock('../src/api/posts', () => ({
   fetchPostDetail: vi.fn((slug) => {
@@ -82,13 +91,18 @@ Combining Selenium flows with Pandas cleansed data enables quick automation scri
     })
   }),
   likePost: vi.fn(() => Promise.resolve({})),
+  fetchLikeState: vi.fn(() => Promise.resolve({ liked: false, like_count: 0 })),
   fetchRelatedPosts: vi.fn(() => Promise.resolve([])),
   fetchComments: vi.fn(() => Promise.resolve([])),
   postComment: vi.fn(() => Promise.resolve({})),
+  prefetchPostDetail: vi.fn(),
 }))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  userState.current = { user: null }
+  fetchLikeState.mockResolvedValue({ liked: false, like_count: 0 })
+  fetchRelatedPosts.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -137,24 +151,23 @@ it('renders markdown images with proxy and lazy loading', async () => {
 
 it('does not bypass the image proxy when a markdown image fails', async () => {
   render(
-    <MemoryRouter>
-      <ThemeProvider>
-        <PostDetailPage slug="python-automation-selenium-pandas" />
-      </ThemeProvider>
-    </MemoryRouter>,
+    <MarkdownImage src="https://example.com/markdown.jpg" alt="Example image" />,
   )
 
-  const articleImage = await screen.findByRole('img', { name: 'Example image' })
+  const articleImage = screen.getByRole('img', { name: 'Example image' })
   fireEvent.error(articleImage)
   await waitFor(() => {
-    const remainingImage = screen.queryByRole('img', { name: 'Example image' })
-    if (remainingImage) {
-      expect(remainingImage).toHaveAttribute('src', proxyImageUrl('https://example.com/markdown.jpg'))
-      expect(remainingImage).not.toHaveAttribute('src', 'https://example.com/markdown.jpg')
-    } else {
-      expect(screen.getByRole('status')).toHaveTextContent('图片暂时无法加载：Example image')
-    }
+    expect(screen.queryByRole('img', { name: 'Example image' })).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent('图片暂时不可用，请稍后重试。')
+    expect(screen.queryByText(/Example image/)).toBeNull()
   })
+
+  fireEvent.click(screen.getByRole('button', { name: '重新加载图片' }))
+
+  const retriedImage = await screen.findByRole('img', { name: 'Example image' })
+  expect(retriedImage.getAttribute('src')).toContain(proxyImageUrl('https://example.com/markdown.jpg'))
+  expect(retriedImage.getAttribute('src')).toContain('media_retry=1')
+  expect(retriedImage).not.toHaveAttribute('src', 'https://example.com/markdown.jpg')
 })
 
 it('shows not found message on 404', async () => {
@@ -229,4 +242,52 @@ it('persists and reflects a successful like', async () => {
     expect(screen.getByRole('button', { name: /已点赞 · 42/ })).toBeInTheDocument()
   })
   expect(localStorage.getItem('liked_python-automation-selenium-pandas')).toBe('1')
+})
+
+it('reads the like state with the visitor token so a logged-in like is not shown as unliked', async () => {
+  userState.current = { user: { id: 7, nickname: 'Reader' } }
+  fetchLikeState.mockResolvedValue({ liked: true, like_count: 9 })
+
+  render(
+    <MemoryRouter>
+      <ThemeProvider>
+        <PostDetailPage slug="python-automation-selenium-pandas" />
+      </ThemeProvider>
+    </MemoryRouter>,
+  )
+
+  // Without auth:'user' the backend's get_optional_user always answers liked:false,
+  // so the reader's next tap would silently *remove* their like.
+  await waitFor(() => {
+    expect(fetchLikeState).toHaveBeenCalledWith('python-automation-selenium-pandas', { auth: 'user' })
+  })
+  expect(await screen.findByRole('button', { name: /已点赞 · 9/ })).toBeInTheDocument()
+})
+
+it('keeps 相关阅读 when the visitor identity resolves after the article loaded', async () => {
+  fetchRelatedPosts.mockResolvedValue([
+    { title: 'Related reading', slug: 'related-reading', summary: '', created_at: '2026-04-10T08:00:00Z' },
+  ])
+
+  function Page() {
+    return (
+      <MemoryRouter>
+        <ThemeProvider>
+          <PostDetailPage slug="python-automation-selenium-pandas" />
+        </ThemeProvider>
+      </MemoryRouter>
+    )
+  }
+
+  const { rerender } = render(<Page />)
+  expect(await screen.findByText('Related reading')).toBeInTheDocument()
+
+  // /api/me lands late and flips user from null to an object.
+  userState.current = { user: { id: 7, nickname: 'Reader' } }
+  rerender(<Page />)
+
+  await waitFor(() => {
+    expect(screen.getByText(/相关阅读/)).toBeInTheDocument()
+  })
+  expect(screen.getByText('Related reading')).toBeInTheDocument()
 })

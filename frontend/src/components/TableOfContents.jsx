@@ -74,13 +74,16 @@ export default function TableOfContents({ markdown, mobile = false }) {
     const root = document.querySelector('[data-ui="detail-article"]') || document.body
     observer?.observe(root, { childList: true, subtree: true })
 
-    const retryTimers = [120, 400, 1000].map((ms) => window.setTimeout(update, ms))
+    // Heading ids are now deterministic (see utils/headingIds), so the old
+    // [120, 400, 1000] retry ladder is no longer needed to paper over drifting ids.
+    // One deferred pass still covers environments without MutationObserver.
+    const retryTimer = observer ? null : window.setTimeout(update, 300)
 
     return () => {
       window.removeEventListener('scroll', onScrollOrResize)
       window.removeEventListener('resize', onScrollOrResize)
       observer?.disconnect()
-      retryTimers.forEach((id) => window.clearTimeout(id))
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
     }
   }, [headings])
 
@@ -89,11 +92,14 @@ export default function TableOfContents({ markdown, mobile = false }) {
   function handleClick(event, id) {
     event.preventDefault()
     const el = document.getElementById(id)
-    if (!el) return
 
-    const top = window.scrollY + el.getBoundingClientRect().top - READING_SCROLL_OFFSET_PX
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    window.scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' })
+    // The article body is lazy-loaded; if the heading is not mounted yet we still record
+    // the selection and the hash instead of making the click look completely dead.
+    if (el) {
+      const top = window.scrollY + el.getBoundingClientRect().top - READING_SCROLL_OFFSET_PX
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      window.scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' })
+    }
     activeIdRef.current = id
     setActiveId(id)
 

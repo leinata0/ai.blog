@@ -41,6 +41,7 @@ export default function AdminShell({
   const [collapsed, setCollapsed] = useState(readCollapsedPreference)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
+  const [jobsOpenSignal, setJobsOpenSignal] = useState(0)
   const mobileTriggerRef = useRef(null)
   const mobileDialogRef = useRef(null)
 
@@ -104,10 +105,10 @@ export default function AdminShell({
     setMobileOpen(false)
   }
 
-  function openJobs() {
-    const trigger = document.querySelector('[data-ui="admin-jobs-dock"] button')
-    trigger?.click()
-  }
+  // Explicit "open" request instead of clicking the dock's toggle button through the
+  // DOM: a synthetic click *closed* the dock whenever it was already open, so choosing
+  // 「打开任务面板」 in the command palette did the opposite of what it says.
+  const openJobs = useCallback(() => setJobsOpenSignal((current) => current + 1), [])
 
   const navigation = (
     <nav className="ops-nav" aria-label="管理分区">
@@ -213,7 +214,7 @@ export default function AdminShell({
               <Command size={17} />
               <kbd>⌘K</kbd>
             </button>
-            <AdminJobsDock />
+            <AdminJobsDock openSignal={jobsOpenSignal} />
             <button
               type="button"
               className="ops-icon-action"

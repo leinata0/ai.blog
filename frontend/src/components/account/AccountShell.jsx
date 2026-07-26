@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   BookOpenText,
@@ -9,6 +10,7 @@ import {
 } from 'lucide-react'
 
 import Navbar from '../Navbar'
+import { proxyImageUrl } from '../../utils/proxyImage'
 
 export const ACCOUNT_TABS = [
   { value: 'overview', label: '信号总览', icon: Radar, description: '回到最近阅读与关注主题' },
@@ -21,6 +23,35 @@ export const ACCOUNT_TABS = [
 function initials(user) {
   const source = String(user?.nickname || user?.email || 'S').trim()
   return source.slice(0, 2).toUpperCase()
+}
+
+function PersonaAvatar({ user }) {
+  // 第三方头像必须经过 proxyImageUrl（first-party 直连 R2/CDN，其余走后端 /proxy-image）。
+  const avatarSrc = proxyImageUrl(user?.avatar_url)
+  const [avatarBroken, setAvatarBroken] = useState(false)
+
+  useEffect(() => {
+    setAvatarBroken(false)
+  }, [avatarSrc])
+
+  const showImage = Boolean(avatarSrc) && !avatarBroken
+
+  return (
+    <div className="account-avatar" aria-hidden={showImage ? undefined : 'true'}>
+      {showImage ? (
+        <img
+          src={avatarSrc}
+          alt=""
+          width="72"
+          height="72"
+          referrerPolicy="no-referrer"
+          onError={() => setAvatarBroken(true)}
+        />
+      ) : (
+        <span>{initials(user)}</span>
+      )}
+    </div>
+  )
 }
 
 function SyncState({ state }) {
@@ -66,13 +97,7 @@ export default function AccountShell({
         <div className="account-workspace">
           <aside className="account-sidebar" aria-label="个人信号中心导航">
             <div className="account-persona">
-              <div className="account-avatar" aria-hidden={user?.avatar_url ? undefined : 'true'}>
-                {user?.avatar_url ? (
-                  <img src={user.avatar_url} alt="" width="72" height="72" />
-                ) : (
-                  <span>{initials(user)}</span>
-                )}
-              </div>
+              <PersonaAvatar user={user} />
               <div className="min-w-0">
                 <strong className="block truncate">{user?.nickname || 'Signal Reader'}</strong>
                 <span className="block truncate">{user?.email}</span>

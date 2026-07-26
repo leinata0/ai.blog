@@ -1,0 +1,53 @@
+# 后端镜像的构建上下文是仓库根（render.yaml: dockerContext: .）。
+# 镜像实际只需要 backend/pyproject.toml、backend/uv.lock、backend/app/、scripts/config/，
+# 其余一律排除，既缩小上下文也避免把密钥/本地库打进构建缓存。
+# 注意：这里放开的路径必须与 backend/Dockerfile 的 COPY 保持一致。
+
+# 密钥：任何层级的真实 .env 都不得进入构建上下文
+**/.env
+**/.env.*
+
+.git
+.gitignore
+.gitattributes
+.github
+.claude
+.worktrees
+.codex-skill-build
+.npm-cache
+.playwright-cli
+
+# 前端整包（含 frontend/output/ 的 Lighthouse/Playwright 产物）与文档
+frontend
+docs
+README.md
+CLAUDE.md
+render.yaml
+LICENSE
+
+# 依赖与缓存
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+.uv-cache
+.pytest_cache
+
+# 测试与本地开发产物
+**/tests
+*.db
+blog.db
+uploads
+*.log
+ci-backend-logs
+ref_article.json
+aidiag*
+coverdiag*
+
+# scripts/ 只保留 config/：流水线源码不进后端镜像
+scripts/*.mjs
+scripts/lib
+scripts/package.json
+scripts/package-lock.json

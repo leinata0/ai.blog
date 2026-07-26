@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Tag } from 'lucide-react'
@@ -6,18 +6,33 @@ import { fetchAllTags } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
+import SeoMeta from '../components/SeoMeta'
+import { SITE_COPY } from '../utils/contentPresentation'
+
+const PAGE_TITLE = `标签 - ${SITE_COPY.brand}`
 
 export default function TagsPage() {
   const [tags, setTags] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  useEffect(() => {
-    document.title = '标签 - 极客开发日志'
+  // A rejected request used to be swallowed into the "暂无标签" empty state, so a
+  // backend 500 was indistinguishable from an empty tag list and offered no retry.
+  const loadTags = useCallback(() => {
+    setLoading(true)
+    setError('')
     fetchAllTags()
-      .then(setTags)
-      .catch(() => {})
+      .then((data) => setTags(Array.isArray(data) ? data : []))
+      .catch((err) => {
+        setTags([])
+        setError(err?.message || '标签加载失败，请稍后重试。')
+      })
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    loadTags()
+  }, [loadTags])
 
   const maxCount = Math.max(1, ...tags.map((t) => t.post_count))
 
@@ -31,6 +46,11 @@ export default function TagsPage() {
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title={PAGE_TITLE}
+        description="按标签浏览 AI 日报、周报与长期观察，快速定位同一类主题下的文章。"
+        path="/tags"
+      />
       <Navbar />
 
       <div className="mx-auto max-w-3xl px-6 sm:px-10 py-16">
@@ -53,6 +73,18 @@ export default function TagsPage() {
             {[1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="h-10 rounded-full" style={{ width: `${60 + i * 20}px`, background: 'var(--bg-surface)' }} />
             ))}
+          </div>
+        ) : error ? (
+          <div role="alert" data-ui="tags-error" className="rounded-xl px-5 py-4" style={{ backgroundColor: 'var(--danger-soft)' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--danger-text)' }}>{error}</p>
+            <button
+              type="button"
+              onClick={loadTags}
+              className="mt-3 min-h-11 rounded-lg px-4 text-sm font-medium"
+              style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
+            >
+              重新加载
+            </button>
           </div>
         ) : tags.length === 0 ? (
           <p style={{ color: 'var(--text-faint)' }}>暂无标签</p>

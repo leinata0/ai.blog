@@ -45,6 +45,18 @@ def _post_summary_options():
     )
 
 
+def _iso_utc(value: datetime | None) -> str | None:
+    """Serialize a stored timestamp with an explicit UTC offset.
+
+    The DateTime columns are naive UTC; a bare "2026-07-20T23:30:00" is parsed as local
+    time by the browser, so a UTC+8 reader saw fresh posts as "8 小时前".
+    """
+    if value is None:
+        return None
+    aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(timezone.utc).isoformat()
+
+
 def _post_list_item(post: Post) -> dict:
     return {
         "id": post.id,
@@ -65,8 +77,8 @@ def _post_list_item(post: Post) -> dict:
         "is_published": bool(post.is_published),
         "is_pinned": bool(post.is_pinned),
         "like_count": post.like_count or 0,
-        "created_at": post.created_at.isoformat() if post.created_at else None,
-        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
+        "created_at": _iso_utc(post.created_at),
+        "updated_at": _iso_utc(post.updated_at),
         "tags": [{"name": tag.name, "slug": tag.slug} for tag in post.tags],
     }
 
@@ -94,9 +106,9 @@ def _series_to_dict(series: Series, post_count: int = 0, latest_post_at=None) ->
         "is_featured": bool(series.is_featured),
         "sort_order": series.sort_order or 0,
         "post_count": int(post_count or 0),
-        "latest_post_at": latest_post_at.isoformat() if latest_post_at else None,
-        "created_at": series.created_at.isoformat() if series.created_at else None,
-        "updated_at": series.updated_at.isoformat() if series.updated_at else None,
+        "latest_post_at": _iso_utc(latest_post_at),
+        "created_at": _iso_utc(series.created_at),
+        "updated_at": _iso_utc(series.updated_at),
     }
 
 
@@ -287,7 +299,7 @@ def build_home_modules_payload(db: Session):
                 ),
                 "post_count": int(row.post_count or 0),
                 "source_count": int(row.source_count or 0),
-                "latest_post_at": row.latest_post_at.isoformat() if row.latest_post_at else None,
+                "latest_post_at": _iso_utc(row.latest_post_at),
                 "avg_quality_score": round(float(row.avg_quality_score), 2) if row.avg_quality_score is not None else None,
                 "is_featured": bool(profile.is_featured) if profile else False,
             }

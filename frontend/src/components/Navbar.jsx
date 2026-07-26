@@ -45,6 +45,17 @@ const BROWSE_ITEMS = [
 const TRACKING_CLOSE_DELAY_MS = 220
 const BROWSE_CLOSE_DELAY_MS = 220
 
+// 展开/收起类按钮的可访问名必须随状态变化，"打开…"在已展开时是错的。
+const BROWSE_PANEL_ID = 'navbar-browse-panel'
+const TRACKING_PANEL_ID = 'navbar-tracking-panel'
+const MOBILE_NAV_PANEL_ID = 'navbar-mobile-panel'
+const MOBILE_BROWSE_PANEL_ID = 'navbar-mobile-browse-panel'
+const MOBILE_TRACKING_PANEL_ID = 'navbar-mobile-tracking-panel'
+
+function toggleLabel(open, name) {
+  return `${open ? '关闭' : '打开'}${name}`
+}
+
 function NavLink({ to, active, children, onClick }) {
   const className = 'relative pb-1 text-sm font-semibold transition-colors duration-200 group'
   const style = { color: active ? 'var(--accent)' : 'var(--text-secondary)' }
@@ -101,9 +112,9 @@ function TrackingCard({ to, onNavigate, title, description }) {
   )
 }
 
-function BrowsePreview({ pathname, onNavigate }) {
+function BrowsePreview({ pathname, onNavigate, id }) {
   return (
-    <GlassPopover data-ui="browse-dropdown" className="w-[320px] p-3">
+    <GlassPopover id={id} data-ui="browse-dropdown" className="w-[320px] p-3">
       <div className="grid grid-cols-2 gap-1">
         {BROWSE_ITEMS.map((item) => {
           const active = pathname === item.to || pathname.startsWith(`${item.to}/`)
@@ -129,9 +140,10 @@ function TrackingPreview({
   followedTopics,
   recentTopics,
   onNavigate,
+  id,
 }) {
   return (
-    <GlassPopover data-ui="tracking-dropdown" className="w-[388px] p-4">
+    <GlassPopover id={id} data-ui="tracking-dropdown" className="w-[388px] p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="section-kicker">追踪</div>
@@ -451,8 +463,10 @@ export default function Navbar() {
                 backgroundColor: browseOpen ? 'var(--accent-soft)' : 'transparent',
                 color: browseOpen ? 'var(--accent)' : 'var(--text-secondary)',
               }}
-              aria-label="打开浏览菜单"
+              aria-label={toggleLabel(browseOpen, '浏览菜单')}
               aria-expanded={browseOpen}
+              aria-haspopup="true"
+              aria-controls={BROWSE_PANEL_ID}
             >
               <Compass size={16} />
               浏览
@@ -467,7 +481,7 @@ export default function Navbar() {
                   if (!browsePinned) scheduleBrowseClose()
                 }}
               >
-                <BrowsePreview pathname={location.pathname} onNavigate={closeBrowse} />
+                <BrowsePreview id={BROWSE_PANEL_ID} pathname={location.pathname} onNavigate={closeBrowse} />
               </div>
             ) : null}
           </div>
@@ -512,6 +526,7 @@ export default function Navbar() {
             <button
               ref={trackingTriggerRef}
               type="button"
+              data-ui="desktop-tracking-trigger"
               onClick={handleTrackingButtonClick}
               onFocus={openTrackingPreview}
               className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition-[background-color,color,transform] duration-200"
@@ -519,8 +534,10 @@ export default function Navbar() {
                 backgroundColor: trackingOpen ? 'var(--accent-soft)' : 'transparent',
                 color: trackingOpen ? 'var(--accent)' : 'var(--text-secondary)',
               }}
-              aria-label="打开追踪面板"
+              aria-label={toggleLabel(trackingOpen, '追踪面板')}
               aria-expanded={trackingOpen}
+              aria-haspopup="true"
+              aria-controls={TRACKING_PANEL_ID}
             >
               <PanelsTopLeft size={16} />
               追踪
@@ -536,6 +553,7 @@ export default function Navbar() {
                 }}
               >
                 <TrackingPreview
+                  id={TRACKING_PANEL_ID}
                   continueReading={continueReading}
                   followedTopics={followedTopics}
                   recentTopics={recentTopics}
@@ -596,7 +614,10 @@ export default function Navbar() {
             className="inline-flex h-11 w-11 items-center justify-center rounded-full"
             style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--bg-surface)' }}
             aria-label="菜单"
+            title={toggleLabel(mobileOpen, '导航菜单')}
             aria-expanded={mobileOpen}
+            aria-haspopup="true"
+            aria-controls={MOBILE_NAV_PANEL_ID}
           >
             {mobileOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
@@ -604,7 +625,7 @@ export default function Navbar() {
       </div>
 
       {mobileOpen ? (
-        <div ref={mobilePanelRef} className="max-h-[calc(100vh-4.5rem)] space-y-3 overflow-y-auto px-6 pb-5 lg:hidden" style={{ borderTop: '1px solid var(--border-muted)' }}>
+        <div id={MOBILE_NAV_PANEL_ID} ref={mobilePanelRef} className="max-h-[calc(100vh-4.5rem)] space-y-3 overflow-y-auto px-6 pb-5 lg:hidden" style={{ borderTop: '1px solid var(--border-muted)' }}>
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
@@ -659,7 +680,10 @@ export default function Navbar() {
               }}
               className="flex w-full items-center justify-between text-left"
               style={{ color: 'var(--text-primary)' }}
+              aria-label={toggleLabel(mobileBrowseOpen, '浏览菜单')}
               aria-expanded={mobileBrowseOpen}
+              aria-haspopup="true"
+              aria-controls={MOBILE_BROWSE_PANEL_ID}
             >
               <span className="inline-flex items-center gap-2 text-sm font-semibold">
                 <Compass size={16} />
@@ -669,7 +693,7 @@ export default function Navbar() {
             </button>
 
             {mobileBrowseOpen ? (
-              <div data-ui="mobile-browse-links" className="mt-4 grid grid-cols-2 gap-1">
+              <div id={MOBILE_BROWSE_PANEL_ID} data-ui="mobile-browse-links" className="mt-4 grid grid-cols-2 gap-1">
                 {BROWSE_ITEMS.map((item) => (
                   <Link
                     key={item.to}
@@ -692,9 +716,13 @@ export default function Navbar() {
                 setMobileTrackingOpen((open) => !open)
                 setMobileBrowseOpen(false)
               }}
+              data-ui="mobile-tracking-trigger"
               className="flex w-full items-center justify-between text-left"
               style={{ color: 'var(--text-primary)' }}
+              aria-label={toggleLabel(mobileTrackingOpen, '追踪面板')}
               aria-expanded={mobileTrackingOpen}
+              aria-haspopup="true"
+              aria-controls={MOBILE_TRACKING_PANEL_ID}
             >
               <span className="inline-flex items-center gap-2 text-sm font-semibold">
                 <PanelsTopLeft size={16} />
@@ -704,7 +732,7 @@ export default function Navbar() {
             </button>
 
             {mobileTrackingOpen ? (
-              <div className="mt-4 space-y-4">
+              <div id={MOBILE_TRACKING_PANEL_ID} className="mt-4 space-y-4">
                 <TrackingSection
                   icon={BookOpen}
                   title="继续阅读"

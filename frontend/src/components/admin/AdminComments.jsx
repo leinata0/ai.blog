@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Trash2, Check } from 'lucide-react'
 import { fetchAdminComments, approveComment, deleteComment } from '../../api/admin'
 import { formatDate } from '../../utils/date'
@@ -9,22 +9,48 @@ export default function AdminComments() {
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Distinguishes "the list request failed" from "there really are no comments",
+  // so a 500 / expired token never renders as a friendly empty state.
+  const [loadFailed, setLoadFailed] = useState(false)
+  // AdminDashboardPage lazy-mounts one panel per section, so switching sections
+  // unmounts this component while the request is still in flight. Every setState
+  // after an await has to be gated on the component still being mounted.
+  const activeRef = useRef(true)
 
   const loadComments = useCallback(async () => {
     setLoading(true)
+    setError('')
     try {
       const result = await fetchAdminComments()
-      setComments(result.items || result || [])
+      if (!activeRef.current) return
+      setComments(result?.items || (Array.isArray(result) ? result : []))
+      setLoadFailed(false)
     } catch (err) {
+      if (!activeRef.current) return
+      setLoadFailed(true)
       setError(err.message || '加载评论失败')
+    } finally {
+      if (activeRef.current) setLoading(false)
     }
-    setLoading(false)
   }, [])
 
-  useEffect(() => { loadComments() }, [loadComments])
+  useEffect(() => {
+    activeRef.current = true
+    loadComments()
+    return () => {
+      activeRef.current = false
+    }
+  }, [loadComments])
 
   async function handleApprove(id) {
-    try { await approveComment(id); loadComments() } catch (err) { setError(err.message || '操作失败') }
+    try {
+      await approveComment(id)
+      if (!activeRef.current) return
+      loadComments()
+    } catch (err) {
+      if (!activeRef.current) return
+      setError(err.message || '操作失败')
+    }
   }
 
   async function handleDelete(id) {
@@ -33,19 +59,38 @@ export default function AdminComments() {
       description: '这条评论将从文章讨论中永久移除，此操作不可撤销。',
       confirmLabel: '删除评论',
     })
-    if (!confirmed) return
-    try { await deleteComment(id); loadComments() } catch (err) { setError(err.message || '删除失败') }
+    if (!confirmed || !activeRef.current) return
+    try {
+      await deleteComment(id)
+      if (!activeRef.current) return
+      loadComments()
+    } catch (err) {
+      if (!activeRef.current) return
+      setError(err.message || '删除失败')
+    }
   }
 
   return (
     <div>
       <h2 className="text-lg font-semibold mb-6 text-[var(--text-primary)]">评论管理</h2>
       {error && (
-        <div role="alert" className="mb-4 text-sm py-2 px-4 rounded-lg bg-[var(--danger-soft)] text-[#ef4444]">{error}</div>
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[var(--danger-text)]">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={loadComments}
+            disabled={loading}
+            className="min-h-11 rounded-lg border border-[var(--danger-text)] px-3 text-xs font-medium text-[var(--danger-text)] disabled:opacity-60"
+          >
+            重试
+          </button>
+        </div>
       )}
       <div className="rounded-xl overflow-hidden bg-[var(--bg-surface)]" style={{ boxShadow: 'var(--card-shadow)' }}>
         {loading ? (
           <div role="status" className="px-6 py-8 text-center text-[var(--text-faint)]">加载中…</div>
+        ) : loadFailed && comments.length === 0 ? (
+          <div className="px-6 py-8 text-center text-[var(--text-faint)]">评论列表加载失败，请点击上方“重试”。</div>
         ) : comments.length === 0 ? (
           <div className="px-6 py-8 text-center text-[var(--text-faint)]">暂无评论</div>
         ) : (
@@ -73,7 +118,7 @@ export default function AdminComments() {
                       {c.is_approved ? (
                         <span className="text-xs px-2 py-1 rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">已审核</span>
                       ) : (
-                        <span className="text-xs px-2 py-1 rounded-full bg-[var(--danger-soft)] text-[#ef4444]">待审核</span>
+                        <span className="text-xs px-2 py-1 rounded-full bg-[var(--danger-soft)] text-[var(--danger-text)]">待审核</span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-[var(--text-tertiary)]">{formatDate(c.created_at)}</td>
@@ -82,7 +127,7 @@ export default function AdminComments() {
                         <Check size={15} className="text-[var(--accent)]" />
                       </button>
                       <button type="button" onClick={() => handleDelete(c.id)} className="ml-1 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg transition-colors duration-200 hover:bg-[var(--danger-soft)]" aria-label={`删除评论：${c.nickname || '匿名评论'}`} title="删除">
-                        <Trash2 size={15} className="text-[#ef4444]" />
+                        <Trash2 size={15} className="text-[var(--danger-text)]" />
                       </button>
                     </td>
                   </tr>

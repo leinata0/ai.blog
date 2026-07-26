@@ -146,6 +146,9 @@ export function ConfirmProvider({ children }) {
                 type="button"
                 disabled={!verificationMatches}
                 onClick={() => close(true)}
+                // 保留固定色：这里是不透明填充 + 固定白字，两个主题下渲染结果一致，
+                // 白字对 #dc2626 为 4.83:1、对 hover 的 #b91c1c 为 6.47:1，均已达 AA。
+                // 若换成 --danger-text，暗色主题下会变成浅红底配白字（约 1.7:1）而不合格。
                 className={`min-h-11 rounded-xl px-5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45 ${
                   request.tone === 'danger' ? 'bg-[#dc2626] hover:bg-[#b91c1c]' : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)]'
                 }`}

@@ -38,8 +38,28 @@
   --signal-violet-soft: rgba(114, 89, 232, 0.1);
   --signal-warm-soft: rgba(219, 127, 52, 0.12);
 
+  /* 状态色板：--*-text 是「正文/图标」用色。约束是在 --*-soft 合成底、以及 index.css 与
+     styles/auth-surface.css 声明过的**每一个**画布/表面上都 >= 4.5:1（WCAG AA 正文）。
+     auth 主题的 --bg-canvas-deep 最暗（#dfe4dd），是亮色侧的下限；auth 的 --bg-elevated
+     最亮（#17252b），是暗色侧的下限。数值由 tests/danger-text-contrast.test.jsx 实测锁定，
+     改色板前先跑该用例。亮色取 -700/-800 档，暗色取 -400 档。 */
+  --danger-text: #ad1c1c;
   --danger-soft: rgba(239, 68, 68, 0.1);
   --danger-border: rgba(239, 68, 68, 0.22);
+
+  --success-text: #065f46;
+  --success-soft: rgba(16, 185, 129, 0.12);
+  --success-border: rgba(16, 185, 129, 0.3);
+
+  --warning-text: #92400e;
+  --warning-soft: rgba(245, 158, 11, 0.12);
+  --warning-border: rgba(245, 158, 11, 0.32);
+
+  /* 品牌蓝「高亮药丸」：周报内容类型、精选主题、订阅 CTA 共用同一套处理。
+     底色是半透明蓝，会与画布合成，所以文字色必须分主题给 —— 原先固定的 #2563eb
+     在亮色下 3.96:1、暗色下 3.37:1，两套主题都不达标。 */
+  --highlight-text: #1e40af;
+  --highlight-soft: rgba(37, 99, 235, 0.12);
 
   --card-shadow: 0 24px 64px rgba(25, 39, 47, 0.08), 0 2px 8px rgba(25, 39, 47, 0.04);
   --card-shadow-hover: 0 30px 80px rgba(25, 39, 47, 0.13), 0 4px 14px rgba(25, 39, 47, 0.06);
@@ -80,8 +100,20 @@
   --signal-violet-soft: rgba(169, 151, 255, 0.12);
   --signal-warm-soft: rgba(255, 173, 104, 0.12);
 
+  --danger-text: #fb8a8a;
   --danger-soft: rgba(248, 113, 113, 0.12);
   --danger-border: rgba(248, 113, 113, 0.28);
+
+  --success-text: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.13);
+  --success-border: rgba(52, 211, 153, 0.3);
+
+  --warning-text: #ffad68;
+  --warning-soft: rgba(255, 173, 104, 0.14);
+  --warning-border: rgba(255, 173, 104, 0.3);
+
+  --highlight-text: #93c5fd;
+  --highlight-soft: rgba(147, 197, 253, 0.13);
 
   --card-shadow: 0 24px 60px rgba(0, 0, 0, 0.32), 0 8px 20px rgba(0, 0, 0, 0.18);
   --card-shadow-hover: 0 32px 84px rgba(0, 0, 0, 0.38), 0 10px 24px rgba(0, 0, 0, 0.22);

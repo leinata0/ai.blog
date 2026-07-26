@@ -56,6 +56,20 @@ def _matches_if_modified_since(header_value: str, last_modified: datetime | None
     return parsed >= current.astimezone(timezone.utc).replace(microsecond=0)
 
 
+def _is_not_modified(request: Request, etag: str, last_modified: datetime | None) -> bool:
+    """Evaluate the request's conditional headers per RFC 9110 §13.1.3.
+
+    If-None-Match wins outright: when the client sends it, If-Modified-Since MUST be
+    ignored. Browsers and CDNs replay both validators together, so OR-ing them meant a
+    stale-but-not-newer copy still won a 304 whenever the (coarser, often derived from
+    ``created_at``) Last-Modified failed to move after an edit.
+    """
+    if_none_match = request.headers.get("if-none-match", "")
+    if if_none_match:
+        return _matches_if_none_match(if_none_match, etag)
+    return _matches_if_modified_since(request.headers.get("if-modified-since", ""), last_modified)
+
+
 def public_json_response(
     request: Request,
     payload,
@@ -74,10 +88,7 @@ def public_json_response(
     if last_modified_value:
         headers["Last-Modified"] = last_modified_value
 
-    if _matches_if_none_match(request.headers.get("if-none-match", ""), etag) or _matches_if_modified_since(
-        request.headers.get("if-modified-since", ""),
-        last_modified,
-    ):
+    if _is_not_modified(request, etag, last_modified):
         return Response(status_code=304, headers=headers)
 
     return Response(content=content, media_type="application/json", headers=headers)
@@ -102,10 +113,7 @@ def public_text_response(
     if last_modified_value:
         headers["Last-Modified"] = last_modified_value
 
-    if _matches_if_none_match(request.headers.get("if-none-match", ""), etag) or _matches_if_modified_since(
-        request.headers.get("if-modified-since", ""),
-        last_modified,
-    ):
+    if _is_not_modified(request, etag, last_modified):
         return Response(status_code=304, headers=headers)
 
     return Response(content=content_bytes, media_type=media_type, headers=headers)

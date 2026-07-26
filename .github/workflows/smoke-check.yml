@@ -3,18 +3,10 @@ name: 线上 Smoke 检查
 on:
   workflow_dispatch:
     inputs:
-      public_site_url:
-        description: 公开站点 URL（例如 https://www.563118077.xyz）
-        required: true
-        type: string
-      blog_api_base:
-        description: 后端 API Base（例如 https://ai-blog-hbur.onrender.com）
-        required: true
-        type: string
       include_admin:
-        description: 是否包含后台接口检查
+        description: 是否包含后台接口检查（会向 BLOG_API_BASE 提交 admin 凭据）
         required: false
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -40,10 +32,27 @@ jobs:
       - name: Install script dependencies
         run: npm ci
 
+      # 目标地址只能来自仓库变量，不接受 workflow 输入：smoke-check.mjs 会把
+      # ADMIN_USERNAME/ADMIN_PASSWORD 明文 POST 到 ${BLOG_API_BASE}/api/admin/login，
+      # 自由文本目标等于允许任何有 write 权限的账号把生产口令外发到自己的地址。
+      - name: 校验目标地址
+        env:
+          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL || 'https://www.563118077.xyz' }}
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+          INCLUDE_ADMIN_SMOKE: ${{ inputs.include_admin && '1' || '0' }}
+        shell: bash
+        run: |
+          if [ -z "$PUBLIC_SITE_URL" ]; then echo "::error::Missing repository variable PUBLIC_SITE_URL"; exit 1; fi
+          if [ -z "$BLOG_API_BASE" ]; then echo "::error::Missing repository variable BLOG_API_BASE"; exit 1; fi
+          if [ "$INCLUDE_ADMIN_SMOKE" = "1" ] && [[ "$BLOG_API_BASE" != https://* ]]; then
+            echo "::error::Admin smoke requires an https BLOG_API_BASE; refusing to send credentials to $BLOG_API_BASE"
+            exit 1
+          fi
+
       - name: Run smoke checks
         env:
-          PUBLIC_SITE_URL: ${{ inputs.public_site_url }}
-          BLOG_API_BASE: ${{ inputs.blog_api_base }}
+          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL || 'https://www.563118077.xyz' }}
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
           INCLUDE_ADMIN_SMOKE: ${{ inputs.include_admin && '1' || '0' }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}

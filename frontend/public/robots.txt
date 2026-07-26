@@ -1,0 +1,16 @@
+# AI 资讯观察 — https://www.563118077.xyz
+# Without this file the SPA catch-all rewrite in vercel.json answers /robots.txt
+# with the home page HTML (HTTP 200, text/html), which crawlers treat as a broken
+# directive file.
+
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /account
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /verify-email
+
+Sitemap: https://www.563118077.xyz/sitemap.xml

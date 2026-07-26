@@ -82,7 +82,7 @@ export default function AdminPublishingRunDetail({ runId, onClose }) {
         </div>
       </div>
 
-      {error ? <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div> : null}
+      {error ? <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[var(--danger-text)]">{error}</div> : null}
       {loading && !data ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
 
       {data ? (

@@ -1,22 +1,93 @@
-import { assertPublicResolvedHttpUrl, isPublicHttpUrl } from './url-guard.mjs'
+import { fetchPublicResource, readLimitedResponseBody } from './image-localizer.mjs'
+import { isPublicHttpUrl } from './url-guard.mjs'
+
+// Source pages are third-party HTML of unknown size; without a ceiling a single
+// hostile or broken origin can exhaust the worker's memory via response.text().
+const DEFAULT_MAX_HTML_BYTES = 2 * 1024 * 1024
 
 function absoluteUrl(baseUrl, candidate) {
+  const value = String(candidate || '').trim()
+  // new URL('', base) resolves to the base itself, which turned every empty
+  // src/content attribute into a "candidate" pointing at the article page.
+  if (!value) return ''
   try {
-    return new URL(candidate, baseUrl).toString()
+    return new URL(value, baseUrl).toString()
   } catch {
     return ''
   }
 }
 
+function isSameDocument(url, pageUrl) {
+  try {
+    const candidate = new URL(url)
+    const page = new URL(pageUrl)
+    candidate.hash = ''
+    page.hash = ''
+    return candidate.toString() === page.toString()
+  } catch {
+    return false
+  }
+}
+
+// `src="."` / `src="./"` resolve to a directory, never to an image file.
+function looksLikeDirectoryUrl(url) {
+  try {
+    const pathname = new URL(url).pathname
+    return pathname === '' || pathname.endsWith('/')
+  } catch {
+    return true
+  }
+}
+
 function parseAttrs(attrText) {
   const attrs = {}
-  const pattern = /([:@\w-]+)\s*=\s*["']([^"']+)["']/g
+  // Values may be double-quoted, single-quoted, unquoted (<img src=https://…>)
+  // or absent (boolean attributes). The previous quoted-only pattern silently
+  // produced empty attribute maps for perfectly ordinary markup.
+  const pattern = /([:@\w.-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'`=<>]+)))?/g
   let match = pattern.exec(attrText)
   while (match) {
-    attrs[match[1].toLowerCase()] = match[2]
+    const value = match[2] ?? match[3] ?? match[4] ?? ''
+    attrs[match[1].toLowerCase()] = value
     match = pattern.exec(attrText)
   }
   return attrs
+}
+
+function parseSrcset(value) {
+  return String(value || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [url, descriptor = ''] = entry.split(/\s+/)
+      const width = /^(\d+)w$/i.exec(descriptor)
+      const density = /^([\d.]+)x$/i.exec(descriptor)
+      return {
+        url: String(url || '').trim(),
+        width: width ? Number(width[1]) : 0,
+        density: density ? Number(density[1]) : 0,
+      }
+    })
+    .filter((entry) => entry.url)
+}
+
+// Modern news sites publish responsive images only through srcset; picking the
+// largest descriptor keeps the article-quality asset instead of a thumbnail.
+function bestSrcsetEntry(value) {
+  let best = null
+  for (const entry of parseSrcset(value)) {
+    if (!best) {
+      best = entry
+      continue
+    }
+    if (entry.width !== best.width) {
+      if (entry.width > best.width) best = entry
+      continue
+    }
+    if (entry.density > best.density) best = entry
+  }
+  return best
 }
 
 function shouldDropCandidate(candidate, rules) {
@@ -30,13 +101,25 @@ function shouldDropCandidate(candidate, rules) {
 
 export function extractImageCandidatesFromHtml(html, pageUrl) {
   const candidates = []
-  const metaPattern = /<meta\s+([^>]+)>/gi
+  const seen = new Set()
+  const push = (candidate) => {
+    if (!candidate.url) return
+    // The page URL itself is not an image; it used to win scoring outright
+    // because the slug repeats the topic terms, wasting a maxImages slot.
+    if (isSameDocument(candidate.url, pageUrl)) return
+    if (looksLikeDirectoryUrl(candidate.url)) return
+    if (seen.has(candidate.url)) return
+    seen.add(candidate.url)
+    candidates.push(candidate)
+  }
+
+  const metaPattern = /<meta\s+([^>]+?)\/?>/gi
   let metaMatch = metaPattern.exec(html)
   while (metaMatch) {
     const attrs = parseAttrs(metaMatch[1])
     const property = (attrs.property || attrs.name || '').toLowerCase()
     if (property === 'og:image' || property === 'twitter:image') {
-      candidates.push({
+      push({
         url: absoluteUrl(pageUrl, attrs.content || ''),
         alt: '',
         width: 0,
@@ -48,19 +131,48 @@ export function extractImageCandidatesFromHtml(html, pageUrl) {
     metaMatch = metaPattern.exec(html)
   }
 
-  const imgPattern = /<img\s+([^>]+)>/gi
+  const sourcePattern = /<source\s+([^>]+?)\/?>/gi
+  let sourceMatch = sourcePattern.exec(html)
+  while (sourceMatch) {
+    const attrs = parseAttrs(sourceMatch[1])
+    const best = bestSrcsetEntry(attrs.srcset || attrs['data-srcset'] || '')
+    if (best) {
+      push({
+        url: absoluteUrl(pageUrl, best.url),
+        alt: '',
+        width: best.width || 0,
+        height: 0,
+        className: attrs.class || 'picture-source',
+        kind: 'inline-image',
+      })
+    }
+    sourceMatch = sourcePattern.exec(html)
+  }
+
+  const imgPattern = /<img\s+([^>]+?)\/?>/gi
   let imgMatch = imgPattern.exec(html)
   while (imgMatch) {
     const attrs = parseAttrs(imgMatch[1])
-    const src = attrs.src || attrs['data-src'] || attrs['data-lazy-src'] || ''
-    candidates.push({
+    const bestFromSrcset = bestSrcsetEntry(attrs.srcset || attrs['data-srcset'] || '')
+    const src = attrs.src || attrs['data-src'] || attrs['data-lazy-src'] || bestFromSrcset?.url || ''
+    push({
       url: absoluteUrl(pageUrl, src),
       alt: attrs.alt || attrs.title || '',
-      width: Number(attrs.width || 0),
+      width: Number(attrs.width || 0) || bestFromSrcset?.width || 0,
       height: Number(attrs.height || 0),
       className: attrs.class || '',
       kind: 'inline-image',
     })
+    if (bestFromSrcset && (attrs.src || attrs['data-src'] || attrs['data-lazy-src'])) {
+      push({
+        url: absoluteUrl(pageUrl, bestFromSrcset.url),
+        alt: attrs.alt || attrs.title || '',
+        width: Number(attrs.width || 0) || bestFromSrcset.width || 0,
+        height: Number(attrs.height || 0),
+        className: attrs.class || '',
+        kind: 'inline-image',
+      })
+    }
     imgMatch = imgPattern.exec(html)
   }
 
@@ -110,18 +222,27 @@ function scoreCandidate(candidate, sectionHeading, topic, sourceItem = {}) {
   return Number(score.toFixed(3))
 }
 
-async function fetchPageHtml(url) {
-  // url comes from third-party feed content; fail closed on non-public hosts (SSRF).
-  await assertPublicResolvedHttpUrl(url)
-  const resp = await fetch(url, {
-    headers: { 'User-Agent': 'AutoBlogImagePicker/1.0' },
-    signal: AbortSignal.timeout(15000),
-    redirect: 'manual',
+async function fetchPageHtml(url, {
+  fetchImpl,
+  pinAddresses,
+  lookupImpl,
+  logger,
+  maxHtmlBytes = DEFAULT_MAX_HTML_BYTES,
+} = {}) {
+  // Source pages and every redirect target are DNS-checked before fetching.
+  const { response: resp } = await fetchPublicResource(url, {
+    userAgent: 'AutoBlogImagePicker/1.0',
+    accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
+    fetchImpl,
+    pinAddresses,
+    lookupImpl,
+    logger,
   })
   if (!resp.ok) {
     throw new Error(`image-page:${resp.status}`)
   }
-  return resp.text()
+  const body = await readLimitedResponseBody(resp, maxHtmlBytes)
+  return body.toString('utf8')
 }
 
 export async function pickSourceImages({
@@ -129,6 +250,11 @@ export async function pickSourceImages({
   topic,
   sourceItems,
   config,
+  fetchImpl,
+  pinAddresses,
+  lookupImpl,
+  logger = console,
+  maxHtmlBytes = DEFAULT_MAX_HTML_BYTES,
 }) {
   const rules = config.image_selection_rules || {}
   const maxImages = Math.max(0, rules.max_images || 0)
@@ -139,19 +265,28 @@ export async function pickSourceImages({
   const plans = []
   const usedUrls = new Set()
   const candidatesBySource = []
+  const skippedSources = []
 
   for (const item of sourceItems || []) {
     try {
-      const html = await fetchPageHtml(item.url)
+      const html = await fetchPageHtml(item.url, { fetchImpl, pinAddresses, lookupImpl, logger, maxHtmlBytes })
       const candidates = extractImageCandidatesFromHtml(html, item.url)
         .filter((candidate) => !shouldDropCandidate(candidate, rules))
         // The chosen image_url is fetched again later (download/upload), so a candidate
         // pointing at a private/internal host is the same SSRF vector as the page itself.
         .filter((candidate) => isPublicHttpUrl(candidate.url))
       candidatesBySource.push({ item, candidates })
-    } catch {
-      continue
+    } catch (error) {
+      // Silently swallowing this made "the source site is down" and "the URL was
+      // blocked by the SSRF guard" indistinguishable in CI logs.
+      const reason = error?.message || 'source page fetch failed'
+      skippedSources.push({ url: item?.url || '', reason })
+      logger?.warn?.(`Image picking skipped source page (${item?.url || 'unknown'}): ${reason}`)
     }
+  }
+
+  if (skippedSources.length > 0) {
+    logger?.warn?.(`Image picking could not read ${skippedSources.length}/${(sourceItems || []).length} source page(s).`)
   }
 
   for (const sectionHeading of sections.slice(0, maxImages)) {

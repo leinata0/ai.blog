@@ -1,3 +1,9 @@
+from app.url_safety import PinnedHttpTarget
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\nimage-bytes"
+
+
 class _FakeNetworkStream:
     def __init__(self, server_addr):
         self._server_addr = server_addr
@@ -14,8 +20,8 @@ class FakeStreamResponse:
         self.headers = headers or {}
         self._chunks = chunks or []
         self.consumed = False
-        # Mirror httpx's response.extensions["network_stream"] so the proxy's
-        # post-connect peer-IP check (DNS rebinding guard) can be exercised.
+        # Mirror httpx's response shape. DNS pinning no longer depends on this
+        # optional transport-specific extension.
         self.extensions = {}
         if peer_ip is not None:
             self.extensions["network_stream"] = _FakeNetworkStream((peer_ip, 443))
@@ -37,11 +43,22 @@ class FakeHttpClient:
         self.responses = list(responses)
         self.calls = []
 
-    def stream(self, method, url):
+    def stream(self, method, url, **kwargs):
         self.calls.append((method, url))
+        self.last_options = kwargs
         if not self.responses:
             raise AssertionError(f"Unexpected proxy fetch: {method} {url}")
         return self.responses.pop(0)
+
+
+def _pin_example_url(url):
+    return (
+        PinnedHttpTarget(
+            fetch_url=url.replace("example.com", "93.184.216.34"),
+            host_header="example.com",
+            sni_hostname="example.com" if url.startswith("https://") else None,
+        ),
+    )
 
 
 def test_proxy_image_rejects_invalid_scheme(client):
@@ -56,7 +73,7 @@ def test_proxy_image_rejects_private_host_before_fetch(client, monkeypatch):
 
     fake_client = FakeHttpClient([])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: True)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", lambda url: ())
 
     response = client.get("/proxy-image", params={"url": "http://127.0.0.1/image.png"})
 
@@ -71,21 +88,34 @@ def test_proxy_image_returns_successful_image(client, monkeypatch):
     fake_client = FakeHttpClient([
         FakeStreamResponse(
             headers={"content-type": "image/png"},
-            chunks=[b"image-bytes"],
+            chunks=[PNG_BYTES],
             peer_ip="93.184.216.34",
         )
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
 
     response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})
 
     assert response.status_code == 200
-    assert response.content == b"image-bytes"
+    assert response.content == PNG_BYTES
     assert response.headers["content-type"].startswith("image/png")
     assert response.headers["cache-control"] == "public, max-age=86400, stale-while-revalidate=604800"
     assert response.headers["access-control-allow-origin"] == "*"
-    assert fake_client.calls == [("GET", "https://example.com/image.png")]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert fake_client.calls == [("GET", "https://93.184.216.34/image.png")]
+    assert fake_client.last_options == {
+        "headers": {"Host": "example.com"},
+        "extensions": {"sni_hostname": "example.com"},
+    }
+
+
+def test_proxy_image_client_does_not_reuse_tls_connections_across_pinned_hosts():
+    import app.main as main_mod
+
+    pool = main_mod._http_client._transport._pool
+
+    assert pool._max_keepalive_connections == 0
 
 
 def test_proxy_image_rejects_non_image_upstream(client, monkeypatch):
@@ -99,12 +129,74 @@ def test_proxy_image_rejects_non_image_upstream(client, monkeypatch):
         )
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
 
     response = client.get("/proxy-image", params={"url": "https://example.com/page"})
 
     assert response.status_code == 502
     assert response.text == "Upstream image unavailable"
+
+
+def test_proxy_image_accepts_octet_stream_when_body_is_a_real_image(client, monkeypatch):
+    import app.main as main_mod
+
+    fake_client = FakeHttpClient([
+        FakeStreamResponse(
+            headers={"content-type": "application/octet-stream"},
+            chunks=[PNG_BYTES],
+        )
+    ])
+    monkeypatch.setattr(main_mod, "_http_client", fake_client)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
+
+    response = client.get("/proxy-image", params={"url": "https://example.com/image.bin"})
+
+    assert response.status_code == 200
+    assert response.content == PNG_BYTES
+    assert response.headers["content-type"].startswith("image/png")
+
+
+def test_proxy_image_rejects_spoofed_image_content_type(client, monkeypatch):
+    import app.main as main_mod
+
+    fake_client = FakeHttpClient([
+        FakeStreamResponse(
+            headers={"content-type": "image/png"},
+            chunks=[b"<html>not an image</html>"],
+        )
+    ])
+    monkeypatch.setattr(main_mod, "_http_client", fake_client)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
+
+    response = client.get("/proxy-image", params={"url": "https://example.com/fake.png"})
+
+    assert response.status_code == 502
+    assert response.text == "Upstream image unavailable"
+
+
+def test_proxy_image_resolves_ordinary_hostname_and_pins_public_ip(client, monkeypatch):
+    """Regression: non-IP hostnames must not be treated as blocked literals."""
+    import socket
+
+    import app.main as main_mod
+    import app.url_safety as url_safety
+
+    fake_client = FakeHttpClient([
+        FakeStreamResponse(headers={"content-type": "image/png"}, chunks=[PNG_BYTES])
+    ])
+    monkeypatch.setattr(main_mod, "_http_client", fake_client)
+    monkeypatch.setattr(
+        url_safety.socket,
+        "getaddrinfo",
+        lambda host, port, type: [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 443))
+        ],
+    )
+
+    response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})
+
+    assert response.status_code == 200
+    assert fake_client.calls == [("GET", "https://93.184.216.34/image.png")]
 
 
 def test_proxy_image_rejects_declared_oversize_image(client, monkeypatch):
@@ -120,7 +212,7 @@ def test_proxy_image_rejects_declared_oversize_image(client, monkeypatch):
     )
     fake_client = FakeHttpClient([upstream])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
 
     response = client.get("/proxy-image", params={"url": "https://example.com/large.png"})
 
@@ -140,7 +232,7 @@ def test_proxy_image_rejects_streamed_oversize_image(client, monkeypatch):
         )
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
 
     response = client.get("/proxy-image", params={"url": "https://example.com/large.png"})
 
@@ -159,13 +251,17 @@ def test_proxy_image_rejects_redirect_to_private_host(client, monkeypatch):
         ),
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: hostname == "127.0.0.1")
+    monkeypatch.setattr(
+        main_mod,
+        "_resolve_proxy_targets",
+        lambda url: () if "127.0.0.1" in url else _pin_example_url(url),
+    )
 
     response = client.get("/proxy-image", params={"url": "https://example.com/redirect.png"})
 
     assert response.status_code == 400
     assert response.text == "Invalid URL"
-    assert fake_client.calls == [("GET", "https://example.com/redirect.png")]
+    assert fake_client.calls == [("GET", "https://93.184.216.34/redirect.png")]
 
 
 def test_proxy_image_allows_redirect_to_public_image(client, monkeypatch):
@@ -179,78 +275,76 @@ def test_proxy_image_allows_redirect_to_public_image(client, monkeypatch):
         ),
         FakeStreamResponse(
             headers={"content-type": "image/png"},
-            chunks=[b"redirect-image"],
+            chunks=[b"\x89PNG\r\n\x1a\nredirect-image"],
             peer_ip="93.184.216.34",
         ),
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
 
     response = client.get("/proxy-image", params={"url": "https://example.com/redirect.png"})
 
     assert response.status_code == 200
-    assert response.content == b"redirect-image"
+    assert response.content == b"\x89PNG\r\n\x1a\nredirect-image"
     assert fake_client.calls == [
-        ("GET", "https://example.com/redirect.png"),
-        ("GET", "https://example.com/cdn/image.png"),
+        ("GET", "https://93.184.216.34/redirect.png"),
+        ("GET", "https://93.184.216.34/cdn/image.png"),
     ]
 
 
-def test_proxy_image_rejects_rebinding_to_private_peer(client, monkeypatch):
-    """Hostname passes the pre-fetch check but the connection lands on a private
-    IP (DNS rebinding). The post-connect peer check must reject it."""
+def test_proxy_image_pins_dns_result_to_prevent_rebinding(client, monkeypatch):
+    """The fetch must use the pre-resolved public IP, not resolve the hostname again."""
     import app.main as main_mod
 
     fake_client = FakeHttpClient([
         FakeStreamResponse(
             headers={"content-type": "image/png"},
-            chunks=[b"should-not-be-served"],
+            chunks=[PNG_BYTES],
             peer_ip="169.254.169.254",
         )
     ])
     monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    # Pre-fetch DNS check passes (attacker's name still resolves public here).
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
-
-    response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})
-
-    assert response.status_code == 400
-    assert response.text == "Invalid URL"
-
-
-def test_proxy_image_rejects_when_connected_peer_cannot_be_verified(client, monkeypatch):
-    import app.main as main_mod
-
-    fake_client = FakeHttpClient([
-        FakeStreamResponse(
-            headers={"content-type": "image/png"},
-            chunks=[b"must-not-be-served"],
-        )
-    ])
-    monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
-
-    response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})
-
-    assert response.status_code == 400
-    assert response.text == "Invalid URL"
-
-
-def test_proxy_image_allows_public_peer(client, monkeypatch):
-    """A connection that lands on a public IP passes the post-connect check."""
-    import app.main as main_mod
-
-    fake_client = FakeHttpClient([
-        FakeStreamResponse(
-            headers={"content-type": "image/png"},
-            chunks=[b"image-bytes"],
-            peer_ip="93.184.216.34",
-        )
-    ])
-    monkeypatch.setattr(main_mod, "_http_client", fake_client)
-    monkeypatch.setattr(main_mod, "_is_private_hostname", lambda hostname: False)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
 
     response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})
 
     assert response.status_code == 200
-    assert response.content == b"image-bytes"
+    assert response.content == PNG_BYTES
+    assert fake_client.calls == [("GET", "https://93.184.216.34/image.png")]
+
+
+def test_proxy_image_does_not_depend_on_transport_peer_extension(client, monkeypatch):
+    import app.main as main_mod
+
+    fake_client = FakeHttpClient([
+        FakeStreamResponse(
+            headers={"content-type": "image/png"},
+            chunks=[PNG_BYTES],
+        )
+    ])
+    monkeypatch.setattr(main_mod, "_http_client", fake_client)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
+
+    response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})
+
+    assert response.status_code == 200
+    assert response.content == PNG_BYTES
+
+
+def test_proxy_image_allows_public_transport_peer_metadata(client, monkeypatch):
+    import app.main as main_mod
+
+    fake_client = FakeHttpClient([
+        FakeStreamResponse(
+            headers={"content-type": "image/png"},
+            chunks=[PNG_BYTES],
+            peer_ip="93.184.216.34",
+        )
+    ])
+    monkeypatch.setattr(main_mod, "_http_client", fake_client)
+    monkeypatch.setattr(main_mod, "_resolve_proxy_targets", _pin_example_url)
+
+    response = client.get("/proxy-image", params={"url": "https://example.com/image.png"})
+
+    assert response.status_code == 200
+    assert response.content == PNG_BYTES

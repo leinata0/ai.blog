@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Calendar, FileText, Pin } from 'lucide-react'
@@ -22,8 +22,8 @@ const CONTENT_TYPE_META = {
   },
   weekly_review: {
     label: '每周回顾',
-    accent: '#2563eb',
-    background: 'rgba(37,99,235,0.12)',
+    accent: 'var(--highlight-text)',
+    background: 'var(--highlight-soft)',
   },
 }
 
@@ -53,6 +53,7 @@ export default function ArchivePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const activeType = searchParams.get('type') || 'all'
   const activeSeries = searchParams.get('series') || 'all'
   const sortMode = searchParams.get('sort') || 'latest'
@@ -64,13 +65,23 @@ export default function ArchivePage() {
     setSearchParams(next)
   }
 
-  useEffect(() => {
-    document.title = '归档 - AI 资讯观察'
+  // Keep a failed archive request distinguishable from a genuinely empty archive:
+  // "当前筛选下暂无文章" for a 500 would silently hide the whole back catalogue.
+  const loadArchive = useCallback(() => {
+    setLoading(true)
+    setError('')
     fetchArchive()
-      .then(setGroups)
-      .catch(() => setGroups([]))
+      .then((data) => setGroups(Array.isArray(data) ? data : []))
+      .catch((err) => {
+        setGroups([])
+        setError(err?.message || '归档加载失败，请稍后重试。')
+      })
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    loadArchive()
+  }, [loadArchive])
 
   const allPosts = useMemo(() => groups.flatMap((group) => group.posts), [groups])
   const totalPosts = allPosts.length
@@ -212,6 +223,18 @@ export default function ArchivePage() {
                 </div>
               </div>
             ))}
+          </div>
+        ) : error ? (
+          <div role="alert" data-ui="archive-error" className="rounded-2xl px-6 py-5" style={{ backgroundColor: 'var(--danger-soft)' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--danger-text)' }}>{error}</p>
+            <button
+              type="button"
+              onClick={loadArchive}
+              className="mt-4 min-h-11 rounded-xl px-5 text-sm font-semibold text-white"
+              style={{ backgroundColor: 'var(--accent)' }}
+            >
+              重新加载归档
+            </button>
           </div>
         ) : filteredGroups.length === 0 ? (
           <p style={{ color: 'var(--text-faint)' }}>当前筛选下暂无文章</p>

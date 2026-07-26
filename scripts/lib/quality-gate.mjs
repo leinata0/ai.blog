@@ -1,5 +1,35 @@
+const REFERENCES_HEADING = '## 参考来源'
+
+// Default judgment signals. `judgment` used to be satisfied by the presence of the
+// program-appended `## 一句话结论` block, which made the dimension unconditionally true.
+// These markers are things the model has to actually write in the body: an explicit
+// stance, a bet, a risk call, or a bounded prediction.
+const DEFAULT_JUDGMENT_MARKERS = [
+  '我的判断', '我认为', '我更倾向', '在我看来', '结论是', '判断是',
+  '更可能', '更有可能', '大概率', '短期内', '中长期', '接下来',
+  '风险在于', '真正的风险', '值得警惕', '不确定的是', '取决于',
+  '未必', '并不成立', '押注', '赌的是', '这条路',
+]
+
+// The published Markdown carries a program-appended `<!-- auto-blog-meta: {...} -->`
+// comment holding a large, nearly whitespace-free JSON blob. Left in place it inflated
+// char_count by ~1000+ characters, i.e. a 3000-character article could clear a 4200
+// min_chars gate. Comments are stripped before any length measurement.
+function stripHtmlComments(text) {
+  return String(text || '').replace(/<!--[\s\S]*?-->/g, ' ')
+}
+
+// Everything the LLM actually authored: the program appends 参考来源 / 图片来源 /
+// 一句话结论 (plus the metadata comment) after the body, and those tails must not count
+// toward min_chars or toward authored-signal checks.
+export function extractAuthoredBody(text) {
+  const content = stripHtmlComments(text)
+  const referenceStart = content.indexOf(REFERENCES_HEADING)
+  return referenceStart >= 0 ? content.slice(0, referenceStart) : content
+}
+
 function stripMarkdown(text) {
-  return String(text || '')
+  return stripHtmlComments(text)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]*`/g, ' ')
     .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
@@ -9,7 +39,7 @@ function stripMarkdown(text) {
     .replace(/\s+/g, '')
 }
 
-function countPhraseHits(text, phrases) {
+export function countPhraseHits(text, phrases) {
   return phrases.reduce((total, phrase) => {
     const safe = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const matches = String(text || '').match(new RegExp(safe, 'g'))
@@ -172,8 +202,7 @@ function countSectionAnalysis(sections, signals) {
 }
 
 function countBodySourceMentions(content, sources, validCitationIds) {
-  const referenceStart = String(content || '').indexOf('## 参考来源')
-  const body = referenceStart >= 0 ? String(content).slice(0, referenceStart) : String(content || '')
+  const body = extractAuthoredBody(content)
   const names = new Set()
   for (const source of sources || []) {
     const sourceName = String(source?.source_name || '').trim()
@@ -201,11 +230,21 @@ export function evaluateQualityGate({
 }) {
   const gate = resolveGateConfig(config, post)
   const content = String(post?.content_md || '')
-  const plain = stripMarkdown(content)
+  // min_chars must measure the article the model wrote, not the program-appended
+  // 参考来源/图片来源/一句话结论 tail plus the auto-blog-meta JSON comment.
+  const authoredBody = extractAuthoredBody(content)
+  const plain = stripMarkdown(authoredBody)
   const allSources = researchPack?.sources || []
   const highQualityTypes = new Set(gate.high_quality_source_types || [])
   const highQualitySources = allSources.filter((item) => highQualityTypes.has(item.source_type))
   const bannedPhraseHits = countPhraseHits(content, formatProfile.banned_phrases || [])
+  // `auto-blog.mjs` deterministically rewrites banned phrases before the gate runs, so
+  // bannedPhraseHits is structurally 0 and carries no information. The caller passes the
+  // pre-rewrite count through so the quality score keeps a real signal. It is reported,
+  // never used as a blocking reason (the rewrite already fixed the text).
+  const rawBannedPhraseHits = Number.isFinite(Number(post?.raw_banned_phrase_hits))
+    ? Math.max(0, Number(post.raw_banned_phrase_hits))
+    : bannedPhraseHits
   const analysisSignals = countAnalysisSignals(content, formatProfile.analysis_markers || [])
   const isFreeStructure = formatProfile.structure_mode === 'free'
   const tailSections = formatProfile.required_tail_sections || []
@@ -275,13 +314,22 @@ export function evaluateQualityGate({
         ? formatProfile.required_dimensions
         : (Array.isArray(gate.required_dimensions) ? gate.required_dimensions : []))
     : []
-  const judgmentMarkerHit = /##\s*一句话结论/.test(content) || analysisSignals > 0
+  // `## 一句话结论` is appended by the program on every article, so testing for it made
+  // `judgment` unconditionally true. Instead count explicit stance/risk/prediction markers
+  // in the authored body only — a signal the model has to earn.
+  const judgmentMarkers = Array.isArray(formatProfile.judgment_markers) && formatProfile.judgment_markers.length > 0
+    ? formatProfile.judgment_markers
+    : (Array.isArray(gate.judgment_markers) && gate.judgment_markers.length > 0
+        ? gate.judgment_markers
+        : DEFAULT_JUDGMENT_MARKERS)
+  const judgmentMarkerCount = countPhraseHits(authoredBody, judgmentMarkers)
+  const minJudgmentMarkers = Math.max(1, Number(gate.min_judgment_markers || 1))
   const dimensionSatisfied = {
     facts: citationIds.length >= Math.max(1, Number(gate.min_inline_citations || 1)),
     significance: analysisSectionCount >= 1 || analysisSignals >= Math.max(1, Number(gate.min_analysis_signals || 1)),
     multi_source: citedDomains.length >= Math.max(1, Number(gate.min_cited_domains || 1)),
     analysis: analysisSectionCount >= Math.max(1, Number(gate.min_analysis_sections || 1)),
-    judgment: judgmentMarkerHit,
+    judgment: judgmentMarkerCount >= minJudgmentMarkers,
   }
   const missingDimensions = requiredDimensions.filter((dimension) => !dimensionSatisfied[dimension])
   // Body section count guard (free mode only): too few means it collapsed into one block,
@@ -378,6 +426,8 @@ export function evaluateQualityGate({
       high_quality_source_count: highQualitySources.length,
       char_count: plain.length,
       banned_phrase_hits: bannedPhraseHits,
+      raw_banned_phrase_hits: rawBannedPhraseHits,
+      judgment_marker_count: judgmentMarkerCount,
       analysis_signal_count: analysisSignals,
       missing_sections: missingSections,
       inline_citation_count: citationIds.length,

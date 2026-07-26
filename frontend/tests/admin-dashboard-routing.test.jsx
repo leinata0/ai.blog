@@ -155,5 +155,7 @@ it('blocks section navigation while the editor has unsaved changes', async () =>
 
   await userEvent.click(screen.getByRole('button', { name: '系统设置' }))
   await userEvent.click(screen.getByRole('button', { name: '放弃并离开' }))
-  expect(await screen.findByTestId('location')).toHaveTextContent('section=settings')
+  // React Router 7 wraps navigation state updates in `React.startTransition`, so the
+  // probe element exists before its location text catches up — wait on the content.
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('section=settings'))
 })

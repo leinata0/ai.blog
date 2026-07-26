@@ -284,7 +284,7 @@ export default function DiscoverPage() {
                   badge={(
                     <span
                       className="rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                      style={{ backgroundColor: topic.is_featured ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)', color: topic.is_featured ? '#2563eb' : 'var(--accent)' }}
+                      style={{ backgroundColor: topic.is_featured ? 'var(--highlight-soft)' : 'var(--accent-soft)', color: topic.is_featured ? 'var(--highlight-text)' : 'var(--accent)' }}
                     >
                       {getTopicBadgeLabel(topic)}
                     </span>
