@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:media="http://search.yahoo.com/mrss/">
+<channel>
+	<title>VentureBeat AI</title>
+	<link>https://venturebeat.com/category/ai/</link>
+	<description>Transformative tech coverage that matters</description>
+	<item>
+		<title>Anthropic ships a longer-context Claude for enterprise retrieval</title>
+		<link>https://venturebeat.com/ai/anthropic-ships-a-longer-context-claude-for-enterprise-retrieval/</link>
+		<pubDate>Wed, 22 Jul 2026 13:30:00 +0000</pubDate>
+		<guid isPermaLink="true">https://venturebeat.com/ai/anthropic-ships-a-longer-context-claude-for-enterprise-retrieval/</guid>
+		<description><![CDATA[<img width="1024" height="576" src="https://venturebeat.com/wp-content/uploads/2026/07/context-window-benchmark.jpg" class="attachment-large size-large wp-post-image" alt="Chart comparing retrieval accuracy across context lengths" />Enterprises can now feed a full quarter of support tickets into a single request.]]></description>
+		<media:content url="https://venturebeat.com/wp-content/uploads/2026/07/claude-enterprise-hero.jpg" medium="image" width="1200" height="675">
+			<media:description type="plain">Claude 企业版控制台截图</media:description>
+		</media:content>
+		<media:thumbnail url="https://venturebeat.com/wp-content/uploads/2026/07/claude-enterprise-hero-150x150.jpg" width="150" height="150" />
+		<enclosure url="https://venturebeat.com/wp-content/uploads/2026/07/podcast-episode-88.mp3" length="30219520" type="audio/mpeg" />
+		<dc:creator><![CDATA[Carl Franzen]]></dc:creator>
+	</item>
+</channel>
+</rss>

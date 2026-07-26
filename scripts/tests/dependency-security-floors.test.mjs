@@ -36,7 +36,11 @@ function compareVersions(a, b) {
 function readUvLockVersions() {
   const raw = readFileSync(join(REPO_ROOT, 'backend', 'uv.lock'), 'utf8')
   const versions = new Map()
-  for (const match of raw.matchAll(/^name = "([^"]+)"\nversion = "([^"]+)"/gm)) {
+  // `\r?\n`, not `\n`: with git's `core.autocrlf=true` (the Windows default) uv.lock is
+  // checked out with CRLF, the LF-only pattern matched nothing, and the test then reported
+  // every pinned package as "missing from the lockfile" on developer machines while passing
+  // on the Linux CI runner.
+  for (const match of raw.matchAll(/^name = "([^"]+)"\r?\nversion = "([^"]+)"/gm)) {
     versions.set(match[1], match[2])
   }
   return versions

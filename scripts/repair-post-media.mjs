@@ -6,8 +6,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import {
   buildImageSourcesSection,
+  dedupeImagePlansAgainstUsed,
+  extractInlineImageUrlsFromMarkdown,
   insertImagesIntoContent,
+  normalizeImageUrlForDedupe,
   normalizePublishedAt,
+  resolveImageDedupeConfig,
+  resolveUsedImageRegistry,
 } from './auto-blog.mjs'
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
@@ -755,6 +760,61 @@ function extractImageTargetSections(contentMd, maxImages) {
     .slice(0, maxImages)
 }
 
+/**
+ * Builds the picker's `sectionAttribution` map from an already-published body.
+ *
+ * This tool exists to repair posts whose illustrations do not match their text, so it needs
+ * the same two relevance signals the live pipeline now gets — and both are recoverable from
+ * the published markdown alone:
+ *
+ *   - which sources a section cites: `finalizeArticle` links the `[S1]` markers, so the body
+ *     carries `[S1](https://…)`. The URL is used directly rather than the number, because the
+ *     mapping from `S1` to the Nth entry of 参考来源 is an assumption and the URL is a fact.
+ *   - what the section is about: its own prose, which is the only text that can be compared
+ *     against a candidate image's caption.
+ *
+ * Without this, repair ranked images for a Chinese heading by substring-matching it against
+ * English image URLs, which never matched anything — the defect this whole change is about.
+ */
+export function buildAttributionFromPublishedBody(contentMd, headings) {
+  const lines = String(contentMd || '').split(/\r?\n/)
+  const attribution = {}
+  for (const heading of headings) {
+    // `extractImageTargetSections` yields bare headings while the pipeline's own section
+    // lists keep the `## ` marker. Both are accepted so the two callers cannot drift.
+    const bare = String(heading).replace(/^#{1,6}\s*/, '').trim()
+    const startIndex = lines.findIndex((line) => line.match(/^##\s+(.*)$/)?.[1]?.trim() === bare)
+    if (startIndex < 0) continue
+    let endIndex = lines.length
+    for (let index = startIndex + 1; index < lines.length; index += 1) {
+      if (NEXT_H2_RE.test(lines[index].trim())) {
+        endIndex = index
+        break
+      }
+    }
+    const body = lines.slice(startIndex + 1, endIndex).join('\n')
+    const sourceUrls = []
+    for (const match of body.matchAll(/\[S\d+\]\((https?:\/\/[^)\s]+)\)/g)) {
+      if (!sourceUrls.includes(match[1])) sourceUrls.push(match[1])
+    }
+    attribution[heading] = {
+      heading,
+      source_ids: [],
+      source_urls: sourceUrls,
+      text: body
+        .replace(/```[\s\S]*?```/g, ' ')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/[#>*_`~|-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 1200),
+      origin: sourceUrls.length > 0 ? 'body_citation' : 'none',
+    }
+  }
+  return attribution
+}
+
 function replaceOrAppendImageSourcesSection(contentMd, imagePlans) {
   const nextSection = buildImageSourcesSection(imagePlans)
   const lines = String(contentMd || '').split(/\r?\n/)
@@ -919,41 +979,64 @@ async function main() {
     publishing_artifact: artifactPayload,
   }
 
-  if (options.dryRun) {
-    console.log(JSON.stringify({
-      post_id: post.id,
-      post_slug: post.slug,
-      source_count: sources.length,
-      bridge_payload: bridgePayload,
-    }, null, 2))
-    return
-  }
+  // 注意：dry-run 不能在这里返回。插图重选发生在下面，而"插图会被换成什么"正是
+  // 这个工具唯一值得预览的东西——提前返回会让 --dry-run 只输出一份元数据 payload，
+  // 看不到任何图片决策，等于没有预览价值。改为在真正发写请求之前才分叉。
 
   const trustedHosts = resolveTrustedImageHosts()
   warnIfImageCdnUnconfigured(trustedHosts, console)
 
-  const bridgeResult = await upsertPublishingMetadata(token, bridgePayload)
-  console.log(`Publishing metadata repaired: sources=${bridgeResult.source_count} artifact=${bridgeResult.artifact_id}`)
-
-  const coverResult = await generatePostCover(token, post.id, false)
-  if (coverResult.generated) {
-    console.log(`Post cover ready: ${coverResult.cover_image}`)
+  if (options.dryRun) {
+    console.log(`[dry-run] 将写入发布元数据：sources=${bridgePayload.post_sources.length}`)
+    console.log('[dry-run] 跳过封面生成（该调用是付费的）')
   } else {
-    console.log(`Post cover not regenerated: ${coverResult.error_code || 'unknown'} ${coverResult.error || ''}`.trim())
+    const bridgeResult = await upsertPublishingMetadata(token, bridgePayload)
+    console.log(`Publishing metadata repaired: sources=${bridgeResult.source_count} artifact=${bridgeResult.artifact_id}`)
+
+    const coverResult = await generatePostCover(token, post.id, false)
+    if (coverResult.generated) {
+      console.log(`Post cover ready: ${coverResult.cover_image}`)
+    } else {
+      console.log(`Post cover not regenerated: ${coverResult.error_code || 'unknown'} ${coverResult.error || ''}`.trim())
+    }
   }
 
   const allowedTypes = new Set(config.image_selection_rules?.allowed_source_types || [])
   const sections = extractImageTargetSections(post.content_md, config.image_selection_rules?.max_images || 0)
-  const pickedImagePlans = await pickSourceImages({
+  // This tool is how the existing duplicate-illustration backlog gets repaired, and it is run
+  // once per post. Without the same published-image memory the pipeline uses, repairing 25
+  // posts one at a time would simply re-pick the same picture for several of them.
+  // Window end is today rather than the post's own coverage_date: the duplicate a reader
+  // notices is one shared with what is currently on the site. An unparseable date would make
+  // shiftCoverageDate return '' and silently match nothing, so it is never taken from the post.
+  const usedImages = await resolveUsedImageRegistry(
+    { imageDedupe: resolveImageDedupeConfig(config), force: false, dryRun: false },
+    { coverageDate: new Date().toISOString().slice(0, 10) },
+  )
+  // The post being repaired is part of that history; keeping its own current illustrations in
+  // the memory would forbid the picker from ever re-selecting an image that is fine as it is.
+  for (const url of extractInlineImageUrlsFromMarkdown(post.content_md)) {
+    const key = normalizeImageUrlForDedupe(url)
+    if (key) usedImages.keys.delete(key)
+  }
+  const pickedImagePlans = dedupeImagePlansAgainstUsed(await pickSourceImages({
     sections,
     topic: post.topic_key || post.title,
     sourceItems: sources.filter((source) => allowedTypes.size === 0 || allowedTypes.has(source.source_type)),
+    // Same relevance contract the live pipeline uses. Recovered from the published body,
+    // which is all this tool has: without it a Chinese heading is matched against English
+    // image URLs and scores zero every time, so ranking falls back to "whatever the page
+    // listed first" — exactly how the mismatched illustrations got there.
+    sectionAttribution: buildAttributionFromPublishedBody(post.content_md, sections),
     config,
-  })
-  const imagePlans = await localizeImagePlans(pickedImagePlans, {
-    token,
-    blogApiBase: BLOG_API_BASE,
-  })
+    isImageUrlExcluded: usedImages.has,
+    normalizeUrlForDedupe: normalizeImageUrlForDedupe,
+  }), usedImages)
+  // localizeImagePlans 会真的下载图片并上传到 R2，dry-run 必须跳过：预览不应该产生
+  // 存储对象。预览用原始 URL 展示决策即可，本地化只影响最终 URL 的主机名。
+  const imagePlans = options.dryRun
+    ? pickedImagePlans
+    : await localizeImagePlans(pickedImagePlans, { token, blogApiBase: BLOG_API_BASE })
   const cleaned = stripThirdPartyMarkdownImages(post.content_md, { trustedHosts })
 
   if (imagePlans.length === 0 && cleaned.removed === 0) {
@@ -965,6 +1048,21 @@ async function main() {
   const nextContent = replaceOrAppendImageSourcesSection(contentWithImages, imagePlans)
   if (nextContent === post.content_md) {
     console.log('Inline image content is already up to date.')
+    return
+  }
+
+  if (options.dryRun) {
+    const before = extractInlineImageUrlsFromMarkdown(post.content_md)
+    const after = extractInlineImageUrlsFromMarkdown(nextContent)
+    console.log('\n=== dry-run 预览：插图将如何变化 ===')
+    console.log(`改前 ${before.length} 张：`)
+    for (const url of before) console.log(`  - ${url}`)
+    console.log(`改后 ${after.length} 张：`)
+    for (const plan of imagePlans) {
+      console.log(`  + [${plan.section_heading || '?'}] ${plan.image_url || plan.url}`)
+      console.log(`      理由 ${plan.reason || '-'}｜来源 ${plan.source_page_url || '-'}`)
+    }
+    console.log(`（第三方图将被移除 ${cleaned.removed} 张；正文${nextContent === post.content_md ? '不变' : '会被改写'}）`)
     return
   }
 

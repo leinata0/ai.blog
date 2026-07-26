@@ -111,6 +111,8 @@ React 18 SPA + 构建期 SSG 预渲染。
 主流程：**RSS 多源并发抓取 + Jina 全文** → token 签名聚类 → 选题排序 → LLM 生成大纲（JSON）→ LLM 写正文 → 质量门禁（来源数/字数/禁用套话，最多 3 次修复）→ xAI Grok 封面 → 发布到后端 API → 触发 Vercel 刷新。
 
 - 共享库 `scripts/lib/`：`blogwatcher`（RSS 引擎）、`quality-gate`、`cover-art`、`arxiv`、`blog-api`、`admin-text-generation` / `admin-image-generation`、`url-guard`、`source-image-picker`。
+- **正文插图选取**（`source-image-picker` + `config/auto-blog.config.json` 的 `image_selection_rules`）：og:image / twitter:image 被降级为兜底层，默认**不**采用（`allow_meta_image_fallback: false`）——很多站点整站或整栏目共用一张社交卡片，选它会让多篇文章配图雷同。正文图按所处容器（`<article>`/`<main>`/`<figure>`/`<figcaption>`）加权。`blocklist_keywords` 按**词元前缀**匹配 URL 与 class（不匹配 alt，alt 描述的是画面内容而非用途）；`social_card_path_segments` 按**整段**匹配路径；`reject_generated_card_endpoints` 拦截 `s0.wp.com/_si/?t=…` 这类无关键词的卡片生成端点。尺寸门槛在缺少 `width`/`height` 属性时会从 URL 推断（`?w=128`、`-150x150`、`.width-100`）。**取舍：只提供社交卡片的源站将不再产出插图（宁可没有图，也不要多篇同图）。**
+- **跨文章插图去重**（`auto-blog.mjs` 的 `image_dedupe`，默认开启、回看 14 天）：发布前比对最近文章已用的插图，比对键会折叠尺寸/渲染变体（`.width-1200.format-webp`、`?w=1330&ssl=1`、CDN 截断的重复文件名）。`--force` / `--dry-run` 下跳过。降级（API 读不到）只会告警并照常发布。
 - 运维脚本：`publish-article` / `publish-content-file` / `generate-cover-for-post` / `generate-site-hero` / `backfill-*`（质量快照/系列封面/主题元数据）/ `repair-post-media` / `smoke-check`。
 - LLM = SiliconFlow（DeepSeek-V3）；封面 = xAI Grok。**改动流水线务必先用 `--dry-run` 验证。**
 

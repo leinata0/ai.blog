@@ -1,5 +1,9 @@
 import { XMLParser } from 'fast-xml-parser'
 
+import { extractFeedItemMediaCandidates } from './feed-media.mjs'
+
+// removeNSPrefix 保持关闭：`content:encoded` / `media:content` 的键名就得是带冒号的原样，
+// feed-media 按这个约定读取。改这里等于悄悄掐断 feed 正文图源。
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -27,6 +31,8 @@ const TOPIC_MATCH_STOP_WORDS = new Set([
 // feed fetch in auto-blog) is enough to trip rate limits and starve the event loop.
 const FEED_FETCH_CONCURRENCY = 6
 // A feed without Content-Length can stream unbounded data into memory. Cap what we read.
+// 这个上限现在也决定了「能从 feed 正文里捞到多少配图」：全文 feed（content:encoded 带
+// 整篇正文）单个响应体两三 MB 很常见，调低会直接截断正文、连带丢掉后半篇的插图。
 const MAX_FEED_BYTES = 4 * 1024 * 1024
 
 function normalizeText(value) {
@@ -213,24 +219,32 @@ export function parseFeedXml(xml, source) {
   const channelBucket = normalizeBucket(source?.channel_bucket)
 
   return entries
-    .map((item) => ({
-      source_type: source.source_type || 'independent_blog',
-      source_name: sourceName,
-      source_group: sourceGroup,
-      channel_bucket: channelBucket,
-      title: normalizeText(pickNodeText(item.title)),
-      url: normalizeText(pickEntryLink(item)),
-      published_at: normalizeText(
-        pickNodeText(item.pubDate) || pickNodeText(item.published) || pickNodeText(item.updated)
-      ),
-      lang: source.lang || 'en',
-      summary: normalizeText(
-        pickNodeText(item.description) || pickNodeText(item.summary) || pickNodeText(item.content)
-      ),
-      full_text: '',
-      score: Number(source.quality_weight || 0.5),
-      evidence_snippets: [],
-    }))
+    .map((item) => {
+      const url = normalizeText(pickEntryLink(item))
+      return {
+        source_type: source.source_type || 'independent_blog',
+        source_name: sourceName,
+        source_group: sourceGroup,
+        channel_bucket: channelBucket,
+        title: normalizeText(pickNodeText(item.title)),
+        url,
+        published_at: normalizeText(
+          pickNodeText(item.pubDate) || pickNodeText(item.published) || pickNodeText(item.updated)
+        ),
+        lang: source.lang || 'en',
+        summary: normalizeText(
+          pickNodeText(item.description) || pickNodeText(item.summary) || pickNodeText(item.content)
+        ),
+        full_text: '',
+        // feed 正文里的配图。这份数据本来就随 RSS 一起抓回来了，之前整段丢掉，插图候选
+        // 只剩「事后再抓一次源站页面 HTML」这一条路 —— 而那条路会被 JS 注入正文和反爬
+        // 打掉一大半。这里的图天然属于这篇文章，不是全站社交卡，相关性也更可靠。
+        // 候选仍要过下游的尺寸/黑名单/SSRF 校验，本字段只负责供给。
+        media_candidates: extractFeedItemMediaCandidates(item, { baseUrl: url }),
+        score: Number(source.quality_weight || 0.5),
+        evidence_snippets: [],
+      }
+    })
     .filter((item) => item.title && item.url)
 }
 
