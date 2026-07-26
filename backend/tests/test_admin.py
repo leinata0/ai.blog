@@ -2333,3 +2333,38 @@ def test_discarded_job_future_errors_are_logged(caplog):
         pool.shutdown(wait=True)
 
     assert any("image_generation_job_worker_error" in record.message for record in caplog.records)
+
+
+def test_the_image_generation_queue_refuses_work_once_it_is_full(client, monkeypatch, db_session):
+    """入队闸门：池只有一个工作线程，队列本身是无界的。
+
+    没有上限时，连点"生成封面"可以把任意多个 job 排进去，而排在后面的注定等不到执行
+    —— 单张图最长 IMAGE_GENERATION_TIMEOUT_SECONDS，清扫线程在 IMAGE_JOB_STALE_MINUTES
+    之后就把它标成 stale_job。与其排一小时再失败，不如入队时就拒绝。
+    """
+    from app.routers import admin as admin_mod
+    from app.services import image_generation_jobs
+
+    monkeypatch.setattr(
+        admin_mod,
+        "_submit_job",
+        lambda pool, fn, job_id, *, kind, **kwargs: None,
+    )
+
+    token = _login(client)
+    body = {"prompt": "An editorial illustration about agent tooling", "aspect": "landscape"}
+    for _ in range(admin_mod.MAX_ACTIVE_IMAGE_JOBS):
+        assert client.post("/api/admin/illustrations/generate", json=body, headers=_auth(token)).status_code == 200
+
+    full = client.post("/api/admin/illustrations/generate", json=body, headers=_auth(token))
+    assert full.status_code == 429
+    assert image_generation_jobs.count_active(db_session) == admin_mod.MAX_ACTIVE_IMAGE_JOBS
+
+    # 终态的任务不占额度：跑完一个就腾出一个位置
+    oldest = db_session.query(admin_mod.AdminImageGenerationJob).order_by(
+        admin_mod.AdminImageGenerationJob.id.asc()
+    ).first()
+    oldest.status = image_generation_jobs.STATUS_SUCCEEDED
+    db_session.commit()
+
+    assert client.post("/api/admin/illustrations/generate", json=body, headers=_auth(token)).status_code == 200

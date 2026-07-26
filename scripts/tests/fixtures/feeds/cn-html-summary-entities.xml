@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  事故现场的最小复现（形态逐项取自 2026-07-26 抓下来的量子位 / 雷锋网真实 feed）。
+
+  第 1 条同时踩中三个坑：
+    - 标题里的 `&amp;#038;` / `&amp;#8220;` 是二次转义：XML 解析器只还原外层 `&amp;`，
+      留下字面量 `&#038;`，于是主题签名里多出一个叫 `038` 的 token
+      （事故日志的 `038-https-qbitai-source-title-url-64e4cd75` 就是这么来的）。
+    - description 是整段带内联样式的 HTML：`section` `style` `margin` `text` `align`
+      这些标记词进了签名，两篇毫不相干的稿子靠 HTML 属性名"聚成一簇"
+      （事故日志的 `15-8pt-a9-margin-style-top-c1ba83e2`）。
+    - 同一段 HTML 里有真正的正文插图，用的是中文源站惯用的 data-src 懒加载写法。
+      summary 必须剥净，media_candidates 必须仍然从原始 HTML 里把这张图提出来 ——
+      两件事同时成立才算修好，只满足一件都是把另一条链路弄坏了。
+
+  第 2 条是纯文本对照：不含任何标记，剥离逻辑不许动它一个字，
+  尤其是 `&lt;` / `&gt;` 还原出来的比较符号不能被当成标签吃掉。
+-->
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<channel>
+	<title>中文 AI 媒体</title>
+	<link>https://www.qbitai.com/</link>
+	<description>fixture</description>
+	<item>
+		<title>3万小时触觉数据补齐具身智能&amp;#8220;手感&amp;#8221;！新智具身&amp;#038;复旦报告三连发</title>
+		<link>https://www.qbitai.com/2026/07/tactile-data.html</link>
+		<pubDate>Sun, 26 Jul 2026 04:12:00 +0000</pubDate>
+		<description><![CDATA[<section style="text-align: center;margin: 0px 16px;line-height: 1.75em;display: block;" data-mpa-action-id="mmiwq6ij1i3r" nodeleaf=""><img data-src="https://static.leiphone.com/uploads/new/images/20260726/6a65cae5a33d9.png?imageView2/2/w/740&#038;q=90" class="rich_pages" width="740" height="416" alt="触觉数据集采集现场" /></section><p style="margin-top: 7.8pt; margin-bottom: 7.8pt;">新智具身与复旦大学联合发布三份报告，公开了 3 万小时的真机触觉采集数据。</p><p style="margin-top: 7.8pt;">项目数据、模型与代码均已开源，训练脚本同步放出。</p>]]></description>
+	</item>
+	<item>
+		<title>推理成本实测：批大小并不是越大越好</title>
+		<link>https://www.qbitai.com/2026/07/batching-cost.html</link>
+		<pubDate>Sun, 26 Jul 2026 03:00:00 +0000</pubDate>
+		<description>当 batch &lt; 8 时吞吐反而更低，&gt; 32 之后收益递减。A &lt; B and C &gt; D 都要原样保留。</description>
+	</item>
+</channel>
+</rss>

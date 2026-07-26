@@ -3,7 +3,13 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  acquireAdminToken,
+  fetchWithTransientRetry,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+} from './lib/blog-api.mjs'
 import {
   generateSiteHeroViaAdminJob,
   imageGenerationJobImageUrl,
@@ -25,30 +31,28 @@ function buildDefaultHeroPrompt() {
   ].join(' ')
 }
 
-async function login() {
-  if (!ADMIN_PASSWORD) {
-    throw new Error('Missing ADMIN_PASSWORD')
-  }
-
-  const response = await fetch(`${BLOG_API_BASE}/api/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-    signal: AbortSignal.timeout(15000),
+/**
+ * `workflow_dispatch` only: a manual trigger means the Render instance is almost certainly
+ * asleep, so the cold start is the default case. The previous 15s login timeout with no retry
+ * could not survive one; `acquireAdminToken` absorbs it with an unauthenticated `/readyz` probe
+ * before the credentials are ever sent.
+ */
+export async function login(options = {}) {
+  return acquireAdminToken({
+    blogApiBase: BLOG_API_BASE,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    ...options,
   })
-
-  if (!response.ok) {
-    throw new Error(`Admin login failed: ${response.status} ${(await response.text()).slice(0, 300)}`)
-  }
-
-  return (await response.json()).access_token
 }
 
-async function fetchSettings(token) {
-  const response = await fetch(`${BLOG_API_BASE}/api/settings`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  })
+export async function fetchSettings(token, { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, retryOptions } = {}) {
+  const response = await fetchWithTransientRetry(
+    fetchImpl,
+    `${blogApiBase}/api/settings`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    retryOptions,
+  )
 
   if (!response.ok) {
     throw new Error(`Fetch settings failed: ${response.status} ${(await response.text()).slice(0, 300)}`)

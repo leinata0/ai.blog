@@ -5,7 +5,9 @@ import { resolve } from 'node:path'
 
 import { buildQualitySnapshotPayload } from './auto-blog.mjs'
 import {
+  acquireAdminToken,
   fetchAdminPostsByOffset,
+  fetchWithTransientRetry,
   resolveAdminPassword,
   resolveAdminUsername,
   resolveBlogApiBase,
@@ -192,20 +194,16 @@ export function buildBackfillGate(post) {
   }
 }
 
-async function getAdminToken() {
-  if (!ADMIN_PASSWORD) {
-    throw new Error('Missing ADMIN_PASSWORD')
-  }
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-    signal: AbortSignal.timeout(30000),
+// `workflow_dispatch` only: the login below is the first request of the run, so it is the one
+// that pays the Render cold start. `acquireAdminToken` absorbs that with an unauthenticated
+// `/readyz` probe (its own long budget, never throws) before any credential leaves the process.
+export async function getAdminToken(options = {}) {
+  return acquireAdminToken({
+    blogApiBase: BLOG_API_BASE,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    ...options,
   })
-  if (!resp.ok) {
-    throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-  return (await resp.json()).access_token
 }
 
 async function fetchAdminPosts(token, { limit, offset }) {
@@ -217,22 +215,26 @@ async function fetchAdminPosts(token, { limit, offset }) {
   })
 }
 
-async function fetchAdminPostDetail(token, postId) {
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${postId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  })
+async function fetchAdminPostDetail(token, postId, { fetchImpl = fetch, retryOptions } = {}) {
+  const resp = await fetchWithTransientRetry(
+    fetchImpl,
+    `${BLOG_API_BASE}/api/admin/posts/${postId}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    retryOptions,
+  )
   if (!resp.ok) {
     throw new Error(`Fetch post detail failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
   return resp.json()
 }
 
-async function fetchExistingQualitySnapshot(token, postId) {
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${postId}/quality`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  })
+async function fetchExistingQualitySnapshot(token, postId, { fetchImpl = fetch, retryOptions } = {}) {
+  const resp = await fetchWithTransientRetry(
+    fetchImpl,
+    `${BLOG_API_BASE}/api/admin/posts/${postId}/quality`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    retryOptions,
+  )
   if (!resp.ok) {
     throw new Error(`Fetch post quality failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }

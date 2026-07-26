@@ -2,6 +2,8 @@
 
 import { pathToFileURL } from 'node:url'
 
+import { waitForBackendAwake } from './lib/blog-api.mjs'
+
 const REQUIRED_ENV = ['PUBLIC_SITE_URL', 'BLOG_API_BASE']
 const REQUEST_TIMEOUT_MS = 15000
 
@@ -22,7 +24,8 @@ const DEFAULT_ALLOWED_ADMIN_HOSTS = ['ai-blog-hbur.onrender.com', 'www.563118077
  * with or without the URL brackets and zone id. Applied to both sides of the allowlist so an
  * entry spelled `Example.COM.` or `[::1]` cannot silently stop matching — a stale-looking
  * allowlist that never matches is safe, but an allowlist an operator *thinks* is active is not.
- * Mirrors lib/url-guard.mjs::normalizeHostname; kept local so this script stays import-free.
+ * Mirrors lib/url-guard.mjs::normalizeHostname; kept local so the credential guard has no
+ * dependency that could be swapped out from under it.
  */
 function normalizeHost(value) {
   let host = String(value ?? '')
@@ -110,7 +113,7 @@ async function expectJson(url, init = {}, fetchImpl = fetch) {
   }
 }
 
-export async function main(env = process.env, { fetchImpl = fetch } = {}) {
+export async function main(env = process.env, { fetchImpl = fetch, waitForBackendAwakeImpl = waitForBackendAwake } = {}) {
   for (const key of REQUIRED_ENV) {
     if (!env[key]?.trim()) {
       throw new Error(`Missing required env: ${key}`)
@@ -132,6 +135,13 @@ export async function main(env = process.env, { fetchImpl = fetch } = {}) {
     }
     assertSafeAdminTarget(blogApiBase, { allowedHosts: resolveAllowedAdminHosts(env) })
   }
+
+  // Absorb a Render cold start before the first assertion runs. Every probe below has a 15s
+  // budget, which a sleeping instance blows through routinely — without this gate the smoke check
+  // reports the backend as broken when the only thing wrong is that nobody had woken it. The
+  // probe is unauthenticated and never throws, so it can safely precede the credential guard's
+  // subjects; note it runs *after* the guard above, so an unapproved base still sends nothing.
+  await waitForBackendAwakeImpl({ blogApiBase, fetchImpl })
 
   const publicChecks = [
     `${publicSiteUrl}/`,

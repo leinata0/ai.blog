@@ -280,7 +280,11 @@ test('main runs the full admin smoke against an approved host', async () => {
   await withSilencedLog(() => main(ADMIN_ENV, { fetchImpl }))
 
   const urls = fetchImpl.urls()
-  assert.equal(urls[0], `${CANONICAL_BASE}/`, 'public site is probed first')
+  // The cold-start gate runs first: every check below has a 15s budget, which a sleeping Render
+  // instance blows through routinely, so without this the smoke check reports a healthy backend
+  // as broken.
+  assert.equal(urls[0], `${PRODUCTION_BASE}/readyz`, 'the backend is woken before anything is asserted')
+  assert.equal(urls[1], `${CANONICAL_BASE}/`, 'public site is probed first')
   assert.ok(urls.includes(`${PRODUCTION_BASE}/api/public/home-bootstrap`))
 
   const loginCalls = fetchImpl.loginCalls()
@@ -329,7 +333,8 @@ test('a public-only run never touches an admin endpoint', async () => {
     main({ PUBLIC_SITE_URL: CANONICAL_BASE, BLOG_API_BASE: PRODUCTION_BASE }, { fetchImpl }),
   )
 
-  assert.equal(fetchImpl.urls().length, 5)
+  // One wake probe plus the five public checks.
+  assert.equal(fetchImpl.urls().length, 6)
   assert.equal(fetchImpl.urls().some((url) => url.includes('/api/admin/')), false)
 })
 

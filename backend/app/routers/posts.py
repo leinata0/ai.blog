@@ -42,6 +42,7 @@ from app.models import (
 )
 from app.rate_limit import limiter
 from app.schemas import CommentCreate
+from app.serialization import iso_utc
 from app.site_config import resolve_public_site_url
 from app.user_auth import get_optional_user
 
@@ -60,19 +61,6 @@ def _get_client_ip(request: Request) -> str:
     is used, so a client cannot forge them to bypass the like/comment/view limits.
     """
     return client_ip_from_request(request)
-
-
-def _iso_utc(value: datetime | None) -> str | None:
-    """Serialize a stored timestamp with an explicit UTC offset.
-
-    The DateTime columns are naive and hold UTC. Emitting a bare "2026-07-20T23:30:00"
-    makes ECMA-262 parse it as *local* time, so a UTC+8 reader saw fresh posts as
-    "8 小时前" and day-grouped views (归档/日报) landed on the wrong date.
-    """
-    if value is None:
-        return None
-    aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    return aware.astimezone(timezone.utc).isoformat()
 
 
 _AUTOMATED_UA_PATTERN = re.compile(
@@ -118,8 +106,8 @@ def _post_list_item(post: Post) -> dict:
         "is_published": post.is_published,
         "is_pinned": post.is_pinned,
         "like_count": post.like_count or 0,
-        "created_at": _iso_utc(post.created_at),
-        "updated_at": _iso_utc(post.updated_at),
+        "created_at": iso_utc(post.created_at),
+        "updated_at": iso_utc(post.updated_at),
         "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
     }
 
@@ -153,10 +141,6 @@ def _post_summary_options():
         load_only(*_POST_SUMMARY_FIELDS),
         selectinload(Post.tags).load_only(Tag.name, Tag.slug),
     )
-
-
-def _serialize_datetime(value: datetime | None) -> str | None:
-    return _iso_utc(value)
 
 
 def _build_series_aggregation_index(
@@ -216,9 +200,9 @@ def _series_to_dict(series: Series, db: Session, include_posts: bool = False, ag
         "is_featured": bool(series.is_featured),
         "sort_order": series.sort_order or 0,
         "post_count": post_count,
-        "latest_post_at": _serialize_datetime(latest_post_at),
-        "created_at": _serialize_datetime(series.created_at),
-        "updated_at": _serialize_datetime(series.updated_at),
+        "latest_post_at": iso_utc(latest_post_at),
+        "created_at": iso_utc(series.created_at),
+        "updated_at": iso_utc(series.updated_at),
     }
 
     if include_posts:
@@ -240,7 +224,7 @@ def _source_to_dict(source: PostSource) -> dict:
         "source_type": source.source_type or "",
         "source_name": source.source_name or "",
         "source_url": source.source_url or "",
-        "published_at": _iso_utc(source.published_at),
+        "published_at": iso_utc(source.published_at),
         "is_primary": bool(source.is_primary),
     }
 
@@ -270,8 +254,8 @@ def _snapshot_to_dict(snapshot) -> dict | None:
         "issues": _json_list(snapshot.issues_json),
         "strengths": _json_list(snapshot.strengths_json),
         "notes": snapshot.notes or "",
-        "generated_at": _iso_utc(snapshot.generated_at),
-        "updated_at": _iso_utc(snapshot.updated_at),
+        "generated_at": iso_utc(snapshot.generated_at),
+        "updated_at": iso_utc(snapshot.updated_at),
     }
 
 
@@ -283,9 +267,9 @@ def _review_to_dict(review) -> dict | None:
         "editor_labels": _json_list(review.editor_labels_json),
         "editor_note": review.editor_note or "",
         "followup_recommended": review.followup_recommended,
-        "reviewed_at": _iso_utc(review.reviewed_at),
+        "reviewed_at": iso_utc(review.reviewed_at),
         "reviewed_by": review.reviewed_by or "",
-        "updated_at": _iso_utc(review.updated_at),
+        "updated_at": iso_utc(review.updated_at),
     }
 
 
@@ -444,7 +428,7 @@ def _popular_search_queries(db: Session, current_query: str, limit: int = 6) -> 
             "query": row.query,
             "search_count": int(row.search_count or 0),
             "last_result_count": int(row.last_result_count or 0),
-            "last_searched_at": _iso_utc(row.last_searched_at),
+            "last_searched_at": iso_utc(row.last_searched_at),
         }
         for row in rows
         if len(str(row.query or "").strip()) >= 2
@@ -791,10 +775,10 @@ def _topic_profile_to_dict_with_metrics(
         "is_active": bool(profile.is_active),
         "priority": profile.priority or 0,
         "post_count": post_count,
-        "latest_post_at": _iso_utc(latest_post_at),
+        "latest_post_at": iso_utc(latest_post_at),
         "avg_quality_score": round(float(avg_quality), 2) if avg_quality is not None else None,
-        "created_at": _iso_utc(profile.created_at),
-        "updated_at": _iso_utc(profile.updated_at),
+        "created_at": iso_utc(profile.created_at),
+        "updated_at": iso_utc(profile.updated_at),
     }
 
 
@@ -1171,8 +1155,8 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
         "view_count": post.view_count,
         "is_pinned": post.is_pinned,
         "like_count": post.like_count or 0,
-        "created_at": _iso_utc(post.created_at),
-        "updated_at": _iso_utc(post.updated_at),
+        "created_at": iso_utc(post.created_at),
+        "updated_at": iso_utc(post.updated_at),
         "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
         "series": _series_to_dict(series, db, include_posts=False) if series else None,
         "sources": [_source_to_dict(source) for source in sources],
@@ -1383,7 +1367,7 @@ def list_comments(
             "user_id": c.user_id,
             "is_registered": c.user_id is not None,
             "avatar_url": avatar_url or "",
-            "created_at": _iso_utc(c.created_at),
+            "created_at": iso_utc(c.created_at),
         }
         for c, avatar_url in comments
     ]
@@ -1446,7 +1430,7 @@ def create_comment(
         "content": comment.content,
         "user_id": comment.user_id,
         "is_registered": comment.user_id is not None,
-        "created_at": _iso_utc(comment.created_at),
+        "created_at": iso_utc(comment.created_at),
     }
 
 
@@ -1467,31 +1451,35 @@ def get_friend_links(db: Session = Depends(get_db)):
 
 @router.get("/archive")
 def get_archive(request: Request, db: Session = Depends(get_db)):
-    posts = db.execute(
-        select(Post)
-        .options(
-            load_only(
-                Post.title,
-                Post.slug,
-                Post.created_at,
-                Post.updated_at,
-                Post.content_type,
-                Post.topic_key,
-                Post.published_mode,
-                Post.coverage_date,
-                Post.is_pinned,
-            )
+    """按年分组的完整归档。
+
+    行数随内容量线性增长，这是页面契约本身要求的 —— ArchivePage 一次渲染所有年份，
+    分页会改变响应形状。能收的成本已经收了：只 SELECT 用得上的九列，而且是**结果行**
+    而不是 ORM 实体（一次 SELECT 出成千上万个 Post 对象，identity map 会把它们全挂在
+    会话上），加上 CDN 缓存 + Last-Modified 让回源本身变成稀有事件。
+    """
+    rows = db.execute(
+        select(
+            Post.title,
+            Post.slug,
+            Post.created_at,
+            Post.updated_at,
+            Post.content_type,
+            Post.topic_key,
+            Post.published_mode,
+            Post.coverage_date,
+            Post.is_pinned,
         )
         .where(Post.is_published == True)
         .order_by(Post.created_at.desc())
-    ).scalars().all()
+    ).all()
     groups: dict[int, list] = {}
-    for p in posts:
+    for p in rows:
         year = p.created_at.year if p.created_at else datetime.now(timezone.utc).year
         groups.setdefault(year, []).append({
             "title": p.title,
             "slug": p.slug,
-            "created_at": _iso_utc(p.created_at),
+            "created_at": iso_utc(p.created_at),
             "content_type": p.content_type or "post",
             "topic_key": p.topic_key or "",
             "published_mode": p.published_mode or "manual",
@@ -1499,7 +1487,7 @@ def get_archive(request: Request, db: Session = Depends(get_db)):
             "is_pinned": bool(p.is_pinned),
         })
     payload = [{"year": y, "posts": items} for y, items in sorted(groups.items(), reverse=True)]
-    last_modified = _posts_last_modified(posts)
+    last_modified = _posts_last_modified(rows)
     return public_json_response(
         request,
         payload,
@@ -1826,7 +1814,7 @@ def search_posts(
                 "title": topic_presentation["display_title"],
                 "display_title": topic_presentation["display_title"],
                 "post_count": value["post_count"],
-                "latest_post_at": _iso_utc(value["latest_post_at"]),
+                "latest_post_at": iso_utc(value["latest_post_at"]),
             }
         )
 
@@ -1938,7 +1926,7 @@ def list_topics(
             "taxonomy_type": "topic",
             "post_count": int(grouped_value.get("post_count") or 0),
             "source_count": int(grouped_value.get("source_count") or 0),
-            "latest_post_at": _iso_utc(grouped_value.get("latest_post_at")),
+            "latest_post_at": iso_utc(grouped_value.get("latest_post_at")),
             "avg_quality_score": grouped_value.get("avg_quality_score"),
             "display_title_source": presentation["display_title_source"],
             "profile": _topic_profile_to_dict_with_metrics(profile, db, grouped_value) if profile else None,
@@ -2059,7 +2047,7 @@ def get_topic_detail(topic_key: str, request: Request, db: Session = Depends(get
         "post_count": int(topic_metrics.get("post_count") or 0),
         "source_count": int(topic_metrics.get("source_count") or 0),
         "avg_quality_score": topic_metrics.get("avg_quality_score"),
-        "latest_post_at": _iso_utc(topic_metrics.get("latest_post_at")),
+        "latest_post_at": iso_utc(topic_metrics.get("latest_post_at")),
         "display_title_source": presentation["display_title_source"],
         "profile": _topic_profile_to_dict_with_metrics(profile, db, topic_metrics) if profile else None,
         "posts": [_post_list_item(post) for post in recent_posts[:20]],

@@ -185,7 +185,7 @@ test('findPostByExactSlug rejects missing and duplicate targets', async () => {
   )
 })
 
-test('publishArticle updates the id resolved from the exact slug', async () => {
+test('publishArticle wakes the backend before it sends credentials, then updates the resolved id', async () => {
   const requests = []
   await publishArticle({
     slug: 'target-slug',
@@ -193,9 +193,20 @@ test('publishArticle updates the id resolved from the exact slug', async () => {
     blogApiBase: 'https://blog.example',
     username: 'admin',
     password: 'secret',
-    logger: { log() {} },
+    logger: { log() {}, warn() {} },
+    sleepImpl: async () => {},
     fetchImpl: async (url, options = {}) => {
       requests.push({ url, options })
+      // Render free tier: the instance is asleep, so the first probes never come back. The old
+      // code sent the login POST straight into that and aborted the whole run at 30s.
+      if (url.endsWith('/readyz')) {
+        if (requests.filter((request) => request.url.endsWith('/readyz')).length < 3) {
+          const error = new Error('The operation was aborted due to timeout')
+          error.name = 'TimeoutError'
+          throw error
+        }
+        return jsonResponse({ status: 'ok' })
+      }
       if (url.endsWith('/api/admin/login')) return jsonResponse({ access_token: 'token' })
       if (url.includes('/api/admin/posts?')) {
         return jsonResponse({ total: 1, items: [{ id: 91, slug: 'target-slug' }] })
@@ -205,7 +216,11 @@ test('publishArticle updates the id resolved from the exact slug', async () => {
     },
   })
 
-  assert.match(requests[1].url, /page_size=50/)
+  const paths = requests.map((request) => new URL(request.url).pathname)
+  assert.deepEqual(paths.slice(0, 3), ['/readyz', '/readyz', '/readyz'])
+  // No credential may precede the probe that establishes the instance is awake.
+  assert.ok(paths.indexOf('/api/admin/login') > paths.lastIndexOf('/readyz'))
+  assert.match(requests.find((request) => request.url.includes('/api/admin/posts?')).url, /page_size=50/)
   assert.equal(requests.at(-1).url, 'https://blog.example/api/admin/posts/91')
   assert.deepEqual(JSON.parse(requests.at(-1).options.body), { content_md: 'replacement body' })
 })
@@ -214,7 +229,10 @@ test('publishArticle propagates login and update failures', async () => {
   await assert.rejects(
     publishArticle({
       password: 'secret',
-      logger: { log() {} },
+      logger: { log() {}, warn() {} },
+      sleepImpl: async () => {},
+      // A 401 on /readyz is "up but not ready" for anything other than 503, so the probe stops
+      // immediately and the deterministic login failure is what surfaces — not a probe timeout.
       fetchImpl: async () => jsonResponse({}, { ok: false, status: 401, text: 'bad credentials' }),
     }),
     /Admin login failed: 401 bad credentials/
@@ -224,8 +242,10 @@ test('publishArticle propagates login and update failures', async () => {
     publishArticle({
       slug: 'target-slug',
       password: 'secret',
-      logger: { log() {} },
+      logger: { log() {}, warn() {} },
+      sleepImpl: async () => {},
       fetchImpl: async (url) => {
+        if (url.endsWith('/readyz')) return jsonResponse({ status: 'ok' })
         if (url.endsWith('/api/admin/login')) return jsonResponse({ access_token: 'token' })
         if (url.includes('/api/admin/posts?')) {
           return jsonResponse({ total: 1, items: [{ id: 91, slug: 'target-slug' }] })

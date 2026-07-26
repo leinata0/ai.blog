@@ -234,18 +234,35 @@ describe('状态色令牌在两套主题下都满足 WCAG AA', () => {
 
 // ------------------------------------------------------------- source sweep
 
+/**
+ * 样式表也要扫。第一轮收口只改了 JSX，styles/account.css 里同一批状态色仍是硬编码
+ * （状态点、退出登录 hover、危险区按钮…），压在随主题翻转的 --bg-surface 上，
+ * 亮色 4.34:1 / 暗色 3.76:1，两边都不到 AA。
+ */
 function collectSourceFiles(dir, acc = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry)
     if (statSync(full).isDirectory()) collectSourceFiles(full, acc)
-    else if (/\.(jsx|js)$/.test(entry)) acc.push(full)
+    else if (/\.(jsx|js|css)$/.test(entry)) acc.push(full)
   }
   return acc
 }
 
-/** 注释里会引用旧色值做说明，扫描时要先剔除，否则文档本身会把用例弄红。 */
-function stripComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+/**
+ * 令牌定义文件本身必然写着状态色的十六进制值 —— 那是唯一允许的出处，扫描时跳过。
+ * styles/auth-surface.css 与 styles/operations.css 只覆盖画布/品牌色，不含状态色，
+ * 因此照常参与扫描。
+ */
+const TOKEN_SOURCE_FILES = new Set(['index.css'])
+
+/**
+ * 注释里会引用旧色值做说明，扫描时要先剔除，否则文档本身会把用例弄红。
+ * CSS 没有 `//` 行注释，而 `url(https://…)` 里就带 `//` —— 对 .css 关掉行注释剥离，
+ * 否则会把同一行后面的真实颜色一起吃掉，扫描出现假阴性。
+ */
+function stripComments(source, { lineComments = true } = {}) {
+  const withoutBlocks = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  return lineComments ? withoutBlocks.replace(/\/\/[^\n]*/g, '') : withoutBlocks
 }
 
 /**
@@ -253,12 +270,12 @@ function stripComments(source) {
  * 换主题就会掉到 AA 以下。它们必须走令牌，不允许再裸写。
  */
 const BANNED_FOREGROUND_HEX = [
-  // danger
-  '#ef4444', '#f87171', '#fca5a5', '#991b1b',
+  // danger（#dc2626 只在 ConfirmDialog 的实色按钮上合法，见白名单）
+  '#ef4444', '#f87171', '#fca5a5', '#991b1b', '#dc2626',
   // success
   '#047857', '#16a34a', '#22c55e', '#10b981', '#34d399', '#065f46',
-  // warning
-  '#b45309', '#a16207', '#d97706', '#92400e',
+  // warning（#f59e0b 曾被 account.css 当作状态点/描边色）
+  '#b45309', '#a16207', '#d97706', '#92400e', '#f59e0b',
   // 品牌蓝高亮药丸（周报标签 / 精选主题 / 订阅 CTA）
   '#1d4ed8', '#2563eb',
 ]
@@ -290,13 +307,14 @@ const ALLOWED_HARDCODED = [
 ]
 
 describe('源码里不再裸写需要走令牌的状态色', () => {
-  it('src/**/*.{jsx,js} 中没有未白名单的硬编码状态色', () => {
+  it('src/**/*.{jsx,js,css} 中没有未白名单的硬编码状态色', () => {
     const offenders = []
 
     for (const file of collectSourceFiles(SRC_DIR)) {
       const rel = relative(SRC_DIR, file).replace(/\\/g, '/')
+      if (TOKEN_SOURCE_FILES.has(rel)) continue
       const allowed = ALLOWED_HARDCODED.find((entry) => entry.file === rel)
-      const source = stripComments(readFileSync(file, 'utf8'))
+      const source = stripComments(readFileSync(file, 'utf8'), { lineComments: !rel.endsWith('.css') })
 
       for (const hex of BANNED_FOREGROUND_HEX) {
         if (!new RegExp(hex, 'i').test(source)) continue
@@ -306,6 +324,12 @@ describe('源码里不再裸写需要走令牌的状态色', () => {
     }
 
     expect(offenders, `这些位置应改用 --danger-text / --success-text / --warning-text：\n${offenders.join('\n')}`).toEqual([])
+  })
+
+  it('扫描范围包含样式表（防止有人把 .css 从 collectSourceFiles 里摘掉）', () => {
+    const scanned = collectSourceFiles(SRC_DIR).map((file) => relative(SRC_DIR, file).replace(/\\/g, '/'))
+    expect(scanned).toContain('styles/account.css')
+    expect(scanned.filter((rel) => rel.endsWith('.css')).length).toBeGreaterThanOrEqual(3)
   })
 
   it('白名单里保留的固定底色配色仍然达标', () => {

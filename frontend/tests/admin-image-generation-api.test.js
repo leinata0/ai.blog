@@ -16,6 +16,8 @@ vi.mock('../src/api/client', () => ({
 }))
 
 import {
+  ADMIN_IMAGE_PAGE_SIZE,
+  fetchAdminImages,
   generateAdminHeroImage,
   generateAdminPostCover,
   waitForAdminImageGenerationJob,
@@ -85,5 +87,48 @@ describe('admin image generation API', () => {
 
     await expect(waitForAdminImageGenerationJob(softResult)).resolves.toBe(softResult)
     expect(apiGetMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The backend answers `GET /api/admin/images` with a bare JSON array and puts the
+ * continuation token in the `X-Next-Cursor` response header (listed in the CORS
+ * `expose_headers` so the Vercel origin can read it). `fetchAdminImages` therefore has to
+ * go through `includeResponseMeta` and flatten the envelope for the panel.
+ */
+describe('admin image listing pagination', () => {
+  it('sends the bounded limit and reads the cursor out of the response header', async () => {
+    apiGetMock.mockResolvedValue({
+      data: [{ filename: 'a.png' }],
+      headers: { 'x-next-cursor': 'cur-2' },
+    })
+
+    const page = await fetchAdminImages()
+
+    expect(apiGetMock).toHaveBeenCalledWith(`/api/admin/images?limit=${ADMIN_IMAGE_PAGE_SIZE}`, {
+      auth: true,
+      includeResponseMeta: true,
+    })
+    expect(page).toEqual({ items: [{ filename: 'a.png' }], nextCursor: 'cur-2' })
+    // The backend caps `limit` at 200 — never request more than it will accept.
+    expect(ADMIN_IMAGE_PAGE_SIZE).toBeLessThanOrEqual(200)
+  })
+
+  it('forwards a cursor as a query param for follow-up pages', async () => {
+    apiGetMock.mockResolvedValue({ data: [], headers: {} })
+
+    await fetchAdminImages({ cursor: 'cur-2' })
+
+    expect(apiGetMock).toHaveBeenCalledWith(
+      `/api/admin/images?limit=${ADMIN_IMAGE_PAGE_SIZE}&cursor=cur-2`,
+      { auth: true, includeResponseMeta: true },
+    )
+  })
+
+  it('degrades to a single exhausted page when the header is not readable', async () => {
+    // e.g. CORS `expose_headers` dropped, or a backend rolled back to the pre-cursor build.
+    apiGetMock.mockResolvedValue({ data: [{ filename: 'a.png' }], headers: {} })
+
+    expect(await fetchAdminImages()).toEqual({ items: [{ filename: 'a.png' }], nextCursor: '' })
   })
 })

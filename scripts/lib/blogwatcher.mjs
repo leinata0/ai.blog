@@ -1,12 +1,39 @@
 import { XMLParser } from 'fast-xml-parser'
 
-import { extractFeedItemMediaCandidates } from './feed-media.mjs'
+import { decodeFeedEntities, extractFeedItemMediaCandidates } from './feed-media.mjs'
+import { countTokenOverlap, diceCoefficient, tokenizeTopicText } from './topic-tokens.mjs'
+
+// fast-xml-parser 4.5.x 的实体展开计数器 `entityExpansionCount` 是**整篇文档累计**、
+// 从不按字段重置的，而 boolean 形态的 processEntities 默认把 maxTotalExpansions 设成
+// 1000 —— 一个转义 HTML 全文源，光正文里的 `&lt;` / `&gt;` / `&quot;` 就轻松过千
+// （`&amp;` 走 ampEntity 单独一趟替换，不计入这个计数器），于是整篇 throw。
+// 实测四个源全军覆没：AWS ML、GitHub Trending、MIT News、Simon Willison，
+// 报 `Entity expansion limit exceeded: 1015~1111 > 1000`，共 118 条素材凭空消失；
+// 而 fetchAllFeeds 只做 `.filter(status === 'fulfilled')`，一条日志都不打，所以没人发现。
+//
+// 标准实体替换后文本只会变短，不可能是放大攻击；真正的实体炸弹走 DOCTYPE 路径，由下面
+// maxExpandedLength / maxExpansionDepth / maxEntitySize / maxEntityCount 四道独立防线
+// 拦截，它们一律保持 boolean 模式的默认值（已实测 billion-laughs、超大单实体、实体数量
+// 三种 payload 仍被拦下）。上限取 100 万只是对齐 MAX_FEED_BYTES=4MB 的结构性上界
+// （最短实体 `&lt;` 4 字节），不是关闭防护 —— 不要改成 Infinity 或删掉整个对象。
+const MAX_ENTITY_EXPANSIONS = 1_000_000
 
 // removeNSPrefix 保持关闭：`content:encoded` / `media:content` 的键名就得是带冒号的原样，
 // feed-media 按这个约定读取。改这里等于悄悄掐断 feed 正文图源。
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
+  processEntities: {
+    enabled: true,
+    maxTotalExpansions: MAX_ENTITY_EXPANSIONS,
+    // 以下四项是 DOCTYPE 实体炸弹的真正防线，保持 boolean 模式的默认值。
+    // 注意：一旦传对象形态，fast-xml-parser 的隐含默认就会变（maxTotalExpansions→Infinity、
+    // maxExpansionDepth→10000），所以必须逐项写死，不能靠省略继承。
+    maxExpandedLength: 100000,
+    maxExpansionDepth: 10,
+    maxEntitySize: 10000,
+    maxEntityCount: 1000,
+  },
 })
 
 const DEFAULT_BUCKET_ORDER = [
@@ -17,15 +44,17 @@ const DEFAULT_BUCKET_ORDER = [
   'cn_ai_media',
   'community',
 ]
-const DAILY_TOPIC_MATCH_THRESHOLD = 0.8
+// Exported so tests assert against the value runBlogwatcher actually filters on instead of
+// re-typing 0.8: what matters about a bad match is not that it scores zero, it is that it
+// stays under the bar that decides whether it becomes a cited source.
+export const DAILY_TOPIC_MATCH_THRESHOLD = 0.8
 
-const TOPIC_MATCH_STOP_WORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'in', 'into', 'is',
-  'it', 'its', 'of', 'on', 'or', 'that', 'the', 'their', 'this', 'to', 'was', 'were', 'will',
-  'with', 'about', 'after', 'before', 'over', 'under', 'launch', 'launches', 'released',
-  'release', 'announces', 'announced', 'introduces', 'introduce', 'new', 'latest', 'today',
-  'daily', 'report', 'update', 'updates', 'breaking', 'says', 'say',
-])
+// 一个共同的通用词是巧合，不是同题。要求标题至少共享两个 token 才可能过阈值。
+// 逐字复原当天的误匹配：GitHub Trending 的仓库名 `block/buzz` 只有 2 个 token，旧公式
+// 用重叠系数（除以较短的一边），一个 `block` 就是 0.5，叠上 `titleOverlap * 0.45` 直接
+// 到 1.10 —— OpenAI 那篇 2017 年的《Block-sparse GPU kernels》于是成了当天日报的「来源」。
+// 完全逐字重复的标题（转载/联合发布）走 exactPhrase 分支，不受这条约束。
+const TOPIC_MATCH_MIN_SHARED_TITLE_TOKENS = 2
 
 // Feeds are fetched concurrently, but 29 simultaneous outbound sockets (plus the base
 // feed fetch in auto-blog) is enough to trip rate limits and starve the event loop.
@@ -34,6 +63,13 @@ const FEED_FETCH_CONCURRENCY = 6
 // 这个上限现在也决定了「能从 feed 正文里捞到多少配图」：全文 feed（content:encoded 带
 // 整篇正文）单个响应体两三 MB 很常见，调低会直接截断正文、连带丢掉后半篇的插图。
 const MAX_FEED_BYTES = 4 * 1024 * 1024
+
+// summary 剥净后的长度上限。此前完全没有截断：雷锋网单条 summary 实测 50732 字符裸 HTML，
+// 40 条素材同时留在内存里。剥净之后同样长度装的是真正的正文，1200 字符已经远超下游用量
+// （compactResearchItem 截 260、buildEvidenceCard 截 360，主题签名只取前若干 token）。
+const MAX_SUMMARY_CHARS = 1200
+// 标题超过这个长度的，一定是把正文塞进了 <title>。
+const MAX_TITLE_CHARS = 300
 
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
@@ -63,6 +99,51 @@ function pickNodeText(value) {
     if (value['@_href'] !== undefined) return String(value['@_href'])
   }
   return ''
+}
+
+// 标签本体删掉、里面的文字留下。`<` 后面必须紧跟字母 / `/` / `!` 才算标签，
+// 否则纯文本里的 "5 < 10 and x > 3" 会被整段吃掉。
+function stripTagMarkup(value) {
+  return String(value || '')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, ' ')
+    .replace(/<\/?[a-zA-Z!][^>]*>/g, ' ')
+}
+
+/**
+ * feed 里的一段原始字段 → 纯文本。
+ *
+ * RSS 的 description / content 十有八九是整段 HTML（WordPress 系直接塞正文），
+ * 之前这段标记原样进了两条下游：
+ *   1) 主题签名 —— `style` `margin` `href` `article` `default` 这些标记词被当成主题特征，
+ *      两篇毫不相干的稿子靠 HTML 属性名"聚成一簇"；
+ *   2) LLM 提示词 —— compactResearchItem 截前 260 字符，模型实际收到的是
+ *      `<section style="text-align: center;margin: 0px 16px;…`（雷锋网单条 summary
+ *      实测 50732 字符裸标记，真正的正文一个字都没进提示词）。
+ * 未解码的实体同理：`&#038;` 在签名里变成一个叫 `038` 的 token。
+ *
+ * 注意：媒体候选走的是**原始 item 节点**（extractFeedItemMediaCandidates(item)），
+ * 从 content:encoded / description 的原始 HTML 里提 `<img>`。两条路径必须分开 ——
+ * 在这里剥净只影响 summary/title 字符串，不能顺手把喂给 feed-media 的原文也剥了，
+ * 否则 feed 正文图源会被整段掐断（PR#62 的插图供给全靠它）。
+ */
+export function stripFeedMarkupToText(value, maxChars = 0) {
+  let text = String(value || '')
+  // 两轮：Atom 的 <content type="html"> 常见二次转义（`&amp;lt;p&amp;gt;`），
+  // 剥一轮只剩 `&lt;p&gt;`，解一次才露出标签。两轮封顶，避免把正文里字面写的
+  // `&amp;lt;` 无限展开。
+  for (let pass = 0; pass < 2 && (text.includes('<') || text.includes('&')); pass += 1) {
+    text = decodeFeedEntities(stripTagMarkup(text))
+  }
+  // 兜底：多重转义时上面两轮之后仍可能残留标签形态。这一轮只剥不解码，
+  // 保证交给分词器和 LLM 提示词的一定是纯文本。
+  const normalized = normalizeText(stripTagMarkup(text))
+  const limit = Number(maxChars)
+  if (!Number.isFinite(limit) || limit <= 0 || normalized.length <= limit) return normalized
+  // 不要把代理对从中间切开。
+  const cut = normalized.slice(0, limit)
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut
 }
 
 // Atom entries usually carry several <link rel="..."> siblings; the previous
@@ -161,20 +242,6 @@ function normalizeSourceGroup(value, fallback = '') {
   return normalizeText(value || fallback).toLowerCase()
 }
 
-function tokenizeTopicText(value) {
-  const raw = normalizeText(value).toLowerCase()
-  const matches = raw.match(/[a-z0-9]{2,}|[\u4e00-\u9fff]{2,}/g) || []
-  return matches
-    .map((token) => token.trim())
-    .filter((token) => token && !TOPIC_MATCH_STOP_WORDS.has(token))
-}
-
-function countTokenOverlap(left, right) {
-  if (left.length === 0 || right.length === 0) return 0
-  const rightSet = new Set(right)
-  return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0)
-}
-
 function compareResearchItems(left, right, rankItem = (item) => Number(item?.score || 0)) {
   const leftScore = Number(rankItem(left) || 0)
   const rightScore = Number(rankItem(right) || 0)
@@ -226,14 +293,19 @@ export function parseFeedXml(xml, source) {
         source_name: sourceName,
         source_group: sourceGroup,
         channel_bucket: channelBucket,
-        title: normalizeText(pickNodeText(item.title)),
+        // 标题也要过一遍：`&#038;` 这类未解码实体会在主题签名里变成一个叫 `038` 的
+        // token（事故日志里的 `038-https-qbitai-source-title-url-…` 就是这么来的），
+        // 少数源还会往标题里塞 <b>/<i>。
+        title: stripFeedMarkupToText(pickNodeText(item.title), MAX_TITLE_CHARS),
         url,
         published_at: normalizeText(
           pickNodeText(item.pubDate) || pickNodeText(item.published) || pickNodeText(item.updated)
         ),
         lang: source.lang || 'en',
-        summary: normalizeText(
-          pickNodeText(item.description) || pickNodeText(item.summary) || pickNodeText(item.content)
+        // 只影响这个字符串字段。图片候选读的是上面的原始 `item` 节点，不受影响。
+        summary: stripFeedMarkupToText(
+          pickNodeText(item.description) || pickNodeText(item.summary) || pickNodeText(item.content),
+          MAX_SUMMARY_CHARS,
         ),
         full_text: '',
         // feed 正文里的配图。这份数据本来就随 RSS 一起抓回来了，之前整段丢掉，插图候选
@@ -272,25 +344,54 @@ export function scoreResearchItem(item, topicHint = '') {
   return Number(score.toFixed(3))
 }
 
+/**
+ * 一条 blogwatcher 候选与当前选题的相关度。`runBlogwatcher` 在日报模式下用
+ * DAILY_TOPIC_MATCH_THRESHOLD 硬过滤这个分数，**过滤剩下的条目会作为正式来源进入
+ * researchPack**，被 assessResearchPackSourceSupport 计入 sources / 高质量来源 / 域名数。
+ * 也就是说这里判错一次，代价不是「多一条参考链接」，而是替一个本该被跳过的单源选题
+ * 伪造出 3 来源 3 域名，让 LLM 去写一篇把三件无关的事硬缝在一起的日报。
+ *
+ * 2026-07-26 真实语料实测，旧公式的三次误判都发生在**短 hint** 上：
+ *   `block/buzz`            × 《Block-sparse GPU kernels》        共同 token 只有 block
+ *   `alibaba/open-code-review` × 《Open-sourcing Knowledge Distillation Code…》 open+code
+ *   《Monday.com…blame AI for layoffs》× 《AI Agents Are Here. What Now?》 ai+are+here
+ * 前两条的病根是重叠系数除以较短的一边（2 个 token 的 hint 撞上 1 个词就是 0.5），
+ * 第三条的病根是旧停用词表里没有 `ai` / `are` / `here` 这类词。
+ *
+ * 两处改动：
+ *   1) 分词换成 lib/topic-tokens.mjs 的共用实现 —— 与选题聚类同一张停用词表（`ai`、
+ *      `openai`、`model` 都在内），中文走二元切分而不是整段吞，中文 hint 从此真能匹配上。
+ *   2) 比值换成对称的 Dice，并要求标题至少共享 TOPIC_MATCH_MIN_SHARED_TITLE_TOKENS 个
+ *      token；短 hint 不再能靠一个通用词过线。
+ * 输出量纲维持不变（exactPhrase 1.8 + 至多 2.2），DAILY_TOPIC_MATCH_THRESHOLD 保持 0.8，
+ * scoreResearchItem 的 Math.min(1.2, …) 封顶也保持不变。
+ */
 export function computeTopicMatchScore(item, topicHint = '') {
   const normalizedHint = normalizeText(topicHint).toLowerCase()
   if (!normalizedHint) return 0
 
-  const hintTokens = tokenizeTopicText(normalizedHint)
+  const hintTokens = [...new Set(tokenizeTopicText(normalizedHint))]
   if (hintTokens.length === 0) return 0
 
   const titleText = normalizeText(item?.title || '').toLowerCase()
   const summaryText = normalizeText(item?.summary || '').toLowerCase()
   if (!titleText && !summaryText) return 0
 
-  const titleTokens = tokenizeTopicText(titleText)
-  const summaryTokens = tokenizeTopicText(summaryText)
+  const titleTokens = [...new Set(tokenizeTopicText(titleText))]
+  // 标题里的词也算进正文视图：摘要常常不重复标题里的专名，分开算会把最有判别力的
+  // 证据挡在正文视图之外。
+  const bodyTokens = [...new Set([...titleTokens, ...tokenizeTopicText(summaryText)])]
   const titleOverlap = countTokenOverlap(hintTokens, titleTokens)
-  const summaryOverlap = countTokenOverlap(hintTokens, summaryTokens)
-  const titleRatio = titleOverlap > 0 ? titleOverlap / Math.max(1, Math.min(hintTokens.length, 6)) : 0
-  const summaryRatio = summaryOverlap > 0 ? summaryOverlap / Math.max(1, Math.min(hintTokens.length, 8)) : 0
   const exactPhraseBoost = titleText.includes(normalizedHint) ? 1.8 : 0
-  return Number((exactPhraseBoost + titleOverlap * 0.45 + titleRatio * 0.9 + summaryOverlap * 0.1 + summaryRatio * 0.2).toFixed(3))
+
+  const requiredOverlap = Math.min(TOPIC_MATCH_MIN_SHARED_TITLE_TOKENS, hintTokens.length)
+  if (exactPhraseBoost === 0 && titleOverlap < requiredOverlap) return 0
+
+  return Number((
+    exactPhraseBoost
+    + diceCoefficient(hintTokens, titleTokens) * 1.6
+    + diceCoefficient(hintTokens, bodyTokens) * 0.6
+  ).toFixed(3))
 }
 
 export function filterResearchItemsByPublishedWindow(
@@ -505,6 +606,15 @@ export async function runBlogwatcher({
   }
 
   const settled = await mapWithConcurrency(plan.sources, (source) => fetchFeed(source), FEED_FETCH_CONCURRENCY)
+  // 同 auto-blog 的 fetchAllFeeds：静默丢弃失败的源会让「兜底其实没在兜」这件事无法察觉。
+  const failed = settled
+    .map((result, index) => (result.status === 'rejected'
+      ? `${plan.sources[index]?.name}: ${result.reason?.message || result.reason}`
+      : ''))
+    .filter(Boolean)
+  if (failed.length > 0) {
+    console.warn(`Blogwatcher: ${failed.length}/${settled.length} source(s) failed: ${failed.join(' | ')}`)
+  }
   const scoredItems = settled
     .filter((result) => result.status === 'fulfilled')
     .flatMap((result) => result.value)

@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
+
+from app.serialization import as_utc
 
 
 class TagOut(BaseModel):
@@ -173,6 +175,20 @@ class PublishingTopicOut(BaseModel):
     published_at: datetime | None = None
     reason: str = ""
     status: str = ""
+
+    # The only response field in this module that is *not* serialized by its router.
+    # Every other datetime here is read live off an ORM column and passed through
+    # `serialization.iso_utc` on the way out. This one is re-read from
+    # `publishing_runs.payload_json`, a blob that `admin._normalize_topic_payload`
+    # wrote with the old offset-dropping `_serialize_datetime`, so rows persisted
+    # before that call site moved to `iso_utc` still hold a bare
+    # "2026-07-20T23:30:00". Re-serializing here is what stops those historical runs
+    # from rendering 8 hours early in UTC+8; it is a no-op for anything already
+    # marked. Deliberately scoped to this field — see docstring notes on why the
+    # other schemas do not get one.
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime | None) -> datetime | None:
+        return as_utc(value)
 
 
 class PublishingRunSummaryOut(BaseModel):

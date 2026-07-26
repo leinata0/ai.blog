@@ -290,3 +290,72 @@ describe('admin panels surface load failures instead of an empty state', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
+
+/**
+ * `GET /api/admin/images` is cursor-paginated (limit capped at 200 server-side, continuation
+ * token in the `X-Next-Cursor` response header). The panel used to call it with no arguments
+ * and render whatever single page came back, so an uploads bucket larger than one page was
+ * silently unreachable from the admin UI.
+ */
+describe('AdminImages pagination', () => {
+  it('appends the next page and hides 加载更多 once the cursor is exhausted', async () => {
+    const user = userEvent.setup()
+    mocks.fetchAdminImages
+      .mockResolvedValueOnce({ items: [{ filename: 'a.png', url: '/uploads/a.png' }], nextCursor: 'cur-2' })
+      .mockResolvedValueOnce({ items: [{ filename: 'b.png', url: '/uploads/b.png' }], nextCursor: '' })
+
+    render(withConfirm(<AdminImages />))
+
+    await screen.findByText('a.png')
+    expect(mocks.fetchAdminImages).toHaveBeenCalledWith()
+
+    await user.click(screen.getByRole('button', { name: '加载更多' }))
+
+    expect(await screen.findByText('b.png')).toBeInTheDocument()
+    // First page stays on screen — pages append, they do not replace.
+    expect(screen.getByText('a.png')).toBeInTheDocument()
+    expect(mocks.fetchAdminImages).toHaveBeenLastCalledWith({ cursor: 'cur-2' })
+    expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument()
+  })
+
+  it('treats a bare array response as one exhausted page', async () => {
+    mocks.fetchAdminImages.mockResolvedValue([{ filename: 'only.png', url: '/uploads/only.png' }])
+
+    render(withConfirm(<AdminImages />))
+
+    await screen.findByText('only.png')
+    expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument()
+  })
+
+  it('stops paging when the backend repeats the same cursor', async () => {
+    const user = userEvent.setup()
+    mocks.fetchAdminImages
+      .mockResolvedValueOnce({ items: [{ filename: 'a.png', url: '/uploads/a.png' }], nextCursor: 'stuck' })
+      .mockResolvedValueOnce({ items: [{ filename: 'b.png', url: '/uploads/b.png' }], nextCursor: 'stuck' })
+
+    render(withConfirm(<AdminImages />))
+    await screen.findByText('a.png')
+
+    await user.click(screen.getByRole('button', { name: '加载更多' }))
+
+    expect(await screen.findByText('b.png')).toBeInTheDocument()
+    // A repeated token would otherwise let the button spin forever on duplicate rows.
+    expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument()
+  })
+
+  it('surfaces a load-more failure without dropping the pages already rendered', async () => {
+    const user = userEvent.setup()
+    mocks.fetchAdminImages
+      .mockResolvedValueOnce({ items: [{ filename: 'a.png', url: '/uploads/a.png' }], nextCursor: 'cur-2' })
+      .mockRejectedValueOnce(new Error('HTTP 500'))
+
+    render(withConfirm(<AdminImages />))
+    await screen.findByText('a.png')
+
+    await user.click(screen.getByRole('button', { name: '加载更多' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('HTTP 500')
+    expect(screen.getByText('a.png')).toBeInTheDocument()
+    expect(screen.queryByText(/图片列表加载失败/)).not.toBeInTheDocument()
+  })
+})

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from jose import ExpiredSignatureError, JWTError, jwt
 
@@ -30,6 +30,9 @@ class SubscriptionTokenPayload:
     content_types: list[str]
     topic_keys: list[str]
     series_slugs: list[str]
+    # 签发时刻（naive UTC，和数据库里的 DateTime 列同一坐标系）。确认时用它判断这条
+    # 链接描述的状态是否还成立 —— 见 routers/subscriptions.confirm_email_subscription。
+    issued_at: datetime | None = None
 
 
 def issue_subscription_token(
@@ -88,4 +91,22 @@ def decode_subscription_token(token: str) -> SubscriptionTokenPayload:
         content_types=_string_list_claim(payload, "content_types"),
         topic_keys=_string_list_claim(payload, "topic_keys"),
         series_slugs=_string_list_claim(payload, "series_slugs"),
+        issued_at=_issued_at(payload),
     )
+
+
+def _issued_at(payload: dict) -> datetime | None:
+    """`iat` 转成 naive UTC。
+
+    数据库里的 DateTime 列都是 naive UTC（写入时用的是 ``datetime.now(timezone.utc)``，
+    Postgres 的 ``timestamp without time zone`` 会把偏移量吃掉），所以这里必须落到同一个
+    坐标系，否则和 ``updated_at`` 比较会直接 TypeError。缺 `iat` 的旧 token 返回 None，
+    调用方按"无法判断"处理。
+    """
+    raw = payload.get("iat")
+    if not isinstance(raw, (int, float)):
+        return None
+    try:
+        return datetime.fromtimestamp(float(raw), timezone.utc).replace(tzinfo=None)
+    except (OverflowError, OSError, ValueError):  # pragma: no cover - 只有畸形 iat 才会命中
+        return None

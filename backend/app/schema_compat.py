@@ -436,11 +436,33 @@ TABLE_COLUMN_MAPS: dict[str, dict[str, str]] = {
 }
 
 
+POST_LEGACY_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS ix_posts_series_slug ON posts (series_slug)",
+    # Every public listing filters on is_published and orders by created_at; the
+    # three narrower variants serve the content-type / topic / series tabs.
+    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_created_at "
+    "ON posts (is_published, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_content_type_created_at "
+    "ON posts (is_published, content_type, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_topic_key_created_at "
+    "ON posts (is_published, topic_key, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_series_slug_created_at "
+    "ON posts (is_published, series_slug, created_at)",
+)
+
+
 # Tables from the first schema revision. create_all() owns their creation (and for
 # post_tags the composite primary key a column map cannot express), but create_all
 # never touches a table that already exists — so columns and indexes added to the
 # model later still need an explicit backfill here.
+#
+# This tuple is the *only* description of that backfill, and both schema paths walk
+# it — the full sync (`ensure_schema_compat`) and the production one
+# (`ensure_runtime_required_schema`, the only path Render ever runs). Keeping one
+# list is the point: the previous split let comments/post_likes/view_logs/tags/
+# post_tags be "fixed" in a function production never calls.
 LEGACY_CORE_TABLES: tuple[tuple[str, dict[str, str], tuple[str, ...]], ...] = (
+    ("posts", POST_COLUMNS, POST_LEGACY_INDEXES),
     ("site_settings", SITE_SETTINGS_COLUMNS, ()),
     ("tags", TAG_COLUMNS, ()),
     (
@@ -545,6 +567,10 @@ LEGACY_SERIES_DEFAULTS = {
 _PRIMARY_KEY_PATTERN = re.compile(r"\bPRIMARY\s+KEY\b", re.IGNORECASE)
 _UNIQUE_PATTERN = re.compile(r"\bUNIQUE\b", re.IGNORECASE)
 _NOT_NULL_PATTERN = re.compile(r"\bNOT\s+NULL\b", re.IGNORECASE)
+_INDEX_NAME_PATTERN = re.compile(
+    r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_\"]+)",
+    re.IGNORECASE,
+)
 
 
 def _ddl_for_dialect(ddl: str, dialect_name: str) -> str:
@@ -592,6 +618,56 @@ def _add_missing_columns(engine, table_name: str, columns: dict[str, str], *, in
                 text(f"ALTER TABLE {table_name} ADD COLUMN {if_not_exists}{column_name} {ddl}")
             )
     return list(missing_columns)
+
+
+def _index_name_from_ddl(ddl: str) -> str:
+    """The index name in a `CREATE [UNIQUE] INDEX IF NOT EXISTS <name> ...`, or ""."""
+    match = _INDEX_NAME_PATTERN.search(ddl or "")
+    return match.group(1).strip('"') if match else ""
+
+
+def _existing_index_names(engine) -> set[str] | None:
+    """Every index name in the current schema, in one catalog round trip.
+
+    `ensure_runtime_required_schema` runs on *every* startup, and Render cold
+    starts are already this project's slow path. Issuing ~10 `CREATE INDEX IF NOT
+    EXISTS` statements there would be ~10 round trips plus a brief ShareLock on
+    posts/comments each time, all to discover that every index already exists.
+    One catalog read answers the same question, so the steady state is a single
+    SELECT and zero DDL.
+
+    Returns None when the answer is unavailable (unknown dialect, failed probe);
+    callers then fall back to issuing the idempotent DDL, which is always correct,
+    just slower.
+    """
+    dialect = engine.dialect.name
+    if dialect == "postgresql":
+        query = "SELECT indexname FROM pg_indexes WHERE schemaname = ANY (current_schemas(false))"
+    elif dialect == "sqlite":
+        query = "SELECT name FROM sqlite_master WHERE type = 'index' AND name IS NOT NULL"
+    else:
+        return None
+    try:
+        with engine.connect() as connection:
+            return {str(row[0]) for row in connection.execute(text(query))}
+    except Exception:
+        return None
+
+
+def _apply_indexes(engine, statements, *, existing_index_names=None) -> list[str]:
+    """Run the index DDL that is not already satisfied. Returns what it executed."""
+    pending = [
+        ddl
+        for ddl in statements
+        if existing_index_names is None
+        or _index_name_from_ddl(ddl) not in existing_index_names
+    ]
+    if not pending:
+        return []
+    with engine.begin() as connection:
+        for ddl in pending:
+            connection.execute(text(ddl))
+    return pending
 
 
 def _ensure_postgres_id_default(engine, table_name: str) -> None:
@@ -751,6 +827,38 @@ def ensure_admin_text_generation_schema_compat(engine, *, repair_sequence: bool 
     )
 
 
+def ensure_legacy_core_tables(engine) -> None:
+    """Backfill the columns and indexes `create_all()` cannot add to existing tables.
+
+    Deliberately reachable from both schema paths. Everything in
+    LEGACY_CORE_TABLES lives in a table that already exists on every deployed
+    database, so `Base.metadata.create_all(checkfirst=True)` skips it entirely:
+    only an explicit ALTER/CREATE INDEX gets there. Since Render runs with
+    ENABLE_STARTUP_SCHEMA_SYNC=0, "explicit" has to include the no-sync path, or
+    the backfill exists only in tests and in the operator's one-off
+    `python -m app.bootstrap` run.
+
+    Uses its own inspector rather than accepting one: callers may have ALTERed
+    these tables already (`ensure_runtime_required_schema` does, for
+    site_settings), and SQLAlchemy caches `get_columns` per inspector — a stale
+    cache would re-issue an ADD COLUMN that SQLite rejects as a duplicate.
+
+    Columns come first and indexes second, in that order on purpose:
+    ix_posts_public_published_content_type_created_at cannot be built until
+    posts.content_type exists.
+    """
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    present = [entry for entry in LEGACY_CORE_TABLES if entry[0] in table_names]
+
+    for table_name, columns, _indexes in present:
+        _add_missing_columns(engine, table_name, columns, inspector=inspector)
+
+    statements = [ddl for _name, _columns, indexes in present for ddl in indexes]
+    if statements:
+        _apply_indexes(engine, statements, existing_index_names=_existing_index_names(engine))
+
+
 def ensure_runtime_required_schema(engine) -> None:
     """Apply small additive migrations required by the current runtime.
 
@@ -817,42 +925,16 @@ def ensure_runtime_required_schema(engine) -> None:
     # Postgres. Create it even when full schema sync is off.
     ensure_ai_provider_allowlist_schema_compat(engine, repair_sequence=True)
 
+    # posts / comments / post_likes / view_logs / tags / post_tags. Not optional
+    # here even though they predate the shim: comments.user_id and
+    # post_likes.user_id shipped with the visitor-account batch above, and a
+    # deployment that never ran `python -m app.bootstrap` answers every comment
+    # and like query with a 500 until they are ALTERed in. The anti-abuse indexes
+    # ride along because a production database is the only place they matter.
+    ensure_legacy_core_tables(engine)
+
 
 def ensure_schema_compat(engine) -> None:
-    inspector = inspect(engine)
-    table_names = set(inspector.get_table_names())
-
-    if "posts" in table_names:
-        _add_missing_columns(engine, "posts", POST_COLUMNS, inspector=inspector)
-        with engine.begin() as connection:
-            connection.execute(
-                text("CREATE INDEX IF NOT EXISTS ix_posts_series_slug ON posts (series_slug)")
-            )
-            connection.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_created_at "
-                    "ON posts (is_published, created_at)"
-                )
-            )
-            connection.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_content_type_created_at "
-                    "ON posts (is_published, content_type, created_at)"
-                )
-            )
-            connection.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_topic_key_created_at "
-                    "ON posts (is_published, topic_key, created_at)"
-                )
-            )
-            connection.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_posts_public_published_series_slug_created_at "
-                    "ON posts (is_published, series_slug, created_at)"
-                )
-            )
-
     _create_table_if_missing(
         engine,
         "publishing_runs",
@@ -1041,18 +1123,9 @@ def ensure_schema_compat(engine) -> None:
     # Everything above went through _create_table_if_missing, which now creates *or*
     # backfills. The tables below predate the shim and are created by
     # Base.metadata.create_all(), so they only need the backfill half plus the indexes
-    # that were added to the models after the tables already existed.
-    inspector = inspect(engine)
-    table_names = set(inspector.get_table_names())
-    for table_name, columns, indexes in LEGACY_CORE_TABLES:
-        if table_name not in table_names:
-            continue
-        _add_missing_columns(engine, table_name, columns, inspector=inspector)
-        if not indexes:
-            continue
-        with engine.begin() as connection:
-            for index_sql in indexes:
-                connection.execute(text(index_sql))
+    # that were added to the models after the tables already existed. Shared with the
+    # no-sync production path so the two can never describe different schemas again.
+    ensure_legacy_core_tables(engine)
 
     inspector = inspect(engine)
     if "series" in set(inspector.get_table_names()):

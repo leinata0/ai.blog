@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url'
 
 import { buildTopicMetadataPayload } from './auto-blog.mjs'
 import {
+  acquireAdminToken,
   fetchAdminPostsByOffset,
+  fetchWithTransientRetry,
   resolveAdminPassword,
   resolveAdminUsername,
   resolveBlogApiBase,
@@ -132,18 +134,16 @@ export function buildBackfillTopicMetadata(post, config = {}) {
   })
 }
 
-async function getAdminToken() {
-  if (!ADMIN_PASSWORD) throw new Error('Missing ADMIN_PASSWORD')
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-    signal: AbortSignal.timeout(30000),
+// `workflow_dispatch` only: the login below is the first request of the run, so it is the one that
+// pays the Render cold start. `acquireAdminToken` absorbs that with an unauthenticated `/readyz`
+// probe (its own long budget, never throws) before any credential leaves the process.
+export async function getAdminToken(options = {}) {
+  return acquireAdminToken({
+    blogApiBase: BLOG_API_BASE,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    ...options,
   })
-  if (!resp.ok) {
-    throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-  return (await resp.json()).access_token
 }
 
 async function fetchAdminPosts(token, { limit, offset }) {
@@ -169,11 +169,13 @@ export function collectStoredTopicProfileKeys(profiles = []) {
   )
 }
 
-async function fetchStoredTopicProfileKeys(token) {
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/topic-profiles`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(30000),
-  })
+async function fetchStoredTopicProfileKeys(token, { fetchImpl = fetch, retryOptions } = {}) {
+  const resp = await fetchWithTransientRetry(
+    fetchImpl,
+    `${BLOG_API_BASE}/api/admin/topic-profiles`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    retryOptions,
+  )
   // Anything other than success is a real failure. Previously 401/500 fell through the
   // same path as "not found" and was read as "no existing data" -> overwrite.
   if (!resp.ok) {

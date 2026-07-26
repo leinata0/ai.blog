@@ -15,7 +15,14 @@ import { readFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  acquireAdminToken,
+  fetchWithTransientRetry,
+  iterateAdminPostPages,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+} from './lib/blog-api.mjs'
 
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
@@ -60,6 +67,10 @@ export async function loadContentMarkdown(file, { readFileImpl = readFile } = {}
   return content
 }
 
+// Deliberately different from `lib/blog-api.mjs::findAdminPostByExactSlug`, which returns the
+// first match and null when there is none. This script overwrites a live post body, so it scans
+// to the end of the archive to prove the slug is unique and refuses to guess: missing and
+// ambiguous are both hard errors. Only the paging itself is shared.
 export async function findPostByExactSlug({
   slug,
   token,
@@ -67,31 +78,21 @@ export async function findPostByExactSlug({
   fetchImpl = fetch,
   pageSize = 50,
   maxPages = 1000,
+  retryOptions,
 }) {
   const matches = []
+  let reachedEnd = false
 
-  for (let page = 1; page <= maxPages; page += 1) {
-    const listResp = await fetchImpl(`${blogApiBase}/api/admin/posts?page=${page}&page_size=${pageSize}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(30000),
-    })
-    if (!listResp.ok) {
-      throw new Error(`Failed to load admin posts: ${listResp.status} ${(await listResp.text()).slice(0, 300)}`)
-    }
-
-    const data = await listResp.json()
-    if (!Array.isArray(data?.items)) throw new Error('Failed to load admin posts: invalid response body')
-    matches.push(...data.items.filter((post) => post?.slug === slug))
+  const pages = iterateAdminPostPages({ blogApiBase, token, pageSize, maxPages, fetchImpl, retryOptions })
+  for await (const page of pages) {
+    matches.push(...page.items.filter((post) => post?.slug === slug))
     if (matches.length > 1) throw new Error(`Multiple posts found for exact slug: ${slug}`)
-
-    const total = Number(data.total)
-    if (data.items.length < pageSize || (Number.isFinite(total) && page * pageSize >= total)) {
-      if (matches.length === 0) throw new Error(`Post not found for exact slug: ${slug}`)
-      return matches[0]
-    }
+    reachedEnd = page.last
   }
 
-  throw new Error(`Failed to resolve exact slug within ${maxPages} pages: ${slug}`)
+  if (!reachedEnd) throw new Error(`Failed to resolve exact slug within ${maxPages} pages: ${slug}`)
+  if (matches.length === 0) throw new Error(`Post not found for exact slug: ${slug}`)
+  return matches[0]
 }
 
 // `dryRun` defaults to false here because this is the explicit programmatic entry point —
@@ -106,7 +107,9 @@ export async function publishArticle({
   username = ADMIN_USERNAME,
   password = ADMIN_PASSWORD,
   fetchImpl = fetch,
+  sleepImpl,
   logger = console,
+  acquireTokenImpl = acquireAdminToken,
 } = {}) {
   if (!password) throw new Error('Missing ADMIN_PASSWORD')
 
@@ -119,17 +122,17 @@ export async function publishArticle({
   })()
   logger?.log?.(`Target: ${host} slug=${slug} mode=${dryRun ? 'dry-run' : 'APPLY'} body=${String(contentMd || '').length} chars`)
 
-  const loginResp = await fetchImpl(`${blogApiBase}/api/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-    signal: AbortSignal.timeout(30000),
+  // The `/readyz` probe inside `acquireAdminToken` runs before the credentialed login, so a
+  // Render cold start is absorbed by a request that costs nothing and is not rate limited.
+  // The 30s per-request timeout below stays: removing it would just trade an abort for a hang.
+  const token = await acquireTokenImpl({
+    blogApiBase,
+    username,
+    password,
+    fetchImpl,
+    ...(sleepImpl ? { sleepImpl } : {}),
+    logger,
   })
-  if (!loginResp.ok) {
-    throw new Error(`Admin login failed: ${loginResp.status} ${(await loginResp.text()).slice(0, 300)}`)
-  }
-  const token = String((await loginResp.json())?.access_token || '').trim()
-  if (!token) throw new Error('Admin login failed: missing access_token')
   logger?.log?.('Login OK')
 
   const target = await findPostByExactSlug({ slug, token, blogApiBase, fetchImpl })
@@ -140,12 +143,18 @@ export async function publishArticle({
     return { ...target, dry_run: true }
   }
 
-  const updateResp = await fetchImpl(`${blogApiBase}/api/admin/posts/${target.id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ content_md: contentMd }),
-    signal: AbortSignal.timeout(30000),
-  })
+  const updateResp = await fetchWithTransientRetry(
+    fetchImpl,
+    `${blogApiBase}/api/admin/posts/${target.id}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ content_md: contentMd }),
+    },
+    // A single attempt: this is a body-overwriting PUT and the wake gate above already removed
+    // the cold start, so the only thing a retry could add here is a duplicate write.
+    { attempts: 1, ...(sleepImpl ? { sleepImpl } : {}) },
+  )
   if (!updateResp.ok) {
     throw new Error(`Post update failed: ${updateResp.status} ${(await updateResp.text()).slice(0, 300)}`)
   }

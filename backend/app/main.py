@@ -38,6 +38,11 @@ from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.http_cache import build_public_cache_control, public_json_response, public_text_response
 from app.models import Post, Series, SiteSettings, Tag
 from app.rate_limit import limiter
+from app.request_limits import (
+    DEFAULT_MAX_REQUEST_BODY_BYTES,
+    UPLOAD_BODY_LIMIT_SLACK_BYTES,
+    RequestBodySizeLimitMiddleware,
+)
 from app.routers.admin import (
     fail_orphaned_generation_jobs,
     router as admin_router,
@@ -51,10 +56,10 @@ from app.routers.home import (
 )
 from app.routers.posts import build_posts_list_payload, router as posts_router
 from app.routers.subscriptions import router as subscriptions_router
-from app.routers.users import router as users_router
+from app.routers.users import MAX_AVATAR_SIZE, router as users_router
 from app.schemas import HomeBootstrapOut, SiteSettingsOut, SiteSettingsUpdate, StatsOut
 from app.site_config import resolve_public_site_url
-from app.storage import get_uploaded_image_bytes
+from app.storage import MAX_UPLOAD_SIZE, get_uploaded_image_bytes
 from app.uploads import UPLOADS_URL_PREFIX
 from app.url_safety import (
     ALLOWED_IMAGE_CONTENT_TYPES,
@@ -123,6 +128,20 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         headers={REQUEST_ID_HEADER: request_id},
     )
 
+
+# Outermost user middleware (Starlette runs the last-added one first), so an
+# oversized body is refused before CORS, routing or Starlette's multipart spooling
+# get a chance to touch it. The per-handler `read(MAX + 1)` calls stay where they
+# are — they are the ones that know the *image* limit; this only bounds what the
+# process is willing to accept off the wire at all.
+app.add_middleware(
+    RequestBodySizeLimitMiddleware,
+    default_limit=DEFAULT_MAX_REQUEST_BODY_BYTES,
+    upload_limits={
+        "/api/admin/upload": MAX_UPLOAD_SIZE + UPLOAD_BODY_LIMIT_SLACK_BYTES,
+        "/api/users/me/avatar": MAX_AVATAR_SIZE + UPLOAD_BODY_LIMIT_SLACK_BYTES,
+    },
+)
 
 app.add_middleware(
     CORSMiddleware,

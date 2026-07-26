@@ -3,7 +3,14 @@
 import { isAbsolute, resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  acquireAdminToken,
+  fetchWithTransientRetry,
+  iterateAdminPostPages,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+} from './lib/blog-api.mjs'
 import { buildPostCoverBrief } from './lib/cover-art.mjs'
 import {
   generatePostCoverViaAdminJob,
@@ -11,79 +18,25 @@ import {
   imageGenerationJobSucceeded,
 } from './lib/admin-image-generation.mjs'
 
+// The cold-start handling first written here is now `lib/blog-api.mjs`, shared by every script:
+// the backend spins down when idle, so the first request of a run pays a 50s+ cold start, and a
+// bare 30s timeout on the login hop aborted every cold-start run — precisely how this workflow
+// started failing after timeouts were introduced. The fix is not a bigger number on every call,
+// it is a cheap unauthenticated `/readyz` probe with its own long budget, run before anything
+// credentialed; `acquireAdminToken` below is that probe plus the login.
+//
+// Re-exported so this module keeps the surface it introduced them with.
+export {
+  isTransientHttpStatus,
+  isTransientNetworkError,
+  loginWithRetry,
+  waitForBackendAwake,
+} from './lib/blog-api.mjs'
+
 const ARTICLE_FILE = process.env.ARTICLE_FILE || './content/blog-migration-neon-r2.mjs'
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
-
-const TRANSIENT_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504])
-
-// Per-request budgets deliberately mirror auto-blog.mjs (`loginAdminWithRetry` /
-// `sendPublishRequest`): 30s per admin request, login backoff [10s, 30s, 60s]. Keeping the
-// numbers identical means one place to reason about how patient the pipeline is.
-const REQUEST_TIMEOUT_MS = 30000
-const LOGIN_RETRY_DELAYS_MS = [10000, 30000, 60000]
-
-// The backend runs on a Render instance that spins down when idle, so the *first* request of
-// a run pays the cold start (routinely 50s+, sometimes more) while every later request is
-// fast. A bare 30s timeout on the login hop therefore aborted every cold-start run — that is
-// precisely how this workflow started failing after timeouts were introduced.
-//
-// The fix is not a bigger number on every call. It is a cheap, unauthenticated probe with its
-// own long budget that absorbs the cold start up front, so the real calls — which carry
-// credentials and hit a 5/minute login rate limit — only ever run against a warm instance.
-const WAKE_PROBE_PATH = '/readyz'
-const WAKE_PROBE_TIMEOUT_MS = 20000
-const WAKE_PROBE_INTERVAL_MS = 5000
-const WAKE_TOTAL_BUDGET_MS = 180000
-
-function sleep(ms) {
-  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
-}
-
-function backoffDelayMs(attempt) {
-  return Math.min(1000 * 2 ** (attempt - 1), 8000)
-}
-
-export function isTransientHttpStatus(status) {
-  return TRANSIENT_HTTP_STATUSES.has(Number(status || 0))
-}
-
-// Mirrors auto-blog.mjs's `isRetryableAdminLoginError`: a timeout/abort/DNS/connection blip is
-// exactly what a cold start looks like from the client side, so it must stay retryable.
-export function isTransientNetworkError(error) {
-  const code = String(error?.code || '')
-  const message = String(error?.message || '')
-  return error?.name === 'AbortError'
-    || error?.name === 'TimeoutError'
-    || /timeout|aborted|network|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNREFUSED/i.test(`${code} ${message}`)
-}
-
-async function fetchWithTransientRetry(
-  fetchImpl,
-  url,
-  options,
-  { attempts = 7, sleepImpl = sleep, timeoutMs = REQUEST_TIMEOUT_MS } = {},
-) {
-  let response
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      // A fresh signal per attempt: `AbortSignal.timeout()` is one-shot, so hoisting it into
-      // the shared options object would make every retry abort instantly.
-      response = await fetchImpl(
-        url,
-        timeoutMs > 0 ? { ...options, signal: AbortSignal.timeout(timeoutMs) } : options,
-      )
-    } catch (error) {
-      if (attempt === attempts || !isTransientNetworkError(error)) throw error
-      await sleepImpl(backoffDelayMs(attempt))
-      continue
-    }
-    if (!isTransientHttpStatus(response.status) || attempt === attempts) return response
-    await sleepImpl(backoffDelayMs(attempt))
-  }
-  return response
-}
 
 // A Windows-absolute ARTICLE_FILE used to be handed straight to `new URL(raw, base)`. WHATWG
 // parses the leading `C:` as a URL *scheme*, so the result is the opaque `c:\tmp\a.mjs` —
@@ -103,144 +56,24 @@ async function loadArticle() {
   return mod.default || mod.article || mod
 }
 
-/**
- * Absorb a Render cold start before any credentialed call runs.
- *
- * Never throws: if the budget runs out we still attempt the real request, because the login
- * failure is a far more actionable error message than "the wake probe gave up".
- *
- * `/readyz` answering 503 means the process is up but its DB/storage checks have not passed
- * yet, which is still worth waiting for. Any other status means the instance is up and
- * answering (e.g. an older deploy without `/readyz`), so the cold start is already over.
- */
-export async function waitForBackendAwake({
-  blogApiBase = BLOG_API_BASE,
-  fetchImpl = fetch,
-  sleepImpl = sleep,
-  nowImpl = Date.now,
-  logger = console,
-  probePath = WAKE_PROBE_PATH,
-  probeTimeoutMs = WAKE_PROBE_TIMEOUT_MS,
-  probeIntervalMs = WAKE_PROBE_INTERVAL_MS,
-  budgetMs = WAKE_TOTAL_BUDGET_MS,
-} = {}) {
-  const startedAt = nowImpl()
-  let attempts = 0
-  let lastDetail = 'no response'
-
-  for (;;) {
-    attempts += 1
-    try {
-      const resp = await fetchImpl(`${blogApiBase}${probePath}`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(probeTimeoutMs),
-      })
-      if (resp.ok) {
-        return { awake: true, ready: true, status: resp.status, attempts, elapsedMs: nowImpl() - startedAt }
-      }
-      if (resp.status !== 503) {
-        return { awake: true, ready: false, status: resp.status, attempts, elapsedMs: nowImpl() - startedAt }
-      }
-      lastDetail = `HTTP ${resp.status}`
-    } catch (error) {
-      lastDetail = error?.message || String(error)
-    }
-
-    const elapsedMs = nowImpl() - startedAt
-    if (elapsedMs + probeIntervalMs >= budgetMs) {
-      logger?.warn?.(
-        `Backend still not answering ${probePath} after ${Math.round(elapsedMs / 1000)}s (${lastDetail}); continuing anyway.`,
-      )
-      return { awake: false, ready: false, attempts, elapsedMs }
-    }
-
-    logger?.log?.(
-      `Waiting for backend cold start (${probePath} attempt ${attempts}: ${lastDetail}); retrying in ${Math.round(probeIntervalMs / 1000)}s...`,
-    )
-    await sleepImpl(probeIntervalMs)
-  }
-}
-
-// Same shape as auto-blog.mjs's `loginAdminWithRetry`. `POST /api/admin/login` is rate limited
-// to 5/minute, so the backoff has to be long enough to clear the window — and the wake gate
-// above exists so cold starts do not burn those five attempts.
-export async function loginWithRetry({
-  blogApiBase = BLOG_API_BASE,
-  username = ADMIN_USERNAME,
-  password = ADMIN_PASSWORD,
-  fetchImpl = fetch,
-  sleepImpl = sleep,
-  logger = console,
-  timeoutMs = REQUEST_TIMEOUT_MS,
-  retryDelaysMs = LOGIN_RETRY_DELAYS_MS,
-} = {}) {
-  if (!password) throw new Error('Missing ADMIN_PASSWORD')
-
-  const attempts = retryDelaysMs.length + 1
-  let lastError = null
-
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      const resp = await fetchImpl(`${blogApiBase}/api/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-        signal: AbortSignal.timeout(timeoutMs),
-      })
-      if (!resp.ok) {
-        const error = new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-        error.status = resp.status
-        throw error
-      }
-      const token = String((await resp.json())?.access_token || '').trim()
-      if (!token) throw new Error('Admin login failed: missing access_token')
-      return token
-    } catch (error) {
-      lastError = error
-      const status = Number(error?.status || 0)
-      // Bad credentials are deterministic; retrying only wastes the rate-limit budget.
-      const retryable = status ? isTransientHttpStatus(status) : isTransientNetworkError(error)
-      if (!retryable || attempt >= attempts) break
-
-      const delayMs = retryDelaysMs[attempt - 1]
-      logger?.warn?.(
-        `Admin login attempt ${attempt}/${attempts} failed (${error?.message || 'unknown error'}); retrying in ${Math.round(delayMs / 1000)}s...`,
-      )
-      await sleepImpl(delayMs)
-    }
-  }
-
-  throw lastError || new Error('Admin login failed')
-}
-
 export async function fetchExistingPostBySlug(
   slug,
   token,
   { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, pageSize = 50, maxPages = 1000, retryOptions } = {},
 ) {
-  // Unbounded `for (;;)` paged forever if the API kept returning full pages (or a bad
-  // `total`). Cap it so a server-side anomaly cannot pin the script in an infinite loop.
-  for (let page = 1; page <= maxPages; page += 1) {
-    const listResp = await fetchWithTransientRetry(
-      fetchImpl,
-      `${blogApiBase}/api/admin/posts?page=${page}&page_size=${pageSize}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-      retryOptions,
-    )
-    if (!listResp.ok) {
-      throw new Error(`Failed to load admin posts: ${listResp.status} ${(await listResp.text()).slice(0, 300)}`)
-    }
+  // The unbounded `for (;;)` this replaced paged forever if the API kept returning full pages
+  // (or a bad `total`); the shared iterator's `maxPages` ceiling makes that impossible, and its
+  // `last` flag distinguishes "reached the end of the archive" from "hit the ceiling".
+  const pages = iterateAdminPostPages({ blogApiBase, token, pageSize, maxPages, fetchImpl, retryOptions })
+  let reachedEnd = false
 
-    const data = await listResp.json()
-    const items = Array.isArray(data.items) ? data.items : []
-    const existingPost = items.find((item) => item.slug === slug)
+  for await (const page of pages) {
+    const existingPost = page.items.find((item) => item.slug === slug)
     if (existingPost) return existingPost
-
-    const total = Number(data.total)
-    const reachedKnownEnd = Number.isFinite(total) && page * pageSize >= total
-    if (reachedKnownEnd || items.length < pageSize) return null
+    reachedEnd = page.last
   }
 
+  if (reachedEnd) return null
   throw new Error(`Failed to resolve slug within ${maxPages} pages: ${slug}`)
 }
 
@@ -306,12 +139,12 @@ async function main() {
 
   console.log(`Loaded article: ${article.title}`)
 
-  const wake = await waitForBackendAwake()
-  if (wake.awake) {
-    console.log(`Backend answered ${WAKE_PROBE_PATH} after ${Math.round(wake.elapsedMs / 1000)}s (${wake.attempts} probe(s))`)
-  }
-
-  const token = await loginWithRetry()
+  // Wake first, then log in: the credentialed call must only ever run against a warm instance.
+  const token = await acquireAdminToken({
+    blogApiBase: BLOG_API_BASE,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+  })
   console.log('Admin login OK')
 
   const existingPost = await fetchExistingPostBySlug(article.slug, token)

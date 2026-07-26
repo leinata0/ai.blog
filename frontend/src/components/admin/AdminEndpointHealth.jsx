@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCcw, Rss, ServerCrash } from 'lucide-react'
 
 import { fetchAdminSubscriptionHealth, probeAdminEndpointHealth } from '../../api/admin'
+import { formatDateTime, formatTime } from '../../utils/date'
 
 function StatCard({ label, value, hint }) {
   return (
@@ -116,7 +117,7 @@ export default function AdminEndpointHealth() {
 
       {data?.checked_at ? (
         <div className="mt-4 text-xs text-[var(--text-faint)]">
-          最近检查时间：{new Date(data.checked_at).toLocaleString('zh-CN')}
+          最近检查时间：{formatDateTime(data.checked_at)}
         </div>
       ) : null}
 
@@ -203,7 +204,7 @@ export default function AdminEndpointHealth() {
                 <div className="rounded-lg bg-[var(--bg-canvas)] px-3 py-3">
                   <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-faint)]">最近检查</div>
                   <div className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
-                    {item.checked_at ? new Date(item.checked_at).toLocaleTimeString('zh-CN') : '-'}
+                    {formatTime(item.checked_at) || '-'}
                   </div>
                 </div>
               </div>

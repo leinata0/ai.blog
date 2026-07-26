@@ -2,7 +2,13 @@
 
 import { pathToFileURL } from 'node:url'
 
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  acquireAdminToken,
+  fetchWithTransientRetry,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+} from './lib/blog-api.mjs'
 import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
 import {
   buildPostCoverBrief,
@@ -16,7 +22,6 @@ export { buildPromptContext, extractHeadings, sanitizeCoverPrompt } from './lib/
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
-const LOGIN_TIMEOUT_MS = 15000
 const POST_ID = Number(process.env.POST_ID || 0)
 const MANUAL_COVER_PROMPT = String(process.env.COVER_PROMPT || '').trim()
 const OVERWRITE_EXISTING_COVER = String(process.env.OVERWRITE_EXISTING_COVER || 'false').toLowerCase() === 'true'
@@ -25,27 +30,28 @@ export function buildHeuristicCoverPrompt(post) {
   return buildPostCoverBrief(post)
 }
 
-async function login() {
-  if (!ADMIN_PASSWORD) {
-    throw new Error('Missing ADMIN_PASSWORD')
-  }
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-    signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
+/**
+ * This script is `workflow_dispatch` only, so a manual trigger almost guarantees the Render
+ * instance is asleep: here a cold start is the default case, not an edge case. The old 15s login
+ * timeout with no retry could not survive one. `acquireAdminToken` probes `/readyz` first (long
+ * budget, never throws) and only then sends credentials.
+ */
+export async function login(options = {}) {
+  return acquireAdminToken({
+    blogApiBase: BLOG_API_BASE,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    ...options,
   })
-  if (!resp.ok) {
-    throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-  return (await resp.json()).access_token
 }
 
-async function fetchAdminPost(postId, token) {
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/posts/${postId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  })
+export async function fetchAdminPost(postId, token, { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, retryOptions } = {}) {
+  const resp = await fetchWithTransientRetry(
+    fetchImpl,
+    `${blogApiBase}/api/admin/posts/${postId}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    retryOptions,
+  )
   if (!resp.ok) {
     throw new Error(`Fetch post failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }

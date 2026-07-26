@@ -94,5 +94,10 @@ def test_non_sqlite_engines_recycle_connections_for_neon(monkeypatch):
 
     assert captured["pool_pre_ping"] is True
     assert captured["pool_recycle"] == 300
+    # Small resident floor (what keeps a Neon compute endpoint awake and costs money at
+    # idle) + elastic burst (closed on return, free between spikes). The ceiling is what
+    # 138 sync `def` handlers on anyio's 40-thread limiter contend for, so the headroom
+    # belongs in overflow, not in pool_size. See the rationale in app/db.py.
     assert captured["pool_size"] == 5
-    assert captured["max_overflow"] == 5
+    assert captured["max_overflow"] == 10
+    assert captured["pool_timeout"] == 30

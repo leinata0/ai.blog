@@ -3,7 +3,13 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  acquireAdminToken,
+  fetchWithTransientRetry,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+} from './lib/blog-api.mjs'
 import {
   generateSeriesCoverViaAdminJob,
   imageGenerationJobImageUrl,
@@ -38,23 +44,25 @@ export function parseSeriesCoverArgs(argv = process.argv.slice(2)) {
   return options
 }
 
-async function login() {
-  if (!ADMIN_PASSWORD) throw new Error('Missing ADMIN_PASSWORD')
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-    signal: AbortSignal.timeout(30000),
+// `workflow_dispatch` only, so the instance is normally asleep when this runs: the login is the
+// first request of the run and therefore the one that pays the cold start. It must be preceded by
+// the cheap `/readyz` probe, or a 30s budget aborts a run that would have succeeded.
+export async function login(options = {}) {
+  return acquireAdminToken({
+    blogApiBase: BLOG_API_BASE,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    ...options,
   })
-  if (!resp.ok) throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  return (await resp.json()).access_token
 }
 
-async function fetchSeriesList(token) {
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/series`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(30000),
-  })
+export async function fetchSeriesList(token, { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, retryOptions } = {}) {
+  const resp = await fetchWithTransientRetry(
+    fetchImpl,
+    `${blogApiBase}/api/admin/series`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    retryOptions,
+  )
   if (!resp.ok) throw new Error(`Fetch series failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   const data = await resp.json()
   if (Array.isArray(data)) return data

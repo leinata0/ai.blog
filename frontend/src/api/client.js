@@ -319,7 +319,7 @@ async function readErrorMessage(resp) {
   return text
 }
 
-async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal } = {}) {
+async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal, includeResponseMeta = false } = {}) {
   const base = resolveApiBase()
   const authMode = normalizeAuth(auth)
   const headers = {}
@@ -364,8 +364,14 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
     }
 
     const contentType = resp.headers.get('content-type') || ''
-    if (contentType.includes('json')) return resp.json()
-    return resp.text()
+    const data = contentType.includes('json') ? await resp.json() : await resp.text()
+    if (!includeResponseMeta) return data
+    // Some endpoints put pagination state in a response header rather than the body
+    // (e.g. GET /api/admin/images returns a bare JSON array + `X-Next-Cursor`).
+    // Return a plain lowercase-keyed object rather than the live Headers instance so the
+    // envelope stays JSON-serializable for the session cache. Cross-origin reads only
+    // work for headers the backend lists in CORS `expose_headers`.
+    return { data, headers: Object.fromEntries(resp.headers.entries()) }
   } catch (err) {
     clearTimeout(timer)
     merged.cleanup()

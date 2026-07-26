@@ -8,6 +8,7 @@ import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import SeoMeta from '../components/SeoMeta'
+import { formatDate, toDateKey } from '../utils/date'
 
 const CONTENT_TYPE_META = {
   all: {
@@ -27,15 +28,18 @@ const CONTENT_TYPE_META = {
   },
 }
 
+// coverage_date is already a calendar day. created_at is an instant, and slicing its ISO
+// string yielded the *UTC* day — a post published 2026-07-25T23:30:00Z landed in 7月25日
+// for a UTC+8 reader who saw it dated 7月26日 everywhere else on the site.
 function getPostDateKey(post) {
-  return post.coverage_date || post.created_at?.slice(0, 10) || 'unknown'
+  return post.coverage_date || toDateKey(post.created_at) || 'unknown'
 }
 
-function formatDate(dateStr) {
+const DAY_LABEL_OPTIONS = { month: '2-digit', day: '2-digit' }
+
+function formatDayLabel(dateStr) {
   if (!dateStr || dateStr === 'unknown') return '未标注日期'
-  const parsed = new Date(dateStr.length === 10 ? `${dateStr}T00:00:00` : dateStr)
-  if (Number.isNaN(parsed.getTime())) return dateStr
-  return parsed.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  return formatDate(dateStr, DAY_LABEL_OPTIONS) || dateStr
 }
 
 function groupPostsByDay(posts) {
@@ -125,7 +129,9 @@ export default function ArchivePage() {
 
     const groupedByYear = new Map()
     filteredPosts.forEach((post) => {
-      const year = new Date(post.created_at || `${post.coverage_date}T00:00:00`).getFullYear() || new Date().getFullYear()
+      // Derive the year from the same key the day groups use, or a post published at the
+      // turn of the year lands in one year's heading and the other year's day group.
+      const year = Number(getPostDateKey(post).slice(0, 4)) || new Date().getFullYear()
       const entry = groupedByYear.get(year) ?? { year, posts: [] }
       entry.posts.push(post)
       groupedByYear.set(year, entry)
@@ -269,7 +275,7 @@ export default function ArchivePage() {
                           className="rounded-full px-3 py-1 text-xs font-semibold"
                           style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)' }}
                         >
-                          {formatDate(dayGroup.dateKey)}
+                          {formatDayLabel(dayGroup.dateKey)}
                         </span>
                         <span className="text-xs" style={{ color: 'var(--text-faint)' }}>
                           同日 {dayGroup.posts.length} 篇
@@ -299,7 +305,7 @@ export default function ArchivePage() {
                                 <div className="flex flex-wrap items-center gap-3">
                                   <span className="flex flex-shrink-0 items-center gap-1 text-xs" style={{ color: 'var(--text-faint)' }}>
                                     <Calendar size={12} />
-                                    {formatDate(post.created_at)}
+                                    {formatDayLabel(post.created_at)}
                                   </span>
                                   {typeMeta ? (
                                     <span

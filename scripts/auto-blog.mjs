@@ -42,6 +42,14 @@ import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
 import { classifyRejectedImageUrl, pickSourceImages } from './lib/source-image-picker.mjs'
 import { extractMarkdownImageCandidates, mergeMediaCandidates } from './lib/feed-media.mjs'
 import { localizeImagePlans as localizeInlineImagePlans } from './lib/image-localizer.mjs'
+import {
+  DAILY_STOP_WORDS,
+  computeTopicSimilarity,
+  countTokenOverlap,
+  isLatinToken,
+  stripMarkupForTokens,
+  tokenizeTopicText,
+} from './lib/topic-tokens.mjs'
 import { isPublicHttpUrl } from './lib/url-guard.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -66,15 +74,6 @@ const DEFAULT_DAILY_REQUIRED_SECTIONS = [
 ]
 
 const DEFAULT_DAILY_TAIL_SECTIONS = ['## 参考来源', '## 图片来源', '## 一句话结论']
-
-const DAILY_STOP_WORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'in', 'into', 'is',
-  'it', 'its', 'of', 'on', 'or', 'that', 'the', 'their', 'this', 'to', 'was', 'were', 'will',
-  'with', 'about', 'after', 'before', 'over', 'under', 'launch', 'launches', 'released',
-  'release', 'announces', 'announced', 'introduces', 'introduce', 'new', 'latest', 'today',
-  'daily', 'report', 'update', 'updates', 'breaking', 'says', 'say', 'ai', 'llm', 'model',
-  'models', 'china', 'openai', 'anthropic', 'google', 'meta', 'microsoft',
-])
 
 async function triggerFrontendRefresh(payload = {}) {
   if (!VERCEL_DEPLOY_HOOK_URL) return false
@@ -215,25 +214,47 @@ function slugify(value, fallback = 'topic') {
   return normalized.replace(/[\u4e00-\u9fff]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '') || fallback
 }
 
-function tokenizeTopicText(value) {
-  const raw = String(value || '').toLowerCase()
-  const matches = raw.match(/[a-z0-9]{2,}|[\u4e00-\u9fff]{2,}/g) || []
-  return matches.map((token) => token.trim()).filter((token) => token && !DAILY_STOP_WORDS.has(token))
+// tokenizeTopicText / stripMarkupForTokens / computeTopicSimilarity / isLatinToken /
+// countTokenOverlap / DAILY_STOP_WORDS 都搬去了 lib/topic-tokens.mjs。blogwatcher 的兜底
+// 相关性判定需要**同一套**分词，而它此前抄的是旧的一份（中文整段吞、没有标记停用词）——
+// 那些误匹配到的条目会被日报的来源支持门槛当作正式来源计数，直接替单源选题凑出 3 来源。
+// 这里只做转出口，既有测试的 import 路径不变。
+export { tokenizeTopicText, computeTopicSimilarity }
+
+// 二元切分让单条素材的 token 数翻好几倍，12 的旧上限只够覆盖标题前十几个字，
+// 语义覆盖面反而比切分前更窄（实测：只上 bigram 不提 cap，生产池 45 个 pair 里非零
+// 相似度从 15 对掉到 3 对，是负优化）。24 刚好覆盖完一个中文标题并给摘要留位。
+// 注意：提 cap 必须和下面 computeTopicSimilarity 的分母封顶成对使用 —— 单独提 cap
+// 只会把分母拉大，同题配对的分数反而下降（雷锋网×量子位 Opus 5 那对：0.30 → 0.125）。
+// 改动任一常量后请重跑 topic-tokenizer 测试。
+const TOPIC_SIGNATURE_LIMIT = 24
+const CLUSTER_SIGNATURE_LIMIT = 28
+
+// Jina reader 的输出固定带一段 `Title: / URL Source: / Published Time: / Markdown Content:`
+// 抬头（本次抓取实测 20/20 条都有）。它对每一条素材都长得一样，等于给所有取过全文的素材
+// 注入一组共同 token（title / url / source / markdown / content / published / time），把两篇
+// 毫不相干的稿子拉出虚假相似度 —— 事故日志里 `...-source-title-url-...` 就是它。抬头里的
+// 信息 item.title / item.url 上本来就有，分词前直接切掉。
+function stripReaderPreamble(value) {
+  return String(value || '').replace(/^\s*Title:\s[\s\S]{0,4000}?\n\s*Markdown Content:\s*/, '')
 }
 
-function buildTokenSignature(item) {
-  const tokens = tokenizeTopicText([item?.title || '', item?.summary || '', item?.full_text || ''].join(' '))
-  return [...new Set(tokens)].slice(0, 12)
+export function buildTokenSignature(item) {
+  const tokens = tokenizeTopicText([
+    item?.title || '',
+    item?.summary || '',
+    stripReaderPreamble(item?.full_text || ''),
+  ].join(' '))
+  return [...new Set(tokens)].slice(0, TOPIC_SIGNATURE_LIMIT)
 }
 
-function countTokenOverlap(left, right) {
-  const set = new Set(left)
-  return right.reduce((count, token) => count + (set.has(token) ? 1 : 0), 0)
-}
-
-function computeTopicSimilarity(leftTokens, rightTokens) {
-  if (leftTokens.length === 0 || rightTokens.length === 0) return 0
-  return countTokenOverlap(leftTokens, rightTokens) / Math.min(leftTokens.length, rightTokens.length)
+// slugify 会剥掉全部汉字，所以任何要进 slug / topic_key 的「可读前缀」都必须优先挑拉丁与
+// 数字 token，否则二元切分后的中文签名会被整段剥空，纯中文选题的 key 退化成裸指纹。
+// 同一个函数也决定喂给 arXiv 的 keywords —— CJK 二元组对英文论文检索毫无意义。
+function pickReadableSignatureTokens(tokens, limit) {
+  const list = (Array.isArray(tokens) ? tokens : []).filter(Boolean)
+  const latin = list.filter(isLatinToken)
+  return (latin.length > 0 ? latin : list).slice(0, limit)
 }
 
 function itemRelevanceScore(item) {
@@ -245,11 +266,13 @@ function itemRelevanceScore(item) {
 
 export function buildTopicKey(value) {
   const source = typeof value === 'string' ? { title: value } : value
-  const signature = buildTokenSignature(source)
+  const signature = pickReadableSignatureTokens(buildTokenSignature(source), 6)
   if (signature.length > 0) {
-    return slugify(signature.slice(0, 6).join('-'), 'daily-topic').slice(0, 80)
+    const key = slugify(signature.join('-'), '').slice(0, 80)
+    if (key) return key
   }
-  return slugify(source?.title || source?.url || 'daily-topic', 'daily-topic').slice(0, 80)
+  // 兜底走原标题，但要先洗一遍：不洗的话 `&#038;` 会在 slug 里留下一段 `038`。
+  return slugify(stripMarkupForTokens(source?.title || '') || source?.url || 'daily-topic', 'daily-topic').slice(0, 80)
 }
 
 // The old key was derived from the cluster's *lead* item only. Clustering is order- and
@@ -265,8 +288,11 @@ export function buildClusterTopicKey(items = []) {
   if (list.length === 0) return 'daily-topic'
 
   const urls = [...new Set(list.map((item) => normalizeUrlForLookup(item?.url || '')).filter(Boolean))].sort()
-  const tokens = [...new Set(list.flatMap((item) => buildTokenSignature(item)))].sort().slice(0, 6)
-  const readable = slugify(tokens.join('-'), '') || slugify(list[0]?.title || '', 'daily-topic')
+  const tokens = pickReadableSignatureTokens(
+    [...new Set(list.flatMap((item) => buildTokenSignature(item)))].sort(),
+    6,
+  )
+  const readable = slugify(tokens.join('-'), '') || slugify(stripMarkupForTokens(list[0]?.title || ''), 'daily-topic')
 
   if (urls.length === 0) return (readable || 'daily-topic').slice(0, 80)
   const fingerprint = createHash('sha1').update(urls.join('\n')).digest('hex').slice(0, 8)
@@ -978,7 +1004,11 @@ async function fetchBaseFeed(feed) {
     },
     signal: AbortSignal.timeout(15000),
   })
-  if (!resp.ok) return []
+  if (!resp.ok) {
+    // 静默 return [] 是这次事故能潜伏这么久的原因之一：4 个源 404 了半年没人发现。
+    console.warn(`Feed ${feed.name || feed.url} returned HTTP ${resp.status}; skipped.`)
+    return []
+  }
   const xml = await readResponseTextCapped(resp)
   return parseFeedXml(xml, {
     name: feed.name || feed.tag,
@@ -996,6 +1026,21 @@ async function fetchAllFeeds(config, maxItems = 30) {
   // Bounded concurrency: ~30 simultaneous feed fetches tripped rate limits and made the
   // whole batch share one 15s timeout budget.
   const settled = await mapWithConcurrency(config.rss_feeds || [], (feed) => fetchBaseFeed(feed), 6)
+  // `.filter(fulfilled)` 单独用是个哑失败：fast-xml-parser 的实体展开上限让 AWS ML /
+  // MIT News / Simon Willison / GitHub Trending 四个源连续抛异常，共 118 条素材凭空消失，
+  // 而日志里一个字都没有。素材供给是这条流水线唯一的输入，它少了必须喊出来。
+  const failures = []
+  settled.forEach((result, index) => {
+    const feed = (config.rss_feeds || [])[index]
+    if (result.status === 'rejected') {
+      failures.push(`${feed?.name || feed?.url}: ${result.reason?.message || result.reason}`)
+    } else if ((result.value || []).length === 0) {
+      failures.push(`${feed?.name || feed?.url}: 0 items`)
+    }
+  })
+  if (failures.length > 0) {
+    console.warn(`Feed collection: ${settled.length - failures.length}/${settled.length} sources produced items. Unproductive: ${failures.join(' | ')}`)
+  }
   const items = settled
     .filter((result) => result.status === 'fulfilled')
     .flatMap((result) => result.value)
@@ -1288,12 +1333,17 @@ export function clusterResearchItemsByTopic(items, options = {}) {
 
   for (const item of sorted) {
     const signature = buildTokenSignature(item)
-    const titleKey = slugify(item.title, 'topic')
+    // 这条兜底原本是给「标题一字不差的转载」用的，但 slugify 会剥掉全部汉字，纯中文标题
+    // 因此一律塌成 fallback 'topic'——而下面这条分支根本不看相似度。实测 14 天素材池里 7 条
+    // 互不相关的中文稿（清洁机器人 / 车企测评 / 腾讯混元 / 有声角落 / 世界模型 / 湿度管理 /
+    // 冰手冲）被强行并成同一个簇，两两真实相似度是 0；这个垃圾簇恰恰是全池唯一凑得齐
+    // 3 源 3 域名的簇。所以 fallback 必须是空串，空串不参与匹配。
+    const titleKey = slugify(item.title, '')
     let targetCluster = null
 
     for (const cluster of clusters) {
       const similarity = computeTopicSimilarity(signature, cluster.signature)
-      if (similarity >= similarityThreshold || titleKey === cluster.title_key) {
+      if (similarity >= similarityThreshold || (titleKey && titleKey === cluster.title_key)) {
         targetCluster = cluster
         break
       }
@@ -1305,7 +1355,7 @@ export function clusterResearchItemsByTopic(items, options = {}) {
     }
 
     targetCluster.items.push(item)
-    targetCluster.signature = [...new Set([...targetCluster.signature, ...signature])].slice(0, 14)
+    targetCluster.signature = [...new Set([...targetCluster.signature, ...signature])].slice(0, CLUSTER_SIGNATURE_LIMIT)
   }
 
   return clusters.map((cluster) => {
@@ -1333,7 +1383,8 @@ export function clusterResearchItemsByTopic(items, options = {}) {
       bucket_count: channelBuckets.length,
       non_official_source_count: nonOfficialSourceCount,
       source_groups: sourceGroups,
-      keywords: cluster.signature.slice(0, 8),
+      // keywords 会被 runDailyArxivSupplement 直接拼成 arXiv 查询串，只有拉丁 token 有用。
+      keywords: pickReadableSignatureTokens(cluster.signature, 8),
       items: orderedItems,
     }
   }).sort((left, right) => {
