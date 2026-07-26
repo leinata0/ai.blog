@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Full-text feed fixture for the integration path that matters most in production:
+  a Chinese daily brief citing a mix of Chinese and English sources whose *pages* the
+  picker cannot read (JS-rendered body, bot wall), while the feed response already
+  carried the article's own illustrations plus their captions.
+
+  Every image URL is on the same host as its item link, so an image selected for a
+  section can be traced back to the source that section cites. Captions on the Chinese
+  item are Chinese: that is the whole point of the caption channel, and no amount of
+  substring matching against an English URL could ever replace it.
+
+  Deliberately included nuisance content, all of which must be rejected:
+    - a 1x1 pixel.wp.com beacon
+    - an ads.example.com banner
+    - an avatar (blocklist keyword)
+    - a share card under /social-thumbnails/
+-->
+<rss version="2.0"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Mixed full-text feed</title>
+    <link>https://example.com/</link>
+    <description>fixture</description>
+
+    <item>
+      <title>Mainframes and Main Characters</title>
+      <link>https://stratechery.com/2026/mainframes-and-main-characters/</link>
+      <guid isPermaLink="true">https://stratechery.com/2026/mainframes-and-main-characters/</guid>
+      <dc:creator>Ben Thompson</dc:creator>
+      <content:encoded><![CDATA[
+        <p>IBM's mainframe business is a useful lens on what OpenAI is building.</p>
+        <figure class="wp-block-image">
+          <img src="https://i0.wp.com/stratechery.com/wp-content/uploads/2026/07/inference-cost-per-million-tokens.png?resize=1330%2C564&#038;ssl=1"
+               width="1330" height="564" alt="Inference cost per million tokens, 2023-2026" />
+          <figcaption>推理成本随芯片代际下降的曲线，纵轴为每百万 token 的美元成本。</figcaption>
+        </figure>
+        <p>The economics of packaging and yield are what actually gate the next generation.</p>
+        <figure class="wp-block-image">
+          <img src="https://i0.wp.com/stratechery.com/wp-content/uploads/2026/07/packaging-yield-curve.png?resize=1200%2C700&#038;ssl=1"
+               width="1200" height="700" alt="Advanced packaging yield curve" />
+          <figcaption>先进封装材料的良率与晶圆成本曲线，横轴为量产季度。</figcaption>
+        </figure>
+        <p><img src="https://pixel.wp.com/b.gif?v=noscript" width="1" height="1" alt="" /></p>
+        <p><img src="https://ads.example.com/banner-1456x180.jpg" width="1456" height="180" alt="advert" /></p>
+      ]]></content:encoded>
+    </item>
+
+    <item>
+      <title>少数派效率工具评测：本地推理这一年</title>
+      <link>https://sspai.com/post/112425</link>
+      <guid isPermaLink="true">https://sspai.com/post/112425</guid>
+      <content:encoded><![CDATA[
+        <p>过去一年，本地推理从玩具变成了日常工具链的一部分。</p>
+        <figure>
+          <img src="https://rssfile.sspai.com/17/07/2026/article/local-inference-throughput.jpeg?imageMogr2/auto-orient/"
+               width="1280" height="720" alt="local inference throughput" />
+          <figcaption>不同量化精度下本地推理的吞吐对比，测试机为 32GB 内存的桌面平台。</figcaption>
+        </figure>
+        <p>但真正的约束不在模型，而在材料与散热。</p>
+        <figure>
+          <img src="https://rssfile.sspai.com/17/07/2026/article/thermal-throttle.jpeg?imageMogr2/auto-orient/"
+               width="1200" height="675" alt="thermal throttling" />
+          <figcaption>长时间推理下的降频曲线，说明材料瓶颈如何变成实际的算力上限。</figcaption>
+        </figure>
+        <p><img src="https://cdn.sspai.com/avatar/author-112425.png" width="96" height="96" alt="作者头像" /></p>
+        <p><img src="https://cdn-thumbnails.example.com/social-thumbnails/blog/sspai/112425.png" width="1200" height="630" alt="share card" /></p>
+      ]]></content:encoded>
+    </item>
+  </channel>
+</rss>

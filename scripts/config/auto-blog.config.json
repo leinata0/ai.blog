@@ -450,7 +450,11 @@
     "min_height": 140,
     "max_images": 3,
     "allowed_source_types": ["rss", "official_blog", "independent_blog", "industry_media", "paper"],
-    "blocklist_keywords": ["logo", "avatar", "icon", "advert", "ads", "banner", "sprite", "emoji"]
+    "blocklist_keywords": ["logo", "avatar", "icon", "advert", "ads", "banner", "sprite", "emoji", "social", "opengraph", "og-image", "share-image", "sharecard", "twitter-card", "placeholder", "fallback"],
+    "social_card_path_segments": ["_si", "card", "cards", "default", "defaults", "fallback", "og", "og-image", "og_image", "ogimage", "open-graph", "opengraph", "placeholder", "placeholders", "share", "share-image", "shareimage", "social", "social-card", "social-cards", "social-media", "social-thumbnails", "socialcard", "twitter-card", "twittercard"],
+    "reject_generated_card_endpoints": true,
+    "allow_meta_image_fallback": true,
+    "min_images_target": 2
   },
   "quality_gate": {
     "daily_brief": {

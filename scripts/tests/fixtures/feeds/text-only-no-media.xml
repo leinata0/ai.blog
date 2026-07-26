@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+	<title>Hacker News: Front Page</title>
+	<link>https://news.ycombinator.com/</link>
+	<description>Links for the intellectually curious, ranked by readers.</description>
+	<item>
+		<title>Show HN: A tiny inference server written in Zig</title>
+		<link>https://github.com/example/zig-infer</link>
+		<description>&lt;a href="https://news.ycombinator.com/item?id=44112233"&gt;Comments&lt;/a&gt;</description>
+		<pubDate>Thu, 23 Jul 2026 02:11:00 +0000</pubDate>
+		<comments>https://news.ycombinator.com/item?id=44112233</comments>
+	</item>
+	<item>
+		<title>The cost of serving a trillion-parameter model</title>
+		<link>https://example.org/posts/trillion-parameter-serving</link>
+		<description>A back-of-the-envelope breakdown of accelerator hours, memory bandwidth and network egress.</description>
+		<pubDate>Thu, 23 Jul 2026 01:40:00 +0000</pubDate>
+	</item>
+</channel>
+</rss>

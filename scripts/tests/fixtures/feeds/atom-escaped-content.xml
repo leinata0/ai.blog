@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title type="text">Hugging Face - Blog</title>
+  <link rel="self" href="https://huggingface.co/blog/feed.xml"/>
+  <link rel="alternate" type="text/html" href="https://huggingface.co/blog"/>
+  <updated>2026-07-18T09:12:00Z</updated>
+  <id>https://huggingface.co/blog/feed.xml</id>
+  <entry>
+    <title type="text">JFrog and Hugging Face partner on model security scanning</title>
+    <link rel="edit" href="https://huggingface.co/blog/edit/jfrog"/>
+    <link rel="replies" type="text/html" href="https://huggingface.co/blog/jfrog#comments"/>
+    <link rel="alternate" type="text/html" href="https://huggingface.co/blog/jfrog"/>
+    <id>https://huggingface.co/blog/jfrog</id>
+    <updated>2026-07-18T09:12:00Z</updated>
+    <published>2026-07-18T09:12:00Z</published>
+    <summary type="html">&lt;p&gt;A joint scanning pipeline for public model weights.&lt;/p&gt;</summary>
+    <content type="html">&lt;p&gt;Today we are announcing a joint malware scanning pipeline.&lt;/p&gt;
+&lt;figure&gt;&lt;img src=&quot;https://huggingface.co/blog/assets/jfrog/scan-pipeline-diagram.png&quot; alt=&quot;Diagram of the JFrog scanning pipeline&quot; width=&quot;1280&quot; height=&quot;720&quot; /&gt;&lt;figcaption&gt;扫描流水线：上传的权重文件先进沙箱，再进入公开索引。&lt;/figcaption&gt;&lt;/figure&gt;
+&lt;p&gt;Detection results are surfaced on the model page.&lt;/p&gt;
+&lt;img data-src=&quot;https://cdn-uploads.huggingface.co/production/uploads/jfrog/detection-banner.png?w=1200&amp;#038;fit=1200%2C630&quot; src=&quot;https://huggingface.co/front/assets/placeholder.svg&quot; alt=&quot;Detection results banner&quot; /&gt;
+&lt;p&gt;More details in the documentation.&lt;/p&gt;</content>
+    <author><name>Hugging Face</name></author>
+  </entry>
+</feed>

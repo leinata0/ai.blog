@@ -22,7 +22,13 @@ import {
   loginAdminWithRetry,
   parseJsonFromLlm,
   assessResearchPackSourceSupport,
+  buildPublishingArtifactPayload,
+  buildSectionSourceAttribution,
   buildTopicKey,
+  fillSectionsFromHarvestedMedia,
+  jinaReadDocument,
+  sliceArticleSections,
+  summarizeImageCoverage,
   clusterResearchItemsByTopic,
   createDailyBriefFormatProfile,
   fillMissingIllustrations,
@@ -902,4 +908,471 @@ test('parseCliArgs exposes --help and the help text states the dry-run LLM cost'
   assert.equal(parseCliArgs([]).help, false)
   assert.match(AUTO_BLOG_CLI_HELP, /COST WARNING/)
   assert.match(AUTO_BLOG_CLI_HELP, /ai-text\/generate/)
+})
+
+// ---------------------------------------------------------------------------
+// 插图相关性与覆盖率。
+//
+// 根因不是「配图太多」而是「章节↔图片之间从来就没有过一条真实的匹配信号」：
+// picker 唯一的语义分靠 haystack.includes(term)，而 tokenize 的
+// [^\w一-鿿]+ 把整段汉字切成一个 token —— 17 个字的中文小标题去 includes
+// 一个英文图片 URL，命中率恒为 0。那部分分数恒等于零，排序就完全由候选的基础分决定，
+// 于是 og:image 永远赢；上一轮把 og:image 降权之后，正文图之间又变成随机。
+//
+// 下面这组测试守住替代方案：正文里的 [S1] 引用标记天然写明了「这一章是照着哪个来源写的」，
+// 这是结构性事实，不是启发式。
+// ---------------------------------------------------------------------------
+
+const ATTRIBUTION_PACK = {
+  sources: [
+    { source_id: 'S1', url: 'https://a.example.com/hbm', source_name: 'A', title: 'HBM supply' },
+    { source_id: 'S2', url: 'https://b.example.com/fab', source_name: 'B', title: 'Fab capacity' },
+    { source_id: 'S3', url: 'https://c.example.com/other', source_name: 'C', title: 'Unrelated' },
+  ],
+}
+
+test('section source attribution reads the citation markers the body already carries', () => {
+  const contentMd = [
+    '## 材料瓶颈正在成为下一代AI的硬约束',
+    'HBM 供给吃紧 [S1]，代工端也在排队 [S2]。',
+    '',
+    '## 为什么值得关注',
+    '这一段只引用了另一个来源 [S3]。',
+  ].join('\n')
+
+  const attribution = buildSectionSourceAttribution({
+    contentMd,
+    sections: ['## 材料瓶颈正在成为下一代AI的硬约束', '## 为什么值得关注'],
+    researchPack: ATTRIBUTION_PACK,
+  })
+
+  assert.deepEqual(attribution['## 材料瓶颈正在成为下一代AI的硬约束'].source_ids, ['S1', 'S2'])
+  assert.deepEqual(attribution['## 材料瓶颈正在成为下一代AI的硬约束'].source_urls, [
+    'https://a.example.com/hbm',
+    'https://b.example.com/fab',
+  ])
+  assert.equal(attribution['## 材料瓶颈正在成为下一代AI的硬约束'].origin, 'body_citation')
+  assert.deepEqual(attribution['## 为什么值得关注'].source_ids, ['S3'])
+  // 章节正文本身也传下去：它是唯一一份能和图片 caption / 周边段落做比较的自然语言文本。
+  assert.match(attribution['## 材料瓶颈正在成为下一代AI的硬约束'].text, /HBM 供给吃紧/)
+})
+
+test('citation markers that survived finalizeArticle linking are still attributed', () => {
+  // finalizeArticle 会把 [S1] 改写成 [S1](url)，正则不能因此漏掉。
+  const attribution = buildSectionSourceAttribution({
+    contentMd: '## 发生了什么\n供给端在收紧 [S2](https://b.example.com/fab)。',
+    sections: ['## 发生了什么'],
+    researchPack: ATTRIBUTION_PACK,
+  })
+  assert.deepEqual(attribution['## 发生了什么'].source_ids, ['S2'])
+})
+
+test('a heading the model extended with a subtitle still matches its section', () => {
+  const attribution = buildSectionSourceAttribution({
+    contentMd: '## 发生了什么：三家厂商同时宣布扩产\n扩产计划 [S1]。',
+    sections: ['## 发生了什么'],
+    researchPack: ATTRIBUTION_PACK,
+  })
+  assert.deepEqual(attribution['## 发生了什么'].source_ids, ['S1'])
+})
+
+test('hallucinated source ids are dropped instead of pointed at nothing', () => {
+  const attribution = buildSectionSourceAttribution({
+    contentMd: '## 发生了什么\n据报道 [S9]，另有 [S1]。',
+    sections: ['## 发生了什么'],
+    researchPack: ATTRIBUTION_PACK,
+  })
+  assert.deepEqual(attribution['## 发生了什么'].source_ids, ['S1'])
+})
+
+test('a section with no markers falls back to the outline brief, then to nothing', () => {
+  const attribution = buildSectionSourceAttribution({
+    contentMd: '## 发生了什么\n完全没有引用标记的一段。\n\n## 影响\n也没有。',
+    sections: ['## 发生了什么', '## 影响'],
+    outline: {
+      section_briefs: [
+        { heading: '## 发生了什么', must_use_sources: ['S2'], source_focus: ['S3 的图表'] },
+      ],
+    },
+    researchPack: ATTRIBUTION_PACK,
+  })
+  assert.deepEqual(attribution['## 发生了什么'].source_ids, ['S2', 'S3'])
+  assert.equal(attribution['## 发生了什么'].origin, 'outline_brief')
+  assert.deepEqual(attribution['## 影响'].source_ids, [])
+  assert.equal(attribution['## 影响'].origin, 'none')
+})
+
+test('sliceArticleSections splits on level-2 headings only', () => {
+  const sections = sliceArticleSections('# 标题\n\n## 甲\n正文甲\n### 子标题\n仍属甲\n\n## 乙\n正文乙')
+  assert.deepEqual(sections.map((section) => section.label), ['甲', '乙'])
+  assert.match(sections[0].markdown, /仍属甲/)
+  assert.doesNotMatch(sections[0].markdown, /正文乙/)
+})
+
+// --- 第 3 层兜底：feed 正文 / jina markdown 里已经拿回来的图 ---------------------------
+
+const HARVEST_RULES = {
+  min_width: 240,
+  min_height: 140,
+  blocklist_keywords: ['logo', 'avatar', 'social'],
+}
+
+function harvestSource(overrides = {}) {
+  return {
+    source_id: 'S1',
+    url: 'https://a.example.com/hbm',
+    source_name: 'A',
+    title: 'HBM supply',
+    media_candidates: [],
+    ...overrides,
+  }
+}
+
+test('the harvested layer prefers an image from the source the section actually cites', () => {
+  const { plans, stats } = fillSectionsFromHarvestedMedia({
+    sections: ['## 材料瓶颈'],
+    existingPlans: [],
+    sourceItems: [
+      harvestSource({
+        source_id: 'S3',
+        url: 'https://c.example.com/other',
+        source_name: 'C',
+        // 文本相关性更高，但这一章根本没引用 S3 —— 归属是结构性事实，必须压过启发式。
+        media_candidates: [{
+          url: 'https://cdn.c.example.com/other-chart.png',
+          alt: '材料瓶颈示意',
+          caption: '材料瓶颈',
+          context: '材料瓶颈',
+          width: 1200,
+          height: 700,
+          origin: 'feed',
+        }],
+      }),
+      harvestSource({
+        media_candidates: [{
+          url: 'https://cdn.a.example.com/chart.png',
+          alt: 'chart',
+          caption: '',
+          context: '',
+          width: 1200,
+          height: 700,
+          origin: 'markdown',
+        }],
+      }),
+    ],
+    attribution: { '## 材料瓶颈': { source_ids: ['S1'], text: '材料瓶颈与供给' } },
+    rules: HARVEST_RULES,
+  })
+
+  assert.equal(plans.length, 1)
+  assert.equal(plans[0].image_url, 'https://cdn.a.example.com/chart.png')
+  assert.equal(plans[0].reason, 'harvested_cited_source:markdown')
+  assert.equal(plans[0].layer, 'harvested_media')
+  assert.equal(stats.picked, 1)
+})
+
+test('with no attribution the harvested layer ranks on the caption and surrounding prose', () => {
+  // 这正是旧打分做不到的事：中文章节 vs 英文 URL 的 includes 恒不命中，而 caption/上下文
+  // 是这张图唯一一份自然语言描述。
+  const { plans } = fillSectionsFromHarvestedMedia({
+    sections: ['## 材料瓶颈正在成为硬约束'],
+    existingPlans: [],
+    sourceItems: [
+      harvestSource({
+        media_candidates: [
+          {
+            url: 'https://cdn.a.example.com/unrelated.png',
+            alt: 'team photo',
+            caption: '公司团建合影',
+            context: '公司团建合影',
+            width: 1200,
+            height: 700,
+          },
+          {
+            url: 'https://cdn.a.example.com/supply.png',
+            alt: '',
+            caption: 'HBM 材料瓶颈趋势',
+            context: '材料瓶颈正在成为硬约束',
+            width: 1200,
+            height: 700,
+          },
+        ],
+      }),
+    ],
+    attribution: {},
+    rules: HARVEST_RULES,
+  })
+  assert.equal(plans[0].image_url, 'https://cdn.a.example.com/supply.png')
+})
+
+test('harvested candidates are graded with the same shipped url rules as source-page ones', () => {
+  const { plans, stats } = fillSectionsFromHarvestedMedia({
+    sections: ['## 发生了什么'],
+    existingPlans: [],
+    sourceItems: [
+      harvestSource({
+        media_candidates: [
+          { url: 'https://cdn.a.example.com/site-logo.png', width: 1200, height: 700 },
+          { url: 'https://cdn.a.example.com/social/card.png', width: 1200, height: 700 },
+          { url: 'https://cdn.a.example.com/thumb-120x80.png' },
+          { url: 'https://cdn.a.example.com/tiny.png', width: 90, height: 60 },
+        ],
+      }),
+    ],
+    attribution: {},
+    rules: HARVEST_RULES,
+  })
+  assert.deepEqual(plans, [])
+  assert.equal(stats.picked, 0)
+  // 逐条 rule 的计数，就是「这篇为什么没图」的答案。
+  assert.ok(stats.rejected.blocklist_keyword >= 1)
+  assert.ok(stats.rejected.min_width >= 1)
+})
+
+test('the harvested layer only fills sections the picker left empty', () => {
+  const existing = [{ section_heading: '## 甲', image_url: 'https://cdn.a.example.com/kept.png' }]
+  const { plans, stats } = fillSectionsFromHarvestedMedia({
+    sections: ['## 甲', '## 乙'],
+    existingPlans: existing,
+    sourceItems: [
+      harvestSource({
+        media_candidates: [{ url: 'https://cdn.a.example.com/fill.png', width: 1200, height: 700 }],
+      }),
+    ],
+    attribution: {},
+    rules: HARVEST_RULES,
+  })
+  assert.equal(stats.attempted, 1)
+  assert.equal(plans.length, 2)
+  assert.equal(plans[0].image_url, 'https://cdn.a.example.com/kept.png')
+  assert.equal(plans[1].section_heading, '## 乙')
+})
+
+test('one harvested picture cannot fill two sections, even as two renditions', () => {
+  const { plans } = fillSectionsFromHarvestedMedia({
+    sections: ['## 甲', '## 乙'],
+    existingPlans: [],
+    sourceItems: [
+      harvestSource({
+        media_candidates: [
+          { url: 'https://cdn.a.example.com/photo.png?w=1200', width: 1200, height: 700 },
+          { url: 'https://cdn.a.example.com/photo.png?w=800', width: 800, height: 450 },
+        ],
+      }),
+    ],
+    attribution: {},
+    rules: HARVEST_RULES,
+  })
+  assert.equal(plans.length, 1)
+})
+
+test('an image a recently published article already used is not harvested again', () => {
+  const { plans, stats } = fillSectionsFromHarvestedMedia({
+    sections: ['## 甲'],
+    existingPlans: [],
+    sourceItems: [
+      harvestSource({
+        media_candidates: [{ url: 'https://cdn.a.example.com/seen.png', width: 1200, height: 700 }],
+      }),
+    ],
+    attribution: {},
+    rules: HARVEST_RULES,
+    isExcluded: (url) => url.includes('seen.png'),
+  })
+  assert.deepEqual(plans, [])
+  assert.equal(stats.rejected.already_published, 1)
+})
+
+// --- jina markdown 图源接入 -----------------------------------------------------------
+
+test('jina image harvesting runs on the full body, not on the truncated prompt text', async () => {
+  const body = [
+    '# Article',
+    'x'.repeat(400),
+    '![Image 1: early chart](https://cdn.example.com/early.png)',
+    'y'.repeat(400),
+    '![Image 2: late diagram](/assets/late.png)',
+  ].join('\n')
+
+  const { text, mediaCandidates } = await jinaReadDocument('https://news.example.com/post', 120, {
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => body }),
+  })
+
+  // 正文照旧按 maxLen 截断（LLM 提示词预算不变）……
+  assert.equal(text.length, 120)
+  // ……但截断点之后的插图必须仍然被收进来：解释性图表几乎都在长文的后半段。
+  const urls = mediaCandidates.map((candidate) => candidate.url)
+  assert.ok(urls.includes('https://cdn.example.com/early.png'))
+  assert.ok(
+    urls.includes('https://news.example.com/assets/late.png'),
+    `relative image not resolved against the article url: ${urls.join(',')}`,
+  )
+  // 相对路径要按原文章 URL 解析，不能落到 r.jina.ai 上。
+  assert.ok(urls.every((url) => !url.includes('r.jina.ai')))
+})
+
+test('a failed jina read yields no text and no images rather than throwing', async () => {
+  const failed = await jinaReadDocument('https://news.example.com/post', 500, {
+    fetchImpl: async () => ({ ok: false, status: 503, text: async () => '' }),
+  })
+  assert.deepEqual(failed, { text: '', mediaCandidates: [] })
+
+  const blocked = await jinaReadDocument('http://127.0.0.1/admin', 500, {
+    fetchImpl: async () => {
+      throw new Error('the SSRF guard must run before the request')
+    },
+  })
+  assert.deepEqual(blocked, { text: '', mediaCandidates: [] })
+})
+
+// --- AI 兜底层的成本闸门 ---------------------------------------------------------------
+
+test('AI illustration fill is a last resort: it stands down when real images were found', async () => {
+  let called = 0
+  const plans = await fillMissingIllustrations({
+    desiredSections: ['## 甲', '## 乙'],
+    existingPlans: [{ section_heading: '## 甲', image_url: 'https://cdn.example.com/real.png' }],
+    outline: { topic: 'AI' },
+    config: { ai_illustration_enabled: true },
+    resolveToken: async () => 'test-token',
+    fetchImpl: async () => {
+      called += 1
+      return { ok: true, status: 200, json: async () => ({ job_id: 1 }) }
+    },
+  })
+  assert.equal(called, 0)
+  assert.equal(plans.length, 1)
+})
+
+test('AI illustration fill buys at most max_per_post images for one article', async () => {
+  const requested = []
+  const plans = await fillMissingIllustrations({
+    desiredSections: ['## 甲', '## 乙', '## 丙'],
+    existingPlans: [],
+    outline: { topic: 'AI' },
+    config: {
+      ai_illustration_enabled: true,
+      ai_illustration_budget: { max_per_post: 2, only_when_empty: true },
+    },
+    resolveToken: async () => 'test-token',
+    fetchImpl: async (url, init) => {
+      requested.push(JSON.parse(init.body).prompt)
+      return { ok: true, status: 200, json: async () => ({ job_id: requested.length }) }
+    },
+    waitForJob: async ({ jobId }) => ({
+      job_id: jobId,
+      status: 'succeeded',
+      result_image_url: `https://img.example.com/${jobId}.png`,
+    }),
+  })
+  assert.equal(requested.length, 2)
+  assert.equal(plans.length, 2)
+  // 自托管标记必须打上，否则 localize 会把它从 R2 下载再传回 R2，凭空造一份重复对象。
+  assert.ok(plans.every((plan) => plan.self_hosted === true))
+})
+
+test('max_per_post 0 disables the paid layer entirely', async () => {
+  const plans = await fillMissingIllustrations({
+    desiredSections: ['## 甲'],
+    existingPlans: [],
+    outline: { topic: 'AI' },
+    config: { ai_illustration_enabled: true, ai_illustration_budget: { max_per_post: 0 } },
+    resolveToken: async () => {
+      throw new Error('must not authenticate when the budget is zero')
+    },
+    fetchImpl: async () => {
+      throw new Error('must not call the paid endpoint when the budget is zero')
+    },
+  })
+  assert.deepEqual(plans, [])
+})
+
+test('already self-hosted plans skip localization and keep their section order', async () => {
+  const plans = [
+    { section_heading: '## 甲', image_url: 'https://cdn.thirdparty.com/a.png' },
+    { section_heading: '## 乙', image_url: 'https://cdn.ourblog.com/ai-b.png', self_hosted: true },
+    { section_heading: '## 丙', image_url: 'https://cdn.thirdparty.com/c.png' },
+  ]
+  let localizedInput = null
+  const result = await prepareImagePlansForPublication(plans, {
+    imageUploadToken: 'token',
+    localize: async (input) => {
+      localizedInput = input
+      return input.map((plan) => ({
+        ...plan,
+        original_image_url: plan.image_url,
+        image_url: `https://cdn.ourblog.com/uploaded${plan.section_heading}.png`,
+      }))
+    },
+  })
+
+  // 第二次上传是纯粹的浪费：AI 生成图本来就已经在我们自己的桶里。
+  assert.deepEqual(localizedInput.map((plan) => plan.section_heading), ['## 甲', '## 丙'])
+  assert.deepEqual(result.map((plan) => plan.section_heading), ['## 甲', '## 乙', '## 丙'])
+  assert.equal(result[1].image_url, 'https://cdn.ourblog.com/ai-b.png')
+})
+
+// --- 可观测性 --------------------------------------------------------------------------
+
+test('the coverage report names the layer that came up empty', () => {
+  const coverage = summarizeImageCoverage({
+    desiredSections: ['## 甲', '## 乙', '## 丙'],
+    sourceItems: [{ url: 'https://a.example.com' }, { url: 'https://b.example.com' }],
+    attribution: {
+      '## 甲': { origin: 'body_citation' },
+      '## 乙': { origin: 'outline_brief' },
+      '## 丙': { origin: 'none' },
+    },
+    pickedPlans: [
+      { section_heading: '## 甲', image_url: 'https://x/1.png' },
+      { section_heading: '## 乙', image_url: 'https://x/2.png' },
+    ],
+    afterDedupePlans: [{ section_heading: '## 甲', image_url: 'https://x/1.png' }],
+    harvestedStats: {
+      attempted: 2, candidates: 7, picked: 1, sources_with_media: 2, rejected: { min_width: 3 },
+    },
+    afterHarvestPlans: [
+      { section_heading: '## 甲', image_url: 'https://x/1.png' },
+      { section_heading: '## 乙', image_url: 'https://x/3.png' },
+    ],
+    finalPlans: [
+      { section_heading: '## 甲', image_url: 'https://x/1.png' },
+      { section_heading: '## 乙', image_url: 'https://x/3.png' },
+    ],
+    aiConfig: { enabled: false },
+  })
+
+  assert.equal(coverage.desired_sections, 3)
+  assert.equal(coverage.covered_sections, 2)
+  assert.deepEqual(coverage.uncovered_sections, ['## 丙'])
+  assert.equal(coverage.section_attribution.from_body_citation, 1)
+  assert.equal(coverage.section_attribution.unattributed, 1)
+  assert.equal(coverage.supply.harvested_media_candidates, 7)
+  assert.equal(coverage.layers.source_page.picked, 2)
+  assert.equal(coverage.layers.source_page.dropped_as_duplicate, 1)
+  assert.equal(coverage.layers.harvested_media.picked, 1)
+  assert.deepEqual(coverage.layers.harvested_media.rejected, { min_width: 3 })
+  assert.equal(coverage.layers.ai_generated.enabled, false)
+  assert.equal(coverage.localization, null)
+})
+
+test('the coverage report rides along in image_plan_json without breaking the old shape', () => {
+  const plans = [{ section_heading: '## 甲', image_url: 'https://x/1.png' }]
+  const legacy = buildPublishingArtifactPayload({
+    post: { slug: 's' }, outline: {}, metadata: {}, gate: {}, researchPack: {}, imagePlans: plans,
+  })
+  assert.deepEqual(JSON.parse(legacy.image_plan_json), plans)
+
+  const withCoverage = buildPublishingArtifactPayload({
+    post: { slug: 's' },
+    outline: {},
+    metadata: {},
+    gate: {},
+    researchPack: {},
+    imagePlans: plans,
+    imageCoverage: { desired_sections: 3, covered_sections: 1 },
+  })
+  const parsed = JSON.parse(withCoverage.image_plan_json)
+  assert.deepEqual(parsed.plans, plans)
+  assert.equal(parsed.coverage.desired_sections, 3)
 })

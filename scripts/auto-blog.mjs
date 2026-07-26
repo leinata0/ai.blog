@@ -39,7 +39,8 @@ import {
   waitForImageGenerationJob,
 } from './lib/admin-image-generation.mjs'
 import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
-import { pickSourceImages } from './lib/source-image-picker.mjs'
+import { classifyRejectedImageUrl, pickSourceImages } from './lib/source-image-picker.mjs'
+import { extractMarkdownImageCandidates, mergeMediaCandidates } from './lib/feed-media.mjs'
 import { localizeImagePlans as localizeInlineImagePlans } from './lib/image-localizer.mjs'
 import { isPublicHttpUrl } from './lib/url-guard.mjs'
 
@@ -568,11 +569,13 @@ export function buildPublishingArtifactPayload({
   gate,
   researchPack,
   imagePlans,
+  imageCoverage = null,
   workflowKey,
   coverageDate,
   candidateTopics = [],
   failureReason = '',
 }) {
+  const plans = Array.isArray(imagePlans) ? imagePlans : []
   return {
     workflow_key: String(workflowKey || '').trim(),
     coverage_date: String(coverageDate || metadata?.coverage_date || '').trim(),
@@ -587,7 +590,11 @@ export function buildPublishingArtifactPayload({
       cover_prompt: String(outline?.cover_prompt || '').trim(),
     }),
     quality_gate_json: JSON.stringify(gate || {}),
-    image_plan_json: JSON.stringify(Array.isArray(imagePlans) ? imagePlans : []),
+    // Stays a bare plan array when no coverage report was produced, so every existing reader
+    // (and repair-post-media, which writes '[]') keeps working. When a report exists the
+    // payload becomes { plans, coverage }: the plans alone cannot answer "why does this post
+    // have no images", which is the only question anyone ever asks of this column.
+    image_plan_json: JSON.stringify(imageCoverage ? { plans, coverage: imageCoverage } : plans),
     candidate_topics_json: JSON.stringify(Array.isArray(candidateTopics) ? candidateTopics : []),
     failure_reason: String(failureReason || '').trim(),
     post_slug: String(post?.slug || '').trim(),
@@ -603,6 +610,7 @@ export function buildPublishingMetadataBridgePayload({
   config,
   researchPack,
   imagePlans,
+  imageCoverage = null,
   workflowKey,
   coverageDate,
   candidateTopics = [],
@@ -625,6 +633,7 @@ export function buildPublishingMetadataBridgePayload({
     gate,
     researchPack,
     imagePlans,
+    imageCoverage,
     workflowKey,
     coverageDate,
     candidateTopics,
@@ -1000,24 +1009,48 @@ async function fetchAllFeeds(config, maxItems = 30) {
   })
 }
 
-async function jinaRead(url, maxLen = 5000) {
+// Returns both halves of one jina fetch: the prompt text and the illustrations that were
+// riding along in it. The markdown Jina hands back contains every in-article image as
+// `![](…)`, and the pipeline used to keep only the prose — so the picker's *only* supply was
+// "go re-fetch the source page HTML ourselves", which JS-rendered bodies, paywalls and bot
+// walls kill on a large share of sources. That supply shortage is half of why coverage is low.
+//
+// The image harvest deliberately runs on the FULL response body, before `maxLen` truncation:
+// `maxLen` exists to bound the LLM prompt, and applying it first silently discarded every
+// illustration in the second half of a long article — which is exactly where explanatory
+// diagrams live. The text half is still truncated as before, so prompt size is unchanged.
+//
+// `url` (the original article URL, not the r.jina.ai proxy URL) is the resolution base, so a
+// relative link cannot produce a candidate pointing at r.jina.ai.
+export async function jinaReadDocument(url, maxLen = 5000, { fetchImpl = fetch } = {}) {
+  const empty = { text: '', mediaCandidates: [] }
   try {
     // The URL comes from third-party feed content; refuse private/loopback/non-http
     // targets before handing it to the jina proxy, and encode it so it can't break
     // out of the proxy path.
-    if (!isPublicHttpUrl(url)) return ''
-    const resp = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
+    if (!isPublicHttpUrl(url)) return empty
+    const resp = await fetchImpl(`https://r.jina.ai/${encodeURIComponent(url)}`, {
       headers: { Accept: 'text/markdown', 'X-No-Cache': 'true' },
       signal: AbortSignal.timeout(20000),
       redirect: 'manual',
     })
-    if (!resp.ok) return ''
+    if (!resp.ok) return empty
     const text = await resp.text()
-    return text.slice(0, maxLen)
+    return {
+      text: text.slice(0, maxLen),
+      // Same extractor the feed half uses, so both image sources produce one candidate shape
+      // and stay subject to the same tracking-pixel / SSRF filtering.
+      mediaCandidates: extractMarkdownImageCandidates(text, url),
+    }
   } catch {
-    return ''
+    return empty
   }
 }
+
+// The text-only `jinaRead` wrapper this replaced is deliberately gone rather than kept for
+// convenience: it discarded the image candidates from the same response, and a helper whose
+// only effect is to silently drop the supply this change exists to create is a trap.
+// Every caller uses jinaReadDocument and takes `.text` explicitly.
 
 async function enrichWithFullText(items, concurrency = 5) {
   const queue = items.map((item) => ({ ...item }))
@@ -1033,12 +1066,20 @@ async function enrichWithFullText(items, concurrency = 5) {
       while (active < concurrency && index < queue.length) {
         const current = queue[index++]
         active += 1
-        jinaRead(current.url, 6000)
-          .then((text) => {
+        jinaReadDocument(current.url, 6000)
+          .then(({ text, mediaCandidates }) => {
             if (text.length > 100) {
               current.full_text = removeBoilerplate(text)
               current.evidence_snippets = [trimText(current.full_text, 180)]
               current.score = Number((current.score + 0.08).toFixed(3))
+            }
+            // Merged with whatever the feed already carried rather than replacing it: the two
+            // sources describe the same picture with different detail (feed markup has the
+            // figcaption, jina has the surrounding prose). Kept even when the text was too
+            // thin to use — a gallery page still has usable illustrations, and this costs no
+            // extra request.
+            if (mediaCandidates.length > 0) {
+              current.media_candidates = mergeMediaCandidates(current.media_candidates, mediaCandidates)
             }
           })
           .finally(() => {
@@ -1098,9 +1139,10 @@ async function collectBaseMaterials(config, options = {}) {
   if (combinedText.length < fallbackMinText) {
     console.log('Base RSS materials are weak, using fallback pages...')
     for (const url of config.fallback_urls || []) {
-      const markdown = await jinaRead(url, 6000)
+      const { text: markdown, mediaCandidates } = await jinaReadDocument(url, 6000)
       if (markdown.length <= 200) continue
       materials.push({
+        media_candidates: mediaCandidates,
         source_type: 'rss',
         source_name: 'Fallback',
         source_group: 'fallback',
@@ -1226,7 +1268,15 @@ function buildResearchPack({ baseItems, blogItems, paperItems }) {
     base_items: baseItems.map(attach).map(compactResearchItem),
     blog_items: blogItems.map(attach).map(compactResearchItem),
     paper_items: paperItems.map(attach).map(compactResearchItem),
-    sources: sources.map(compactResearchItem),
+    // `media_candidates` rides on `sources` only, deliberately outside compactResearchItem:
+    // the digest builders re-run compactResearchItem over these same rows to build the LLM
+    // prompt, so anything added here is dropped again before it can bloat or confuse the
+    // prompt, while the image picker (which reads researchPack.sources directly) sees it.
+    sources: sources.map((item) => {
+      const compact = compactResearchItem(item)
+      const media = Array.isArray(item.media_candidates) ? item.media_candidates : []
+      return media.length > 0 ? { ...compact, media_candidates: media } : compact
+    }),
   }
 }
 
@@ -1478,7 +1528,7 @@ export function findPublishedTopicOverlap(topic, fingerprints = [], options = {}
   return best
 }
 
-async function fetchPublishedPostSourceUrls({ slug, blogApiBase, fetchImpl, requestTimeoutMs, logger }) {
+async function fetchPublishedPostSourceUrls({ slug, blogApiBase, fetchImpl, requestTimeoutMs, logger, collectImageUrls = false }) {
   try {
     const response = await fetchImpl(`${blogApiBase}/api/posts/${encodeURIComponent(slug)}`, {
       // Identifying as a bot keeps `/api/posts/{slug}` from counting the dedupe scan as a
@@ -1488,19 +1538,21 @@ async function fetchPublishedPostSourceUrls({ slug, blogApiBase, fetchImpl, requ
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const detail = await response.json()
-    const urls = new Set(
+    const bridged = new Set(
       (Array.isArray(detail?.sources) ? detail.sources : [])
         .map((source) => normalizeUrlForLookup(source?.source_url || ''))
         .filter(Boolean),
     )
-    if (urls.size > 0) return { urls, ok: true }
-    return {
-      urls: extractReferenceUrlsFromMarkdown(detail?.content_md, { excludeHosts: [extractDomain(blogApiBase)] }),
-      ok: true,
-    }
+    const urls = bridged.size > 0
+      ? bridged
+      : extractReferenceUrlsFromMarkdown(detail?.content_md, { excludeHosts: [extractDomain(blogApiBase)] })
+    // The inline illustrations live in the very same detail payload, so the cross-post
+    // image guard rides along on this request instead of issuing a second round.
+    const imageUrls = collectImageUrls ? extractInlineImageUrlsFromMarkdown(detail?.content_md) : []
+    return { urls, imageUrls, ok: true }
   } catch (error) {
     logger?.warn?.(`Cross-day dedupe: could not read sources of published post "${slug}" (${error?.message || error}).`)
-    return { urls: new Set(), ok: false }
+    return { urls: new Set(), imageUrls: [], ok: false }
   }
 }
 
@@ -1513,12 +1565,14 @@ export async function fetchRecentPublishedTopicFingerprints({
   listPageSize = CROSS_DAY_DEDUPE_DEFAULTS.listPageSize,
   maxDetailFetches = CROSS_DAY_DEDUPE_DEFAULTS.maxDetailFetches,
   requestTimeoutMs = CROSS_DAY_DEDUPE_DEFAULTS.requestTimeoutMs,
+  collectImageUrls = false,
   blogApiBase = BLOG_API_BASE,
   fetchImpl = fetch,
   logger = console,
 } = {}) {
   const windowStart = shiftCoverageDate(coverageDate, -(Math.max(1, lookbackDays) - 1))
   const sameDayTopicKeys = new Set()
+  const usedImageUrls = new Set()
   const recentPosts = []
   let degraded = false
 
@@ -1536,7 +1590,7 @@ export async function fetchRecentPublishedTopicFingerprints({
       // backend hiccuped, with nothing in the log to say so. Degrading is still the right
       // call, but it has to be visible.
       degraded = true
-      logger?.warn?.(`Cross-day dedupe DEGRADED: post list page ${page} unavailable (${error?.message || error}); duplicate topics may be republished.`)
+      logger?.warn?.(`Cross-day dedupe DEGRADED: post list page ${page} unavailable (${error?.message || error}); duplicate topics${collectImageUrls ? ' and duplicate illustrations' : ''} may be republished.`)
       break
     }
 
@@ -1569,55 +1623,336 @@ export async function fetchRecentPublishedTopicFingerprints({
   const fingerprints = []
   let detailFailures = 0
   for (const post of selected) {
-    const { urls, ok } = await fetchPublishedPostSourceUrls({
+    const { urls, imageUrls, ok } = await fetchPublishedPostSourceUrls({
       slug: post.slug,
       blogApiBase,
       fetchImpl,
       requestTimeoutMs,
       logger,
+      collectImageUrls,
     })
     if (!ok) detailFailures += 1
     if (urls.size > 0) fingerprints.push({ ...post, source_urls: urls })
+    for (const imageUrl of imageUrls || []) {
+      const key = normalizeImageUrlForDedupe(imageUrl)
+      if (key) usedImageUrls.add(key)
+    }
   }
 
   if (detailFailures > 0) degraded = true
   logger?.log?.(`Cross-day dedupe: ${fingerprints.length}/${selected.length} published posts fingerprinted since ${windowStart}${detailFailures > 0 ? ` (${detailFailures} unreadable)` : ''}.`)
+  if (collectImageUrls) {
+    logger?.log?.(`Cross-post image dedupe: ${usedImageUrls.size} illustration fingerprint(s) collected from ${selected.length} published post(s) since ${windowStart}.`)
+    // A partially read window is exactly how a duplicate slips through, so say it out loud
+    // rather than letting the guard look healthy while running on half a memory.
+    if (degraded) {
+      logger?.warn?.('Cross-post image dedupe DEGRADED: the published-image memory is incomplete; an illustration already used by another article may be republished.')
+    }
+  }
 
-  return { fingerprints, same_day_topic_keys: sameDayTopicKeys, degraded, scanned_post_count: selected.length, window_start: windowStart }
+  return {
+    fingerprints,
+    same_day_topic_keys: sameDayTopicKeys,
+    used_image_urls: usedImageUrls,
+    degraded,
+    scanned_post_count: selected.length,
+    window_start: windowStart,
+  }
+}
+
+// --- Cross-post illustration dedupe -------------------------------------------------------
+//
+// Cross-day topic dedupe stops the same *story* from being written twice; it says nothing
+// about the same *picture* being embedded twice. Most source pages only expose an og:image,
+// and plenty of sites ship one social card for a whole section, so two genuinely different
+// articles that cite the same origin end up with byte-identical illustrations. Production
+// sampling found 38 inline images across 25 posts collapsing to 23 distinct URLs, one social
+// card appearing in five separate articles.
+//
+// So the picker gets a memory: every illustration a recently published article already uses
+// is excluded from the next one. The "already used" set is built from the very same
+// `/api/posts/{slug}` payloads the cross-day guard downloads (content_md rides along in the
+// detail response), so the guard costs no extra request.
+
+// Renditions of one asset must collapse to one key, otherwise the guard misses exactly the
+// duplicates it exists for. Real shapes seen in production:
+//   …/Gemini_Generated_Image_x.width-200.png ↔ …/Gemini_Generated_Image_x.width-1440.png
+//   …/FutureLabs_social.max-1440x810.png     ↔ …/FutureLabs_social.max-800x450.png
+//   …/photo-1024x576.jpg                     ↔ …/photo.jpg
+//   …/logo@2x.png                            ↔ …/logo.png
+const IMAGE_RENDITION_SUFFIX_PATTERNS = [
+  /\.width-\d+$/i,
+  /\.height-\d+$/i,
+  /\.max-\d+x\d+$/i,
+  // Google's gweb-uniblog CDN — the single biggest source of illustrations in this blog —
+  // stacks the format after the size: `Screenshot_….width-1200.format-webp.webp`. Without
+  // stripping `.format-…` first, the anchored `.width-…` pattern never matches and two
+  // renditions of one screenshot keep two distinct de-duplication keys.
+  /\.format-[a-z0-9]+$/i,
+  /[-_]\d{2,5}x\d{2,5}$/,
+  /@\d+(?:\.\d+)?x$/i,
+  /[-_]scaled$/i,
+]
+
+// Query-string renditions (imgix/Cloudinary/WordPress photon style). Deliberately a closed
+// list: dropping every parameter would merge distinct assets served off one path.
+const IMAGE_RENDITION_QUERY_KEYS = new Set([
+  'w', 'h', 'width', 'height', 'maxwidth', 'maxheight', 'max-w', 'max-h', 'max_width', 'max_height',
+  'size', 'fit', 'crop', 'resize', 'rect', 'zoom', 'dpr', 'quality', 'q', 'fm', 'format', 'auto',
+  'strip', 'ssl', 'downsize', 'wpsize', 'sharp', 'blur',
+])
+
+function stripImageRenditionSuffix(stem) {
+  let value = String(stem || '')
+  for (let pass = 0; pass < 4; pass += 1) {
+    const before = value
+    for (const pattern of IMAGE_RENDITION_SUFFIX_PATTERNS) {
+      value = value.replace(pattern, '')
+    }
+    if (value === before) break
+  }
+  return value || String(stem || '')
+}
+
+// Some CDNs truncate a generated file name when they build a rendition, which shows up as a
+// repeated token run being cut short: `Gemini_Generated_Image_k2dxu1k2dxu1k2dx` and
+// `Gemini_Generated_Image_k2dxu1k2dx` are the same picture. Folding adjacent repeats of the
+// same run gives both variants one key. The 4-character floor keeps it from chewing through
+// ordinary names, and the worst case if it over-folds is one extra illustration treated as a
+// duplicate — never a wrong picture or a failed run.
+function collapseRepeatedRuns(value, { minUnit = 4, maxPasses = 6, maxLength = 120 } = {}) {
+  let text = String(value || '')
+  if (text.length > maxLength) return text
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    let next = text
+    for (let start = 0; start < text.length && next === text; start += 1) {
+      const maxUnit = Math.floor((text.length - start) / 2)
+      for (let unit = maxUnit; unit >= minUnit; unit -= 1) {
+        if (text.slice(start, start + unit) !== text.slice(start + unit, start + unit * 2)) continue
+        next = text.slice(0, start + unit) + text.slice(start + unit * 2)
+        break
+      }
+    }
+    if (next === text) return text
+    text = next
+  }
+  return text
+}
+
+// Returns a comparison key, not a usable URL: scheme and host case are folded away, and the
+// path keeps its original case because object-storage keys are case-sensitive and folding it
+// would merge distinct R2 objects.
+export function normalizeImageUrlForDedupe(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  let url
+  try {
+    url = new URL(raw)
+  } catch {
+    return raw.toLowerCase()
+  }
+  if (!/^https?:$/i.test(url.protocol)) return raw.toLowerCase()
+
+  url.hash = ''
+  for (const key of [...url.searchParams.keys()]) {
+    if (
+      IMAGE_RENDITION_QUERY_KEYS.has(key.toLowerCase())
+      || /^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$|ref$|ref_src$|v$|ver$|rev$|cb$)/i.test(key)
+    ) {
+      url.searchParams.delete(key)
+    }
+  }
+  const query = [...url.searchParams.entries()]
+    .sort((left, right) => (left[0] === right[0] ? left[1].localeCompare(right[1]) : left[0].localeCompare(right[0])))
+    .map(([key, entryValue]) => `${key}=${entryValue}`)
+    .join('&')
+
+  const segments = url.pathname.split('/')
+  const fileName = segments.pop() || ''
+  const dotIndex = fileName.lastIndexOf('.')
+  const extension = dotIndex > 0 ? fileName.slice(dotIndex).toLowerCase() : ''
+  const stem = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName
+  segments.push(`${collapseRepeatedRuns(stripImageRenditionSuffix(stem))}${extension}`)
+
+  const host = url.hostname.toLowerCase().replace(/^www\./, '')
+  const path = segments.join('/').replace(/\/+$/, '')
+  return `${host}${path}${query ? `?${query}` : ''}`
+}
+
+// `![alt](url "title")`, `![alt](<url>)` and bare `![](url)` all appear in published bodies.
+const INLINE_IMAGE_URL_PATTERN = /!\[[^\]]*\]\(\s*<?([^)\s<>]+)>?[^)]*\)/g
+
+export function extractInlineImageUrlsFromMarkdown(markdown) {
+  const urls = []
+  const seen = new Set()
+  for (const match of String(markdown || '').matchAll(INLINE_IMAGE_URL_PATTERN)) {
+    const raw = String(match[1] || '').trim().replace(/[).,;]+$/, '')
+    if (!raw || !/^https?:\/\//i.test(raw) || seen.has(raw)) continue
+    seen.add(raw)
+    urls.push(raw)
+  }
+  return urls
+}
+
+export const IMAGE_DEDUPE_DEFAULTS = {
+  enabled: true,
+  // Wider than the topic window on purpose: a story is stale after a week, a picture the
+  // reader saw two weeks ago still reads as a repeat.
+  lookbackDays: 14,
+  maxListPages: 4,
+  listPageSize: 50,
+  maxDetailFetches: 30,
+  requestTimeoutMs: 10000,
+}
+
+export function resolveImageDedupeConfig(config = {}, modeConfig = {}) {
+  const root = { ...(config?.image_dedupe || {}), ...(modeConfig?.image_dedupe || {}) }
+  const defaults = IMAGE_DEDUPE_DEFAULTS
+  return {
+    enabled: Boolean(root.enabled ?? defaults.enabled),
+    lookbackDays: clampNumber(root.lookback_days, { fallback: defaults.lookbackDays, min: 1, max: 90, integer: true }),
+    maxListPages: clampNumber(root.max_list_pages, { fallback: defaults.maxListPages, min: 1, max: 10, integer: true }),
+    // The public list endpoint caps page_size at 50; asking for more is a 422.
+    listPageSize: clampNumber(root.list_page_size, { fallback: defaults.listPageSize, min: 1, max: 50, integer: true }),
+    maxDetailFetches: clampNumber(root.max_detail_fetches, { fallback: defaults.maxDetailFetches, min: 0, max: 100, integer: true }),
+    requestTimeoutMs: clampNumber(root.request_timeout_ms, { fallback: defaults.requestTimeoutMs, min: 1000, max: 60000, integer: true }),
+  }
+}
+
+// A mutable memory shared across every post of one run: seeded with what recent articles
+// already published, then grown as this run picks images, so two posts of the same batch
+// cannot land on the same picture either.
+export function createUsedImageRegistry(initialUrls = []) {
+  const keys = new Set()
+  const add = (url) => {
+    const key = normalizeImageUrlForDedupe(url)
+    if (key) keys.add(key)
+    return key
+  }
+  const has = (url) => {
+    const key = normalizeImageUrlForDedupe(url)
+    return Boolean(key) && keys.has(key)
+  }
+  const source = initialUrls instanceof Set || Array.isArray(initialUrls) ? initialUrls : []
+  for (const url of source) {
+    // History arrives pre-normalized from the fetch layer; re-normalizing is idempotent.
+    if (url) keys.add(normalizeImageUrlForDedupe(url) || String(url))
+  }
+  return {
+    keys,
+    add,
+    has,
+    get size() {
+      return keys.size
+    },
+  }
+}
+
+// Belt-and-braces layer: even if the picker never learns the exclusion parameter, a plan that
+// points at an already-used illustration is dropped before the article is assembled. Runs
+// before AI illustration fill-in so a dropped duplicate can still be replaced.
+export function dedupeImagePlansAgainstUsed(imagePlans, registry, { logger = console } = {}) {
+  const plans = Array.isArray(imagePlans) ? imagePlans : []
+  if (!registry || plans.length === 0) return plans
+  const kept = []
+  const dropped = []
+  for (const plan of plans) {
+    const imageUrl = String(plan?.image_url || '').trim()
+    if (!imageUrl) continue
+    if (registry.has(imageUrl)) {
+      dropped.push(plan)
+      continue
+    }
+    registry.add(imageUrl)
+    kept.push(plan)
+  }
+  if (dropped.length > 0) {
+    logger?.log?.(`Cross-post image dedupe dropped ${dropped.length} illustration(s) already used elsewhere: ${dropped.map((plan) => plan.image_url).join(', ')}`)
+  }
+  return kept
 }
 
 // Single place where the guard is switched off, so `--force` cannot drift out of sync
 // between the same-day and the cross-day check.
 export async function resolvePublishedTopicGuards(runtime = {}, { coverageDate, fetchImpl = fetch, logger = console } = {}) {
-  const empty = { publishedTopicKeys: new Set(), publishedTopicFingerprints: [], degraded: false, bypassed: true }
+  const empty = {
+    publishedTopicKeys: new Set(),
+    publishedTopicFingerprints: [],
+    usedImageUrls: new Set(),
+    degraded: false,
+    bypassed: true,
+  }
   if (!runtime.skipPublishedTopicKeys || runtime.force || runtime.dryRun) return empty
 
   const dedupe = runtime.crossDayDedupe || resolveCrossDayDedupeConfig()
-  if (!dedupe.enabled) {
+  // Opt-in, unlike `crossDayDedupe` above: this guard rides on the topic scan's per-post
+  // detail requests, so a caller that never asked for image dedupe must not start paying for
+  // them. Every run mode that picks source images sets `imageDedupe` on its runtime.
+  const imageDedupe = runtime.imageDedupe || { ...IMAGE_DEDUPE_DEFAULTS, enabled: false }
+  if (!dedupe.enabled && !imageDedupe.enabled) {
     return {
       publishedTopicKeys: await fetchPublishedTopicKeys({ coverageDate, fetchImpl }),
       publishedTopicFingerprints: [],
+      usedImageUrls: new Set(),
       degraded: false,
       bypassed: false,
     }
   }
 
+  // One list pass and one round of detail fetches feed both guards. The scan budget is the
+  // union of what each guard asks for, never the sum.
+  const budget = (crossDayValue, imageValue, floor) => Math.max(
+    dedupe.enabled ? crossDayValue : floor,
+    imageDedupe.enabled ? imageValue : floor,
+  )
   const recent = await fetchRecentPublishedTopicFingerprints({
     coverageDate,
-    lookbackDays: dedupe.lookbackDays,
-    maxListPages: dedupe.maxListPages,
-    listPageSize: dedupe.listPageSize,
-    maxDetailFetches: dedupe.maxDetailFetches,
-    requestTimeoutMs: dedupe.requestTimeoutMs,
+    lookbackDays: budget(dedupe.lookbackDays, imageDedupe.lookbackDays, 1),
+    maxListPages: budget(dedupe.maxListPages, imageDedupe.maxListPages, 1),
+    listPageSize: budget(dedupe.listPageSize, imageDedupe.listPageSize, 1),
+    maxDetailFetches: budget(dedupe.maxDetailFetches, imageDedupe.maxDetailFetches, 0),
+    requestTimeoutMs: budget(dedupe.requestTimeoutMs, imageDedupe.requestTimeoutMs, 1000),
+    collectImageUrls: imageDedupe.enabled,
     fetchImpl,
     logger,
   })
 
+  // Image dedupe looks further back than topic dedupe, so the extra rows must not silently
+  // widen the topic-overlap window as a side effect of sharing one scan.
+  const crossDayWindowStart = shiftCoverageDate(coverageDate, -(Math.max(1, dedupe.lookbackDays) - 1))
   return {
     publishedTopicKeys: recent.same_day_topic_keys,
-    publishedTopicFingerprints: recent.fingerprints,
+    publishedTopicFingerprints: dedupe.enabled
+      ? recent.fingerprints.filter((entry) => isCoverageDateInWindow(entry.coverage_date, crossDayWindowStart, coverageDate))
+      : [],
+    usedImageUrls: imageDedupe.enabled ? recent.used_image_urls : new Set(),
     degraded: recent.degraded,
     bypassed: false,
+  }
+}
+
+// Standalone entry for run modes that publish a single post and therefore never build the
+// topic guards (weekly review). Failure degrades to an empty memory, loudly.
+export async function resolveUsedImageRegistry(runtime = {}, { coverageDate, fetchImpl = fetch, logger = console } = {}) {
+  // Standalone entry, so the default here is the feature's own default rather than "off".
+  const imageDedupe = runtime.imageDedupe || resolveImageDedupeConfig()
+  if (!imageDedupe.enabled || runtime.force || runtime.dryRun) return createUsedImageRegistry()
+  try {
+    const recent = await fetchRecentPublishedTopicFingerprints({
+      coverageDate,
+      lookbackDays: imageDedupe.lookbackDays,
+      maxListPages: imageDedupe.maxListPages,
+      listPageSize: imageDedupe.listPageSize,
+      maxDetailFetches: imageDedupe.maxDetailFetches,
+      requestTimeoutMs: imageDedupe.requestTimeoutMs,
+      collectImageUrls: true,
+      fetchImpl,
+      logger,
+    })
+    return createUsedImageRegistry(recent.used_image_urls)
+  } catch (error) {
+    logger?.warn?.(`Cross-post image dedupe DEGRADED: could not read the published-image memory (${error?.message || error}); duplicate illustrations may be published.`)
+    return createUsedImageRegistry()
   }
 }
 
@@ -2083,6 +2418,7 @@ function resolveDailyRuntime(config, cliOptions) {
     enableBlogwatcherFallback: Boolean(modeConfig.enable_blogwatcher_fallback ?? dailyConfig.enable_blogwatcher_fallback ?? false),
     skipPublishedTopicKeys: Boolean(modeConfig.skip_published_topic_keys ?? true),
     crossDayDedupe: resolveCrossDayDedupeConfig(config, modeConfig),
+    imageDedupe: resolveImageDedupeConfig(config, modeConfig),
     force: cliOptions.force,
   }
 }
@@ -2234,6 +2570,18 @@ export function normalizeSectionBriefs(outline, formatProfile) {
     || makeFallbackBrief(heading, index, 'Open the article with a weekly overview and identify the main strategic shift.'))
 }
 
+// The topic-selection prompt serializes the *whole* research pack, so anything attached to it
+// competes with the actual research for a hard 14k/22k character budget. `sources` now carries
+// harvested image candidates (fat: url + alt + caption + surrounding prose, up to 12 per
+// source), which would have pushed real evidence out of the prompt through smartTruncate.
+// Re-compacting the rows drops them, exactly like the digest builders below already do.
+function researchPackForPrompt(researchPack) {
+  return {
+    ...researchPack,
+    sources: (researchPack?.sources || []).map(compactResearchItem),
+  }
+}
+
 function buildWeeklyResearchDigest(researchPack, maxSources = 18) {
   return {
     summary: researchPack.summary,
@@ -2325,7 +2673,7 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
     buildFormatPrompt(formatProfile),
     '',
     'Research pack:',
-    stringifyPromptPayload(researchPack, isWeeklyReview ? 22000 : 14000),
+    stringifyPromptPayload(researchPackForPrompt(researchPack), isWeeklyReview ? 22000 : 14000),
   ].join('\n')
 
   return callLLM(system, user, 8192, {
@@ -3589,6 +3937,371 @@ export async function runPublishingBridges(token, {
   return failures
 }
 
+// --- Section ↔ source attribution ---------------------------------------------------------
+//
+// The picker's only relevance signal used to be "does the section heading appear as a
+// substring of the image URL / alt / class". With Chinese headings and English image URLs
+// that hit rate is ≈0, so the section term never contributed anything and the ranking
+// collapsed onto the candidate's base score — which is how one og:image ended up in five
+// articles regardless of what the sections were about.
+//
+// The article itself already knows the answer: every paragraph carries `[S1]`-style markers
+// naming the source it was written from. Handing "this section was written from S2 and S5"
+// to the picker turns an unusable string match into an exact join, and it is the one signal
+// that is *structurally* correct rather than heuristic.
+
+// `[S1]`, and `[S1](https://…)` after finalizeArticle has linked the markers.
+const SOURCE_ID_MARKER_PATTERN = /\[(S\d+)\]/g
+// Outline briefs write source hints as bare ids, `S1: 标题` or a prose sentence naming one.
+const SOURCE_ID_TOKEN_PATTERN = /\bS(\d+)\b/g
+
+function normalizeSectionLabel(heading) {
+  return String(heading || '').replace(/^#{1,6}\s*/, '').trim()
+}
+
+// Same tolerance insertImagesIntoContent uses when it looks for the heading to insert under,
+// so a section that will receive an image is also a section we can attribute. The LLM
+// routinely appends a colon-subtitle to the outline heading it was given.
+function sectionLabelMatches(label, target) {
+  if (!label || !target) return false
+  if (label === target) return true
+  return label.startsWith(`${target}：`)
+    || label.startsWith(`${target}:`)
+    || label.startsWith(`${target} -`)
+    || label.startsWith(`${target} `)
+}
+
+export function sliceArticleSections(contentMd) {
+  const lines = String(contentMd || '').split('\n')
+  const marks = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^##\s+(.*)$/.exec(lines[index].trim())
+    if (match) marks.push({ index, label: match[1].trim() })
+  }
+  return marks.map((mark, order) => {
+    const end = order + 1 < marks.length ? marks[order + 1].index : lines.length
+    return { label: mark.label, markdown: lines.slice(mark.index + 1, end).join('\n') }
+  })
+}
+
+function collectSourceIds(text, pattern) {
+  const ids = []
+  const seen = new Set()
+  const source = String(text || '')
+  pattern.lastIndex = 0
+  for (const match of source.matchAll(pattern)) {
+    const id = `S${match[1].replace(/^S/i, '')}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
+}
+
+function plainSectionText(markdown, maxChars = 1200) {
+  return String(markdown || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[#>*_`~|-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxChars)
+}
+
+/**
+ * Builds, for each image-target section, the sources that section was actually written from.
+ *
+ * Body citations are authoritative; the outline brief (`must_use_sources` / `source_focus`)
+ * is the fallback for a section the model wrote without markers, and for the pre-generation
+ * case where no body exists yet. Ids that do not resolve to a real source are dropped — the
+ * model does hallucinate `[S9]` on a 6-source pack, and passing that on would silently point
+ * the picker at nothing.
+ *
+ * Returned shape (keyed by the exact heading string that was passed in `sections`):
+ *   { '## 章节': { heading, source_ids: ['S2'], source_urls: ['https://…'], text, origin } }
+ */
+export function buildSectionSourceAttribution({
+  contentMd = '',
+  sections = [],
+  outline = {},
+  researchPack = {},
+} = {}) {
+  const sourceById = new Map((researchPack?.sources || [])
+    .filter((item) => item?.source_id)
+    .map((item) => [item.source_id, item]))
+  const bodySections = sliceArticleSections(contentMd)
+  const briefs = Array.isArray(outline?.section_briefs) ? outline.section_briefs : []
+
+  const attribution = {}
+  for (const heading of sections || []) {
+    const target = normalizeSectionLabel(heading)
+    const body = bodySections.find((section) => sectionLabelMatches(section.label, target))
+    const brief = briefs.find((entry) => sectionLabelMatches(normalizeSectionLabel(entry?.heading), target))
+
+    const bodyIds = collectSourceIds(body?.markdown || '', SOURCE_ID_MARKER_PATTERN)
+      .filter((id) => sourceById.has(id))
+    const briefIds = collectSourceIds(
+      [
+        ...(Array.isArray(brief?.must_use_sources) ? brief.must_use_sources : []),
+        ...(Array.isArray(brief?.source_focus) ? brief.source_focus : []),
+        ...(Array.isArray(brief?.evidence_cards) ? brief.evidence_cards : []),
+      ].join(' '),
+      SOURCE_ID_TOKEN_PATTERN,
+    ).filter((id) => sourceById.has(id))
+
+    const sourceIds = bodyIds.length > 0 ? bodyIds : briefIds
+    attribution[heading] = {
+      heading,
+      source_ids: sourceIds,
+      source_urls: sourceIds.map((id) => sourceById.get(id)?.url || '').filter(Boolean),
+      // The section's own prose. Far richer than the heading alone, and it is the only text
+      // that can be compared against a candidate's caption / surrounding paragraph.
+      text: plainSectionText(body?.markdown || [
+        brief?.goal || '',
+        brief?.angle || '',
+        ...(Array.isArray(brief?.key_points) ? brief.key_points : []),
+      ].join(' ')),
+      origin: bodyIds.length > 0 ? 'body_citation' : (briefIds.length > 0 ? 'outline_brief' : 'none'),
+    }
+  }
+  return attribution
+}
+
+// --- Layer 3: illustrations harvested from feed bodies and jina markdown -------------------
+//
+// These candidates never required a source-page fetch — they arrived with the RSS item or
+// inside the full text we already pulled — so they survive exactly the failures (JS-rendered
+// bodies, paywalls, bot walls, timeouts) that leave the source-page layer empty. They fill
+// only sections that got nothing from the picker, so they can add coverage but never displace
+// a better-matched in-article image.
+
+// Chinese has no word boundaries, and `[一-鿿]+` swallows a whole 17-character
+// heading into one token — the exact bug that made section matching a no-op. Sliding bigrams
+// give stable recall without a dictionary, and cost nothing.
+function relevanceTokens(value) {
+  const text = String(value || '').toLowerCase()
+  const tokens = new Set()
+  for (const match of text.matchAll(/[a-z][a-z0-9+.#_-]+/g)) {
+    const token = match[0]
+    if (token.length >= 3 && !DAILY_STOP_WORDS.has(token)) tokens.add(token)
+  }
+  for (const run of text.match(/[一-鿿]{2,}/g) || []) {
+    for (let index = 0; index + 2 <= run.length; index += 1) tokens.add(run.slice(index, index + 2))
+  }
+  return tokens
+}
+
+function relevanceOverlap(left, right) {
+  if (left.size === 0 || right.size === 0) return 0
+  let hits = 0
+  for (const token of left) {
+    if (right.has(token)) hits += 1
+  }
+  return hits / Math.min(left.size, right.size)
+}
+
+function scoreHarvestedCandidate(candidate, sectionTokens) {
+  // The candidate's own words: alt, figcaption and the paragraph it sits in. This is the
+  // natural-language description a URL substring match never had.
+  const describedTokens = relevanceTokens(
+    `${candidate.alt || ''} ${candidate.caption || ''} ${candidate.context || ''}`,
+  )
+  let score = relevanceOverlap(sectionTokens, describedTokens) * 1.2
+  if (candidate.hasCaption) score += 0.2
+  if (candidate.inFigure) score += 0.08
+  if (candidate.alt) score += 0.04
+  if (candidate.width >= 600 || candidate.height >= 300) score += 0.08
+  // A feed body / jina markdown image is by construction part of this article, so being able
+  // to place it at all is already worth something; without a floor a candidate with no alt
+  // and no caption would tie at 0 and ordering would be arbitrary again.
+  return Number((score + 0.01).toFixed(4))
+}
+
+/**
+ * Fills sections that the source-page picker left empty, using the media candidates that came
+ * back with the feed item / jina full text.
+ *
+ * Preference order inside a section: candidates from the sources that section actually cites,
+ * then everything else in the topic. Returns the plans plus a per-rule rejection tally so a
+ * "why does this post have no images" question is answerable from the log alone.
+ */
+export function fillSectionsFromHarvestedMedia({
+  sections = [],
+  existingPlans = [],
+  sourceItems = [],
+  attribution = {},
+  rules = {},
+  isExcluded,
+  logger = console,
+} = {}) {
+  const stats = { attempted: 0, candidates: 0, picked: 0, rejected: {}, sources_with_media: 0 }
+  const covered = new Set((existingPlans || []).map((plan) => plan.section_heading))
+  const pending = (sections || []).filter((heading) => !covered.has(heading))
+  // `added` is returned separately from `plans` on purpose: dedupeImagePlansAgainstUsed both
+  // filters *and* registers, so re-running it over plans it has already seen would classify
+  // them as duplicates of themselves and drop the lot. Callers register only what is new.
+  if (pending.length === 0) return { plans: existingPlans || [], added: [], stats }
+
+  const withMedia = (sourceItems || [])
+    .map((item) => ({ item, media: Array.isArray(item?.media_candidates) ? item.media_candidates : [] }))
+    .filter((entry) => entry.media.length > 0)
+  stats.sources_with_media = withMedia.length
+  stats.candidates = withMedia.reduce((total, entry) => total + entry.media.length, 0)
+  if (withMedia.length === 0) return { plans: existingPlans || [], added: [], stats }
+
+  const takenKeys = new Set((existingPlans || [])
+    .map((plan) => normalizeImageUrlForDedupe(plan.image_url))
+    .filter(Boolean))
+  const reject = (rule) => {
+    stats.rejected[rule] = (stats.rejected[rule] || 0) + 1
+  }
+
+  const added = []
+  for (const heading of pending) {
+    stats.attempted += 1
+    const context = attribution?.[heading] || {}
+    const citedIds = new Set(context.source_ids || [])
+    const sectionTokens = relevanceTokens(`${normalizeSectionLabel(heading)} ${context.text || ''}`)
+
+    const ranked = []
+    for (const { item, media } of withMedia) {
+      const cited = citedIds.size > 0 && citedIds.has(item.source_id)
+      for (const candidate of media) {
+        const url = String(candidate?.url || '').trim()
+        if (!url) continue
+        const key = normalizeImageUrlForDedupe(url)
+        if (key && takenKeys.has(key)) {
+          reject('duplicate_in_article')
+          continue
+        }
+        // Same URL-level rules a source-page candidate is graded with — imported from the
+        // picker rather than re-implemented, so the two layers can never drift apart.
+        const ruleHit = classifyRejectedImageUrl(url, rules)
+        if (ruleHit) {
+          reject(ruleHit)
+          continue
+        }
+        if (candidate.width && candidate.width < (rules.min_width || 0)) {
+          reject('min_width')
+          continue
+        }
+        if (candidate.height && candidate.height < (rules.min_height || 0)) {
+          reject('min_height')
+          continue
+        }
+        if (!isPublicHttpUrl(url)) {
+          reject('non_public_url')
+          continue
+        }
+        if (typeof isExcluded === 'function') {
+          let excluded = false
+          try {
+            excluded = Boolean(isExcluded(url))
+          } catch {
+            excluded = false
+          }
+          if (excluded) {
+            reject('already_published')
+            continue
+          }
+        }
+        // A source the section actually cites outranks every uncited one, whatever the text
+        // overlap says — the attribution is structural, the overlap is a heuristic.
+        ranked.push({
+          candidate,
+          item,
+          cited,
+          score: scoreHarvestedCandidate(candidate, sectionTokens) + (cited ? 1 : 0),
+        })
+      }
+    }
+
+    if (ranked.length === 0) continue
+    ranked.sort((left, right) => right.score - left.score)
+    const best = ranked[0]
+    const key = normalizeImageUrlForDedupe(best.candidate.url)
+    if (key) takenKeys.add(key)
+    stats.picked += 1
+    added.push({
+      section_heading: heading,
+      image_url: best.candidate.url,
+      source_page_url: best.item.url,
+      source_name: best.item.source_name,
+      reason: `${best.cited ? 'harvested_cited_source' : 'harvested_topic_source'}:${best.candidate.origin || 'feed'}`,
+      alt_text: best.candidate.alt || best.candidate.caption || best.item.title,
+      score: Number(best.score.toFixed(3)),
+      layer: 'harvested_media',
+      cited_source_ids: [...citedIds],
+    })
+  }
+
+  if (added.length > 0) {
+    logger?.log?.(`Harvested-media fallback supplied ${added.length} illustration(s) for section(s) the source-page picker left empty.`)
+  }
+  return { plans: [...(existingPlans || []), ...added], added, stats }
+}
+
+// --- Coverage report ----------------------------------------------------------------------
+//
+// "This post shipped with no images" used to be one warn line with no way to tell which layer
+// failed. Every layer now reports hits and misses into one object that goes to the run log and
+// into the publishing artifact, so the next regression is diagnosable without pulling
+// production data by hand and eyeballing it.
+export function summarizeImageCoverage({
+  desiredSections = [],
+  sourceItems = [],
+  attribution = {},
+  pickedPlans = [],
+  afterDedupePlans = [],
+  harvestedStats = null,
+  afterHarvestPlans = [],
+  finalPlans = [],
+  aiConfig = {},
+  localizedPlans = null,
+} = {}) {
+  const byLayer = (plans, predicate) => (plans || []).filter(predicate).length
+  const covered = new Set((finalPlans || []).map((plan) => plan.section_heading))
+  const attributed = Object.values(attribution || {})
+  return {
+    desired_sections: desiredSections.length,
+    covered_sections: covered.size,
+    uncovered_sections: desiredSections.filter((heading) => !covered.has(heading)),
+    section_attribution: {
+      from_body_citation: attributed.filter((entry) => entry.origin === 'body_citation').length,
+      from_outline_brief: attributed.filter((entry) => entry.origin === 'outline_brief').length,
+      unattributed: attributed.filter((entry) => entry.origin === 'none').length,
+    },
+    supply: {
+      source_pages_offered: sourceItems.length,
+      sources_with_harvested_media: harvestedStats?.sources_with_media ?? 0,
+      harvested_media_candidates: harvestedStats?.candidates ?? 0,
+    },
+    layers: {
+      source_page: {
+        picked: pickedPlans.length,
+        dropped_as_duplicate: Math.max(0, pickedPlans.length - afterDedupePlans.length),
+      },
+      harvested_media: {
+        sections_attempted: harvestedStats?.attempted ?? 0,
+        picked: harvestedStats?.picked ?? 0,
+        rejected: harvestedStats?.rejected ?? {},
+      },
+      ai_generated: {
+        enabled: Boolean(aiConfig.enabled),
+        picked: byLayer(finalPlans, (plan) => plan.reason === 'ai_fallback'),
+        sections_left_for_ai: Math.max(0, desiredSections.length - afterHarvestPlans.length),
+      },
+    },
+    // Localization runs after the quality gate, so this is filled in on the second pass only.
+    localization: localizedPlans === null ? null : {
+      planned: finalPlans.length,
+      published: localizedPlans.length,
+      dropped: Math.max(0, finalPlans.length - localizedPlans.length),
+    },
+  }
+}
+
 export async function fillMissingIllustrations({
   desiredSections,
   existingPlans,
@@ -3600,16 +4313,27 @@ export async function fillMissingIllustrations({
   resolveToken = getCachedAdminToken,
   blogApiBase = BLOG_API_BASE,
 }) {
-  // For every section in desiredSections that has no plan in existingPlans, generate an AI
-  // illustration via the admin endpoint and append it to the plans. This is the "缺图才 AI 补"
-  // strategy: source images are preferred (they're free and tied to evidence), but when the
-  // picker finds nothing suitable we fall back to synthetic illustrations so the article isn't
-  // left with blank spots.
+  // Last layer of the fallback ladder, and the only paid one. Every section that still has no
+  // plan after the source-page picker and the harvested-media layer can get a synthetic
+  // illustration here. Source images stay preferred — they are free and tied to the evidence
+  // the section was written from — so this only ever runs on what those layers could not fill.
   if (!config.ai_illustration_enabled) return existingPlans
 
   const coveredSections = new Set(existingPlans.map((plan) => plan.section_heading))
-  const missingSections = desiredSections.filter((heading) => !coveredSections.has(heading))
+  let missingSections = desiredSections.filter((heading) => !coveredSections.has(heading))
   if (missingSections.length === 0) return existingPlans
+
+  // Cost control, because this layer bills per image. `max_per_post` caps how many synthetic
+  // images one article may buy; `only_when_empty` makes it a true last resort — an article
+  // that already got one real illustration does not buy two AI ones to pad the rest.
+  const budget = config.ai_illustration_budget || {}
+  const maxPerPost = Math.max(0, Number(budget.max_per_post ?? 1))
+  if (maxPerPost === 0) return existingPlans
+  if (budget.only_when_empty !== false && existingPlans.length > 0) {
+    console.log(`Skipping AI illustration fill: the article already has ${existingPlans.length} source-based illustration(s).`)
+    return existingPlans
+  }
+  missingSections = missingSections.slice(0, maxPerPost)
 
   // This function had no dryRun awareness at all: the moment ai_illustration_enabled is
   // flipped on, a `--dry-run` would have generated and persisted real images.
@@ -3670,6 +4394,12 @@ export async function fillMissingIllustrations({
           reason: 'ai_fallback',
           alt_text: `Illustration for ${sectionHeading}`,
           score: 0,
+          layer: 'ai_generated',
+          // The backend already generated this image straight into our own R2 bucket, so the
+          // URL is first-party. Without this marker localizeImagePlans downloaded it and
+          // uploaded it a second time, creating a byte-identical duplicate object in R2 for
+          // every AI illustration ever published.
+          self_hosted: true,
         })
         console.log(`Generated AI illustration for ${sectionHeading}: ${imageUrl}`)
       } else {
@@ -3693,10 +4423,23 @@ export async function prepareImagePlansForPublication(imagePlans, {
   if (!imageUploadToken || !Array.isArray(imagePlans) || imagePlans.length === 0) {
     return imagePlans || []
   }
-  return localize(imagePlans, {
+  // Localization exists to pull a *third-party* image into our own bucket. A plan that is
+  // already first-party (the AI illustration layer generates straight into R2) would be
+  // downloaded from R2 and re-uploaded to R2 under a new key — a duplicate object per image,
+  // plus an avoidable failure mode. Pass those through untouched.
+  const remote = imagePlans.filter((plan) => !plan?.self_hosted)
+  if (remote.length === 0) return imagePlans
+  const localized = await localize(remote, {
     token: imageUploadToken,
     blogApiBase,
   })
+  if (remote.length === imagePlans.length) return localized
+  // Keep the original section order: the plans are inserted into the body by heading, and a
+  // reordered list makes the 图片来源 section disagree with the body.
+  const byOriginalUrl = new Map((localized || []).map((plan) => [plan.original_image_url || plan.image_url, plan]))
+  return imagePlans
+    .map((plan) => (plan?.self_hosted ? plan : byOriginalUrl.get(plan.image_url)))
+    .filter(Boolean)
 }
 
 async function buildPublishablePost({
@@ -3710,6 +4453,7 @@ async function buildPublishablePost({
   workflow = null,
   imageUploadToken = '',
   dryRun = false,
+  usedImages = null,
 }) {
   const workflowProfile = workflow || {
     slug: fixedSlug || `ai-brief-${today}`,
@@ -3731,23 +4475,82 @@ async function buildPublishablePost({
     .filter((heading) => validImageHeadings.includes(heading))
     .slice(0, config.image_selection_rules?.max_images || 0)
 
-  let imagePlans = []
+  // The article is drafted BEFORE illustrations are chosen. That order is the point: the body
+  // is what tells us which source each section was actually written from ([S1]-style markers),
+  // and that attribution is the only reliable relevance signal the picker can have — matching
+  // a Chinese heading against an English image URL never worked. Nothing here is billed twice:
+  // the draft was always generated exactly once in this function.
+  let generatedPost = await generateArticleForWorkflow({
+    outline,
+    researchPack,
+    formatProfile,
+    workflow: workflowProfile,
+    today,
+  })
+
+  const imageRules = config.image_selection_rules || {}
+  const imageSourceItems = applyPrimarySourceHintsToSources(
+    researchPack.sources.filter((item) => (
+      (imageRules.allowed_source_types || []).includes(item.source_type)
+    )),
+    outline,
+  )
+  const sectionAttribution = buildSectionSourceAttribution({
+    contentMd: generatedPost.content_md,
+    sections: desiredImageSections,
+    outline,
+    researchPack,
+  })
+
+  let pickedPlans = []
   if (config.source_image_picker_enabled && desiredImageSections.length > 0) {
-    imagePlans = await pickSourceImages({
+    pickedPlans = await pickSourceImages({
       sections: desiredImageSections,
       topic: outline.topic,
-      sourceItems: applyPrimarySourceHintsToSources(
-        researchPack.sources.filter((item) => (
-          (config.image_selection_rules?.allowed_source_types || []).includes(item.source_type)
-        )),
-        outline,
-      ),
+      sourceItems: imageSourceItems,
+      // Layer 1 of the fallback ladder: "which sources does THIS section cite". Keyed by the
+      // exact heading strings passed in `sections`; each entry is
+      // { heading, source_ids: ['S2'], source_urls: [...], text, origin }. `text` is the
+      // section's own prose, which is the only natural-language description that can be
+      // compared against a candidate's caption / surrounding paragraph.
+      sectionAttribution,
       config,
+      // Handing the memory to the picker lets it fall through to its next-best candidate for
+      // the section instead of losing the illustration entirely. A predicate rather than a raw
+      // Set because the comparison key is a normalised rendition-folded form, not the URL.
+      // `dedupeImagePlansAgainstUsed` below still enforces the same rule, so this is a quality
+      // upgrade rather than a correctness dependency — and the picker must not write back into
+      // the registry, or that final pass would see its own selections and drop every plan.
+      isImageUrlExcluded: usedImages ? usedImages.has : undefined,
+      // Same key function the registry uses, so the picker's within-article dedupe agrees with
+      // the cross-article one: two renditions of one photo can no longer fill two sections.
+      normalizeUrlForDedupe: normalizeImageUrlForDedupe,
     })
   }
 
-  // Fill gaps with AI-generated illustrations when source images aren't available. This runs
-  // after pickSourceImages so it only generates for sections that have no suitable source match.
+  // Drop illustrations another recent article (or an earlier post of this same run) already
+  // uses, before the remaining fallback layers, so a dropped duplicate can still be replaced.
+  let imagePlans = dedupeImagePlansAgainstUsed(pickedPlans, usedImages)
+  const afterDedupePlans = imagePlans
+
+  // Layer 3: images that arrived with the feed body / jina full text and therefore needed no
+  // source-page fetch at all. Only fills sections the picker left empty.
+  const harvested = fillSectionsFromHarvestedMedia({
+    sections: desiredImageSections,
+    existingPlans: imagePlans,
+    sourceItems: imageSourceItems,
+    attribution: sectionAttribution,
+    rules: imageRules,
+    isExcluded: usedImages ? usedImages.has : undefined,
+  })
+  // Harvested picks must join the same cross-post memory, or the next article in this run
+  // happily re-uses them. Only the NEW plans go through: dedupeImagePlansAgainstUsed registers
+  // what it keeps, so feeding it the already-registered picker plans a second time would make
+  // every one of them a duplicate of itself.
+  imagePlans = [...imagePlans, ...dedupeImagePlansAgainstUsed(harvested.added, usedImages)]
+  const afterHarvestPlans = imagePlans
+
+  // Layer 5, paid and last: synthetic illustrations for whatever is still empty.
   imagePlans = await fillMissingIllustrations({
     desiredSections: desiredImageSections,
     existingPlans: imagePlans,
@@ -3756,13 +4559,23 @@ async function buildPublishablePost({
     dryRun,
   })
 
-  let generatedPost = await generateArticleForWorkflow({
-    outline,
-    researchPack,
-    formatProfile,
-    workflow: workflowProfile,
-    today,
+  const imageCoverage = summarizeImageCoverage({
+    desiredSections: desiredImageSections,
+    sourceItems: imageSourceItems,
+    attribution: sectionAttribution,
+    pickedPlans,
+    afterDedupePlans,
+    harvestedStats: harvested.stats,
+    afterHarvestPlans,
+    finalPlans: imagePlans,
+    aiConfig: { enabled: Boolean(config.ai_illustration_enabled) },
   })
+  // One structured line per post. "Why does this article have no illustrations" used to be
+  // unanswerable without pulling the published body out of production and grading it by hand.
+  console.log(`Image coverage: ${JSON.stringify(imageCoverage)}`)
+  if (desiredImageSections.length > 0 && imagePlans.length === 0) {
+    console.warn(`No inline illustration could be sourced for any of ${desiredImageSections.length} target section(s); see the image coverage line above for which layer came up empty.`)
+  }
 
   const gateConfig = config.quality_gate?.[metadata.content_type] || config.quality_gate || {}
   const maxRepairAttempts = Math.max(0, Number(gateConfig.max_repair_attempts ?? 4))
@@ -3826,6 +4639,14 @@ async function buildPublishablePost({
   // article. Doing it before meant every gate-rejected topic left permanently orphaned,
   // unreferenced objects in the bucket.
   const localizedImagePlans = await prepareImagePlansForPublication(imagePlans, { imageUploadToken })
+  imageCoverage.localization = {
+    planned: imagePlans.length,
+    published: localizedImagePlans.length,
+    dropped: Math.max(0, imagePlans.length - localizedImagePlans.length),
+  }
+  if (imageCoverage.localization.dropped > 0) {
+    console.warn(`Image coverage after localization: ${JSON.stringify(imageCoverage.localization)}`)
+  }
   const publishContentMd = localizedImagePlans === imagePlans
     ? postForGate.content_md
     : finalizeArticle({
@@ -3853,6 +4674,7 @@ async function buildPublishablePost({
     outline: normalizedOutline,
     researchPack,
     imagePlans: localizedImagePlans,
+    imageCoverage,
     gate,
     post: normalizedPost,
   }
@@ -3970,6 +4792,9 @@ async function runDailyMode(config, cliOptions) {
     overlapThreshold: runtime.crossDayDedupe?.overlapThreshold,
     minSharedSources: runtime.crossDayDedupe?.minSharedSources,
   })
+  // Seeded from the guard scan that already ran (no extra request), then mutated by every
+  // post of this run so a batch of two never ships the same illustration twice.
+  const usedImages = createUsedImageRegistry(guards.usedImageUrls)
 
   const token = runtime.dryRun ? null : await getCachedAdminToken()
   const candidateTopics = clusteredTopics.map((topic) => createTopicSnapshot(topic, {
@@ -4067,6 +4892,7 @@ async function runDailyMode(config, cliOptions) {
           },
           imageUploadToken: token || '',
           dryRun: runtime.dryRun,
+          usedImages,
         })
 
         const bridgeWorkflowKey = runtime.mode.replace('-', '_')
@@ -4079,6 +4905,7 @@ async function runDailyMode(config, cliOptions) {
           config,
           researchPack: artifact.researchPack,
           imagePlans: artifact.imagePlans,
+          imageCoverage: artifact.imageCoverage || null,
           workflowKey: bridgeWorkflowKey,
           coverageDate,
           candidateTopics: [
@@ -4295,6 +5122,14 @@ async function runWeeklyReviewMode(config, cliOptions) {
       coverage_date: today,
     }
     const imageUploadToken = cliOptions.dryRun ? '' : await getCachedAdminToken()
+    // Weekly never builds the topic guards (it publishes exactly one post), so it resolves the
+    // published-image memory on its own — once a week, against our own API.
+    const usedImages = config.source_image_picker_enabled
+      ? await resolveUsedImageRegistry(
+        { imageDedupe: resolveImageDedupeConfig(config, weeklyConfig), force: cliOptions.force, dryRun: cliOptions.dryRun },
+        { coverageDate: today },
+      )
+      : null
     const artifact = await buildPublishablePost({
       outline,
       researchPack,
@@ -4306,6 +5141,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
       workflow,
       imageUploadToken,
       dryRun: cliOptions.dryRun,
+      usedImages,
     })
 
     const metadataBridgePayload = buildPublishingMetadataBridgePayload({
@@ -4317,6 +5153,7 @@ async function runWeeklyReviewMode(config, cliOptions) {
       config,
       researchPack: artifact.researchPack,
       imagePlans: artifact.imagePlans,
+      imageCoverage: artifact.imageCoverage || null,
       workflowKey: 'weekly_review',
       coverageDate: today,
       candidateTopics: [
@@ -4495,6 +5332,7 @@ async function main() {
         outline: item.outline,
         research_pack: item.researchPack,
         image_plans: item.imagePlans,
+        image_coverage: item.imageCoverage || null,
         quality_gate: item.gate,
         post: item.post,
         cover_image: item.cover_image || null,

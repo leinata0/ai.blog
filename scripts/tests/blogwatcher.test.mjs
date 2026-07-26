@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   applySourceDiversity,
@@ -14,6 +17,8 @@ import {
   resolveSourceDiversityConfig,
   scoreResearchItem,
 } from '../lib/blogwatcher.mjs'
+
+const FEED_FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'feeds')
 
 const source = {
   name: 'Example Feed',
@@ -282,6 +287,48 @@ test('mapWithConcurrency preserves order and never exceeds the concurrency limit
   assert.equal(results[0].value, 2)
   assert.equal(results[2].status, 'rejected')
   assert.equal(results[6].value, 14)
+})
+
+// --- 插图供给：feed 正文里的配图不再被丢掉 ---
+
+test('parseFeedXml 把 feed 正文里的配图挂到 item.media_candidates 上', async () => {
+  const xml = await readFile(resolve(FEED_FIXTURE_DIR, 'wordpress-content-encoded.xml'), 'utf8')
+
+  const [item] = parseFeedXml(xml, source)
+
+  // 这份数据本来就随 RSS 一起抓回来了，之前整段丢掉，插图候选只剩「事后再抓一次源站
+  // 页面 HTML」一条路 —— 而那条路会被 JS 注入正文、付费墙和反爬打掉一大半。
+  assert.ok(Array.isArray(item.media_candidates))
+  assert.ok(item.media_candidates.length >= 3, `expected feed-content candidates, got ${item.media_candidates.length}`)
+  assert.ok(item.media_candidates.some((candidate) => candidate.kind === 'feed-content'))
+  assert.ok(item.media_candidates.every((candidate) => candidate.url.startsWith('https://')))
+  // 相对路径要按这条 item 的文章链接补全，而不是原样留着导致下游取不到图。
+  assert.ok(item.media_candidates.some((candidate) => (
+    candidate.url === 'https://techcrunch.com/wp-content/uploads/2026/07/inference-cost-chart.png'
+  )))
+})
+
+test('parseFeedXml 对没有配图的 feed 给出空候选，其余字段不受影响', async () => {
+  const xml = await readFile(resolve(FEED_FIXTURE_DIR, 'text-only-no-media.xml'), 'utf8')
+
+  const items = parseFeedXml(xml, source)
+
+  assert.equal(items.length, 2)
+  assert.ok(items.every((item) => Array.isArray(item.media_candidates) && item.media_candidates.length === 0))
+  assert.equal(items[0].title, 'Show HN: A tiny inference server written in Zig')
+  assert.equal(items[0].url, 'https://github.com/example/zig-infer')
+})
+
+test('parseFeedXml 用 Atom 的 rel="alternate" 作为 media_candidates 的相对路径基准', async () => {
+  const xml = await readFile(resolve(FEED_FIXTURE_DIR, 'atom-escaped-content.xml'), 'utf8')
+
+  const [item] = parseFeedXml(xml, source)
+
+  // link 被解析成数组时若拼成逗号串，baseUrl 就是垃圾，所有相对路径的图会一起失效。
+  assert.equal(item.url, 'https://huggingface.co/blog/jfrog')
+  assert.ok(item.media_candidates.some((candidate) => (
+    candidate.url === 'https://huggingface.co/blog/assets/jfrog/scan-pipeline-diagram.png'
+  )))
 })
 
 test('readResponseTextCapped stops reading once the byte cap is reached', async () => {

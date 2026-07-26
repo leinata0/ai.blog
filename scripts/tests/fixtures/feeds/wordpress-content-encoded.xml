@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	xmlns:sy="http://purl.org/rss/1.0/modules/syndication/"
+	xmlns:slash="http://purl.org/rss/1.0/modules/slash/"
+	>
+<channel>
+	<title>TechCrunch</title>
+	<atom:link href="https://techcrunch.com/feed/" rel="self" type="application/rss+xml" />
+	<link>https://techcrunch.com/</link>
+	<description>Startup and Technology News</description>
+	<lastBuildDate>Mon, 20 Jul 2026 18:02:11 +0000</lastBuildDate>
+	<language>en-US</language>
+	<sy:updatePeriod>hourly</sy:updatePeriod>
+	<item>
+		<title>Google is working on a new AI chip designed to make Gemini more efficient</title>
+		<link>https://techcrunch.com/2026/07/20/google-is-working-on-a-new-ai-chip-designed-to-make-gemini-more-efficient/</link>
+		<dc:creator><![CDATA[Maxwell Zeff]]></dc:creator>
+		<pubDate>Mon, 20 Jul 2026 17:04:11 +0000</pubDate>
+		<category><![CDATA[AI]]></category>
+		<guid isPermaLink="false">https://techcrunch.com/?p=3096210</guid>
+		<description><![CDATA[<p>Google is developing a new inference accelerator for Gemini.</p>
+<img src="https://techcrunch.com/wp-content/uploads/2026/07/gemini-icon.jpg?resize=1024%2C521&#038;ssl=1" alt="Gemini icon" width="1024" height="521" />
+]]></description>
+		<content:encoded><![CDATA[<figure id="attachment_3096211" class="wp-caption alignnone">
+<img fetchpriority="high" decoding="async" class="wp-image-3096211 size-full" src="https://techcrunch.com/wp-content/uploads/2026/07/tpu-rack.jpg?w=1024&#038;ssl=1" alt="A rack of Google TPU accelerators inside a datacenter" width="1024" height="576" srcset="https://techcrunch.com/wp-content/uploads/2026/07/tpu-rack.jpg?w=1536&#038;ssl=1 1536w, https://techcrunch.com/wp-content/uploads/2026/07/tpu-rack.jpg?w=768&#038;ssl=1 768w" sizes="(max-width: 1024px) 100vw, 1024px" />
+<figcaption class="wp-caption-text">谷歌数据中心内的 TPU 机架。Image Credits: Google</figcaption>
+</figure>
+<p>Google is building a purpose-built inference chip so that serving Gemini costs less per token.</p>
+<figure>
+<img decoding="async" src="/wp-content/uploads/2026/07/inference-cost-chart.png" alt="Inference cost per million tokens" width="1200" height="675" />
+<figcaption>推理成本随芯片代际下降的曲线，纵轴为每百万 token 的美元成本。</figcaption>
+</figure>
+<p>The company declined to share a shipping date.</p>
+<!-- <img src="https://techcrunch.com/wp-content/uploads/2026/07/pulled-draft.jpg" alt="withdrawn" width="1200" height="800" /> -->
+<script>window.__tcAds = { slot: "https://ads.example.com/banner-1200x600.jpg" };</script>
+<img src="https://pixel.wp.com/b.gif?v=noscript&#038;blog=1234567" width="1" height="1" alt="" />
+<img src="https://feeds.feedburner.com/~ff/Techcrunch?d=yIl2AUoC8zA" border="0" alt="" />
+]]></content:encoded>
+		<slash:comments>0</slash:comments>
+	</item>
+</channel>
+</rss>
