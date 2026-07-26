@@ -250,6 +250,13 @@ AI_MODEL_INSTANCE_COLUMNS = {
     "updated_at": "DATETIME",
 }
 
+AI_PROVIDER_ALLOWED_HOST_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY",
+    "hostname": "VARCHAR(255) NOT NULL UNIQUE",
+    "note": "VARCHAR(200) NOT NULL DEFAULT ''",
+    "created_at": "DATETIME",
+}
+
 ADMIN_IMAGE_GENERATION_JOB_COLUMNS = {
     "id": "INTEGER PRIMARY KEY",
     "job_type": "VARCHAR(40) NOT NULL",
@@ -416,6 +423,7 @@ TABLE_COLUMN_MAPS: dict[str, dict[str, str]] = {
     "ai_channel_configs": AI_CHANNEL_CONFIG_COLUMNS,
     "ai_provider_sources": AI_PROVIDER_SOURCE_COLUMNS,
     "ai_model_instances": AI_MODEL_INSTANCE_COLUMNS,
+    "ai_provider_allowed_hosts": AI_PROVIDER_ALLOWED_HOST_COLUMNS,
     "admin_image_generation_jobs": ADMIN_IMAGE_GENERATION_JOB_COLUMNS,
     "admin_text_generation_jobs": ADMIN_TEXT_GENERATION_JOB_COLUMNS,
     "email_subscriptions": EMAIL_SUBSCRIPTION_COLUMNS,
@@ -669,7 +677,29 @@ def _create_table_if_missing(
         _ensure_postgres_id_default(engine, table_name)
 
 
+def ensure_ai_provider_allowlist_schema_compat(engine, *, repair_sequence: bool = False) -> None:
+    """Create/backfill the admin-managed Base URL allowlist table.
+
+    Split out of `ensure_ai_provider_schema_compat` because the read path needs it
+    too: `ai_provider_manager._allowed_base_url_hosts()` SELECTs this table while
+    resolving the runtime plan, and on Render (startup schema sync off) nothing
+    else would have created it.
+    """
+    _create_table_if_missing(
+        engine,
+        "ai_provider_allowed_hosts",
+        AI_PROVIDER_ALLOWED_HOST_COLUMNS,
+        indexes=[
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_provider_allowed_hosts_hostname "
+            "ON ai_provider_allowed_hosts (hostname)",
+        ],
+        repair_sequence=repair_sequence,
+    )
+
+
 def ensure_ai_provider_schema_compat(engine, *, repair_sequence: bool = False) -> None:
+    ensure_ai_provider_allowlist_schema_compat(engine, repair_sequence=repair_sequence)
+
     _create_table_if_missing(
         engine,
         "ai_provider_sources",
@@ -781,6 +811,11 @@ def ensure_runtime_required_schema(engine) -> None:
         ],
         repair_sequence=True,
     )
+
+    # The Base URL allowlist is read on the AI runtime path, not only when an admin
+    # edits it: a missing table there would abort the surrounding transaction on
+    # Postgres. Create it even when full schema sync is off.
+    ensure_ai_provider_allowlist_schema_compat(engine, repair_sequence=True)
 
 
 def ensure_schema_compat(engine) -> None:

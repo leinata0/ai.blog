@@ -298,6 +298,35 @@ export const deleteAdminAiProviderSource = (id) =>
   })
 export const fetchAdminAiProviderSourceModels = (id) =>
   apiPost(`/api/admin/ai-provider-sources/${id}/models`, {}, { auth: true })
+
+const AI_PROVIDER_ALLOWED_HOSTS_PATH = '/api/admin/ai-provider-allowed-hosts'
+// 新增/删除允许主机会改变 base_url 校验结果，进而影响哪些模型实例可用，
+// 所以运行计划和生图状态缓存也要一起失效。
+const AI_PROVIDER_ALLOWED_HOSTS_INVALIDATE = [
+  AI_PROVIDER_ALLOWED_HOSTS_PATH,
+  '/api/admin/ai-runtime-plan',
+  '/api/admin/cover-generation-status',
+]
+
+// 允许列表是安全相关配置，读的时候不吃缓存：一键添加后立刻要看到最新结果。
+export const fetchAdminAiProviderAllowedHosts = (requestOptions = {}) =>
+  apiGet(AI_PROVIDER_ALLOWED_HOSTS_PATH, {
+    auth: true,
+    cache: false,
+    forceRefresh: true,
+    dedupe: false,
+    ...requestOptions,
+  })
+export const createAdminAiProviderAllowedHost = (data) =>
+  apiPost(AI_PROVIDER_ALLOWED_HOSTS_PATH, data, {
+    auth: true,
+    invalidatePaths: AI_PROVIDER_ALLOWED_HOSTS_INVALIDATE,
+  })
+export const deleteAdminAiProviderAllowedHost = (id) =>
+  apiDelete(`${AI_PROVIDER_ALLOWED_HOSTS_PATH}/${id}`, {
+    auth: true,
+    invalidatePaths: AI_PROVIDER_ALLOWED_HOSTS_INVALIDATE,
+  })
 export const fetchAdminAiModelInstances = (params = {}, requestOptions = {}) => {
   const qs = new URLSearchParams(params).toString()
   return apiGet(`/api/admin/ai-model-instances${qs ? `?${qs}` : ''}`, { ...ADMIN_STATUS_CACHE_OPTIONS, ...requestOptions, auth: true })

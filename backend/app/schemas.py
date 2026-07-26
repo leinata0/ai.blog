@@ -731,6 +731,19 @@ class AiProviderSourceOut(BaseModel):
     extra_json: str = "{}"
 
 
+class AiProviderAllowedHostCreateRequest(BaseModel):
+    # 允许整条 URL 粘进来：服务端会提取主机名（见 normalize_allowed_host_input）。
+    hostname: str = Field(..., min_length=1, max_length=512)
+    note: str | None = Field(default=None, max_length=200)
+
+
+class AiProviderAllowedHostOut(BaseModel):
+    id: int
+    hostname: str = ""
+    note: str = ""
+    created_at: str = ""
+
+
 class AiModelInstanceUpdateRequest(BaseModel):
     source_id: int | None = None
     name: str | None = None
@@ -875,6 +888,9 @@ class AiChannelTestResponse(BaseModel):
     model: str = ""
     message: str = ""
     error_code: str = ""
+    # base_url_not_allowed / base_url_not_public 时带上被拒绝的主机名，前端据此提供
+    # "一键加入允许列表"。与 HTTP 错误体里的同名字段保持一致。
+    rejected_hostname: str = ""
     latency_ms: int | None = None
     attempts: list[AiChannelTestAttemptOut] = Field(default_factory=list)
     selected_target_id: str = ""

@@ -165,6 +165,27 @@ class AiModelInstance(Base):
     source = relationship("AiProviderSource", back_populates="model_instances")
 
 
+class AiProviderAllowedHost(Base):
+    """管理后台维护的 Base URL 允许主机。
+
+    白名单来源是「内置预设 ∪ 环境变量 ∪ 本表」。加一个自建网关以前必须改 Render
+    的 ``AI_PROVIDER_ALLOWED_BASE_URL_HOSTS`` 并重新部署，这张表把那步搬进后台。
+
+    白名单只回答"允许哪些主机"这一个问题。私网/保留地址的拦截由
+    ``app.url_safety`` 独立强制，本表里的任何一行都绕不过去 —— 白名单存的是主机名，
+    而 DNS 是可变的：今天解析到公网的域名明天可以指向 127.0.0.1。
+
+    ``hostname`` 以 ``.`` 开头表示子域规则（``.example.com`` 匹配其子域，但不匹配
+    ``example.com`` 本身），与 ai_provider_manager._is_allowed_base_url_host 一致。
+    """
+
+    __tablename__ = "ai_provider_allowed_hosts"
+    id = Column(Integer, primary_key=True, index=True)
+    hostname = Column(String(255), nullable=False, unique=True, index=True)
+    note = Column(String(200), nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 class AdminImageGenerationJob(Base):
     __tablename__ = "admin_image_generation_jobs"
     id = Column(Integer, primary_key=True, index=True)
