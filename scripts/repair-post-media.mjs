@@ -979,27 +979,26 @@ async function main() {
     publishing_artifact: artifactPayload,
   }
 
-  if (options.dryRun) {
-    console.log(JSON.stringify({
-      post_id: post.id,
-      post_slug: post.slug,
-      source_count: sources.length,
-      bridge_payload: bridgePayload,
-    }, null, 2))
-    return
-  }
+  // 注意：dry-run 不能在这里返回。插图重选发生在下面，而"插图会被换成什么"正是
+  // 这个工具唯一值得预览的东西——提前返回会让 --dry-run 只输出一份元数据 payload，
+  // 看不到任何图片决策，等于没有预览价值。改为在真正发写请求之前才分叉。
 
   const trustedHosts = resolveTrustedImageHosts()
   warnIfImageCdnUnconfigured(trustedHosts, console)
 
-  const bridgeResult = await upsertPublishingMetadata(token, bridgePayload)
-  console.log(`Publishing metadata repaired: sources=${bridgeResult.source_count} artifact=${bridgeResult.artifact_id}`)
-
-  const coverResult = await generatePostCover(token, post.id, false)
-  if (coverResult.generated) {
-    console.log(`Post cover ready: ${coverResult.cover_image}`)
+  if (options.dryRun) {
+    console.log(`[dry-run] 将写入发布元数据：sources=${bridgePayload.post_sources.length}`)
+    console.log('[dry-run] 跳过封面生成（该调用是付费的）')
   } else {
-    console.log(`Post cover not regenerated: ${coverResult.error_code || 'unknown'} ${coverResult.error || ''}`.trim())
+    const bridgeResult = await upsertPublishingMetadata(token, bridgePayload)
+    console.log(`Publishing metadata repaired: sources=${bridgeResult.source_count} artifact=${bridgeResult.artifact_id}`)
+
+    const coverResult = await generatePostCover(token, post.id, false)
+    if (coverResult.generated) {
+      console.log(`Post cover ready: ${coverResult.cover_image}`)
+    } else {
+      console.log(`Post cover not regenerated: ${coverResult.error_code || 'unknown'} ${coverResult.error || ''}`.trim())
+    }
   }
 
   const allowedTypes = new Set(config.image_selection_rules?.allowed_source_types || [])
@@ -1033,10 +1032,11 @@ async function main() {
     isImageUrlExcluded: usedImages.has,
     normalizeUrlForDedupe: normalizeImageUrlForDedupe,
   }), usedImages)
-  const imagePlans = await localizeImagePlans(pickedImagePlans, {
-    token,
-    blogApiBase: BLOG_API_BASE,
-  })
+  // localizeImagePlans 会真的下载图片并上传到 R2，dry-run 必须跳过：预览不应该产生
+  // 存储对象。预览用原始 URL 展示决策即可，本地化只影响最终 URL 的主机名。
+  const imagePlans = options.dryRun
+    ? pickedImagePlans
+    : await localizeImagePlans(pickedImagePlans, { token, blogApiBase: BLOG_API_BASE })
   const cleaned = stripThirdPartyMarkdownImages(post.content_md, { trustedHosts })
 
   if (imagePlans.length === 0 && cleaned.removed === 0) {
@@ -1048,6 +1048,21 @@ async function main() {
   const nextContent = replaceOrAppendImageSourcesSection(contentWithImages, imagePlans)
   if (nextContent === post.content_md) {
     console.log('Inline image content is already up to date.')
+    return
+  }
+
+  if (options.dryRun) {
+    const before = extractInlineImageUrlsFromMarkdown(post.content_md)
+    const after = extractInlineImageUrlsFromMarkdown(nextContent)
+    console.log('\n=== dry-run 预览：插图将如何变化 ===')
+    console.log(`改前 ${before.length} 张：`)
+    for (const url of before) console.log(`  - ${url}`)
+    console.log(`改后 ${after.length} 张：`)
+    for (const plan of imagePlans) {
+      console.log(`  + [${plan.section_heading || '?'}] ${plan.image_url || plan.url}`)
+      console.log(`      理由 ${plan.reason || '-'}｜来源 ${plan.source_page_url || '-'}`)
+    }
+    console.log(`（第三方图将被移除 ${cleaned.removed} 张；正文${nextContent === post.content_md ? '不变' : '会被改写'}）`)
     return
   }
 
