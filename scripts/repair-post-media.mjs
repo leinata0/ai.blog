@@ -14,7 +14,15 @@ import {
   resolveImageDedupeConfig,
   resolveUsedImageRegistry,
 } from './auto-blog.mjs'
-import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
+import {
+  fetchWithTransientRetry,
+  iterateAdminPostPages,
+  loginWithRetry,
+  resolveAdminPassword,
+  resolveAdminUsername,
+  resolveBlogApiBase,
+  waitForBackendAwake,
+} from './lib/blog-api.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
 import {
   downloadVerifiedImage,
@@ -82,38 +90,38 @@ async function loadConfig() {
   return JSON.parse(raw)
 }
 
-async function adminLogin() {
-  if (!ADMIN_PASSWORD) {
-    throw new Error('Missing ADMIN_PASSWORD')
-  }
-
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
-    signal: AbortSignal.timeout(15000),
+// The 15s no-retry login this replaced is the exact call that failed in production with "The
+// operation was aborted due to timeout"; the only recovery was curling /readyz by hand and
+// re-running. `main()` now does that wake automatically, and the login itself retries.
+export async function adminLogin(options = {}) {
+  return loginWithRetry({
+    blogApiBase: BLOG_API_BASE,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    ...options,
   })
-  if (!resp.ok) {
-    throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-  return (await resp.json()).access_token
 }
 
-async function fetchPublicPostBySlug(slug) {
-  const resp = await fetch(`${BLOG_API_BASE}/api/posts/${slug}`, {
-    signal: AbortSignal.timeout(15000),
-  })
+async function fetchPublicPostBySlug(slug, { fetchImpl = fetch, retryOptions } = {}) {
+  const resp = await fetchWithTransientRetry(
+    fetchImpl,
+    `${BLOG_API_BASE}/api/posts/${slug}`,
+    {},
+    retryOptions,
+  )
   if (!resp.ok) {
     throw new Error(`Fetch post failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
   return resp.json()
 }
 
-async function fetchAdminPostWith(postId, token, fetchImpl = fetch) {
-  const resp = await fetchImpl(`${BLOG_API_BASE}/api/admin/posts/${postId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  })
+async function fetchAdminPostWith(postId, token, fetchImpl = fetch, retryOptions) {
+  const resp = await fetchWithTransientRetry(
+    fetchImpl,
+    `${BLOG_API_BASE}/api/admin/posts/${postId}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    retryOptions,
+  )
   if (!resp.ok) {
     throw new Error(`Fetch admin post failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
@@ -131,33 +139,30 @@ async function fetchPublishedAdminPosts(token, {
   maxPages = DEFAULT_MAX_LIST_PAGES,
   fetchImpl = fetch,
   logger = console,
+  retryOptions,
 } = {}) {
   const posts = []
-  // A missing/non-numeric `total` plus a permanently full page used to spin
-  // forever and accumulate unbounded state; the page ceiling fails loudly instead.
-  for (let page = 1; page <= maxPages; page += 1) {
-    const params = new URLSearchParams({
-      is_published: 'true',
-      page: String(page),
-      page_size: String(pageSize),
-    })
-    const resp = await fetchImpl(`${BLOG_API_BASE}/api/admin/posts?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!resp.ok) {
-      throw new Error(`Fetch admin posts failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-    }
-    const payload = await resp.json()
-    const items = Array.isArray(payload?.items) ? payload.items : []
-    posts.push(...items)
-    const total = Number(payload?.total)
-    if (items.length === 0 || items.length < pageSize || (Number.isFinite(total) && posts.length >= total)) {
-      return posts
-    }
-    if (page === maxPages) {
-      logger?.warn?.(`Stopped paging published posts at the ${maxPages}-page ceiling; increase maxPages if the archive is larger.`)
-    }
+  // A missing/non-numeric `total` plus a permanently full page used to spin forever and
+  // accumulate unbounded state; the shared iterator's page ceiling makes that impossible, and its
+  // `last` flag is what tells us whether we stopped at the end or at the ceiling.
+  let reachedEnd = false
+  const pages = iterateAdminPostPages({
+    blogApiBase: BLOG_API_BASE,
+    token,
+    pageSize,
+    maxPages,
+    query: { is_published: 'true' },
+    fetchImpl,
+    retryOptions,
+  })
+
+  for await (const page of pages) {
+    posts.push(...page.items)
+    reachedEnd = page.last
+  }
+
+  if (!reachedEnd) {
+    logger?.warn?.(`Stopped paging published posts at the ${maxPages}-page ceiling; increase maxPages if the archive is larger.`)
   }
   return posts
 }
@@ -544,10 +549,14 @@ export async function repairPublishedPostImages({
   if (!token) throw new Error('Admin token is required for batch repair')
   const trustedHosts = resolveTrustedImageHosts()
   warnIfImageCdnUnconfigured(trustedHosts, logger)
-  const summaries = await fetchPublishedAdminPosts(token, { pageSize, maxPages, fetchImpl, logger })
+  // Read paths retry transient 5xx/timeouts; the injected `sleepImpl` keeps that instant in tests.
+  // The PUT below deliberately does not retry — a duplicated body overwrite is worse than a
+  // reported failure, and the audit already records it.
+  const retryOptions = { sleepImpl }
+  const summaries = await fetchPublishedAdminPosts(token, { pageSize, maxPages, fetchImpl, logger, retryOptions })
   const postResults = await mapWithConcurrency(summaries, concurrency, async (summary) => {
     try {
-      const post = await fetchAdminPostWith(summary.id, token, fetchImpl)
+      const post = await fetchAdminPostWith(summary.id, token, fetchImpl, retryOptions)
       return { post, error: null }
     } catch (error) {
       return { post: summary, error: error?.message || 'post fetch failed' }
@@ -924,6 +933,13 @@ async function updatePostContent(token, postId, contentMd) {
 
 async function main() {
   const options = parseArgs()
+
+  // The wake gate lives here rather than inside `adminLogin` because the login is not always the
+  // first request: a `--dry-run` without `--post-id` starts with the *public* post fetch. Waking
+  // once, up front, covers every entry path — this is the manual `curl /readyz` step that used to
+  // be required before a run of this script could succeed at all.
+  await waitForBackendAwake({ blogApiBase: BLOG_API_BASE })
+
   if (options.all) {
     const token = await adminLogin()
     await repairPublishedPostImages({

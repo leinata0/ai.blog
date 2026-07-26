@@ -26,10 +26,22 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Push endpoints are minted by the browser vendor's push service, so the set of
 # reachable hosts is small and closed. Anything else is either stale junk or an
-# attacker-supplied SSRF target. A leading dot means "this host and anything
-# under it" — same rule format the subscribe-time check in
-# routers/subscriptions.py uses, so the shared WEB_PUSH_ALLOWED_ENDPOINT_HOSTS
-# env var cannot be interpreted differently by the two layers.
+# attacker-supplied SSRF target.
+#
+# This tuple and `is_allowed_web_push_endpoint_host` below are the single
+# implementation for both layers: `routers/subscriptions.py` imports the matcher
+# for its request-time 400, and `validate_outbound_web_push_endpoint` uses it as
+# the delivery-time gate. They used to be two hand-written copies that disagreed
+# on two points (apex matching for a dotted rule, and how the env additions were
+# normalized), which made WEB_PUSH_ALLOWED_ENDPOINT_HOSTS mean subtly different
+# things depending on which side you were reading.
+#
+# Rule format: a leading dot means "strictly below this name" — ".notify.windows.com"
+# matches "wns2-by3p.notify.windows.com" but NOT the bare apex "notify.windows.com".
+# That is the stricter of the two former readings, chosen deliberately: no vendor
+# serves push endpoints off the apex, and convergence must never make the
+# subscribe-time check accept more than it did. Operators who really need an apex
+# can name it exactly in WEB_PUSH_ALLOWED_ENDPOINT_HOSTS.
 WEB_PUSH_ALLOWED_ENDPOINT_HOSTS = (
     "fcm.googleapis.com",
     ".push.services.mozilla.com",
@@ -403,12 +415,20 @@ def web_push_allowed_endpoint_host_rules() -> tuple[str, ...]:
 
 
 def is_allowed_web_push_endpoint_host(hostname: str) -> bool:
+    """The one host-allowlist decision, shared by the subscribe and send paths.
+
+    ``routers.subscriptions.validate_web_push_endpoint`` calls this too, so a
+    host can never be acceptable to store but unacceptable to send to (or the
+    reverse). Both sides normalize through ``url_safety.normalize_hostname``, so
+    a trailing FQDN dot on either the rule or the candidate is not a bypass.
+    """
     host = url_safety.normalize_hostname(hostname)
     if not host:
         return False
     for rule in web_push_allowed_endpoint_host_rules():
         if rule.startswith("."):
-            if host == rule[1:] or host.endswith(rule):
+            # Subdomains only — see the note on WEB_PUSH_ALLOWED_ENDPOINT_HOSTS.
+            if host.endswith(rule):
                 return True
         elif host == rule:
             return True

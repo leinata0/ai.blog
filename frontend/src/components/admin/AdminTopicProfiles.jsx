@@ -9,6 +9,7 @@ import {
   waitForAdminImageGenerationJob,
   updateAdminTopicProfile,
 } from '../../api/admin'
+import { formatDateTime } from '../../utils/date'
 import { trackAdminImageJob } from './adminJobsStore'
 import { proxyImageUrl } from '../../utils/proxyImage'
 import { useAdminConfirm } from './AdminConfirmDialog'
@@ -58,10 +59,7 @@ function normalizeStatus(payload) {
 }
 
 function formatDate(value) {
-  if (!value) return '暂无'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '暂无'
-  return date.toLocaleString('zh-CN', { hour12: false })
+  return formatDateTime(value, { hour12: false }) || '暂无'
 }
 
 function displayTitleSourceLabel(source) {

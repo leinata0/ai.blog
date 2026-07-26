@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { RefreshCcw } from 'lucide-react'
 
 import { fetchAdminTopicHealth } from '../../api/admin'
+import { formatDate } from '../../utils/date'
 
 export default function AdminTopicHealth() {
   const [payload, setPayload] = useState({ summary: {}, items: [] })
@@ -76,7 +77,7 @@ export default function AdminTopicHealth() {
                     <span>{item.post_count ?? 0} 篇文章</span>
                     <span>均分 {item.avg_quality_score ?? '-'}</span>
                     <span>来源 {item.source_count ?? 0}</span>
-                    {item.latest_post_at ? <span>最近更新 {new Date(item.latest_post_at).toLocaleDateString('zh-CN')}</span> : null}
+                    {item.latest_post_at ? <span>最近更新 {formatDate(item.latest_post_at)}</span> : null}
                   </div>
                 </div>
               </div>

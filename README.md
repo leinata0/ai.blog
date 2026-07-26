@@ -179,12 +179,13 @@ cd scripts && npm test                               # 脚本 node --test
 | 运行环境 | `APP_ENV` · `DATABASE_URL` · `PUBLIC_SITE_URL` · `ALLOWED_ORIGINS` · `AUTO_SEED_ON_EMPTY` · `ENABLE_STARTUP_SCHEMA_SYNC` · `ALLOW_EPHEMERAL_UPLOADS`（生产应保持 `0`）· `TRUST_PROXY_HEADERS` / `TRUSTED_PROXY_DEPTH`（可信 XFF 链）· `TRUST_CF_CONNECTING_IP`（仅在源站已限制为 Cloudflare 流量时启用） |
 | 管理认证 | `SECRET_KEY` · `ADMIN_USERNAME` · `ADMIN_PASSWORD` · 可选 `FIELD_ENCRYPTION_KEY`（建议使用独立 Fernet 密钥；未配置时从 `SECRET_KEY` 域隔离派生，始终禁止明文存储） |
 | 存储 R2 | `R2_ACCOUNT_ID` 或 `R2_ENDPOINT` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET_NAME` · `R2_PUBLIC_BASE_URL` · 可选 `R2_REGION` |
-| 邮件/推送 | `RESEND_API_KEY` · `EMAIL_FROM` · `WEB_PUSH_VAPID_PUBLIC_KEY` · `WEB_PUSH_VAPID_PRIVATE_KEY` · `WEB_PUSH_SUBJECT` · `WECOM_WEBHOOK_URLS` |
+| 邮件/推送 | `RESEND_API_KEY` · `EMAIL_FROM` · `WEB_PUSH_VAPID_PUBLIC_KEY` · `WEB_PUSH_VAPID_PRIVATE_KEY` · `WEB_PUSH_SUBJECT` · `WECOM_WEBHOOK_URLS` · 可选 `WEB_PUSH_ALLOWED_ENDPOINT_HOSTS`（追加推送服务域名，订阅与投递两层共用同一份规则）· 可选 `WEB_PUSH_UNSUBSCRIBE_REQUIRE_AUTH`（退订强制出示 `keys.auth`，默认宽松） |
 | 访客系统 | `TURNSTILE_SECRET_KEY`（人机验证，留空则跳过）；邮箱验证、登录验证码和找回密码复用 `RESEND_API_KEY` + `EMAIL_FROM` |
 | AI 生成 | 后台 AI Provider 配置（推荐）· 可选 env：`XAI_API_KEY` / `SILICONFLOW_*`（作 provider 的 env 回退密钥） |
 
 > 后台「站点设置」的 AI Provider 用于运营侧快速切换/校验模型；长期密钥仍建议放 Render 环境变量，运行时不再回退旧 AI Channel 配置。
 > 启用邮箱认证流程时，务必确认 Resend 发件域名已验证且上述两个变量已配置，否则验证码登录、找回密码与注册邮箱验证不可用。
+> 浏览器退订（`POST /api/subscriptions/web-push/unsubscribe`）以 `keys.auth` 作为持有证明：带了就必须常数时间比对通过，没带则记 `web_push_unsubscribe_without_proof` 警告并维持旧行为，方便滚动部署。确认日志里这条警告归零后，把 `WEB_PUSH_UNSUBSCRIBE_REQUIRE_AUTH=1` 加到 Render 即可收紧。
 
 ### 前端（Vercel / 本地）
 

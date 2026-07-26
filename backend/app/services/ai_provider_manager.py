@@ -119,7 +119,15 @@ def _read_allowed_hosts_from_db(db: Session | None) -> frozenset[str]:
     try:
         # no_autoflush：调用方（update_source）可能有未 flush 的改动，白名单查询不该
         # 顺带把它们提前写出去。
-        with session.no_autoflush:
+        #
+        # SAVEPOINT：这个 Session 多数时候是**借来的**（_validate_base_url 在
+        # create_source/update_source 编辑到一半时调用）。Postgres 上一条失败的语句会把
+        # 整个事务打成 aborted，之后调用方的每条语句都跟着挂 —— 而直接 rollback 借来的
+        # Session 会把调用方还没提交的改动一起掀掉。所以把这次查询关进 savepoint：失败时
+        # ROLLBACK TO SAVEPOINT 只清掉这条语句的影响，事务恢复可用，调用方的改动原样保留。
+        # 用的是 Connection 级 begin_nested 而不是 Session.begin_nested()：后者会先 flush
+        # 待写对象（no_autoflush 拦不住显式 flush），正是上面那条注释要避免的事。
+        with session.no_autoflush, session.connection().begin_nested():
             rows = session.execute(select(AiProviderAllowedHost.hostname)).scalars().all()
     except Exception as exc:
         logger.warning(

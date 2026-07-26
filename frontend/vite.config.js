@@ -42,8 +42,13 @@ export default defineConfig({
     // message for a useless "test timed out". Keep this comfortably above the async budget.
     testTimeout: 15000,
     exclude: [...configDefaults.exclude, 'e2e/**'],
-    environmentMatchGlobs: [
-      ['tests/prerender-public.test.js', 'node'],
-    ],
+    // No `environmentMatchGlobs` here: vitest 3 deprecates it (and vitest 4 removes it),
+    // and it was redundant — every node-environment test already declares its own
+    // `/** @vitest-environment node */` docblock, which takes precedence over this
+    // config anyway. tests/prerender-public.test.js was the only glob listed, while
+    // three sibling node tests (deployment-routing, prerender-injection,
+    // router-absolute-targets) already relied on the docblock alone. Keeping the
+    // docblock as the single mechanism avoids the `test.projects` split, which would
+    // otherwise fork setupFiles/testTimeout into two configs for one file.
   },
 })

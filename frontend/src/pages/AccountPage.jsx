@@ -46,6 +46,7 @@ import {
   updateMe,
   uploadAvatar,
 } from '../api/user'
+import { parseDate } from '../utils/date'
 import { proxyImageUrl } from '../utils/proxyImage'
 import '../styles/account.css'
 
@@ -59,10 +60,12 @@ const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
 })
 const numberFormatter = new Intl.NumberFormat('zh-CN')
 
+// Parsing goes through utils/date: a bare `new Date(value)` read every timezone-less
+// timestamp the API returns as browser-local, so 阅读历史/关注/最近登录 were all 8 hours
+// early in UTC+8. Only the zh-CN presentation is local to this page.
 function formatDate(value, withTime = false) {
-  if (!value) return '暂无记录'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '暂无记录'
+  const date = parseDate(value)
+  if (!date) return '暂无记录'
   return (withTime ? dateTimeFormatter : dateFormatter).format(date)
 }
 

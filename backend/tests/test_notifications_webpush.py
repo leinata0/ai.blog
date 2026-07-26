@@ -166,15 +166,73 @@ def test_unresolvable_allowlisted_host_is_retryable_not_permanent(monkeypatch):
     assert excinfo.value.permanent is False
 
 
+# (hostname, allowed) — the one table both layers are checked against below.
+HOST_ALLOWLIST_VECTORS = (
+    ("fcm.googleapis.com", True),
+    ("FCM.GoogleAPIs.COM", True),
+    ("fcm.googleapis.com.", True),  # FQDN trailing dot resolves identically
+    ("updates.push.services.mozilla.com", True),
+    ("autopush.push.services.mozilla.com", True),
+    # A dotted rule means "strictly below this name". The bare apex is not a push
+    # service and both layers must now agree on rejecting it — the subscribe-time
+    # check always did, and convergence is not allowed to loosen that side.
+    ("push.services.mozilla.com", False),
+    ("wns2-by3p.notify.windows.com", True),
+    ("notify.windows.com", False),
+    ("web.push.apple.com", True),
+    ("push.apple.com", False),
+    ("fcm.googleapis.com.evil.example", False),
+    ("notfcm.googleapis.com", False),
+    ("evil-push.services.mozilla.com.attacker.test", False),
+    ("example.com", False),
+    ("", False),
+)
+
+
 def test_is_allowed_web_push_endpoint_host_rules():
-    assert is_allowed_web_push_endpoint_host("fcm.googleapis.com") is True
-    assert is_allowed_web_push_endpoint_host("FCM.GoogleAPIs.COM") is True
-    assert is_allowed_web_push_endpoint_host("updates.push.services.mozilla.com") is True
-    assert is_allowed_web_push_endpoint_host("push.services.mozilla.com") is True
-    assert is_allowed_web_push_endpoint_host("wns2-by3p.notify.windows.com") is True
-    assert is_allowed_web_push_endpoint_host("web.push.apple.com") is True
-    assert is_allowed_web_push_endpoint_host("example.com") is False
-    assert is_allowed_web_push_endpoint_host("") is False
+    for hostname, allowed in HOST_ALLOWLIST_VECTORS:
+        assert is_allowed_web_push_endpoint_host(hostname) is allowed, hostname
+
+
+def test_subscribe_and_delivery_layers_share_one_host_allowlist(monkeypatch):
+    """同一张向量表跑订阅端和投递端，两侧判断必须逐条一致。
+
+    以前这是两份手写实现：订阅端的 `.push.services.mozilla.com` 不匹配裸 apex、投递端
+    匹配；订阅端把 env 追加项按 `.strip().lower()` 归一、投递端走
+    `url_safety.normalize_hostname()`（多剥尾点）。方向上是订阅端更严，属 fail-closed，
+    但同一个 WEB_PUSH_ALLOWED_ENDPOINT_HOSTS 在两层里含义不同，是纯粹的配置困惑源。
+    现在只有 `notifications.is_allowed_web_push_endpoint_host` 一份实现。
+    """
+    # 生产模式下订阅端对未知 host 才会拒绝（开发环境只 warn）
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("WEB_PUSH_ALLOWED_ENDPOINT_HOSTS", raising=False)
+
+    from fastapi import HTTPException
+
+    from app.routers import subscriptions as subscriptions_mod
+
+    for hostname, allowed in HOST_ALLOWLIST_VECTORS:
+        if not hostname:
+            continue
+        endpoint = f"https://{hostname}/push/abc"
+        if allowed:
+            assert subscriptions_mod.validate_web_push_endpoint(endpoint) == endpoint
+        else:
+            with pytest.raises(HTTPException) as excinfo:
+                subscriptions_mod.validate_web_push_endpoint(endpoint)
+            assert excinfo.value.status_code == 400
+
+
+def test_env_added_hosts_are_normalized_the_same_way_on_both_layers(monkeypatch):
+    """尾点/大小写差异不能让一条 env 规则只在其中一层生效。"""
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("WEB_PUSH_ALLOWED_ENDPOINT_HOSTS", "Push.SelfHosted.Example.")
+
+    from app.routers import subscriptions as subscriptions_mod
+
+    endpoint = "https://push.selfhosted.example/wpush/abc"
+    assert is_allowed_web_push_endpoint_host("push.selfhosted.example") is True
+    assert subscriptions_mod.validate_web_push_endpoint(endpoint) == endpoint
 
 
 def test_send_never_reaches_the_sender_for_a_private_endpoint(web_push_env):

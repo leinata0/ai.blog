@@ -93,9 +93,11 @@
   background: var(--text-faint);
 }
 
-.account-sync--active > span { background: #f59e0b; animation: account-pulse 1.2s ease-in-out infinite; }
-.account-sync--ready > span { background: #16a34a; }
-.account-sync--error > span { background: #dc2626; }
+/* 状态点压在 --bg-surface 上，而 --bg-surface 随主题翻转，所以颜色必须走 index.css 的
+   状态色令牌。旧的固定 #f59e0b/#16a34a/#dc2626 在暗色画布上只有 3~3.8:1。 */
+.account-sync--active > span { background: var(--warning-text); animation: account-pulse 1.2s ease-in-out infinite; }
+.account-sync--ready > span { background: var(--success-text); }
+.account-sync--error > span { background: var(--danger-text); }
 
 .account-workspace {
   display: grid;
@@ -182,7 +184,7 @@
   font-weight: 700;
 }
 
-.account-logout:hover { color: #dc2626; }
+.account-logout:hover { color: var(--danger-text); }
 .account-mobile-nav { display: none; }
 .account-content { min-width: 0; }
 
@@ -286,14 +288,14 @@
   align-items: center;
   gap: 0.8rem;
   padding: 1rem 1.15rem;
-  border: 1px solid color-mix(in srgb, #f59e0b 38%, var(--border-muted));
+  border: 1px solid var(--warning-border);
   border-radius: 1rem;
   color: var(--text-secondary);
-  background: color-mix(in srgb, #f59e0b 9%, var(--bg-surface));
+  background: color-mix(in srgb, var(--warning-text) 9%, var(--bg-surface));
 }
 
 .account-security-callout > svg,
-.account-sync-warning > svg { flex: none; color: #d97706; }
+.account-sync-warning > svg { flex: none; color: var(--warning-text); }
 .account-security-callout > div { min-width: 0; flex: 1; }
 .account-security-callout strong { display: block; font-size: 0.84rem; }
 .account-security-callout p { margin-top: 0.2rem; color: var(--text-tertiary); font-size: 0.72rem; }
@@ -341,7 +343,7 @@
 .account-library-actions > span { color: var(--accent); font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
 .account-library-actions > span { color: var(--text-faint); }
 .account-library-actions button { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 0.75rem; color: var(--text-faint); }
-.account-library-actions button:hover { color: #dc2626; background: color-mix(in srgb, #dc2626 9%, transparent); }
+.account-library-actions button:hover { color: var(--danger-text); background: var(--danger-soft); }
 
 .account-pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 1rem; }
 .account-pagination > span { color: var(--text-faint); font-size: 0.7rem; text-align: center; font-variant-numeric: tabular-nums; }
@@ -357,7 +359,7 @@
 .account-following-latest,
 .account-following-list article p { display: block; margin-top: 0.4rem; color: var(--text-tertiary); font-size: 0.73rem; }
 .account-following-list article > button { min-height: 2.75rem; padding: 0 0.85rem; border: 1px solid var(--border-muted); border-radius: 0.75rem; color: var(--text-faint); font-size: 0.7rem; font-weight: 700; }
-.account-following-list article > button:hover { color: #dc2626; border-color: color-mix(in srgb, #dc2626 35%, var(--border-muted)); }
+.account-following-list article > button:hover { color: var(--danger-text); border-color: var(--danger-border); }
 
 .account-profile-form { padding: clamp(1.2rem, 3vw, 2rem); }
 .account-avatar-editor { display: flex; align-items: center; gap: 1.3rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-muted); }
@@ -402,14 +404,14 @@
 .account-subtle-button:disabled { cursor: not-allowed; opacity: 0.5; }
 .account-subtle-button { border: 1px solid var(--border-muted); color: var(--text-secondary); background: var(--bg-surface); }
 .account-subtle-button:hover { border-color: var(--border-strong); color: var(--text-primary); }
-.account-subtle-button--danger { color: #dc2626; }
+.account-subtle-button--danger { color: var(--danger-text); }
 .account-text-link { display: inline-flex; min-height: 2.75rem; align-items: center; color: var(--accent); font-size: 0.75rem; font-weight: 750; }
 
 .account-security-status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
 .account-security-status article { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); gap: 0.75rem; align-items: start; padding: 1rem; border: 1px solid var(--border-muted); border-radius: 1rem; background: var(--bg-surface); }
 .account-security-status article > span { display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border-radius: 0.7rem; color: var(--text-tertiary); background: var(--bg-canvas); }
-.account-security-status article > span.is-ready { color: #16a34a; background: color-mix(in srgb, #16a34a 10%, var(--bg-canvas)); }
-.account-security-status article > span.is-warning { color: #d97706; background: color-mix(in srgb, #f59e0b 10%, var(--bg-canvas)); }
+.account-security-status article > span.is-ready { color: var(--success-text); background: color-mix(in srgb, var(--success-text) 10%, var(--bg-canvas)); }
+.account-security-status article > span.is-warning { color: var(--warning-text); background: color-mix(in srgb, var(--warning-text) 10%, var(--bg-canvas)); }
 .account-security-status strong { display: block; font-size: 0.8rem; }
 .account-security-status p { margin-top: 0.3rem; color: var(--text-tertiary); font-size: 0.68rem; line-height: 1.5; }
 .account-security-status button { grid-column: 2; min-height: 2.75rem; justify-self: start; color: var(--accent); font-size: 0.7rem; font-weight: 750; }
@@ -429,8 +431,8 @@
 .account-data-control,
 .account-session-control,
 .account-danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding: 1.2rem 1.4rem; }
-.account-danger-zone { border-color: color-mix(in srgb, #dc2626 35%, var(--border-muted)); background: color-mix(in srgb, #dc2626 4%, var(--bg-surface)); }
-.account-danger-zone > button { display: inline-flex; min-height: 2.75rem; flex: none; align-items: center; gap: 0.45rem; padding: 0 0.85rem; border: 1px solid color-mix(in srgb, #dc2626 40%, transparent); border-radius: 0.8rem; color: #dc2626; font-size: 0.72rem; font-weight: 750; }
+.account-danger-zone { border-color: var(--danger-border); background: color-mix(in srgb, var(--danger-text) 4%, var(--bg-surface)); }
+.account-danger-zone > button { display: inline-flex; min-height: 2.75rem; flex: none; align-items: center; gap: 0.45rem; padding: 0 0.85rem; border: 1px solid var(--danger-border); border-radius: 0.8rem; color: var(--danger-text); font-size: 0.72rem; font-weight: 750; }
 
 .account-empty { display: grid; min-height: 13rem; place-items: center; align-content: center; padding: 2rem; border: 1px dashed var(--border-strong); border-radius: 1.1rem; text-align: center; }
 .account-empty > svg { color: var(--accent); }
@@ -441,9 +443,9 @@
 .account-skeleton span { display: block; height: 5.7rem; border: 1px solid var(--border-muted); border-radius: 1rem; background: linear-gradient(90deg, var(--bg-surface), var(--accent-soft), var(--bg-surface)); background-size: 200% 100%; animation: account-shimmer 1.4s linear infinite; }
 
 .ui-live-notice { display: inline-flex; min-height: 2.4rem; align-items: center; gap: 0.55rem; padding: 0.45rem 0.7rem; border: 1px solid var(--border-muted); border-radius: 0.75rem; color: var(--text-secondary); background: var(--bg-surface); font-size: 0.7rem; }
-.ui-live-notice__dot { width: 0.42rem; height: 0.42rem; border-radius: 50%; background: #16a34a; }
-.ui-live-notice--error { border-color: color-mix(in srgb, #dc2626 35%, var(--border-muted)); }
-.ui-live-notice--error .ui-live-notice__dot { background: #dc2626; }
+.ui-live-notice__dot { width: 0.42rem; height: 0.42rem; border-radius: 50%; background: var(--success-text); }
+.ui-live-notice--error { border-color: var(--danger-border); }
+.ui-live-notice--error .ui-live-notice__dot { background: var(--danger-text); }
 
 .account-command-layer { position: fixed; z-index: 130; inset: 0; display: grid; place-items: start center; padding: min(14vh, 8rem) 1rem 1rem; }
 .account-command-backdrop { position: absolute; inset: 0; background: rgba(2, 8, 10, 0.64); }

@@ -2,7 +2,7 @@
   "default_mode": "daily-auto",
   "rss_feeds": [
     {
-      "url": "https://blog.openai.com/rss/",
+      "url": "https://openai.com/news/rss.xml",
       "name": "OpenAI Blog",
       "tag": "AI",
       "lang": "en",
@@ -222,7 +222,7 @@
       "source_group": "stratechery"
     },
     {
-      "url": "https://www.theverge.com/ai-artificial-intelligence/rss/index.xml",
+      "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
       "name": "The Verge AI",
       "tag": "AI",
       "lang": "en",
@@ -342,7 +342,7 @@
   "blogwatcher_sources": [
     {
       "name": "OpenAI Blog",
-      "feed_url": "https://blog.openai.com/rss/",
+      "feed_url": "https://openai.com/news/rss.xml",
       "source_type": "official_blog",
       "lang": "en",
       "quality_weight": 0.95,

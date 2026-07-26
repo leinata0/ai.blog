@@ -6,12 +6,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.schema_compat import ensure_admin_image_generation_schema_compat
 from app.models import AdminImageGenerationJob, Post, Series, SiteSettings, TopicProfile
+from app.serialization import as_utc
 from app.services import cover_art as cover_art_service
 from app.url_safety import is_public_http_url
 
@@ -151,10 +152,14 @@ def job_to_dict(job: AdminImageGenerationJob) -> dict[str, Any]:
         "art_direction": art_direction or None,
         "error": job.error or "",
         "error_code": job.error_code or "",
-        "created_at": job.created_at,
-        "updated_at": job.updated_at,
-        "started_at": job.started_at,
-        "finished_at": job.finished_at,
+        # as_utc, not iso_utc: this dict feeds AdminImageGenerationJobOut (Pydantic emits
+        # an aware datetime with an explicit marker, a naive one without) *and*
+        # admin.list_generation_jobs' sort key, which compares these against an aware
+        # datetime.min fallback. Strings would break that comparison.
+        "created_at": as_utc(job.created_at),
+        "updated_at": as_utc(job.updated_at),
+        "started_at": as_utc(job.started_at),
+        "finished_at": as_utc(job.finished_at),
     }
 
 
@@ -203,6 +208,19 @@ def history_item(job: AdminImageGenerationJob) -> dict[str, Any]:
         "finished_at": data.get("finished_at"),
         "source": "server",
     }
+
+
+def count_active(db: Session) -> int:
+    """还没进终态的任务数（queued + running）。入队前的闸门，见 routers/admin。"""
+    ensure_admin_image_generation_schema_compat(db.get_bind())
+    return int(
+        db.execute(
+            select(func.count(AdminImageGenerationJob.id)).where(
+                AdminImageGenerationJob.status.in_((STATUS_QUEUED, STATUS_RUNNING))
+            )
+        ).scalar()
+        or 0
+    )
 
 
 def create_job(db: Session, *, job_type: str, target_id: int | None, body: Any) -> AdminImageGenerationJob:

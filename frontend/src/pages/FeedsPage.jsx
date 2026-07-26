@@ -233,6 +233,17 @@ function ScopeSummaryCard({ contentType, topic, series }) {
   )
 }
 
+// `keys.auth` 是推送服务只交给创建这条订阅的浏览器的 16 字节随机值，退订时把它一起
+// 发给后端作为持有证明——否则只凭 endpoint，任何知道那串 URL 的人都能替别人关掉提醒。
+// 取值本身要兜底：老浏览器可能没有 toJSON()，权限被清掉后 keys 也可能是空的。
+function readPushAuthKey(subscription) {
+  try {
+    return subscription?.toJSON?.()?.keys?.auth || ''
+  } catch {
+    return ''
+  }
+}
+
 function ChannelStatusBadge({ enabled, readyText, pendingText }) {
   return (
     <span
@@ -478,11 +489,20 @@ function BrowserPushCard({ status, contentType, topicKey, seriesSlug }) {
       const registration = await navigator.serviceWorker.getRegistration()
       const subscription = registration ? await registration.pushManager.getSubscription() : null
       if (subscription) {
-        await unsubscribeWebPush({ endpoint: subscription.endpoint })
+        await unsubscribeWebPush({
+          endpoint: subscription.endpoint,
+          auth: readPushAuthKey(subscription),
+        })
         await subscription.unsubscribe()
+        setSubscribed(false)
+        setMessage('这个浏览器的提醒已关闭。')
+        return
       }
+      // 订阅在浏览器侧已经不存在了（清了权限、换了 profile、service worker 被注销）。
+      // 这时既没有 endpoint 也没有 auth，没有任何可以出示的持有证明，所以不调后端；
+      // 服务端那行会在下一次投递收到 404/410 时自动停用。
       setSubscribed(false)
-      setMessage('这个浏览器的提醒已关闭。')
+      setMessage('这个浏览器已经没有生效中的推送订阅，状态已同步。')
     } catch (err) {
       setError(err.message || '关闭浏览器提醒时失败。')
     } finally {

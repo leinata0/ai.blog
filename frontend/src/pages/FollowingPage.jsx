@@ -14,6 +14,7 @@ import {
   getRecentTopics,
 } from '../utils/topicRetention'
 import { fetchCloudTopics, fetchCloudHistory } from '../api/user'
+import { formatDate } from '../utils/date'
 import { useUser } from '../contexts/UserContext'
 import { SITE_COPY, motionContainerVariants, motionItemVariants } from '../utils/contentPresentation'
 
@@ -149,7 +150,7 @@ export default function FollowingPage() {
                       {topic.display_title || topic.topic_key}
                     </div>
                     <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
-                      关注于 {new Date(topic.followed_at).toLocaleDateString('zh-CN')}
+                      关注于 {formatDate(topic.followed_at)}
                     </div>
                   </Link>
                 </motion.div>

@@ -76,20 +76,69 @@ def test_column_map_ddl_is_alter_safe(table_name):
         )
 
 
+# Floor for the composite indexes the walk below is supposed to find. The check is
+# `for index in table.indexes: ...` collecting failures — a walk that yields nothing
+# produces an empty failure list and passes, which is the same silent-no-op shape as
+# the broken admin-route walk `MIN_ADMIN_ROUTES` in test_admin_authz_matrix.py now
+# guards. `table.indexes` is empty for any table whose composite indexes were moved
+# out of `__table_args__` (into a raw `Index(..., _table)` call, a mixin, or a
+# metadata rebuild), so this is reachable. Raise it when indexes are added; never
+# lower it to make a walk pass.
+MIN_COMPOSITE_MODEL_INDEXES = 7
+
+
 def test_composite_model_indexes_have_a_compat_create_statement():
     """Composite indexes are declared in __table_args__ *after* the table shipped, so
     create_all(checkfirst=True) never builds them on a deployed database. Only an
     explicit CREATE INDEX IF NOT EXISTS in schema_compat can.
     """
+    composite = []
     missing = []
     for table_name, table in _model_tables().items():
         for index in table.indexes:
             if len(index.columns) < 2:
                 # Single-column index=True indexes are created together with the table.
                 continue
+            composite.append(f"{table_name}.{index.name}")
             if index.name not in SCHEMA_COMPAT_SOURCE:
                 missing.append(f"{table_name}.{index.name}")
+
+    assert len(composite) >= MIN_COMPOSITE_MODEL_INDEXES, (
+        f"the index walk found only {len(composite)} composite model indexes "
+        f"(expected >= {MIN_COMPOSITE_MODEL_INDEXES}): {sorted(composite)}. The walk "
+        "is broken, so the assertion below is checking an empty list — fix the walk "
+        "rather than lowering the floor."
+    )
     assert missing == [], (
         "Add a CREATE INDEX IF NOT EXISTS for these to schema_compat — otherwise they "
         f"exist only in fresh databases: {sorted(missing)}"
+    )
+
+
+def test_compat_create_statements_are_reachable_from_the_production_schema_path():
+    """A CREATE INDEX statement that only `ensure_schema_compat()` runs does not
+    exist in production: Render sets ENABLE_STARTUP_SCHEMA_SYNC=0, so startup takes
+    the `ensure_runtime_required_schema()` branch. Matching the name against the
+    module source (as the test above does) proves the statement was written, not
+    that the deployed database ever receives it — that is exactly how these indexes
+    came to be "added" twice and still be missing.
+    """
+    from app.schema_compat import LEGACY_CORE_TABLES
+
+    reachable = {
+        schema_compat._index_name_from_ddl(ddl)
+        for _table, _columns, indexes in LEGACY_CORE_TABLES
+        for ddl in indexes
+    }
+    unreachable = []
+    for table_name, table in _model_tables().items():
+        for index in table.indexes:
+            if len(index.columns) < 2:
+                continue
+            if index.name not in reachable:
+                unreachable.append(f"{table_name}.{index.name}")
+    assert unreachable == [], (
+        "These composite indexes are declared in schema_compat but no path Render "
+        "runs would ever create them. Add the table to LEGACY_CORE_TABLES (which "
+        f"ensure_runtime_required_schema walks) instead: {sorted(unreachable)}"
     )

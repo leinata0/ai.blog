@@ -9,6 +9,9 @@ export default function AdminImages() {
   const [images, setImages] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Continuation token from the previous page's `X-Next-Cursor`. '' = no more pages.
+  const [nextCursor, setNextCursor] = useState('')
+  const [loadingMore, setLoadingMore] = useState(false)
   // Distinguishes "the list request failed" from "no images uploaded yet",
   // so a 500 / expired token never renders as a friendly empty state.
   const [loadFailed, setLoadFailed] = useState(false)
@@ -17,13 +20,22 @@ export default function AdminImages() {
   // after an await has to be gated on the component still being mounted.
   const activeRef = useRef(true)
 
+  // The uploads bucket is unbounded, so the endpoint is cursor-paginated. Older mocks (and
+  // any backend rolled back to the pre-pagination build) still answer with a bare array —
+  // treat that as a single exhausted page instead of rendering nothing.
+  function normalizePage(result) {
+    if (Array.isArray(result)) return { items: result, nextCursor: '' }
+    return { items: result?.items || [], nextCursor: result?.nextCursor || '' }
+  }
+
   const loadImages = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const result = await fetchAdminImages()
+      const page = normalizePage(await fetchAdminImages())
       if (!activeRef.current) return
-      setImages(Array.isArray(result) ? result : result?.items || [])
+      setImages(page.items)
+      setNextCursor(page.nextCursor)
       setLoadFailed(false)
     } catch (err) {
       if (!activeRef.current) return
@@ -33,6 +45,25 @@ export default function AdminImages() {
       if (activeRef.current) setLoading(false)
     }
   }, [])
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor) return
+    setLoadingMore(true)
+    setError('')
+    try {
+      const page = normalizePage(await fetchAdminImages({ cursor: nextCursor }))
+      if (!activeRef.current) return
+      // Append, and stop if the backend hands back the same cursor — a repeated token
+      // would otherwise let "加载更多" spin forever on duplicate rows.
+      setImages((current) => [...current, ...page.items])
+      setNextCursor(page.nextCursor === nextCursor ? '' : page.nextCursor)
+    } catch (err) {
+      if (!activeRef.current) return
+      setError(err.message || '加载更多图片失败')
+    } finally {
+      if (activeRef.current) setLoadingMore(false)
+    }
+  }, [nextCursor])
 
   useEffect(() => {
     activeRef.current = true
@@ -82,6 +113,7 @@ export default function AdminImages() {
       ) : images.length === 0 ? (
         <div className="text-sm text-[var(--text-faint)]">暂无已上传图片</div>
       ) : (
+        <>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {images.map((img) => {
             const filename = typeof img === 'string' ? img : img.filename || img.name
@@ -102,6 +134,19 @@ export default function AdminImages() {
             )
           })}
         </div>
+        {nextCursor ? (
+          <div className="mt-6 flex justify-center">
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="min-h-11 rounded-lg border border-[var(--border-muted)] px-5 text-sm text-[var(--text-secondary)] disabled:opacity-60"
+            >
+              {loadingMore ? '加载中…' : '加载更多'}
+            </button>
+          </div>
+        ) : null}
+        </>
       )}
     </div>
   )

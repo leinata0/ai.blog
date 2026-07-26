@@ -96,6 +96,7 @@ from app.schemas import (
     TopicProfileUpdateRequest,
     UploadOut,
 )
+from app.serialization import iso_utc
 from app.storage import (
     ImageValidationError,
     MAX_IMAGE_LIST_PAGE_SIZE,
@@ -361,6 +362,8 @@ class _ImageGenerationExecutor:
 
 
 _IMAGE_GENERATION_EXECUTOR = _ImageGenerationExecutor()
+# One image worker on purpose: every job is a paid, minutes-long upstream call, and
+# running them in parallel only multiplies the rate-limit and spend exposure.
 _IMAGE_GENERATION_JOB_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="admin-image-generation")
 _TEXT_GENERATION_JOB_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="admin-text-generation")
 
@@ -369,6 +372,16 @@ _TEXT_GENERATION_JOB_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix
 IMAGE_JOB_STALE_MINUTES = 60
 TEXT_JOB_STALE_MINUTES = 30
 GENERATION_JOB_SWEEP_INTERVAL_SECONDS = 600
+
+# Queue depth cap. A ThreadPoolExecutor's work queue is unbounded, so leaning on the
+# "generate cover" button used to enqueue jobs forever — and with one image worker
+# anything past a few is guaranteed to miss its own deadline: a single image can take
+# IMAGE_GENERATION_TIMEOUT_SECONDS (300s default), so job #13 is still waiting when the
+# sweeper declares it stale at IMAGE_JOB_STALE_MINUTES. Both caps are set below that
+# crossover, so a queued job either runs or is refused up front with a message an
+# operator can act on — instead of sitting for an hour and failing as "stale_job".
+MAX_ACTIVE_IMAGE_JOBS = 8
+MAX_ACTIVE_TEXT_JOBS = 12
 
 _sweeper_thread: threading.Thread | None = None
 _sweeper_stop = threading.Event()
@@ -400,6 +413,16 @@ def _submit_job(pool: ThreadPoolExecutor, fn, job_id: int, *, kind: str, **kwarg
     return future
 
 
+def _reject_if_queue_is_full(active: int, limit: int, *, kind: str) -> None:
+    if active < limit:
+        return
+    logger.warning("%s_generation_queue_full active=%s limit=%s", kind, active, limit)
+    raise HTTPException(
+        status_code=429,
+        detail=f"生成队列已满（{active}/{limit} 个任务在排队或执行中），请等待当前任务完成后再试。",
+    )
+
+
 def _enqueue_image_generation_job(
     db: Session,
     *,
@@ -407,6 +430,9 @@ def _enqueue_image_generation_job(
     target_id: int | None,
     body,
 ) -> dict:
+    _reject_if_queue_is_full(
+        image_generation_jobs.count_active(db), MAX_ACTIVE_IMAGE_JOBS, kind="image"
+    )
     job = image_generation_jobs.create_job(db, job_type=job_type, target_id=target_id, body=body)
     _submit_job(
         _IMAGE_GENERATION_JOB_POOL,
@@ -419,6 +445,9 @@ def _enqueue_image_generation_job(
 
 
 def _enqueue_text_generation_job(db: Session, body) -> dict:
+    _reject_if_queue_is_full(
+        text_generation_jobs.count_active(db), MAX_ACTIVE_TEXT_JOBS, kind="text"
+    )
     job = text_generation_jobs.create_job(db, body)
     _submit_job(_TEXT_GENERATION_JOB_POOL, text_generation_jobs.run_job, job.id, kind="text")
     return text_generation_jobs.job_to_dict(job)
@@ -523,8 +552,8 @@ def _post_to_dict(post: Post) -> dict:
         "is_published": post.is_published if post.is_published is not None else True,
         "is_pinned": post.is_pinned if post.is_pinned is not None else False,
         "like_count": post.like_count or 0,
-        "created_at": post.created_at.isoformat() if post.created_at else None,
-        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
+        "created_at": iso_utc(post.created_at),
+        "updated_at": iso_utc(post.updated_at),
         "tags": [{"name": tag.name, "slug": tag.slug} for tag in post.tags],
     }
 
@@ -533,10 +562,6 @@ def _post_list_row_dict(post: Post) -> dict:
     payload = _post_to_dict(post)
     payload.pop("content_md", None)
     return payload
-
-
-def _serialize_datetime(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
 
 
 def _build_series_aggregation_index(
@@ -591,9 +616,9 @@ def _series_to_dict(series: Series, db: Session, *, aggregated: dict | None = No
         "is_featured": bool(series.is_featured),
         "sort_order": series.sort_order or 0,
         "post_count": post_count,
-        "latest_post_at": _serialize_datetime(latest_post_at),
-        "created_at": _serialize_datetime(series.created_at),
-        "updated_at": _serialize_datetime(series.updated_at),
+        "latest_post_at": iso_utc(latest_post_at),
+        "created_at": iso_utc(series.created_at),
+        "updated_at": iso_utc(series.updated_at),
     }
 
 
@@ -657,8 +682,8 @@ def _snapshot_to_dict(snapshot: PostQualitySnapshot | None) -> dict | None:
         "issues": _json_list(snapshot.issues_json),
         "strengths": _json_list(snapshot.strengths_json),
         "notes": snapshot.notes or "",
-        "generated_at": _serialize_datetime(snapshot.generated_at),
-        "updated_at": _serialize_datetime(snapshot.updated_at),
+        "generated_at": iso_utc(snapshot.generated_at),
+        "updated_at": iso_utc(snapshot.updated_at),
     }
 
 
@@ -672,9 +697,9 @@ def _review_to_dict(review: PostQualityReview | None) -> dict | None:
         "editor_labels": _json_list(review.editor_labels_json),
         "editor_note": review.editor_note or "",
         "followup_recommended": review.followup_recommended,
-        "reviewed_at": _serialize_datetime(review.reviewed_at),
+        "reviewed_at": iso_utc(review.reviewed_at),
         "reviewed_by": review.reviewed_by or "",
-        "updated_at": _serialize_datetime(review.updated_at),
+        "updated_at": iso_utc(review.updated_at),
     }
 
 
@@ -951,13 +976,13 @@ def _topic_profile_to_dict(
         "is_virtual": False,
         "post_count": post_count,
         "source_count": source_count,
-        "latest_post_at": _serialize_datetime(latest_post_at),
+        "latest_post_at": iso_utc(latest_post_at),
         "latest_post_title": latest_post_title,
         "latest_post_slug": latest_post_slug,
         "display_title_source": display_title_source,
         "avg_quality_score": avg_quality_score,
-        "created_at": _serialize_datetime(profile.created_at),
-        "updated_at": _serialize_datetime(profile.updated_at),
+        "created_at": iso_utc(profile.created_at),
+        "updated_at": iso_utc(profile.updated_at),
     }
 
 
@@ -1094,7 +1119,7 @@ def _normalize_topic_payload(items, default_mode: str, coverage_date: str) -> li
                 "coverage_date": item.coverage_date or coverage_date,
                 "post_id": item.post_id,
                 "post_slug": item.post_slug,
-                "published_at": _serialize_datetime(item.published_at),
+                "published_at": iso_utc(item.published_at),
                 "reason": item.reason,
                 "status": item.status,
             }
@@ -1145,9 +1170,9 @@ def _run_to_dict(run: PublishingRun) -> dict:
         "status": run.status,
         "coverage_date": run.coverage_date or "",
         "message": run.message or "",
-        "started_at": _serialize_datetime(run.started_at),
-        "finished_at": _serialize_datetime(run.finished_at),
-        "updated_at": _serialize_datetime(run.updated_at),
+        "started_at": iso_utc(run.started_at),
+        "finished_at": iso_utc(run.finished_at),
+        "updated_at": iso_utc(run.updated_at),
         "summary": {
             "candidate_count": run.candidate_count,
             "published_count": run.published_count,
@@ -1765,7 +1790,7 @@ def _build_admin_topic_items(db: Session) -> list[dict]:
                 "is_virtual": True,
                 "post_count": aggregated["post_count"],
                 "source_count": aggregated["source_count"],
-                "latest_post_at": _serialize_datetime(aggregated["latest_post_at"]),
+                "latest_post_at": iso_utc(aggregated["latest_post_at"]),
                 "latest_post_title": aggregated["latest_post_title"],
                 "latest_post_slug": aggregated["latest_post_slug"],
                 "display_title_source": display_title_source,
@@ -1895,6 +1920,7 @@ def get_topic_health(
                 "series_slug": item.get("series_slug"),
                 "post_count": item.get("post_count", 0),
                 "avg_quality_score": avg_quality,
+                # Already serialized by _build_admin_topic_items / _topic_profile_to_dict.
                 "latest_post_at": item.get("latest_post_at"),
                 "profile_exists": bool(item.get("profile_exists")),
                 "recommendation": recommendation,
@@ -2331,10 +2357,10 @@ def get_search_insights(
                 "query": item.query,
                 "search_count": item.search_count or 0,
                 "last_result_count": item.last_result_count or 0,
-                "first_searched_at": _serialize_datetime(item.first_searched_at),
-                "last_searched_at": _serialize_datetime(item.last_searched_at),
-                "created_at": _serialize_datetime(item.created_at),
-                "updated_at": _serialize_datetime(item.updated_at),
+                "first_searched_at": iso_utc(item.first_searched_at),
+                "last_searched_at": iso_utc(item.last_searched_at),
+                "created_at": iso_utc(item.created_at),
+                "updated_at": iso_utc(item.updated_at),
             }
             for item in insights
         ],
@@ -2744,7 +2770,7 @@ def admin_list_comments(
                 "content": comment.content,
                 "ip_address": comment.ip_address or "",
                 "is_approved": comment.is_approved,
-                "created_at": comment.created_at.isoformat() if comment.created_at else None,
+                "created_at": iso_utc(comment.created_at),
             }
             for comment in comments
         ],
@@ -2791,8 +2817,8 @@ def _user_admin_dict(user: User) -> dict:
         "nickname": user.nickname,
         "status": user.status,
         "email_verified": user.email_verified,
-        "created_at": user.created_at.isoformat() if user.created_at else None,
-        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+        "created_at": iso_utc(user.created_at),
+        "last_login_at": iso_utc(user.last_login_at),
     }
 
 

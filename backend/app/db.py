@@ -36,6 +36,32 @@ def create_db_engine(database_url: str):
     if database_url.startswith("sqlite"):
         return _create_sqlite_engine(database_url)
 
+    # Pool shape: a small resident floor plus a generous elastic burst.
+    #
+    # `pool_size` connections stay open for the life of the process; overflow
+    # connections are closed as soon as they are returned. On Neon that split is the
+    # whole point — the resident floor is what keeps the compute endpoint awake and
+    # costs money at idle, the burst costs nothing between spikes. So the floor stays
+    # at 5 and the headroom is where the ceiling should be spent.
+    #
+    # The ceiling has to answer to the runtime, not to Neon (whose free-tier direct
+    # limit is ~112). `Dockerfile` runs a single uvicorn worker and does not override
+    # the threadpool, and every DB-touching handler in this app is a sync `def`
+    # (138 sync vs 2 async across routers/ + main.py), so requests execute on anyio's
+    # default limiter of 40 threads. A FastAPI `Session` dependency holds its
+    # connection from the first query until the request ends, so the pool ceiling —
+    # not the thread count — is the real cap on concurrent DB work; anything above it
+    # queues for up to `pool_timeout`.
+    #
+    # Deliberately *not* squeezing anyio's limiter down to match: it is process-global
+    # and also gates `/readyz` (Render's healthCheckPath, whose `anyio.to_thread.run_sync`
+    # probe has a hard 2s `fail_after`), the `/uploads` file responses, and
+    # `/proxy-image`'s DNS resolution. Making the limiter the bottleneck would turn a
+    # slow-query incident into a failed health check and a restart loop — trading a soft
+    # degradation for a liveness failure. The background job threads in
+    # `routers/admin.py` (1 image + 2 text workers) and `notifications.py` open their own
+    # sessions outside the anyio pool too, so the pool needs headroom above the request
+    # path regardless.
     db_engine = create_engine(
         database_url,
         pool_pre_ping=True,
@@ -43,7 +69,7 @@ def create_db_engine(database_url: str):
         # pool from handing out a socket the server has already dropped.
         pool_recycle=_pool_int("DB_POOL_RECYCLE_SECONDS", 300),
         pool_size=_pool_int("DB_POOL_SIZE", 5),
-        max_overflow=_pool_int("DB_MAX_OVERFLOW", 5),
+        max_overflow=_pool_int("DB_MAX_OVERFLOW", 10),
         pool_timeout=_pool_int("DB_POOL_TIMEOUT_SECONDS", 30),
     )
     return db_engine

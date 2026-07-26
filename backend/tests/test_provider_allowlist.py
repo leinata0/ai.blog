@@ -11,6 +11,8 @@
 ``test_allowlisted_host_resolving_to_private_is_still_blocked`` 就是这条断言。
 """
 
+import contextlib
+
 import pytest
 
 from test_url_safety_vectors import install_stub_resolver
@@ -505,6 +507,114 @@ def test_a_missing_allowlist_table_degrades_to_presets_and_env(db_session, monke
 
     assert "api.siliconflow.cn" in hosts
     assert "gateway.example.com" in hosts  # conftest 里的环境变量
+
+
+def test_a_failed_allowlist_read_keeps_the_borrowed_session_usable(db_session, monkeypatch, public_dns):
+    """查询失败时只回滚这条语句，调用方那份未提交的改动必须原样留着。
+
+    _read_allowed_hosts_from_db 多数时候拿的是**借来的** Session（_validate_base_url 在
+    create_source/update_source 编辑到一半时调用），所以既不能直接 rollback（掀掉调用方的
+    改动），也不能什么都不做（Postgres 上失败语句会把事务打成 aborted）。savepoint 是唯一
+    两头都顾上的做法 —— 这里断言 ROLLBACK TO SAVEPOINT 真的发出去了。
+    """
+    from sqlalchemy import event, select
+
+    statements: list[str] = []
+    bind = db_session.get_bind()
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(bind, "before_cursor_execute", _record)
+    try:
+        # 调用方编辑到一半：一条还没 flush 的改动
+        db_session.add(AiProviderAllowedHost(hostname="caller-pending.example.org", note=""))
+
+        real_execute = db_session.execute
+        failing = {"on": True}
+
+        def maybe_explode(*args, **kwargs):
+            if failing["on"]:
+                raise RuntimeError("no such table: ai_provider_allowed_hosts")
+            return real_execute(*args, **kwargs)
+
+        monkeypatch.setattr(db_session, "execute", maybe_explode)
+
+        assert ai_provider_manager._read_allowed_hosts_from_db(db_session) == frozenset()
+
+        assert any("SAVEPOINT" in statement for statement in statements)
+        assert any("ROLLBACK TO SAVEPOINT" in statement for statement in statements)
+        # 查询失败没有顺带把调用方的待写对象 flush 出去，也没有把它丢掉
+        assert [obj.hostname for obj in db_session.new] == ["caller-pending.example.org"]
+
+        failing["on"] = False
+        db_session.commit()
+        assert "caller-pending.example.org" in db_session.execute(
+            select(AiProviderAllowedHost.hostname)
+        ).scalars().all()
+    finally:
+        event.remove(bind, "before_cursor_execute", _record)
+
+
+class _PostgresLikeSession:
+    """把 Postgres 的事务语义缩到最小的假 Session。
+
+    SQLite 上一条失败的语句不会影响事务，所以真实测试库复现不了这个 bug：Postgres 会把
+    整个事务打成 aborted，后续每条语句都报 "current transaction is aborted"，直到包住它的
+    savepoint 被回滚（或整个事务回滚）为止。
+    """
+
+    def __init__(self):
+        self.aborted = False
+        self.savepoint_depth = 0
+        self.rolled_back_whole_transaction = False
+
+    @property
+    def no_autoflush(self):
+        return contextlib.nullcontext()
+
+    def connection(self):
+        return self
+
+    def begin_nested(self):
+        session = self
+
+        @contextlib.contextmanager
+        def _savepoint():
+            session.savepoint_depth += 1
+            try:
+                yield session
+            except Exception:
+                session.aborted = False  # ROLLBACK TO SAVEPOINT 清掉 aborted 态
+                raise
+            finally:
+                session.savepoint_depth -= 1
+
+        return _savepoint()
+
+    def execute(self, *_args, **_kwargs):
+        if self.aborted:
+            raise RuntimeError("current transaction is aborted, commands ignored until end of transaction block")
+        self.aborted = True
+        raise RuntimeError('relation "ai_provider_allowed_hosts" does not exist')
+
+    def rollback(self):
+        self.rolled_back_whole_transaction = True
+        self.aborted = False
+
+    def close(self):  # pragma: no cover - 借来的 Session 不该被关掉
+        raise AssertionError("borrowed session must not be closed")
+
+
+def test_a_failed_allowlist_read_does_not_leave_a_postgres_transaction_aborted():
+    """Postgres 语义下：查询失败后调用方的事务还能继续用，且没被整体回滚。"""
+    session = _PostgresLikeSession()
+
+    assert ai_provider_manager._read_allowed_hosts_from_db(session) == frozenset()
+
+    assert session.savepoint_depth == 0
+    assert session.aborted is False  # 不包 savepoint 的话这里是 True，调用方随后的 commit 全挂
+    assert session.rolled_back_whole_transaction is False  # 也没掀掉调用方未提交的改动
 
 
 # --------------------------------------------------------------------------- #

@@ -34,6 +34,7 @@ from app.models import Comment, FollowedTopic, Post, PostLike, ReadingHistory, S
 from app.notifications import email_delivery_ready, is_valid_email
 from app.passwords import PasswordTooLongError, hash_password, validate_password_length, verify_password
 from app.rate_limit import limiter
+from app.serialization import as_utc, iso_utc
 from app.services.user_account import purge_user
 from app.site_config import resolve_public_site_url
 from app.storage import ImageValidationError, save_upload, validate_image_upload
@@ -78,8 +79,25 @@ def _issue_token(user: User) -> str:
     )
 
 
+def _user_out(user: User) -> UserOut:
+    """Build the public user payload with UTC-marked timestamps.
+
+    ``users.created_at`` / ``last_login_at`` are naive UTC columns, so validating the ORM
+    row straight into UserOut made Pydantic emit them without a timezone marker and the
+    账号中心 "最近登录" tile read 8 hours early in UTC+8. model_copy touches only the two
+    timestamps, so new UserOut fields keep flowing through from_attributes untouched.
+    """
+    payload = UserOut.model_validate(user)
+    return payload.model_copy(
+        update={
+            "created_at": as_utc(payload.created_at),
+            "last_login_at": as_utc(payload.last_login_at),
+        }
+    )
+
+
 def _auth_response(user: User) -> dict:
-    return {"access_token": _issue_token(user), "token_type": "bearer", "user": user}
+    return {"access_token": _issue_token(user), "token_type": "bearer", "user": _user_out(user)}
 
 
 def _validate_password_or_400(password: str) -> None:
@@ -324,7 +342,7 @@ def confirm_password_reset(request: Request, body: PasswordResetConfirmRequest, 
 
 @router.get("/me", response_model=UserOut)
 def get_me(current_user: User = Depends(get_current_user)):
-    return current_user
+    return _user_out(current_user)
 
 
 @router.put("/me", response_model=UserOut)
@@ -351,7 +369,7 @@ def update_me(
     current_user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return _user_out(current_user)
 
 
 @router.post("/me/password", response_model=UserAuthResponse)
@@ -395,7 +413,7 @@ def verify_email(body: VerifyEmailRequest, db: Session = Depends(get_db)):
         user.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(user)
-    return user
+    return _user_out(user)
 
 
 @router.post("/resend-verification")
@@ -415,6 +433,21 @@ def resend_verification(
 
 # ── Followed topics (cloud sync) ──────────────────
 
+def _followed_topic_out(row: FollowedTopic) -> dict:
+    """Serialize one follow record.
+
+    ``followed_at`` is a naive UTC column; returning the ORM row let FastAPI emit it
+    without a timezone marker, which the browser then parsed as local time (关注于 …
+    was 8 hours early in UTC+8). Handing Pydantic an aware datetime makes it emit an
+    explicit ``Z``.
+    """
+    return {
+        "topic_key": row.topic_key,
+        "display_title": row.display_title,
+        "followed_at": as_utc(row.followed_at),
+    }
+
+
 @router.get("/me/topics", response_model=list[FollowedTopicOut])
 def list_followed_topics(
     current_user: User = Depends(get_current_user),
@@ -425,7 +458,7 @@ def list_followed_topics(
         .where(FollowedTopic.user_id == current_user.id)
         .order_by(FollowedTopic.followed_at.desc())
     ).scalars().all()
-    return rows
+    return [_followed_topic_out(row) for row in rows]
 
 
 def _upsert_followed_topic(db: Session, user_id: int, item: FollowTopicInput) -> FollowedTopic:
@@ -498,13 +531,27 @@ def merge_topics(
 
 # ── Reading history (cloud sync) ──────────────────
 
-def _list_history(db: Session, user_id: int) -> list[ReadingHistory]:
-    return db.execute(
+def _reading_history_out(row: ReadingHistory) -> dict:
+    """Serialize one reading-history record with an explicit UTC marker on ``visited_at``."""
+    return {
+        "slug": row.slug,
+        "title": row.title,
+        "topic_key": row.topic_key,
+        "topic_display_title": row.topic_display_title,
+        "content_type": row.content_type,
+        "coverage_date": row.coverage_date,
+        "visited_at": as_utc(row.visited_at),
+    }
+
+
+def _list_history(db: Session, user_id: int) -> list[dict]:
+    rows = db.execute(
         select(ReadingHistory)
         .where(ReadingHistory.user_id == user_id)
         .order_by(ReadingHistory.visited_at.desc())
         .limit(MAX_READING_HISTORY)
     ).scalars().all()
+    return [_reading_history_out(row) for row in rows]
 
 
 def _trim_history(db: Session, user_id: int) -> None:
@@ -537,12 +584,8 @@ def _upsert_history(db: Session, user_id: int, item: ReadingHistoryInput) -> Non
     existing.content_type = item.content_type.strip()
     existing.coverage_date = item.coverage_date.strip()
     # Keep the most recent visit timestamp when merging.
-    if existing.visited_at is None or visited_at > _as_aware(existing.visited_at):
+    if existing.visited_at is None or visited_at > as_utc(existing.visited_at):
         existing.visited_at = visited_at
-
-
-def _as_aware(value: datetime) -> datetime:
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 @router.get("/me/history", response_model=list[ReadingHistoryOut])
@@ -670,9 +713,14 @@ def _account_library_entries(db: Session, user_id: int, kind: str = "all") -> li
             )
 
     entries.sort(
-        key=lambda entry: _as_aware(entry["occurred_at"] or datetime.min),
+        key=lambda entry: as_utc(entry["occurred_at"] or datetime.min),
         reverse=True,
     )
+    # Sort on the datetime, ship the string: these entries are returned as a plain dict
+    # (no response_model), so an un-serialized naive datetime would reach the browser
+    # without a timezone marker and read 8 hours early in UTC+8.
+    for entry in entries:
+        entry["occurred_at"] = iso_utc(entry["occurred_at"])
     return entries
 
 
@@ -750,11 +798,16 @@ def account_dashboard(
                 }
             )
         followed_updates.sort(
-            key=lambda item: _as_aware(
+            key=lambda item: as_utc(
                 (item["latest_post"] or {}).get("published_at") or item["followed_at"]
             ),
             reverse=True,
         )
+        # Same as _account_library_entries: sort on the datetime, ship the string.
+        for item in followed_updates:
+            item["followed_at"] = iso_utc(item["followed_at"])
+            if item["latest_post"]:
+                item["latest_post"]["published_at"] = iso_utc(item["latest_post"]["published_at"])
 
     return {
         "counts": counts,
@@ -763,7 +816,7 @@ def account_dashboard(
         "security": {
             "email_verified": bool(current_user.email_verified),
             "password_set": bool(current_user.password_set),
-            "last_login_at": current_user.last_login_at,
+            "last_login_at": iso_utc(current_user.last_login_at),
         },
     }
 
@@ -887,8 +940,8 @@ def export_account_data(
     topics = list_followed_topics(current_user, db)
     library = _account_library_entries(db, current_user.id, "all")
     payload = {
-        "exported_at": datetime.now(timezone.utc),
-        "profile": UserOut.model_validate(current_user),
+        "exported_at": iso_utc(datetime.now(timezone.utc)),
+        "profile": _user_out(current_user),
         "followed_topics": topics,
         "reading_history": [item for item in library if item["kind"] == "history"],
         "likes": [item for item in library if item["kind"] == "likes"],
@@ -925,7 +978,7 @@ def upload_avatar(
     current_user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return _user_out(current_user)
 
 
 @router.delete("/me/avatar", response_model=UserOut)
@@ -937,7 +990,7 @@ def remove_avatar(
     current_user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return _user_out(current_user)
 
 
 # ── My comments / likes ───────────────────────────
@@ -960,7 +1013,7 @@ def list_my_comments(
             "content": content,
             "post_slug": slug,
             "post_title": title,
-            "created_at": created_at.isoformat() if created_at else None,
+            "created_at": iso_utc(created_at),
         }
         for comment_id, content, created_at, slug, title in rows
     ]
@@ -982,7 +1035,7 @@ def list_my_likes(
         {
             "post_slug": slug,
             "post_title": title,
-            "created_at": created_at.isoformat() if created_at else None,
+            "created_at": iso_utc(created_at),
         }
         for created_at, slug, title in rows
     ]

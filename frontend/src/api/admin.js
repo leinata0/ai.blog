@@ -240,7 +240,30 @@ export const upsertAdminPublishingStatus = (data) =>
     invalidatePaths: ['/api/admin/publishing-status', '/api/home/modules'],
   })
 
-export const fetchAdminImages = () => apiGet('/api/admin/images', { auth: true })
+/**
+ * One bounded page of uploaded images.
+ *
+ * The backend caps `limit` at 200 and returns a **bare JSON array**; the continuation
+ * token travels in the `X-Next-Cursor` response header (empty string = exhausted), which
+ * `main.py` lists in the CORS `expose_headers` so it stays readable from the Vercel origin.
+ * Resolves `{ items, nextCursor }`; an unreadable header degrades to "no more pages"
+ * rather than looping.
+ */
+export const ADMIN_IMAGE_PAGE_SIZE = 60
+
+export async function fetchAdminImages({ limit = ADMIN_IMAGE_PAGE_SIZE, cursor = '' } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+  const response = await apiGet(`/api/admin/images?${params.toString()}`, {
+    auth: true,
+    includeResponseMeta: true,
+  })
+  const payload = response?.data ?? response
+  return {
+    items: Array.isArray(payload) ? payload : payload?.items || [],
+    nextCursor: response?.headers?.['x-next-cursor'] || '',
+  }
+}
 export const deleteAdminImage = (filename) => apiDelete(`/api/admin/images/${filename}`, {
   auth: true,
   invalidatePaths: ['/api/admin/images'],
