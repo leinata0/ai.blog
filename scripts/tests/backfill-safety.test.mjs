@@ -140,13 +140,62 @@ test('publish-article CLI refuses to run without an explicit slug and content fi
   assert.deepEqual(assertPublishArticleArgs(parsed), { slug: 'a-slug', file: 'body.md', dryRun: false })
 })
 
-// P2-15: `new URL('C:\\tmp\\a.mjs', import.meta.url)` eats \t and \a and yields "c:mpa.mjs".
+// P2-15: a Windows-absolute ARTICLE_FILE used to be handed straight to
+// `new URL(raw, import.meta.url)`. WHATWG parses the leading `C:` as a URL *scheme*, so
+// the result was the opaque `c:\tmp\article.mjs` — protocol `c:`, not a file: URL, and
+// not importable. The fix resolves on the filesystem first and only converts afterwards.
+//
+// These tests have to hold on two runners with different path semantics. `C:\tmp\x.mjs`
+// is an absolute path on Windows but, on the Linux CI box, merely a relative filename that
+// happens to contain backslashes — so `path.resolve()` correctly prefixes cwd there and
+// the drive-letter normalisation can only be asserted on win32. What *is* platform
+// independent is the invariant the bug actually violated: the helper must never hand a
+// drive letter to the URL parser, and must never lose characters on the way. That part is
+// asserted everywhere, and it is precisely what regresses if `new URL` is reintroduced.
 
-test('resolveArticleFileUrl handles Windows absolute paths without mangling escapes', () => {
+test('resolveArticleFileUrl never lets a drive letter be parsed as a URL scheme', () => {
+  // Control for the regression, identical on every platform (WHATWG, not libuv).
+  assert.equal(new URL('C:\\tmp\\article.mjs', 'file:///base/publish.mjs').protocol, 'c:')
+
   const url = resolveArticleFileUrl('C:\\tmp\\article.mjs')
+  assert.equal(url.protocol, 'file:')
   assert.match(url.href, /^file:\/\/\//)
-  assert.match(decodeURIComponent(url.pathname), /\/tmp\/article\.mjs$/i)
 
-  const relative = resolveArticleFileUrl('./content/x.mjs', 'C:\\repo\\scripts')
-  assert.match(decodeURIComponent(relative.pathname), /\/repo\/scripts\/content\/x\.mjs$/i)
+  // Every character survives: no `\t`/`\a` collapsed into a control character, nothing
+  // dropped. On win32 the tail is `/tmp/article.mjs`, on POSIX it stays `\tmp\article.mjs`
+  // under the cwd — both are correct, and both keep the literal characters.
+  const decoded = decodeURIComponent(url.pathname)
+  assert.ok(!/[\t\u0007]/.test(decoded), `backslash escapes were interpreted: ${JSON.stringify(decoded)}`)
+  assert.match(decoded, /tmp[\\/]article\.mjs$/i)
 })
+
+test('resolveArticleFileUrl resolves POSIX-absolute, relative and file: inputs on every platform', () => {
+  // `/tmp/article.mjs` is absolute under both path flavours (path.win32.isAbsolute('/x')
+  // is true), so this assertion exercises the real branch on Windows and on Linux.
+  const posixAbsolute = resolveArticleFileUrl('/tmp/article.mjs')
+  assert.match(posixAbsolute.href, /^file:\/\/\//)
+  assert.match(decodeURIComponent(posixAbsolute.pathname), /\/tmp\/article\.mjs$/i)
+
+  // Relative specifiers resolve against the supplied base directory, never against cwd.
+  const relative = resolveArticleFileUrl('./content/x.mjs', '/repo/scripts')
+  assert.match(decodeURIComponent(relative.pathname), /\/repo\/scripts\/content\/x\.mjs$/i)
+
+  // An explicit file: URL is passed through untouched rather than re-resolved.
+  assert.equal(resolveArticleFileUrl('file:///tmp/article.mjs').href, 'file:///tmp/article.mjs')
+
+  assert.throws(() => resolveArticleFileUrl('   '), /ARTICLE_FILE is empty/)
+})
+
+test(
+  'resolveArticleFileUrl maps a Windows drive-letter path onto file:///C:/...',
+  // Skipped off win32 on purpose: `C:\tmp\article.mjs` is not an absolute path there, so
+  // resolving it against cwd is the correct answer and there is nothing to assert.
+  { skip: process.platform === 'win32' ? false : 'win32-only path semantics' },
+  () => {
+    assert.equal(resolveArticleFileUrl('C:\\tmp\\article.mjs').href, 'file:///C:/tmp/article.mjs')
+    assert.equal(
+      resolveArticleFileUrl('.\\content\\x.mjs', 'C:\\repo\\scripts').href,
+      'file:///C:/repo/scripts/content/x.mjs',
+    )
+  },
+)

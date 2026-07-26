@@ -36,6 +36,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: './tests/setup.js',
+    // tests/setup.js raises testing-library's per-`waitFor` budget to 3s for slow CI runners.
+    // Vitest's own default cap is 5s, so a test chaining a few `waitFor`s would blow the test
+    // timeout before any of them expired — trading a precise "waitFor timed out on <element>"
+    // message for a useless "test timed out". Keep this comfortably above the async budget.
+    testTimeout: 15000,
     exclude: [...configDefaults.exclude, 'e2e/**'],
     environmentMatchGlobs: [
       ['tests/prerender-public.test.js', 'node'],
