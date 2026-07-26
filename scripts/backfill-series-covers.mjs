@@ -14,9 +14,11 @@ const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
 
+// Writing is opt-in: this script triggers *paid* image generation, and `--force`
+// regenerates covers that already exist. A bare invocation must never do that.
 export function parseSeriesCoverArgs(argv = process.argv.slice(2)) {
   const options = {
-    dryRun: false,
+    dryRun: true,
     force: false,
     limit: 50,
     offset: 0,
@@ -24,6 +26,7 @@ export function parseSeriesCoverArgs(argv = process.argv.slice(2)) {
   for (let index = 0; index < argv.length; index += 1) {
     const current = argv[index]
     if (current === '--dry-run') options.dryRun = true
+    else if (current === '--apply') options.dryRun = false
     else if (current === '--force') options.force = true
     else if (current === '--limit' && argv[index + 1]) options.limit = Number(argv[++index])
     else if (current.startsWith('--limit=')) options.limit = Number(current.split('=')[1])
@@ -41,6 +44,7 @@ async function login() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    signal: AbortSignal.timeout(30000),
   })
   if (!resp.ok) throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   return (await resp.json()).access_token
@@ -49,6 +53,7 @@ async function login() {
 async function fetchSeriesList(token) {
   const resp = await fetch(`${BLOG_API_BASE}/api/admin/series`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(30000),
   })
   if (!resp.ok) throw new Error(`Fetch series failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   const data = await resp.json()
@@ -81,16 +86,37 @@ async function generateSeriesCover(series, token, overwrite) {
   return imageGenerationJobImageUrl(job)
 }
 
+export function describeBackfillTarget(blogApiBase = BLOG_API_BASE) {
+  try {
+    return new URL(String(blogApiBase)).host
+  } catch {
+    return String(blogApiBase || 'unknown')
+  }
+}
+
 export async function runBackfillSeriesCovers(options = {}) {
   const args = {
-    dryRun: Boolean(options.dryRun),
+    dryRun: options.dryRun === undefined ? true : Boolean(options.dryRun),
     force: Boolean(options.force),
     limit: Number.isFinite(Number(options.limit)) ? Number(options.limit) : 50,
     offset: Number.isFinite(Number(options.offset)) ? Number(options.offset) : 0,
   }
-  const token = await login()
-  const seriesList = await fetchSeriesList(token)
+  const loginImpl = options.loginImpl || login
+  const fetchSeriesListImpl = options.fetchSeriesListImpl || fetchSeriesList
+  const generateSeriesCoverImpl = options.generateSeriesCoverImpl || generateSeriesCover
+  const logger = options.logger === undefined ? console : options.logger
+
+  const token = await loginImpl()
+  const seriesList = await fetchSeriesListImpl(token)
   const targetList = seriesList.slice(args.offset, args.offset + args.limit)
+  const plannedCount = targetList.filter(
+    (series) => args.force || !String(series?.cover_image || '').trim()
+  ).length
+  logger?.log?.(
+    `Series cover backfill target: ${describeBackfillTarget()} `
+    + `(mode=${args.dryRun ? 'dry-run' : 'APPLY'}, force=${args.force}, `
+    + `${plannedCount}/${targetList.length} series would trigger paid image generation)`
+  )
   const items = []
 
   for (const series of targetList) {
@@ -104,7 +130,7 @@ export async function runBackfillSeriesCovers(options = {}) {
       continue
     }
     try {
-      const generatedCover = await generateSeriesCover(series, token, args.force)
+      const generatedCover = await generateSeriesCoverImpl(series, token, args.force)
       items.push({ series_id: series?.id || null, slug: series?.slug || '', status: 'updated', cover_image: generatedCover })
     } catch (error) {
       items.push({ series_id: series?.id || null, slug: series?.slug || '', status: 'failed', reason: error.message })
@@ -128,6 +154,9 @@ export function seriesBackfillExitCode(report = {}) {
 async function main() {
   const report = await runBackfillSeriesCovers(parseSeriesCoverArgs())
   console.log(JSON.stringify(report, null, 2))
+  if (report.dry_run) {
+    console.log(`Dry run: no covers were generated on ${describeBackfillTarget()}. Re-run with --apply to generate.`)
+  }
   process.exitCode = seriesBackfillExitCode(report)
 }
 

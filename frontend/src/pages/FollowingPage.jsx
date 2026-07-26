@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
+import SeoMeta from '../components/SeoMeta'
 import ContinueReadingSection from '../components/ContinueReadingSection'
 import RecentTopicsSection from '../components/RecentTopicsSection'
 import {
@@ -14,7 +15,9 @@ import {
 } from '../utils/topicRetention'
 import { fetchCloudTopics, fetchCloudHistory } from '../api/user'
 import { useUser } from '../contexts/UserContext'
-import { motionContainerVariants, motionItemVariants } from '../utils/contentPresentation'
+import { SITE_COPY, motionContainerVariants, motionItemVariants } from '../utils/contentPresentation'
+
+const PAGE_TITLE = `关注与继续阅读 - ${SITE_COPY.brand}`
 
 function deriveRecentTopics(items) {
   const seen = new Set()
@@ -37,10 +40,6 @@ export default function FollowingPage() {
   const [followedTopics, setFollowedTopics] = useState([])
   const [recentTopics, setRecentTopics] = useState([])
   const [historyItems, setHistoryItems] = useState([])
-
-  useEffect(() => {
-    document.title = '关注主题 - 极客开发日志'
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -83,6 +82,13 @@ export default function FollowingPage() {
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      {/* Own the canonical / og tags explicitly: arriving here from an article used to
+          leave that article's canonical and cover image in the head. */}
+      <SeoMeta
+        title={PAGE_TITLE}
+        description="查看你关注过的主题和最近阅读过的文章，并继续沿同一条主线往下读。"
+        path="/following"
+      />
       <Navbar />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
         <motion.section

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, resolve, dirname } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import { buildPostCoverBrief } from './lib/cover-art.mjs'
@@ -43,9 +43,19 @@ async function fetchWithTransientRetry(
   return response
 }
 
+// `new URL('C:\\tmp\\a.mjs', 'file:///c:/x/y.mjs')` silently eats the backslash escapes
+// (`\t`, `\a`) and yields a garbage specifier, so a Windows absolute ARTICLE_FILE never
+// resolved to the intended file. Resolve on the filesystem first, then convert.
+export function resolveArticleFileUrl(articleFile = ARTICLE_FILE, baseDir = dirname(fileURLToPath(import.meta.url))) {
+  const raw = String(articleFile || '').trim()
+  if (!raw) throw new Error('ARTICLE_FILE is empty')
+  if (/^file:\/\//i.test(raw)) return new URL(raw)
+  const absolutePath = isAbsolute(raw) ? raw : resolve(baseDir, raw)
+  return pathToFileURL(absolutePath)
+}
+
 async function loadArticle() {
-  const articleUrl = new URL(ARTICLE_FILE, import.meta.url)
-  const mod = await import(articleUrl)
+  const mod = await import(resolveArticleFileUrl())
   return mod.default || mod.article || mod
 }
 
@@ -57,6 +67,7 @@ async function login() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    signal: AbortSignal.timeout(30000),
   })
   if (!resp.ok) {
     throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
@@ -67,9 +78,11 @@ async function login() {
 export async function fetchExistingPostBySlug(
   slug,
   token,
-  { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, pageSize = 50, retryOptions } = {},
+  { blogApiBase = BLOG_API_BASE, fetchImpl = fetch, pageSize = 50, maxPages = 1000, retryOptions } = {},
 ) {
-  for (let page = 1; ; page += 1) {
+  // Unbounded `for (;;)` paged forever if the API kept returning full pages (or a bad
+  // `total`). Cap it so a server-side anomaly cannot pin the script in an infinite loop.
+  for (let page = 1; page <= maxPages; page += 1) {
     const listResp = await fetchWithTransientRetry(
       fetchImpl,
       `${blogApiBase}/api/admin/posts?page=${page}&page_size=${pageSize}`,
@@ -89,6 +102,8 @@ export async function fetchExistingPostBySlug(
     const reachedKnownEnd = Number.isFinite(total) && page * pageSize >= total
     if (reachedKnownEnd || items.length < pageSize) return null
   }
+
+  throw new Error(`Failed to resolve slug within ${maxPages} pages: ${slug}`)
 }
 
 export function resolveExistingCover(article, existingPost) {

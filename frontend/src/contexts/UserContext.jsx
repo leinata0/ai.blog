@@ -12,7 +12,7 @@ import {
   mergeTopicsCloud,
   mergeHistoryCloud,
 } from '../api/user'
-import { subscribeToUserUnauthorized } from '../api/client'
+import { subscribeToUserUnauthorized, clearAuthScopedApiCache } from '../api/client'
 import { getUserToken, setUserToken, clearUserToken, isUserTokenExpired } from '../api/userAuth'
 import { getFollowedTopics, getReadingHistory } from '../utils/topicRetention'
 
@@ -165,15 +165,21 @@ export function UserProvider({ children }) {
   const sendLoginCode = useCallback((payload) => requestLoginCode(payload), [])
   const sendPasswordReset = useCallback((payload) => requestPasswordReset(payload), [])
 
+  // Dropping the token alone left this identity's already-fetched private responses
+  // (account dashboard, following, reading history) sitting in the api client cache,
+  // where the next viewer on a shared device could still read them from memory or
+  // sessionStorage. Purge the user-scoped entries as part of signing out.
   const revokeAllSessions = useCallback(async () => {
     await revokeSessions()
     clearUserToken()
+    clearAuthScopedApiCache('user')
     setUser(null)
     setSyncState('idle')
   }, [])
 
   const logout = useCallback(() => {
     clearUserToken()
+    clearAuthScopedApiCache('user')
     setUser(null)
     setSyncState('idle')
   }, [])

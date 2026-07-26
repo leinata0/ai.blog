@@ -31,6 +31,19 @@ def test_post_tag_relationship(db_session):
     assert post.tags[0].slug == "fastapi"
 
 
+def test_list_posts_treats_like_wildcards_as_literals(client, seeded_db):
+    """`q=%` must search for a literal percent sign, not match every row."""
+    baseline = client.get("/api/posts").json()["total"]
+    assert baseline >= 1
+
+    wildcard = client.get("/api/posts", params={"q": "%"}).json()
+    assert wildcard["total"] == 0
+    assert wildcard["items"] == []
+
+    underscore = client.get("/api/posts", params={"q": "_"}).json()
+    assert underscore["total"] == 0
+
+
 def test_search_returns_zero_result_rescue_metadata(client, seeded_db):
     client.get("/api/search", params={"q": "agent runtime"})
     client.get("/api/search", params={"q": "model launches"})

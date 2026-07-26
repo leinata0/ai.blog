@@ -4,6 +4,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { SITE_SEO } from '../src/utils/contentPresentation.js'
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const distDir = resolve(__dirname, '..', 'dist')
@@ -22,10 +24,18 @@ const PRERENDER_FETCH_TIMEOUT_MS = Math.max(
   1000,
   Number.parseInt(process.env.PRERENDER_FETCH_TIMEOUT_MS || '30000', 10) || 30000,
 )
+// A detail fetch that fails is silently dropped from the output, and the SPA
+// catch-all then serves the *home page* under that URL (HTTP 200 + wrong canonical
+// = soft 404). Fail the build instead of shipping a partially generated site.
+const PRERENDER_MIN_DETAIL_RATIO = Math.min(
+  1,
+  Math.max(0, Number.parseFloat(process.env.PRERENDER_MIN_DETAIL_RATIO || '0.9') || 0.9),
+)
 
-const SITE_TITLE = 'AI 资讯观察'
-const HOME_TITLE = '持续更新 AI 最新动态与关键变化的中文博客'
-const HOME_DESCRIPTION = '聚焦值得持续追踪的消息、产品更新与产业线索，用更清晰的结构整理每一天和每一周的重要变化。'
+// Single shared source with index.html and runtime <SeoMeta>; see src/utils/contentPresentation.js.
+const SITE_TITLE = SITE_SEO.brand
+const HOME_TITLE = SITE_SEO.homeTagline
+const HOME_DESCRIPTION = SITE_SEO.homeDescription
 const PRERENDER_STYLE = `
   <style data-prerender>
     .prerender-shell{max-width:1100px;margin:0 auto;padding:48px 24px 72px;color:#111827;font-family:"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
@@ -94,12 +104,28 @@ function truncate(value, max = 180) {
   return `${text.slice(0, max).trim()}...`
 }
 
-function formatDate(value) {
+// Mirrors src/utils/date.js: the backend has historically returned naive timestamps,
+// which must be read as UTC rather than as build-machine local time.
+const NAIVE_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+const NAIVE_DATETIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
+
+export function formatDate(value) {
   const text = String(value || '').trim()
   if (!text) return '持续更新'
-  const parsed = new Date(text.length === 10 ? `${text}T00:00:00` : text)
+  let normalized = text
+  if (NAIVE_DATE_ONLY.test(text)) normalized = `${text}T00:00:00Z`
+  else if (NAIVE_DATETIME.test(text)) normalized = `${text.replace(' ', 'T')}Z`
+  const parsed = new Date(normalized)
   if (Number.isNaN(parsed.getTime())) return text
-  return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(parsed)
+  // Same shape as src/utils/date.js (`2026/07/17`) so the prerendered markup does not
+  // visibly change on hydration, and pinned to UTC so a UTC build machine and a
+  // visitor in another timezone cannot disagree by a day.
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'UTC',
+  }).format(parsed)
 }
 
 function canonicalUrl(siteUrl, routePath) {
@@ -108,9 +134,16 @@ function canonicalUrl(siteUrl, routePath) {
   return `${siteUrl}${routePath}`
 }
 
-function bootstrapScript(payload) {
+export function bootstrapScript(payload) {
   if (!payload) return ''
-  const serialized = JSON.stringify(payload).replace(/</g, '\\u003c')
+  // The payload is embedded in an inline <script>: `</` would close the element early,
+  // and U+2028 / U+2029 are literal line terminators in JS source even though JSON
+  // allows them raw inside strings.
+  const serialized = JSON.stringify(payload)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
   return `<script>window.__BLOG_BOOTSTRAP__=${serialized};</script>`
 }
 
@@ -238,45 +271,140 @@ export async function loadHomeBootstrap(apiBase) {
   }
 }
 
-function injectTemplate(template, { routePath, title, description, rootHtml, siteUrl, image = '', extraHead = '', extraScript = '' }) {
-  const canonical = canonicalUrl(siteUrl, routePath)
-  let html = template
-  html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(title)}</title>`)
-  html = html.replace(
-    /<meta name="description" content="[^"]*">/i,
-    `<meta name="description" content="${escapeHtml(description)}">`,
-  )
-  html = html.replace(
-    /<meta property="og:title" content="[^"]*">/i,
-    `<meta property="og:title" content="${escapeHtml(title)}">`,
-  )
-  html = html.replace(
-    /<meta property="og:description" content="[^"]*">/i,
-    `<meta property="og:description" content="${escapeHtml(description)}">`,
-  )
-  html = html.replace(
-    /<meta property="og:url" content="[^"]*">/i,
-    `<meta property="og:url" content="${escapeHtml(canonical)}">`,
-  )
-  if (html.includes('<meta property="og:image"')) {
-    html = html.replace(
-      /<meta property="og:image" content="[^"]*">/i,
-      `<meta property="og:image" content="${escapeHtml(image || '')}">`,
+const META_DESCRIPTION_RE = /<meta name="description" content="[^"]*"\s*\/?>/i
+const META_OG_TITLE_RE = /<meta property="og:title" content="[^"]*"\s*\/?>/i
+const META_OG_DESCRIPTION_RE = /<meta property="og:description" content="[^"]*"\s*\/?>/i
+const META_OG_URL_RE = /<meta property="og:url" content="[^"]*"\s*\/?>/i
+const META_OG_IMAGE_RE = /<meta property="og:image" content="[^"]*"\s*\/?>\s*/i
+
+/**
+ * Replace a template marker with a literal string.
+ *
+ * `String.prototype.replace` interprets `$&`, "$`", `$'` and `$n` inside a *string*
+ * replacement as substitution patterns, and `escapeHtml` deliberately does not escape
+ * `$`. An article summary containing `$'` therefore used to splice the tail of the
+ * template into the output — which closed the inline bootstrap script early and left
+ * `window.__BLOG_BOOTSTRAP__` undefined. A function replacement is always taken
+ * literally, so every injection below must go through this helper.
+ *
+ * The marker is also required by default: a silently skipped injection means the page
+ * ships with the generic template metadata and nothing would ever turn red.
+ */
+function replaceMarker(html, pattern, replacement, label, { required = true } = {}) {
+  const matched = typeof pattern === 'string' ? html.includes(pattern) : pattern.test(html)
+  if (!matched) {
+    if (!required) return html
+    throw new Error(
+      `[prerender] template marker ${label} not found — index.html and prerender-public.mjs are out of sync.`,
     )
-  } else if (image) {
-    html = html.replace('</head>', `<meta property="og:image" content="${escapeHtml(image)}">\n</head>`)
+  }
+  return html.replace(pattern, () => replacement)
+}
+
+function injectTemplate(template, { routePath, title, description, rootHtml, siteUrl, image = '', extraHead = '', extraScript = '' }) {
+  const canonical = canonicalUrl(siteUrl, encodeRoutePath(routePath))
+  let html = template
+  html = replaceMarker(html, /<title>[\s\S]*?<\/title>/i, `<title>${escapeHtml(title)}</title>`, '<title>')
+  html = replaceMarker(
+    html,
+    META_DESCRIPTION_RE,
+    `<meta name="description" content="${escapeHtml(description)}">`,
+    'meta[name=description]',
+  )
+  html = replaceMarker(
+    html,
+    META_OG_TITLE_RE,
+    `<meta property="og:title" content="${escapeHtml(title)}">`,
+    'meta[property=og:title]',
+  )
+  html = replaceMarker(
+    html,
+    META_OG_DESCRIPTION_RE,
+    `<meta property="og:description" content="${escapeHtml(description)}">`,
+    'meta[property=og:description]',
+  )
+  html = replaceMarker(
+    html,
+    META_OG_URL_RE,
+    `<meta property="og:url" content="${escapeHtml(canonical)}">`,
+    'meta[property=og:url]',
+  )
+  if (image) {
+    html = html.includes('<meta property="og:image"')
+      ? replaceMarker(
+        html,
+        META_OG_IMAGE_RE,
+        `<meta property="og:image" content="${escapeHtml(image)}">`,
+        'meta[property=og:image]',
+      )
+      : replaceMarker(html, '</head>', `<meta property="og:image" content="${escapeHtml(image)}">\n</head>`, '</head>')
+  } else {
+    // An empty og:image renders a blank social card, which is worse than no tag at all.
+    html = replaceMarker(html, META_OG_IMAGE_RE, '', 'meta[property=og:image]', { required: false })
   }
 
-  html = html.replace('</head>', `${PRERENDER_STYLE}\n<link rel="canonical" href="${escapeHtml(canonical)}">\n${extraHead}\n</head>`)
-  html = html.replace('<div id="root"></div>', `<div id="root">${rootHtml}</div>${extraScript}`)
+  html = replaceMarker(
+    html,
+    '</head>',
+    `${PRERENDER_STYLE}\n<link rel="canonical" href="${escapeHtml(canonical)}">\n${extraHead}\n</head>`,
+    '</head>',
+  )
+  html = replaceMarker(
+    html,
+    '<div id="root"></div>',
+    `<div id="root">${rootHtml}</div>${extraScript}`,
+    '<div id="root">',
+  )
   return html
 }
 
+/** Percent-encode each path segment for canonical URLs / hrefs (never for file paths). */
+function encodeRoutePath(routePath) {
+  const text = String(routePath || '')
+  if (!text || text === '/') return text
+  return text
+    .split('/')
+    .map((segment) => {
+      if (!segment) return segment
+      let decoded = segment
+      try {
+        decoded = decodeURIComponent(segment)
+      } catch {
+        // Already-literal segment containing a stray `%`; encode it as-is.
+      }
+      return encodeURIComponent(decoded)
+    })
+    .join('/')
+}
+
+/**
+ * Map a route path to its output file. Route paths reach this function in both raw and
+ * percent-encoded form; the filesystem stores the *decoded* segment and Vercel matches
+ * requests after decoding, so writing `topics/%E4%B8%AD` would silently fall through to
+ * the SPA catch-all and serve the home page under that URL.
+ */
+export function routeOutputPath(routePath, baseDir = distDir) {
+  const normalizedRoute = routePath === '/' ? '' : String(routePath || '').replace(/^\//, '')
+  if (!normalizedRoute) return join(baseDir, 'index.html')
+
+  const segments = normalizedRoute.split('/').map((segment) => {
+    let decoded = segment
+    try {
+      decoded = decodeURIComponent(segment)
+    } catch {
+      // Keep the raw segment when it is not valid percent-encoding.
+    }
+    if (decoded === '.' || decoded === '..' || /[\\/]/.test(decoded)) {
+      throw new Error(`[prerender] refusing to write route with unsafe segment: ${routePath}`)
+    }
+    return decoded
+  })
+
+  return join(baseDir, ...segments, 'index.html')
+}
+
 async function writeRouteHtml(routePath, html) {
-  const normalizedRoute = routePath === '/' ? '' : routePath.replace(/^\//, '')
-  const targetFile = normalizedRoute
-    ? join(distDir, normalizedRoute, 'index.html')
-    : join(distDir, 'index.html')
+  const targetFile = routeOutputPath(routePath)
   await mkdir(dirname(targetFile), { recursive: true })
   await writeFile(targetFile, html, 'utf8')
 }
@@ -400,7 +528,7 @@ function renderSeriesListPage(template, seriesItems, siteUrl) {
       </section>
       <section class="prerender-section">
         <div class="prerender-grid cols-2">
-          ${(seriesItems || []).map((series) => renderCard(series, `/series/${series.slug}`, [
+          ${(seriesItems || []).map((series) => renderCard(series, `/series/${encodeURIComponent(series.slug)}`, [
             `${series.post_count || 0} 篇`,
             series.latest_post_at ? formatDate(series.latest_post_at) : '持续更新',
           ])).join('')}
@@ -473,7 +601,7 @@ function renderContentTypePage(template, routePath, title, description, items, s
 
 function renderSeriesDetailPage(template, series, siteUrl) {
   const posts = series?.posts || []
-  const routePath = `/series/${series.slug}`
+  const routePath = `/series/${encodeURIComponent(series.slug)}`
   const rootHtml = `
     <main class="prerender-shell">
       <section class="prerender-hero">
@@ -533,8 +661,8 @@ function renderTopicDetailPage(template, topic, siteUrl) {
   })
 }
 
-function renderPostDetailPage(template, post, siteUrl) {
-  const routePath = `/posts/${post.slug}`
+export function renderPostDetailPage(template, post, siteUrl) {
+  const routePath = `/posts/${encodeURIComponent(post.slug)}`
   const excerpt = truncate(stripMarkdown(post.content_md || post.summary || ''), 600)
   const rootHtml = `
     <main class="prerender-shell">
@@ -606,14 +734,40 @@ export function renderPrivateShell(template, { routePath, title, description, su
   })
 }
 
-export async function main() {
+/**
+ * Report how many detail pages a group actually produced and fail loudly when the
+ * shortfall is large enough to matter. Anything not written here is served by the SPA
+ * catch-all as the home page (HTTP 200, canonical pointing at `/`) — a soft 404 that no
+ * exit code used to flag.
+ */
+function summarizeDetailCoverage(label, plural, expected, failures) {
+  const generated = expected - failures.length
+  if (failures.length > 0) {
+    console.error(`[prerender] ${failures.length}/${expected} ${plural} detail fetches failed:`)
+    failures.forEach(({ key, message }) => console.error(`[prerender]   - ${label}:${key} ${message}`))
+  }
+  const ratio = expected === 0 ? 1 : generated / expected
+  return { label, plural, expected, generated, ratio, ok: ratio >= PRERENDER_MIN_DETAIL_RATIO }
+}
+
+function collectDetail(apiBase, path, failures, key) {
+  return fetchJson(apiBase, path).catch((error) => {
+    failures.push({ key, message: error?.message || 'unknown error' })
+    return null
+  })
+}
+
+export async function main({
+  writeRoute = writeRouteHtml,
+  readTemplate = () => readFile(templatePath, 'utf8'),
+} = {}) {
   if (envFlag(process.env.SKIP_PRERENDER)) {
     console.warn('[prerender] explicitly skipped because SKIP_PRERENDER is enabled.')
     return
   }
 
   const apiBase = normalizeUrl(process.env.PRERENDER_API_BASE || process.env.VITE_API_BASE || '')
-  const siteUrl = normalizeUrl(process.env.PUBLIC_SITE_URL || 'https://www.563118077.xyz')
+  const siteUrl = normalizeUrl(process.env.PUBLIC_SITE_URL || SITE_SEO.canonicalOrigin)
 
   if (!apiBase) {
     throw new Error(
@@ -621,12 +775,12 @@ export async function main() {
     )
   }
 
-  const template = await readFile(templatePath, 'utf8')
+  const template = await readTemplate()
   console.log(`[prerender] using api base ${apiBase}`)
   console.log(`[prerender] detail fetch concurrency ${PRERENDER_FETCH_CONCURRENCY}`)
 
   const homeBootstrap = await loadHomeBootstrap(apiBase)
-  await writeRouteHtml('/', renderHomePage(template, homeBootstrap, siteUrl))
+  await writeRoute('/', renderHomePage(template, homeBootstrap, siteUrl))
 
   const [archiveGroups, topicsPayload, seriesList, dailyDiscover, weeklyDiscover] = await Promise.all([
     fetchJson(apiBase, '/api/archive'),
@@ -636,9 +790,9 @@ export async function main() {
     fetchJson(apiBase, '/api/discover?content_type=weekly_review&limit=24'),
   ])
 
-  await writeRouteHtml('/archive', renderArchivePage(template, archiveGroups, siteUrl))
-  await writeRouteHtml('/topics', renderTopicsListPage(template, topicsPayload?.items || [], siteUrl))
-  await writeRouteHtml('/series', renderSeriesListPage(template, Array.isArray(seriesList) ? seriesList : [], siteUrl))
+  await writeRoute('/archive', renderArchivePage(template, archiveGroups, siteUrl))
+  await writeRoute('/topics', renderTopicsListPage(template, topicsPayload?.items || [], siteUrl))
+  await writeRoute('/series', renderSeriesListPage(template, Array.isArray(seriesList) ? seriesList : [], siteUrl))
   const staticRoutes = [
     ['/discover', '发现', '按内容类型、系列和关键词发现值得持续追踪的 AI 内容。'],
     ['/search', '搜索', '搜索文章、主题、系列与关键变化。'],
@@ -649,7 +803,7 @@ export async function main() {
     ['/friends', '友链', '发现值得关注的技术与 AI 站点。'],
   ]
   await Promise.all(staticRoutes.map(([routePath, title, description]) =>
-    writeRouteHtml(routePath, renderStaticPage(template, { routePath, title, description }, siteUrl))))
+    writeRoute(routePath, renderStaticPage(template, { routePath, title, description }, siteUrl))))
 
   const privateRoutes = [
     ['/login', '登录', '登录后同步你的关注、阅读历史与互动记录。', 'auth'],
@@ -662,11 +816,11 @@ export async function main() {
     ['/admin/dashboard', '管理控制台', 'Signal Desk 受保护的运营工作区。', 'operations'],
   ]
   await Promise.all(privateRoutes.map(([routePath, title, description, surface]) =>
-    writeRouteHtml(
+    writeRoute(
       routePath,
       renderPrivateShell(template, { routePath, title, description, surface }, siteUrl),
     )))
-  await writeRouteHtml(
+  await writeRoute(
     '/daily',
     renderContentTypePage(
       template,
@@ -677,7 +831,7 @@ export async function main() {
       siteUrl,
     ),
   )
-  await writeRouteHtml(
+  await writeRoute(
     '/weekly',
     renderContentTypePage(
       template,
@@ -693,42 +847,61 @@ export async function main() {
   const topicItems = topicsPayload?.items || []
   const seriesItems = Array.isArray(seriesList) ? seriesList : []
 
+  const topicFailures = []
+  const seriesFailures = []
+  const postFailures = []
+
   const [topicDetails, seriesDetails, postDetails] = await Promise.all([
     mapWithConcurrency(topicItems, PRERENDER_FETCH_CONCURRENCY, (topic) =>
-      fetchJson(apiBase, `/api/topics/${encodeURIComponent(topic.topic_key)}`).catch(() => null),
+      collectDetail(apiBase, `/api/topics/${encodeURIComponent(topic.topic_key)}`, topicFailures, topic.topic_key),
     ),
     mapWithConcurrency(seriesItems, PRERENDER_FETCH_CONCURRENCY, (series) =>
-      fetchJson(apiBase, `/api/series/${encodeURIComponent(series.slug)}`).catch(() => null),
+      collectDetail(apiBase, `/api/series/${encodeURIComponent(series.slug)}`, seriesFailures, series.slug),
     ),
     mapWithConcurrency(archivePosts, PRERENDER_FETCH_CONCURRENCY, (post) =>
-      fetchJson(apiBase, `/api/posts/${encodeURIComponent(post.slug)}`).catch(() => null),
+      collectDetail(apiBase, `/api/posts/${encodeURIComponent(post.slug)}`, postFailures, post.slug),
     ),
   ])
 
   for (const topic of topicDetails.filter(Boolean)) {
-    await writeRouteHtml(
+    await writeRoute(
       `/topics/${encodeURIComponent(topic.topic_key)}`,
       renderTopicDetailPage(template, topic, siteUrl),
     )
   }
 
   for (const series of seriesDetails.filter(Boolean)) {
-    await writeRouteHtml(
-      `/series/${series.slug}`,
+    await writeRoute(
+      `/series/${encodeURIComponent(series.slug)}`,
       renderSeriesDetailPage(template, series, siteUrl),
     )
   }
 
   for (const post of postDetails.filter(Boolean)) {
-    await writeRouteHtml(
-      `/posts/${post.slug}`,
+    await writeRoute(
+      `/posts/${encodeURIComponent(post.slug)}`,
       renderPostDetailPage(template, post, siteUrl),
     )
   }
 
+  const coverage = [
+    summarizeDetailCoverage('topic', 'topics', topicItems.length, topicFailures),
+    summarizeDetailCoverage('series', 'series', seriesItems.length, seriesFailures),
+    summarizeDetailCoverage('post', 'posts', archivePosts.length, postFailures),
+  ]
+
   console.log(
-    `[prerender] generated ${topicDetails.filter(Boolean).length} topics, ${seriesDetails.filter(Boolean).length} series, ${postDetails.filter(Boolean).length} posts.`,
+    `[prerender] generated ${coverage.map(({ plural, generated, expected }) => `${generated}/${expected} ${plural}`).join(', ')}.`,
   )
+
+  const degraded = coverage.filter(({ ok }) => !ok)
+  if (degraded.length > 0) {
+    throw new Error(
+      `detail prerender coverage below ${Math.round(PRERENDER_MIN_DETAIL_RATIO * 100)}%: ${
+        degraded.map(({ plural, generated, expected }) => `${plural} ${generated}/${expected}`).join(', ')
+      }. Missing routes would be served as the home page (soft 404), so the build is failed on purpose.`,
+    )
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === __filename) {

@@ -3,10 +3,15 @@ services:
     name: ai-dev-blog-api
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    # 构建上下文必须是仓库根：镜像除 backend/ 外还要打进 scripts/config/*.json，
+    # 后端的封面风格与主题展示规则从那里加载（见 backend/Dockerfile 注释）。
+    dockerContext: .
     region: oregon
     healthCheckPath: /readyz
     envVars:
+      # 显式声明生产环境，不依赖 Render 注入的 RENDER* 变量做隐式推断。
+      - key: APP_ENV
+        value: production
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEY
@@ -36,6 +41,16 @@ services:
         value: "0"
       - key: ENABLE_STARTUP_SCHEMA_SYNC
         value: "0"
+      # Canonical host. Also seeds CORS when ALLOWED_ORIGINS is empty
+      # (env.get_allowed_origins() returns [] in production without either).
+      - key: PUBLIC_SITE_URL
+        value: https://www.563118077.xyz
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Cloudflare Turnstile. When unset, turnstile_ready() is False and human
+      # verification silently turns off on register/login.
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
       # Production must use durable R2 storage. Set to "1" only for an
       # explicitly accepted emergency deployment with ephemeral local uploads.
       - key: ALLOW_EPHEMERAL_UPLOADS
@@ -68,3 +83,17 @@ services:
         sync: false
       - key: WECOM_WEBHOOK_URLS
         sync: false
+      # 发布后触发 Vercel 重新构建（app/frontend_refresh.py）。
+      - key: VERCEL_DEPLOY_HOOK_URL
+        sync: false
+      # AI 生成兜底：后台 AI Provider 未配置时作为 env 回退密钥/端点
+      # （services/ai_channels.py）。
+      - key: XAI_API_KEY
+        sync: false
+      - key: SILICONFLOW_BASE_URL
+        sync: false
+      - key: SILICONFLOW_MODEL
+        sync: false
+      # 生图等待上限，取值被夹在 60-600 秒之间。
+      - key: IMAGE_GENERATION_TIMEOUT_SECONDS
+        value: "300"

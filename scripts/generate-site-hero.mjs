@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import {
   generateSiteHeroViaAdminJob,
@@ -89,7 +92,15 @@ async function main() {
   console.log(`Hero image updated through configured image channel: ${heroImage}`)
 }
 
-main().catch((error) => {
-  console.error(error.message)
-  process.exit(1)
-})
+// Without this guard, merely importing the module (a test, a tooling scan, another
+// script) performed a real admin login and a paid hero-image generation as a side effect.
+const isMainModule = process.argv[1] ? resolve(process.argv[1]) === fileURLToPath(import.meta.url) : false
+
+if (isMainModule) {
+  main().catch((error) => {
+    console.error(error.message)
+    process.exit(1)
+  })
+}
+
+export { buildDefaultHeroPrompt, main }

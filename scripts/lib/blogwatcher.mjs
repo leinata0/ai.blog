@@ -23,6 +23,12 @@ const TOPIC_MATCH_STOP_WORDS = new Set([
   'daily', 'report', 'update', 'updates', 'breaking', 'says', 'say',
 ])
 
+// Feeds are fetched concurrently, but 29 simultaneous outbound sockets (plus the base
+// feed fetch in auto-blog) is enough to trip rate limits and starve the event loop.
+const FEED_FETCH_CONCURRENCY = 6
+// A feed without Content-Length can stream unbounded data into memory. Cap what we read.
+const MAX_FEED_BYTES = 4 * 1024 * 1024
+
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
 }
@@ -30,6 +36,99 @@ function normalizeText(value) {
 function toArray(value) {
   if (!value) return []
   return Array.isArray(value) ? value : [value]
+}
+
+// fast-xml-parser hands back a scalar for `<description>text</description>` but an object
+// (`{ '#text': ..., '@_type': 'html' }`) as soon as the element carries an attribute, and an
+// array when the element repeats. Blindly String()-ing those produced "[object Object]" and
+// comma-joined garbage, so unwrap them explicitly.
+function pickNodeText(value) {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const text = pickNodeText(entry)
+      if (text) return text
+    }
+    return ''
+  }
+  if (typeof value === 'object') {
+    if (value['#text'] !== undefined) return pickNodeText(value['#text'])
+    if (value['@_href'] !== undefined) return String(value['@_href'])
+  }
+  return ''
+}
+
+// Atom entries usually carry several <link rel="..."> siblings; the previous
+// `item.link?.['@_href'] || item.link` read stringified the whole array into a junk URL.
+// Prefer rel="alternate" (the canonical article), then any href, then a plain-string link,
+// then the guid — matching how `arxiv.mjs` already resolves entry links.
+export function pickEntryLink(item) {
+  const links = toArray(item?.link)
+  const objectLinks = links.filter((link) => link && typeof link === 'object' && link['@_href'])
+  const alternate = objectLinks.find((link) => {
+    const rel = String(link['@_rel'] || '').toLowerCase()
+    return !rel || rel === 'alternate'
+  })
+  if (alternate) return String(alternate['@_href'])
+  if (objectLinks.length > 0) return String(objectLinks[0]['@_href'])
+
+  const stringLink = links.find((link) => typeof link === 'string' && link.trim())
+  if (stringLink) return stringLink.trim()
+
+  return pickNodeText(item?.guid)
+}
+
+// Bounded-concurrency variant of Promise.allSettled: same result shape, but at most
+// `concurrency` workers are in flight at once.
+export async function mapWithConcurrency(items, worker, concurrency = FEED_FETCH_CONCURRENCY) {
+  const list = Array.isArray(items) ? items : []
+  const results = new Array(list.length)
+  const workers = Math.max(1, Math.min(Number(concurrency) || 1, list.length))
+  let cursor = 0
+
+  await Promise.all(Array.from({ length: workers }, async () => {
+    while (cursor < list.length) {
+      const index = cursor
+      cursor += 1
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(list[index], index) }
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason }
+      }
+    }
+  }))
+
+  return results
+}
+
+export async function readResponseTextCapped(resp, maxBytes = MAX_FEED_BYTES) {
+  const body = resp?.body
+  if (!body || typeof body.getReader !== 'function') {
+    const text = await resp.text()
+    return text.length > maxBytes ? text.slice(0, maxBytes) : text
+  }
+
+  const reader = body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let out = ''
+  let total = 0
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength ?? value.length ?? 0
+      out += decoder.decode(value, { stream: true })
+    }
+    out += decoder.decode()
+  } finally {
+    try {
+      await reader.cancel()
+    } catch {
+      // Stream already finished or errored; nothing to release.
+    }
+  }
+  return out
 }
 
 function normalizePositiveInt(value, fallback) {
@@ -119,12 +218,14 @@ export function parseFeedXml(xml, source) {
       source_name: sourceName,
       source_group: sourceGroup,
       channel_bucket: channelBucket,
-      title: normalizeText(item.title?.['#text'] || item.title || ''),
-      url: normalizeText(item.link?.['@_href'] || item.link || item.guid || ''),
-      published_at: normalizeText(item.pubDate || item.published || item.updated || ''),
+      title: normalizeText(pickNodeText(item.title)),
+      url: normalizeText(pickEntryLink(item)),
+      published_at: normalizeText(
+        pickNodeText(item.pubDate) || pickNodeText(item.published) || pickNodeText(item.updated)
+      ),
       lang: source.lang || 'en',
       summary: normalizeText(
-        item.description || item.summary?.['#text'] || item.summary || item.content?.['#text'] || ''
+        pickNodeText(item.description) || pickNodeText(item.summary) || pickNodeText(item.content)
       ),
       full_text: '',
       score: Number(source.quality_weight || 0.5),
@@ -186,6 +287,10 @@ export function filterResearchItemsByPublishedWindow(
     lookbackDays = 0,
     minItems = 0,
     rankItem = (item) => Number(item?.score || 0),
+    // Backfill entries are stale by definition; demote them so they cannot outrank a
+    // genuinely fresh item once a downstream stage re-sorts by score.
+    backfillPenalty = 0.4,
+    logger = null,
   } = {},
 ) {
   const normalizedItems = dedupeResearchItems(items)
@@ -203,23 +308,50 @@ export function filterResearchItemsByPublishedWindow(
   const startTs = endTs - totalLookbackMs
   const withTimestamp = []
   const withoutTimestamp = []
+  const outsideWindow = []
 
   for (const item of normalizedItems) {
     const ts = scoreTimestamp(item?.published_at)
     if (ts > 0) {
-      if (ts >= startTs && ts <= endTs) withTimestamp.push(item)
+      if (ts >= startTs && ts <= endTs) withTimestamp.push({ ...item, window_status: 'in_window' })
+      else outsideWindow.push(item)
     } else {
-      withoutTimestamp.push(item)
+      // Feeds such as Hacker News / GitHub Trending routinely omit a publish date. They stay
+      // eligible (dropping them would gut the community bucket) but are tagged so downstream
+      // reporting can tell "fresh" from "unknown".
+      withoutTimestamp.push({ ...item, window_status: 'undated' })
     }
   }
 
-  const filtered = [
+  const primary = [
     ...withTimestamp.sort((left, right) => compareResearchItems(left, right, rankItem)),
     ...withoutTimestamp.sort((left, right) => compareResearchItems(left, right, rankItem)),
   ]
 
-  if (filtered.length >= Number(minItems || 0)) return filtered
-  return normalizedItems.sort((left, right) => compareResearchItems(left, right, rankItem))
+  const floor = Math.max(0, Number(minItems || 0))
+  if (primary.length >= floor || outsideWindow.length === 0) return primary
+
+  // The window is a hard filter with a bounded soft backfill: previously a shortfall threw
+  // the whole lookback filter away and returned every item, so lookback_hours silently
+  // stopped applying. Now we only borrow the few stale items needed to reach `minItems`,
+  // and each borrowed item is flagged and score-penalized.
+  const shortfall = floor - primary.length
+  const backfill = outsideWindow
+    .sort((left, right) => compareResearchItems(left, right, rankItem))
+    .slice(0, shortfall)
+    .map((item) => ({
+      ...item,
+      window_status: 'outside_lookback_window',
+      outside_lookback_window: true,
+      score: Number((Number(item?.score || 0) * (1 - Math.min(0.95, Math.max(0, backfillPenalty)))).toFixed(3)),
+    }))
+
+  logger?.warn?.(
+    `Lookback window backfill: only ${primary.length}/${floor} items inside the window; `
+    + `borrowing ${backfill.length} stale item(s) (of ${outsideWindow.length} available).`
+  )
+
+  return [...primary, ...backfill]
 }
 
 export function interleaveResearchItemsByBucket(
@@ -340,7 +472,7 @@ async function fetchFeed(source) {
   if (!resp.ok) {
     throw new Error(`feed:${source.name}:${resp.status}`)
   }
-  const xml = await resp.text()
+  const xml = await readResponseTextCapped(resp)
   return parseFeedXml(xml, source)
 }
 
@@ -358,7 +490,7 @@ export async function runBlogwatcher({
     return []
   }
 
-  const settled = await Promise.allSettled(plan.sources.map((source) => fetchFeed(source)))
+  const settled = await mapWithConcurrency(plan.sources, (source) => fetchFeed(source), FEED_FETCH_CONCURRENCY)
   const scoredItems = settled
     .filter((result) => result.status === 'fulfilled')
     .flatMap((result) => result.value)

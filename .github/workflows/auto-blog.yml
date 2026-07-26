@@ -29,8 +29,11 @@ on:
 permissions:
   contents: read
 
+# 与 weekly-review.yml 共用同一并发组：周一 02:37 的周报可能撞上仍在跑的
+# 02:07 日报（timeout 60min），两者都会发布文章、都触发 Vercel hook，
+# 并且共享已发布 topic key 去重，重叠会产生竞态。
 concurrency:
-  group: auto-blog-${{ github.workflow }}-${{ github.ref }}
+  group: content-pipeline
   cancel-in-progress: false
 
 jobs:

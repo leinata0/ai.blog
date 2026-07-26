@@ -17,6 +17,12 @@ def _rate_limit_key(request) -> str:
     (false lockouts) while a distributed attacker still bypasses it. Reuse the same
     trust-aware resolution the anti-abuse limits use so the key reflects the real
     caller when (and only when) proxy headers are trusted.
+
+    Note that a *misconfigured* ``TRUSTED_PROXY_DEPTH`` reintroduces exactly the
+    failure this avoids — it just picks the wrong entry out of X-Forwarded-For
+    instead of ignoring the header. ``app.client_ip`` logs the observed chain and
+    exposes ``client_ip_diagnostics()``; see its module docstring for the
+    calibration procedure.
     """
     return client_ip_from_request(request)
 

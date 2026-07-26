@@ -16,16 +16,34 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
 
+from app.env import clean_env, get_allowed_origins, verify_startup_environment
+
+# Runs before `app.auth` is imported, which is the whole point: that module
+# resolves SECRET_KEY / ADMIN_USERNAME / ADMIN_PASSWORD at import time and raises
+# on the first one it finds missing, so bringing up a fresh deployment cost one
+# redeploy per missing variable. This raises once, listing every missing required
+# variable together, and warns about the ones that only degrade a feature.
+verify_startup_environment()
+
 from app.auth import get_current_admin
-from app.bootstrap import check_runtime_readiness, initialize_runtime
+from app.bootstrap import (
+    check_runtime_readiness,
+    env_flag,
+    initialize_runtime,
+    startup_diagnostics_summary,
+)
 from app.db import get_db
-from app.env import clean_env, get_allowed_origins
 from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
 from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.http_cache import build_public_cache_control, public_json_response, public_text_response
 from app.models import Post, Series, SiteSettings, Tag
 from app.rate_limit import limiter
-from app.routers.admin import fail_orphaned_generation_jobs, router as admin_router
+from app.routers.admin import (
+    fail_orphaned_generation_jobs,
+    router as admin_router,
+    start_generation_job_sweeper,
+    stop_generation_job_sweeper,
+)
 from app.routers.home import (
     build_home_modules_payload,
     build_lightweight_home_modules_payload,
@@ -43,13 +61,13 @@ from app.url_safety import (
     MAX_IMAGE_DOWNLOAD_BYTES,
     MAX_REDIRECTS,
     REDIRECT_STATUSES,
-    connected_peer_ip,
-    is_blocked_ip,
-    is_private_hostname,
-    is_public_http_url,
+    build_pinned_http_targets,
+    sniff_raster_image_content_type,
 )
 
-AUTO_SEED_ON_EMPTY = clean_env("AUTO_SEED_ON_EMPTY", "1") != "0"
+# Same falsy vocabulary as bootstrap.env_flag ("0"/"false"/"no"/"off"), so
+# AUTO_SEED_ON_EMPTY=false is not silently read as "seed production".
+AUTO_SEED_ON_EMPTY = env_flag("AUTO_SEED_ON_EMPTY", True)
 logger = logging.getLogger("blog.public")
 REQUEST_ID_HEADER = "X-Request-ID"
 READINESS_TIMEOUT_SECONDS = 2.0
@@ -58,8 +76,14 @@ READINESS_TIMEOUT_SECONDS = 2.0
 @asynccontextmanager
 async def lifespan(app):
     initialize_runtime(seed_on_empty=AUTO_SEED_ON_EMPTY)
+    # Sweep on boot, then keep sweeping: worker pools are process-local, so a
+    # crashed/restarted instance leaves rows behind. The sweep is age-based —
+    # a rolling deploy must not fail jobs the *previous* instance is still
+    # running.
     fail_orphaned_generation_jobs()
+    start_generation_job_sweeper()
     yield
+    stop_generation_job_sweeper()
     aclose = getattr(_http_client, "aclose", None)
     if aclose is not None:
         await aclose()
@@ -106,6 +130,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
+    # The frontend is a different origin (Vercel) from the API (Render), so response
+    # headers are invisible to JS unless listed here. GET /api/admin/images answers
+    # with the media-library page cursor in X-Next-Cursor; without this the admin UI
+    # can never read it and pagination silently stops after the first page.
+    expose_headers=["X-Next-Cursor", REQUEST_ID_HEADER],
 )
 
 app.include_router(posts_router)
@@ -130,8 +159,17 @@ def build_settings_payload(db: Session) -> dict:
 
 
 def build_stats_payload(db: Session) -> dict:
-    post_count = db.query(func.count(Post.id)).scalar()
-    tag_count = db.query(func.count(Tag.id)).scalar()
+    # /api/stats is public (rendered in the reader sidebar), so it must count the
+    # same universe the public endpoints expose. Counting every row leaked the
+    # number of unpublished drafts and, once /api/tags started excluding drafts,
+    # made the sidebar disagree with the tag cloud it sits next to.
+    post_count = db.query(func.count(Post.id)).filter(Post.is_published == True).scalar()
+    tag_count = (
+        db.query(func.count(func.distinct(Tag.id)))
+        .join(Tag.posts)
+        .filter(Post.is_published == True)
+        .scalar()
+    )
     series_count = db.query(func.count(Series.id)).scalar()
     return {
         "post_count": post_count,
@@ -184,7 +222,12 @@ async def readyz():
         logger.exception("Readiness check failed")
         return JSONResponse(status_code=503, content={"status": "not_ready"})
 
-    return {"status": "ready"}
+    # `checks` is a cached startup snapshot, so it costs nothing per poll and
+    # never changes the status code: a non-UTC session timezone, a plaintext API
+    # key or a feature switched off by a missing variable are all warnings about
+    # a *serving* app. Failing Render's healthCheckPath over them would take the
+    # site down to report a warning.
+    return {"status": "ready", "checks": startup_diagnostics_summary()}
 
 
 @app.get(f"{UPLOADS_URL_PREFIX}/{{filename:path}}")
@@ -202,6 +245,9 @@ def serve_uploaded_file(filename: str):
         headers={
             "Cache-Control": build_public_cache_control(max_age=86400, s_maxage=86400, stale_while_revalidate=604800),
             "Vary": "Accept-Encoding",
+            # Same hardening as /proxy-image: never let a browser sniff a stored
+            # object into an active content type.
+            "X-Content-Type-Options": "nosniff",
         },
     )
 
@@ -287,8 +333,15 @@ def get_public_home_bootstrap(
 _http_client = httpx.AsyncClient(
     follow_redirects=False,
     timeout=15.0,
-    limits=httpx.Limits(max_connections=20),
+    # Pinned URLs use the destination IP as the pool origin. Do not reuse a TLS
+    # connection for a different hostname that happens to share that CDN IP,
+    # because its established SNI/certificate context belongs to the first host.
+    limits=httpx.Limits(max_connections=20, max_keepalive_connections=0),
     headers={"User-Agent": "BlogImageProxy/1.0"},
+    # Outbound image requests are DNS-pinned below; do not silently route them
+    # through process-level proxy variables that would replace the verified
+    # destination with an unverifiable intermediary.
+    trust_env=False,
 )
 
 # Raster only — SVG can carry active content when navigated directly.
@@ -298,29 +351,11 @@ PROXY_REDIRECT_STATUSES = set(REDIRECT_STATUSES)
 MAX_PROXY_REDIRECTS = MAX_REDIRECTS
 
 
-# Thin wrappers kept for tests that monkeypatch these names.
-def _ip_is_blocked(ip_value: str) -> bool:
-    return is_blocked_ip(ip_value)
-
-
-def _is_private_hostname(hostname: str) -> bool:
-    return is_private_hostname(hostname)
-
-
-def _connected_peer_ip(resp) -> str | None:
-    return connected_peer_ip(resp)
-
-
-def _is_proxy_url_allowed(url: str) -> bool:
-    # Use the local _is_private_hostname wrapper so tests can monkeypatch it.
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    return bool(
-        parsed.scheme in {"http", "https"}
-        and parsed.hostname
-        and not _is_private_hostname(parsed.hostname)
-    )
+# Thin wrapper kept for tests that replace DNS resolution with deterministic
+# public targets. Each returned fetch URL contains a literal, already-validated
+# public IP and preserves the original Host/SNI separately.
+def _resolve_proxy_targets(url: str):
+    return build_pinned_http_targets(url)
 
 
 @app.get("/proxy-image")
@@ -328,56 +363,79 @@ def _is_proxy_url_allowed(url: str) -> bool:
 async def proxy_image(request: Request, url: str = Query(..., min_length=8)):
     current_url = url
     for redirect_count in range(MAX_PROXY_REDIRECTS + 1):
-        if not await anyio.to_thread.run_sync(_is_proxy_url_allowed, current_url):
+        targets = await anyio.to_thread.run_sync(_resolve_proxy_targets, current_url)
+        if not targets:
             return Response(status_code=400, content="Invalid URL")
-        try:
-            async with _http_client.stream("GET", current_url) as resp:
-                # Fail closed when the transport cannot prove which peer accepted
-                # the connection. A DNS pre-check alone leaves a rebinding gap.
-                peer_ip = _connected_peer_ip(resp)
-                if peer_ip is None or _ip_is_blocked(peer_ip):
-                    return Response(status_code=400, content="Invalid URL")
-
-                if resp.status_code in PROXY_REDIRECT_STATUSES:
-                    if redirect_count >= MAX_PROXY_REDIRECTS:
-                        return Response(status_code=502, content="Upstream image unavailable")
-                    location = resp.headers.get("location", "").strip()
-                    if not location:
-                        return Response(status_code=502, content="Upstream image unavailable")
-                    current_url = urljoin(current_url, location)
-                    continue
-
-                # DNS rebinding guard: the pre-fetch check resolved the hostname,
-                # but httpx resolved again to connect. Reject if the IP we actually
-                # reached is private/loopback/etc.
-                content_type = resp.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-                content_length = resp.headers.get("content-length")
-                if content_length:
-                    try:
-                        if int(content_length) > MAX_PROXY_IMAGE_BYTES:
-                            return Response(status_code=502, content="Upstream image too large")
-                    except ValueError:
-                        return Response(status_code=502, content="Upstream image unavailable")
-                if resp.status_code != 200 or content_type not in ALLOWED_CONTENT_TYPES:
-                    return Response(status_code=502, content="Upstream image unavailable")
-
-                chunks = []
-                total = 0
-                async for chunk in resp.aiter_bytes():
-                    total += len(chunk)
-                    if total > MAX_PROXY_IMAGE_BYTES:
-                        return Response(status_code=502, content="Upstream image too large")
-                    chunks.append(chunk)
-                return Response(
-                    content=b"".join(chunks),
-                    media_type=content_type,
-                    headers={
-                        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-                        "Access-Control-Allow-Origin": "*",
-                    },
+        redirect_url = None
+        for target in targets:
+            try:
+                extensions = (
+                    {"sni_hostname": target.sni_hostname} if target.sni_hostname else None
                 )
-        except Exception:
-            return Response(status_code=502, content="Failed to fetch image")
+                async with _http_client.stream(
+                    "GET",
+                    target.fetch_url,
+                    headers={"Host": target.host_header},
+                    extensions=extensions,
+                ) as resp:
+                    if resp.status_code in PROXY_REDIRECT_STATUSES:
+                        if redirect_count >= MAX_PROXY_REDIRECTS:
+                            return Response(status_code=502, content="Upstream image unavailable")
+                        location = resp.headers.get("location", "").strip()
+                        if not location:
+                            return Response(status_code=502, content="Upstream image unavailable")
+                        # Resolve relative redirects against the logical URL, not
+                        # the pinned-IP transport URL.
+                        redirect_url = urljoin(current_url, location)
+                        break
+
+                    content_type = (
+                        resp.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                    )
+                    content_length = resp.headers.get("content-length")
+                    if content_length:
+                        try:
+                            if int(content_length) > MAX_PROXY_IMAGE_BYTES:
+                                return Response(status_code=502, content="Upstream image too large")
+                        except ValueError:
+                            return Response(status_code=502, content="Upstream image unavailable")
+                    if resp.status_code != 200 or content_type not in ALLOWED_CONTENT_TYPES | {
+                        "",
+                        "application/octet-stream",
+                    }:
+                        return Response(status_code=502, content="Upstream image unavailable")
+
+                    chunks = []
+                    total = 0
+                    async for chunk in resp.aiter_bytes():
+                        total += len(chunk)
+                        if total > MAX_PROXY_IMAGE_BYTES:
+                            return Response(status_code=502, content="Upstream image too large")
+                        chunks.append(chunk)
+                    body = b"".join(chunks)
+                    detected_type = sniff_raster_image_content_type(body)
+                    if detected_type is None:
+                        return Response(status_code=502, content="Upstream image unavailable")
+                    return Response(
+                        content=body,
+                        media_type=detected_type,
+                        headers={
+                            "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+                            "Access-Control-Allow-Origin": "*",
+                            "X-Content-Type-Options": "nosniff",
+                        },
+                    )
+            except httpx.HTTPError:
+                # A hostname may have multiple public A/AAAA answers. Try the
+                # next pinned address before treating the upstream as down.
+                continue
+            except Exception:
+                logger.exception("proxy image fetch failed", extra={"target_host": target.host_header})
+                return Response(status_code=502, content="Failed to fetch image")
+        if redirect_url is not None:
+            current_url = redirect_url
+            continue
+        return Response(status_code=502, content="Failed to fetch image")
     return Response(status_code=502, content="Upstream image unavailable")
 
 

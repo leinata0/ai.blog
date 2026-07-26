@@ -1,11 +1,14 @@
 import json
+import logging
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.env import clean_env_list, is_production_env
 from app.models import EmailSubscription, WebPushSubscription
 from app.notifications import (
     email_delivery_ready,
@@ -30,6 +33,7 @@ from app.schemas import (
     WebPushSubscriptionResponse,
 )
 from app.site_config import resolve_public_site_url
+from app.url_safety import is_public_http_url
 from app.subscription_tokens import (
     ExpiredSubscriptionToken,
     InvalidSubscriptionToken,
@@ -40,6 +44,57 @@ from app.subscription_tokens import (
 )
 
 router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"])
+
+logger = logging.getLogger("blog.subscriptions")
+
+# A stored push endpoint becomes an outbound POST target for pywebpush every time
+# a post is published, so this unauthenticated field is a stored-SSRF sink. Same
+# baseline as /proxy-image and cover downloads: never accept a non-public host.
+# Entries starting with "." match any subdomain.
+WEB_PUSH_ENDPOINT_HOSTS = (
+    "fcm.googleapis.com",
+    "updates.push.services.mozilla.com",
+    ".push.services.mozilla.com",
+    ".notify.windows.com",
+    "web.push.apple.com",
+)
+
+
+def _allowed_web_push_hosts() -> tuple[str, ...]:
+    extra = tuple(value.strip().lower() for value in clean_env_list("WEB_PUSH_ALLOWED_ENDPOINT_HOSTS") if value.strip())
+    return WEB_PUSH_ENDPOINT_HOSTS + extra
+
+
+def _is_known_push_host(hostname: str) -> bool:
+    for rule in _allowed_web_push_hosts():
+        if rule.startswith("."):
+            if hostname.endswith(rule):
+                return True
+        elif hostname == rule:
+            return True
+    return False
+
+
+def validate_web_push_endpoint(endpoint: str) -> str:
+    """Reject anything that is not a public HTTPS push-service URL.
+
+    Two layers: the public-URL check always applies (it blocks loopback, private
+    ranges and cloud metadata addresses), while the push-service host allowlist
+    is enforced in production, where an unknown host is always a mistake or an
+    attack. Self-hosted relays can be added via WEB_PUSH_ALLOWED_ENDPOINT_HOSTS.
+    """
+    value = str(endpoint or "").strip()
+    parsed = urlparse(value)
+    hostname = (parsed.hostname or "").strip().lower().rstrip(".")
+    if parsed.scheme != "https" or not hostname or parsed.username or parsed.password:
+        raise HTTPException(status_code=400, detail="Invalid web push endpoint")
+    if not is_public_http_url(value, resolve_dns=False):
+        raise HTTPException(status_code=400, detail="Invalid web push endpoint")
+    if not _is_known_push_host(hostname):
+        if is_production_env():
+            raise HTTPException(status_code=400, detail="Unsupported web push endpoint host")
+        logger.warning("web_push_endpoint_host_not_allowlisted host=%s", hostname)
+    return value
 
 
 def _subscription_preferences(subscription: EmailSubscription) -> tuple[list[str], list[str], list[str]]:
@@ -276,11 +331,11 @@ def subscribe_web_push(
     if not web_push_delivery_ready():
         raise HTTPException(status_code=503, detail="Web push is not configured")
 
-    endpoint = (body.endpoint or "").strip()
     p256dh = (body.keys.p256dh or "").strip()
     auth = (body.keys.auth or "").strip()
-    if not endpoint or not p256dh or not auth:
+    if not (body.endpoint or "").strip() or not p256dh or not auth:
         raise HTTPException(status_code=400, detail="Invalid web push subscription payload")
+    endpoint = validate_web_push_endpoint(body.endpoint)
 
     content_types = normalize_subscription_content_types(body.content_types)
     topic_keys = normalize_subscription_topic_keys(body.topic_keys)

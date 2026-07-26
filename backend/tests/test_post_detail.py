@@ -39,6 +39,39 @@ def test_get_post_detail_returns_incremented_view_count(client, seeded_db):
     assert response.json()["view_count"] == 42
 
 
+def test_crawler_user_agent_does_not_inflate_view_count(client, seeded_db):
+    post = seeded_db.execute(
+        select(Post).where(Post.slug == "python-automation-selenium-pandas")
+    ).scalar_one()
+    post.view_count = 7
+    seeded_db.query(ViewLog).filter(ViewLog.post_id == post.id).delete()
+    seeded_db.commit()
+
+    for user_agent in ("Googlebot/2.1 (+http://www.google.com/bot.html)", "node-fetch/1.0"):
+        response = client.get(f"/api/posts/{post.slug}", headers={"User-Agent": user_agent})
+        assert response.status_code == 200
+        assert response.json()["view_count"] == 7
+
+    assert seeded_db.query(ViewLog).filter(ViewLog.post_id == post.id).count() == 0
+
+
+def test_post_detail_timestamps_carry_utc_offset(client, seeded_db):
+    """Naive UTC columns must be serialized with an explicit offset.
+
+    Without it `new Date(value)` parses the string as local time, so a UTC+8 reader sees
+    a just-published post as 8 hours old and day-grouped views land on the wrong date.
+    """
+    body = client.get("/api/posts/python-automation-selenium-pandas").json()
+    assert body["created_at"].endswith("+00:00")
+    assert body["updated_at"].endswith("+00:00")
+
+    listed = client.get("/api/posts").json()["items"][0]
+    assert listed["created_at"].endswith("+00:00")
+
+    archive = client.get("/api/archive").json()
+    assert archive[0]["posts"][0]["created_at"].endswith("+00:00")
+
+
 def test_get_post_detail_includes_quality_payload(client, seeded_db):
     post = seeded_db.execute(
         select(Post).where(Post.slug == "python-automation-selenium-pandas")

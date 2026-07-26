@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Link2 } from 'lucide-react'
 import { fetchFriendLinks } from '../api/posts'
@@ -6,21 +6,41 @@ import { proxyImageUrl } from '../utils/proxyImage'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
+import SeoMeta from '../components/SeoMeta'
+import { SITE_COPY } from '../utils/contentPresentation'
+
+const PAGE_TITLE = `友链 - ${SITE_COPY.brand}`
 
 export default function FriendsPage() {
   const [friends, setFriends] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  useEffect(() => {
-    document.title = '友链 - 极客开发日志'
+  // Distinguish "the backend failed" from "there are no friend links yet"; the old
+  // swallowed catch rendered both as 暂无友链 with no way to retry.
+  const loadFriends = useCallback(() => {
+    setLoading(true)
+    setError('')
     fetchFriendLinks()
       .then((data) => setFriends(Array.isArray(data) ? data : []))
-      .catch(() => {})
+      .catch((err) => {
+        setFriends([])
+        setError(err?.message || '友链加载失败，请稍后重试。')
+      })
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => {
+    loadFriends()
+  }, [loadFriends])
+
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+      <SeoMeta
+        title={PAGE_TITLE}
+        description="发现值得关注的技术与 AI 站点，沿着相邻的信息源继续扩展阅读。"
+        path="/friends"
+      />
       <Navbar />
 
       <div className="mx-auto max-w-4xl px-6 sm:px-10 py-16">
@@ -43,6 +63,18 @@ export default function FriendsPage() {
             {[1, 2, 3].map((i) => (
               <div key={i} className="h-40 rounded-xl skeleton-pulse" style={{ backgroundColor: 'var(--bg-surface)' }} />
             ))}
+          </div>
+        ) : error ? (
+          <div role="alert" data-ui="friends-error" className="rounded-xl px-5 py-4" style={{ backgroundColor: 'var(--danger-soft)' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--danger-text)' }}>{error}</p>
+            <button
+              type="button"
+              onClick={loadFriends}
+              className="mt-3 min-h-11 rounded-lg px-4 text-sm font-medium"
+              style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
+            >
+              重新加载
+            </button>
           </div>
         ) : friends.length === 0 ? (
           <p className="text-sm" style={{ color: 'var(--text-faint)' }}>暂无友链</p>

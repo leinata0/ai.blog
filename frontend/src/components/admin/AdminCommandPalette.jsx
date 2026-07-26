@@ -134,7 +134,13 @@ export default function AdminCommandPalette({
       }
     }, ARTICLE_SEARCH_DEBOUNCE_MS)
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      // The timer may already have fired and be awaiting fetchAdminPosts. Bumping the
+      // request id invalidates that in-flight response so it cannot setState after the
+      // palette closed or the query moved on.
+      articleRequestRef.current += 1
+    }
   }, [open, query])
 
   const articleCommands = useMemo(() => articleResults.map((post) => ({

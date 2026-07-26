@@ -48,10 +48,13 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
 
-      # 安装脚本依赖
+      # 安装脚本依赖（npm ci 严格按 lockfile，避免与其它 workflow 装出不同版本）
       - name: 安装脚本依赖
-        run: cd scripts && npm install
+        working-directory: scripts
+        run: npm ci
 
       # 检查后台密码等必要密钥
       - name: 检查必要密钥
@@ -87,8 +90,12 @@ jobs:
             exit 1
           fi
 
+          # backfill-quality-snapshots.mjs defaults to dry run and only writes
+          # when given --apply, so dry_run=false MUST pass --apply explicitly.
+          # Appending nothing here silently turned every "real" dispatch into a
+          # no-op that still reported success.
           args=(--limit "$DISPATCH_LIMIT" --offset "$DISPATCH_OFFSET" --max-pages "$DISPATCH_MAX_PAGES")
-          if [ "$DISPATCH_DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ "$DISPATCH_DRY_RUN" = "true" ]; then args+=(--dry-run); else args+=(--apply); fi
           if [ "$DISPATCH_FORCE" = "true" ]; then args+=(--force); fi
           printf 'Running:'
           printf ' %q' node scripts/backfill-quality-snapshots.mjs "${args[@]}"

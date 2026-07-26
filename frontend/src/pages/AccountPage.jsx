@@ -46,6 +46,7 @@ import {
   updateMe,
   uploadAvatar,
 } from '../api/user'
+import { proxyImageUrl } from '../utils/proxyImage'
 import '../styles/account.css'
 
 const VALID_TABS = new Set(['overview', 'library', 'following', 'profile', 'security'])
@@ -101,6 +102,60 @@ function SectionHeading({ kicker, title, description, actions }) {
   )
 }
 
+function LibraryCover({ item }) {
+  // 封面必须走 proxyImageUrl，并在 R2/CDN 抖动或图片被清理时回退到分区图标。
+  const coverSrc = proxyImageUrl(item.cover_image)
+  const [coverBroken, setCoverBroken] = useState(false)
+  const FallbackIcon = item.kind === 'history' ? Clock3 : item.kind === 'likes' ? Heart : MessageSquare
+
+  useEffect(() => {
+    setCoverBroken(false)
+  }, [coverSrc])
+
+  return (
+    <div className="account-library-cover">
+      {coverSrc && !coverBroken ? (
+        <img
+          src={coverSrc}
+          alt=""
+          width="112"
+          height="84"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setCoverBroken(true)}
+        />
+      ) : (
+        <span><FallbackIcon size={22} aria-hidden="true" /></span>
+      )}
+    </div>
+  )
+}
+
+function ProfileAvatarPreview({ previewUrl, avatarUrl }) {
+  // 本地预览是 blob: URL（proxyImageUrl 会原样返回），远端头像按图片策略解析。
+  const avatarSrc = proxyImageUrl(previewUrl || avatarUrl)
+  const [avatarBroken, setAvatarBroken] = useState(false)
+
+  useEffect(() => {
+    setAvatarBroken(false)
+  }, [avatarSrc])
+
+  if (!avatarSrc || avatarBroken) {
+    return <UserRound size={38} aria-hidden="true" />
+  }
+
+  return (
+    <img
+      src={avatarSrc}
+      alt="头像预览"
+      width="112"
+      height="112"
+      referrerPolicy="no-referrer"
+      onError={() => setAvatarBroken(true)}
+    />
+  )
+}
+
 function SectionSkeleton() {
   return (
     <div className="account-skeleton" role="status" aria-label="正在整理你的个人信号…">
@@ -143,8 +198,19 @@ function AccountPageContent() {
   const [securitySaving, setSecuritySaving] = useState(false)
   const [exporting, setExporting] = useState(false)
   const fileInputRef = useRef(null)
+  const mountedRef = useRef(true)
+  const leavePromptOpenRef = useRef(false)
 
   const profileDirty = nickname !== (user?.nickname || '') || bio !== (user?.bio || '') || Boolean(avatarFile)
+
+  useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
+
+  // 所有 await 之后的 setState 都要先确认组件仍然挂载，避免卸载后写状态。
+  const showNotice = useCallback((next) => {
+    if (mountedRef.current) setNotice(next)
+  }, [])
 
   useEffect(() => {
     document.title = '个人信号中心 - AI 资讯观察'
@@ -192,19 +258,45 @@ function AccountPageContent() {
 
   useEffect(() => {
     if (!profileDirty) return undefined
+    let disposed = false
+
     async function interceptNavigation(event) {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
       const anchor = event.target.closest?.('a[href]')
       if (!anchor) return
-      const target = new URL(anchor.href, window.location.href)
+      let target
+      try {
+        target = new URL(anchor.href, window.location.href)
+      } catch {
+        return
+      }
       if (target.origin !== window.location.origin || `${target.pathname}${target.search}` === `${location.pathname}${location.search}`) return
+      // 已经有一个确认框在等待时不要再拦第二次，否则会堆叠对话框。
+      if (leavePromptOpenRef.current) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
-      const approved = await confirm({
-        title: '离开未保存的资料？',
-        description: '昵称、简介或待上传头像尚未保存。离开后这些修改会丢失。',
-        confirmLabel: '放弃修改',
-      })
+
+      let approved = false
+      leavePromptOpenRef.current = true
+      try {
+        approved = await confirm({
+          title: '离开未保存的资料？',
+          description: '昵称、简介或待上传头像尚未保存。离开后这些修改会丢失。',
+          confirmLabel: '放弃修改',
+        })
+      } catch {
+        // 部分内嵌 webview 会让确认流程直接抛错；此时放行导航，
+        // 绝不能让捕获阶段的拦截把全站链接永久吞掉。
+        approved = true
+      } finally {
+        leavePromptOpenRef.current = false
+      }
+
+      if (disposed || !mountedRef.current) return
       if (approved) {
         setAvatarFile(null)
         setNickname(user?.nickname || '')
@@ -212,8 +304,13 @@ function AccountPageContent() {
         navigate(`${target.pathname}${target.search}${target.hash}`)
       }
     }
+
     document.addEventListener('click', interceptNavigation, true)
-    return () => document.removeEventListener('click', interceptNavigation, true)
+    return () => {
+      disposed = true
+      leavePromptOpenRef.current = false
+      document.removeEventListener('click', interceptNavigation, true)
+    }
   }, [confirm, location.pathname, location.search, navigate, profileDirty, user?.bio, user?.nickname])
 
   useEffect(() => {
@@ -239,9 +336,10 @@ function AccountPageContent() {
     setDashboard((current) => ({ ...current, loading: quiet ? current.loading : true, error: '' }))
     try {
       const data = await fetchAccountDashboard({ signal: controller.signal })
+      if (!mountedRef.current) return
       setDashboard({ data, loading: false, error: '' })
     } catch (error) {
-      if (error?.name !== 'AbortError') {
+      if (mountedRef.current && error?.name !== 'AbortError') {
         setDashboard((current) => ({ ...current, loading: false, error: String(error?.message || '个人信号暂时无法加载') }))
       }
     }
@@ -273,10 +371,11 @@ function AccountPageContent() {
       pageSize: LIBRARY_PAGE_SIZE,
       signal: controller.signal,
     }).then((data) => {
+      if (controller.signal.aborted || !mountedRef.current) return
       libraryCacheRef.current.set(libraryKey, data)
       setLibraryState({ key: libraryKey, data, loading: false, error: '' })
     }).catch((error) => {
-      if (error?.name !== 'AbortError') {
+      if (mountedRef.current && error?.name !== 'AbortError') {
         setLibraryState({ key: libraryKey, data: null, loading: false, error: String(error?.message || '资料库加载失败') })
       }
     })
@@ -334,15 +433,17 @@ function AccountPageContent() {
       if (item.kind === 'history') await removeHistoryEntry(item.slug)
       else if (item.kind === 'likes') await removeAccountLike(item.slug)
       else await removeAccountComment(item.id)
-      setNotice({ status: `${labels[item.kind]}成功`, error: '' })
+      if (!mountedRef.current) return
+      showNotice({ status: `${labels[item.kind]}成功`, error: '' })
       if (next.items.length === 0 && libraryPage > 1) {
         navigate(libraryHref({ page: libraryPage - 1 }), { replace: true })
       }
     } catch (error) {
       libraryCacheRef.current.set(libraryKey, previous)
+      if (!mountedRef.current) return
       setLibraryState((current) => ({ ...current, data: previous }))
       setDashboard({ data: previousDashboard, loading: false, error: '' })
-      setNotice({ status: '', error: `${String(error?.message || labels[item.kind])}。列表已恢复，请重试。` })
+      showNotice({ status: '', error: `${String(error?.message || labels[item.kind])}。列表已恢复，请重试。` })
     }
   }
 
@@ -356,6 +457,7 @@ function AccountPageContent() {
     try {
       await clearCloudHistory()
       libraryCacheRef.current.clear()
+      if (!mountedRef.current) return
       setDashboard((current) => current.data ? ({
         ...current,
         data: {
@@ -371,6 +473,7 @@ function AccountPageContent() {
           page: libraryPage,
           pageSize: LIBRARY_PAGE_SIZE,
         })
+        if (!mountedRef.current) return
         const lastPage = Math.max(1, Math.ceil(refreshed.total / LIBRARY_PAGE_SIZE))
         if (libraryPage > lastPage) {
           navigate(libraryHref({ page: lastPage }), { replace: true })
@@ -378,18 +481,19 @@ function AccountPageContent() {
           libraryCacheRef.current.set(libraryKey, refreshed)
           setLibraryState({ key: libraryKey, data: refreshed, loading: false, error: '' })
         }
-        setNotice({ status: '阅读历史已清空', error: '' })
+        showNotice({ status: '阅读历史已清空', error: '' })
       } catch (refreshError) {
+        if (!mountedRef.current) return
         setLibraryState({
           key: libraryKey,
           data: null,
           loading: false,
           error: String(refreshError?.message || '阅读历史已清空，但资料库刷新失败'),
         })
-        setNotice({ status: '阅读历史已清空，资料库需要重新加载', error: '' })
+        showNotice({ status: '阅读历史已清空，资料库需要重新加载', error: '' })
       }
     } catch (error) {
-      setNotice({ status: '', error: String(error?.message || '清空失败，请重试') })
+      showNotice({ status: '', error: String(error?.message || '清空失败，请重试') })
     }
   }
 
@@ -411,10 +515,11 @@ function AccountPageContent() {
     }) : current)
     try {
       await unfollowTopicCloud(topic.topic_key)
-      setNotice({ status: '已取消关注', error: '' })
+      showNotice({ status: '已取消关注', error: '' })
     } catch (error) {
+      if (!mountedRef.current) return
       setDashboard({ data: previous, loading: false, error: '' })
-      setNotice({ status: '', error: `${String(error?.message || '取消关注失败')}。主题已恢复。` })
+      showNotice({ status: '', error: `${String(error?.message || '取消关注失败')}。主题已恢复。` })
     }
   }
 
@@ -445,15 +550,16 @@ function AccountPageContent() {
       let updated = await updateMe({ nickname, bio })
       if (avatarFile) updated = await uploadAvatar(avatarFile)
       setUser(updated)
-      setAvatarFile(null)
       if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+      if (!mountedRef.current) return
+      setAvatarFile(null)
       setAvatarPreview('')
       if (fileInputRef.current) fileInputRef.current.value = ''
-      setNotice({ status: '身份资料已保存', error: '' })
+      showNotice({ status: '身份资料已保存', error: '' })
     } catch (error) {
-      setNotice({ status: '', error: String(error?.message || '资料保存失败，请重试') })
+      showNotice({ status: '', error: String(error?.message || '资料保存失败，请重试') })
     } finally {
-      setProfileSaving(false)
+      if (mountedRef.current) setProfileSaving(false)
     }
   }
 
@@ -467,11 +573,12 @@ function AccountPageContent() {
     try {
       const updated = await removeAvatar()
       setUser(updated)
+      if (!mountedRef.current) return
       setAvatarFile(null)
       setAvatarPreview('')
-      setNotice({ status: '头像已移除', error: '' })
+      showNotice({ status: '头像已移除', error: '' })
     } catch (error) {
-      setNotice({ status: '', error: String(error?.message || '头像移除失败') })
+      showNotice({ status: '', error: String(error?.message || '头像移除失败') })
     }
   }
 
@@ -483,22 +590,23 @@ function AccountPageContent() {
       const updater = userContext.updatePassword || changePasswordApi
       const updated = await updater({ old_password: user?.password_set ? oldPassword : undefined, new_password: newPassword })
       if (updated?.email) setUser(updated)
+      if (!mountedRef.current) return
       setOldPassword('')
       setNewPassword('')
-      setNotice({ status: user?.password_set ? '密码已更新，旧会话已失效' : '密码已设置', error: '' })
+      showNotice({ status: user?.password_set ? '密码已更新，旧会话已失效' : '密码已设置', error: '' })
     } catch (error) {
-      setNotice({ status: '', error: String(error?.message || '密码更新失败，请检查后重试') })
+      showNotice({ status: '', error: String(error?.message || '密码更新失败，请检查后重试') })
     } finally {
-      setSecuritySaving(false)
+      if (mountedRef.current) setSecuritySaving(false)
     }
   }
 
   async function resendEmailVerification() {
     try {
       await resendVerification()
-      setNotice({ status: '验证邮件已发送，请检查收件箱', error: '' })
+      showNotice({ status: '验证邮件已发送，请检查收件箱', error: '' })
     } catch (error) {
-      setNotice({ status: '', error: String(error?.message || '发送失败，请稍后重试') })
+      showNotice({ status: '', error: String(error?.message || '发送失败，请稍后重试') })
     }
   }
 
@@ -514,13 +622,13 @@ function AccountPageContent() {
       anchor.download = `signal-desk-data-${new Date().toISOString().slice(0, 10)}.json`
       anchor.click()
       URL.revokeObjectURL(url)
-      setNotice({ status: '个人数据导出已开始下载', error: '' })
+      showNotice({ status: '个人数据导出已开始下载', error: '' })
     } catch (error) {
-      setNotice({ status: '', error: String(error?.message || '导出失败，请重试') })
+      showNotice({ status: '', error: String(error?.message || '导出失败，请重试') })
     } finally {
-      setExporting(false)
+      if (mountedRef.current) setExporting(false)
     }
-  }, [])
+  }, [showNotice])
 
   async function revokeAllSessions() {
     const approved = await confirm({
@@ -537,7 +645,7 @@ function AccountPageContent() {
       }
       navigate('/login?reason=sessions-revoked', { replace: true })
     } catch (error) {
-      setNotice({ status: '', error: String(error?.message || '操作失败，请稍后重试') })
+      showNotice({ status: '', error: String(error?.message || '操作失败，请稍后重试') })
     }
   }
 
@@ -554,7 +662,7 @@ function AccountPageContent() {
       logout()
       navigate('/', { replace: true })
     } catch (error) {
-      setNotice({ status: '', error: String(error?.message || '注销失败，请稍后重试') })
+      showNotice({ status: '', error: String(error?.message || '注销失败，请稍后重试') })
     }
   }
 
@@ -686,9 +794,7 @@ function AccountPageContent() {
               <div className="account-library-list">
                 {data.items.map((item) => (
                   <article key={`${item.kind}-${item.id}`}>
-                    <div className="account-library-cover">
-                      {item.cover_image ? <img src={item.cover_image} alt="" width="112" height="84" loading="lazy" /> : <span>{item.kind === 'history' ? <Clock3 size={22} aria-hidden="true" /> : item.kind === 'likes' ? <Heart size={22} aria-hidden="true" /> : <MessageSquare size={22} aria-hidden="true" />}</span>}
-                    </div>
+                    <LibraryCover item={item} />
                     <div className="account-library-copy min-w-0">
                       <div className="account-meta"><span>{kindLabel(item.kind)}</span><span>{contentTypeLabel(item.content_type)}</span><time>{formatDate(item.occurred_at, true)}</time></div>
                       {item.available ? <Link className="line-clamp-2" to={`/posts/${item.slug}`}>{item.title}</Link> : <strong className="line-clamp-2">{item.title}</strong>}
@@ -741,14 +847,13 @@ function AccountPageContent() {
   }
 
   function renderProfile() {
-    const avatarSource = avatarPreview || user?.avatar_url
     return (
       <div className="account-section-stack">
         <SectionHeading kicker="Identity / Profile" title="身份资料" description="昵称和头像会出现在你的公开评论中；邮箱和简介默认保持私有。" />
         <form className="account-profile-form" onSubmit={saveProfile}>
           <section className="account-avatar-editor">
             <div className="account-avatar-editor__preview">
-              {avatarSource ? <img src={avatarSource} alt="头像预览" width="112" height="112" /> : <UserRound size={38} aria-hidden="true" />}
+              <ProfileAvatarPreview previewUrl={avatarPreview} avatarUrl={user?.avatar_url} />
             </div>
             <div>
               <h3>个人头像</h3>

@@ -1,0 +1,147 @@
+name: 历史文章正文图片修复
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 确认写入修复结果（默认仅审计；写入需 production 环境审批）
+        required: false
+        default: false
+        type: boolean
+      concurrency:
+        description: 下载、上传及文章更新并发数（1-8）
+        required: false
+        default: '3'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repair-post-images
+  cancel-in-progress: false
+
+jobs:
+  # 第一阶段永远只读：产出审计 JSON 供人工核对，apply 必须先看到这份产物。
+  audit:
+    name: 只读审计
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: 拉取仓库代码
+        uses: actions/checkout@v6
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: 安装脚本依赖
+        working-directory: scripts
+        run: npm ci
+
+      - name: 校验运行参数和密钥
+        env:
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+          R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+          DISPATCH_CONCURRENCY: ${{ inputs.concurrency }}
+        shell: bash
+        run: |
+          if [ -z "$ADMIN_USERNAME" ]; then echo "::error::Missing ADMIN_USERNAME"; exit 1; fi
+          if [ -z "$ADMIN_PASSWORD" ]; then echo "::error::Missing ADMIN_PASSWORD"; exit 1; fi
+          if [ -z "$BLOG_API_BASE" ]; then echo "::error::Missing BLOG_API_BASE"; exit 1; fi
+          # 缺失时 repair-post-media.mjs 的可信图片 host 集合会退化成硬编码域名，
+          # 已本地化的图片会被当成第三方图重新下载上传。
+          if [ -z "$R2_PUBLIC_BASE_URL" ]; then echo "::error::Missing repository variable R2_PUBLIC_BASE_URL"; exit 1; fi
+          if [[ ! "$DISPATCH_CONCURRENCY" =~ ^[1-8]$ ]]; then
+            echo "::error::concurrency must be an integer between 1 and 8"
+            exit 1
+          fi
+
+      - name: 审计正文图片（只读）
+        env:
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+          R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+          DISPATCH_CONCURRENCY: ${{ inputs.concurrency }}
+        shell: bash
+        run: |
+          set -o pipefail
+          args=(--all --concurrency "$DISPATCH_CONCURRENCY")
+          printf 'Running:'
+          printf ' %q' node scripts/repair-post-media.mjs "${args[@]}"
+          printf '\n'
+          node scripts/repair-post-media.mjs "${args[@]}" 2>&1 | tee repair-audit.log
+          # 审计结果是脚本最后打印的一个缩进 JSON 对象，尽力抽取成独立产物。
+          awk '/^\{$/{start=NR} {line[NR]=$0} END{if(start) for(i=start;i<=NR;i++) print line[i]}' \
+            repair-audit.log > repair-audit.json || true
+
+      - name: 归档审计产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-post-images-audit-${{ github.run_id }}
+          path: |
+            repair-audit.log
+            repair-audit.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # 写入阶段：一次性重写全站已发布文章正文，必须过 Production 环境的人工审批。
+  # 环境名与仓库中已存在的环境大小写完全一致，避免 GitHub 另建一个无保护规则的同名环境。
+  apply:
+    name: 写入修复结果
+    needs: audit
+    if: ${{ inputs.apply }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: Production
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: 拉取仓库代码
+        uses: actions/checkout@v6
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: 安装脚本依赖
+        working-directory: scripts
+        run: npm ci
+
+      - name: 修复正文图片（写入）
+        env:
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          BLOG_API_BASE: ${{ vars.BLOG_API_BASE }}
+          R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+          DISPATCH_CONCURRENCY: ${{ inputs.concurrency }}
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ -z "$R2_PUBLIC_BASE_URL" ]; then echo "::error::Missing repository variable R2_PUBLIC_BASE_URL"; exit 1; fi
+          args=(--all --concurrency "$DISPATCH_CONCURRENCY" --apply)
+          printf 'Running:'
+          printf ' %q' node scripts/repair-post-media.mjs "${args[@]}"
+          printf '\n'
+          node scripts/repair-post-media.mjs "${args[@]}" 2>&1 | tee repair-apply.log
+
+      - name: 归档写入产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-post-images-apply-${{ github.run_id }}
+          path: repair-apply.log
+          if-no-files-found: warn
+          retention-days: 30

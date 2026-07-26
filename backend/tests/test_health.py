@@ -1,4 +1,4 @@
-import time
+import threading
 
 from jose import jwt
 
@@ -36,7 +36,11 @@ def test_readyz_checks_runtime_dependencies(client):
     resp = client.get("/readyz")
 
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ready"}
+    body = resp.json()
+    assert body["status"] == "ready"
+    # The startup self-checks ride along as a cached snapshot; they must never
+    # change the status Render reads.
+    assert set(body["checks"]) >= {"environment", "database_timezone", "api_key_encryption"}
 
 
 def test_readyz_rejects_missing_critical_schema(client):
@@ -69,13 +73,29 @@ def test_readyz_returns_503_when_dependency_check_fails(client, monkeypatch):
 def test_readyz_returns_503_on_timeout(client, monkeypatch):
     import app.main as main_mod
 
-    monkeypatch.setattr(main_mod, "READINESS_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(main_mod, "check_runtime_readiness", lambda: time.sleep(0.1))
+    entered = threading.Event()
+    release = threading.Event()
 
-    resp = client.get("/readyz")
+    def _blocking_check():
+        entered.set()
+        # Block for far longer than the readiness budget so the timeout is
+        # decided by the budget, not by scheduler jitter on a loaded CI runner.
+        # `release` keeps it interruptible: readyz abandons the worker thread on
+        # cancel, so an uninterruptible sleep would outlive the test.
+        release.wait(30)
+
+    monkeypatch.setattr(main_mod, "READINESS_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(main_mod, "check_runtime_readiness", _blocking_check)
+
+    try:
+        resp = client.get("/readyz")
+    finally:
+        release.set()
 
     assert resp.status_code == 503
     assert resp.json() == {"status": "not_ready"}
+    # Guard against passing for the wrong reason (e.g. the check never ran).
+    assert entered.wait(5)
 
 
 def test_unknown_route_keeps_framework_404_shape(client):

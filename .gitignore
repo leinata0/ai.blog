@@ -1,10 +1,21 @@
+# 环境变量：真实密钥一律不入库，只保留 *.env.example 模板
+.env
+.env.*
+!.env.example
+!*.env.example
+
 .worktrees/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+# 个人权限白名单，因机器而异，不应共享
+.claude/settings.local.json
 aidiag*.body
 aidiag*.headers
 coverdiag*.body
 coverdiag*.headers
+.pytest_cache/
+.uv-cache/
+backend/.venv/
 backend/.pytest_cache/
 backend/__pycache__/
 backend/**/*.pyc
@@ -15,13 +26,18 @@ backend/app/__pycache__/
 backend/app/routers/__pycache__/
 backend/tests/__pycache__/
 blog.db
+# 本地存储模式下 storage.py 的落盘目录（backend/app/uploads.py）
+uploads/
 frontend/node_modules/
 scripts/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/test-results/
-frontend/output/playwright-report/
+# Lighthouse / Playwright 报告产物；e2e/*-snapshots/ 的视觉基线不在此目录，仍需入库
+frontend/output/
 .codex-skill-build/
 .npm-cache/
 .playwright-cli/
+ci-backend-logs/
+*.log
 ref_article.json

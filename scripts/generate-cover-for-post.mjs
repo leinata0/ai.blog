@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { pathToFileURL } from 'node:url'
 
 import { resolveAdminPassword, resolveAdminUsername, resolveBlogApiBase } from './lib/blog-api.mjs'
 import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
@@ -17,6 +16,7 @@ export { buildPromptContext, extractHeadings, sanitizeCoverPrompt } from './lib/
 const BLOG_API_BASE = resolveBlogApiBase()
 const ADMIN_USERNAME = resolveAdminUsername()
 const ADMIN_PASSWORD = resolveAdminPassword()
+const LOGIN_TIMEOUT_MS = 15000
 const POST_ID = Number(process.env.POST_ID || 0)
 const MANUAL_COVER_PROMPT = String(process.env.COVER_PROMPT || '').trim()
 const OVERWRITE_EXISTING_COVER = String(process.env.OVERWRITE_EXISTING_COVER || 'false').toLowerCase() === 'true'
@@ -33,6 +33,7 @@ async function login() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
   })
   if (!resp.ok) {
     throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
@@ -91,7 +92,10 @@ async function main() {
   console.log(`Cover generated and updated via configured provider: ${coverImage}`)
 }
 
-const isMainModule = process.argv[1] ? resolve(process.argv[1]) === fileURLToPath(import.meta.url) : false
+// Compare file URLs, not resolved paths: on Windows `resolve(process.argv[1])` and
+// `fileURLToPath(import.meta.url)` can differ only by drive-letter case ("c:\" vs "C:\"),
+// which made this guard silently false and the script exit 0 without doing anything.
+const isMainModule = process.argv[1] ? pathToFileURL(process.argv[1]).href === import.meta.url : false
 
 if (isMainModule) {
   main().catch((error) => {

@@ -7,7 +7,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, Response
 from sqlalchemy.orm import Session, load_only, selectinload
-from sqlalchemy import case, delete, func, or_, select, update
+from sqlalchemy import String, case, cast, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.client_ip import client_ip_from_request
@@ -40,6 +40,7 @@ from app.models import (
     ViewLog,
     post_tags,
 )
+from app.rate_limit import limiter
 from app.schemas import CommentCreate
 from app.site_config import resolve_public_site_url
 from app.user_auth import get_optional_user
@@ -59,6 +60,42 @@ def _get_client_ip(request: Request) -> str:
     is used, so a client cannot forge them to bypass the like/comment/view limits.
     """
     return client_ip_from_request(request)
+
+
+def _iso_utc(value: datetime | None) -> str | None:
+    """Serialize a stored timestamp with an explicit UTC offset.
+
+    The DateTime columns are naive and hold UTC. Emitting a bare "2026-07-20T23:30:00"
+    makes ECMA-262 parse it as *local* time, so a UTC+8 reader saw fresh posts as
+    "8 小时前" and day-grouped views (归档/日报) landed on the wrong date.
+    """
+    if value is None:
+        return None
+    aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(timezone.utc).isoformat()
+
+
+_AUTOMATED_UA_PATTERN = re.compile(
+    r"bot|crawl|spider|slurp|headless|phantom|puppeteer|playwright|prerender|lighthouse|"
+    r"curl|wget|python-requests|httpx|node-fetch|undici|axios|okhttp|feedfetcher|"
+    r"facebookexternalhit|embedly|monitoring|uptime",
+    re.IGNORECASE,
+)
+
+
+def _is_automated_client(request: Request) -> bool:
+    """Best-effort "this hit is not a reader" check for the view counter.
+
+    The prerender build and search-engine crawlers fetch every article on every deploy,
+    which inflates view_count into a meaningless number. Only the counter consults this —
+    the article itself is served normally either way.
+    """
+    user_agent = str(request.headers.get("user-agent") or "").strip()
+    if not user_agent:
+        return True
+    if request.headers.get("x-prerender") or request.headers.get("x-prerender-token"):
+        return True
+    return bool(_AUTOMATED_UA_PATTERN.search(user_agent))
 
 
 def _post_list_item(post: Post) -> dict:
@@ -81,8 +118,8 @@ def _post_list_item(post: Post) -> dict:
         "is_published": post.is_published,
         "is_pinned": post.is_pinned,
         "like_count": post.like_count or 0,
-        "created_at": post.created_at.isoformat() if post.created_at else None,
-        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
+        "created_at": _iso_utc(post.created_at),
+        "updated_at": _iso_utc(post.updated_at),
         "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
     }
 
@@ -119,7 +156,7 @@ def _post_summary_options():
 
 
 def _serialize_datetime(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
+    return _iso_utc(value)
 
 
 def _build_series_aggregation_index(
@@ -161,7 +198,11 @@ def _series_to_dict(series: Series, db: Session, include_posts: bool = False, ag
     except (json.JSONDecodeError, TypeError):
         content_types = []
 
-    aggregated = aggregated or _build_series_aggregation_index(db, series_slugs=[series.slug]).get(series.slug, {})
+    # `is None` (not falsy): a batch index legitimately returns {} for a series with no
+    # published posts. Treating that as "missing" made every such series fall back to its
+    # own aggregation query — N+1 on /api/series, /api/discover and /api/search.
+    if aggregated is None:
+        aggregated = _build_series_aggregation_index(db, series_slugs=[series.slug]).get(series.slug, {})
     post_count = int(aggregated.get("post_count") or 0)
     latest_post_at = aggregated.get("latest_post_at")
 
@@ -199,7 +240,7 @@ def _source_to_dict(source: PostSource) -> dict:
         "source_type": source.source_type or "",
         "source_name": source.source_name or "",
         "source_url": source.source_url or "",
-        "published_at": source.published_at.isoformat() if source.published_at else None,
+        "published_at": _iso_utc(source.published_at),
         "is_primary": bool(source.is_primary),
     }
 
@@ -229,8 +270,8 @@ def _snapshot_to_dict(snapshot) -> dict | None:
         "issues": _json_list(snapshot.issues_json),
         "strengths": _json_list(snapshot.strengths_json),
         "notes": snapshot.notes or "",
-        "generated_at": snapshot.generated_at.isoformat() if snapshot.generated_at else None,
-        "updated_at": snapshot.updated_at.isoformat() if snapshot.updated_at else None,
+        "generated_at": _iso_utc(snapshot.generated_at),
+        "updated_at": _iso_utc(snapshot.updated_at),
     }
 
 
@@ -242,9 +283,9 @@ def _review_to_dict(review) -> dict | None:
         "editor_labels": _json_list(review.editor_labels_json),
         "editor_note": review.editor_note or "",
         "followup_recommended": review.followup_recommended,
-        "reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None,
+        "reviewed_at": _iso_utc(review.reviewed_at),
         "reviewed_by": review.reviewed_by or "",
-        "updated_at": review.updated_at.isoformat() if review.updated_at else None,
+        "updated_at": _iso_utc(review.updated_at),
     }
 
 
@@ -295,6 +336,25 @@ def _normalize_query(value: str | None) -> str:
     return " ".join(value.strip().split()).lower()
 
 
+LIKE_ESCAPE_CHAR = "\\"
+
+
+def _contains_pattern(value: str | None) -> str:
+    """Build a `%…%` LIKE pattern with the user's wildcards neutralized.
+
+    Not an injection issue (the value is still bound), but `?q=%` used to match every
+    row and force a full-table ILIKE scan instead of searching for a literal percent.
+    Pair with ``.ilike(pattern, escape=LIKE_ESCAPE_CHAR)``.
+    """
+    escaped = (
+        str(value or "")
+        .replace(LIKE_ESCAPE_CHAR, LIKE_ESCAPE_CHAR * 2)
+        .replace("%", f"{LIKE_ESCAPE_CHAR}%")
+        .replace("_", f"{LIKE_ESCAPE_CHAR}_")
+    )
+    return f"%{escaped}%"
+
+
 def _bump_existing_search_insight(
     db: Session, normalized_query: str, result_count: int, now: datetime
 ) -> bool:
@@ -319,6 +379,13 @@ def _record_search_insight(db: Session, query: str, result_count: int) -> None:
     now = datetime.now(timezone.utc)
 
     if _bump_existing_search_insight(db, normalized_query, result_count, now):
+        return
+
+    # Never create a row for a term that matched nothing. /api/search is a public GET, so
+    # a crawler walking random ?q= values would otherwise append one row per request and
+    # grow search_insights without bound. Known terms are still bumped above, which keeps
+    # the admin panel's "this used to return results and no longer does" signal intact.
+    if result_count <= 0:
         return
 
     # No row yet: try to insert. `query` is UNIQUE, so two concurrent searches for
@@ -377,7 +444,7 @@ def _popular_search_queries(db: Session, current_query: str, limit: int = 6) -> 
             "query": row.query,
             "search_count": int(row.search_count or 0),
             "last_result_count": int(row.last_result_count or 0),
-            "last_searched_at": row.last_searched_at.isoformat() if row.last_searched_at else None,
+            "last_searched_at": _iso_utc(row.last_searched_at),
         }
         for row in rows
         if len(str(row.query or "").strip()) >= 2
@@ -724,10 +791,10 @@ def _topic_profile_to_dict_with_metrics(
         "is_active": bool(profile.is_active),
         "priority": profile.priority or 0,
         "post_count": post_count,
-        "latest_post_at": latest_post_at.isoformat() if latest_post_at else None,
+        "latest_post_at": _iso_utc(latest_post_at),
         "avg_quality_score": round(float(avg_quality), 2) if avg_quality is not None else None,
-        "created_at": profile.created_at.isoformat() if profile.created_at else None,
-        "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+        "created_at": _iso_utc(profile.created_at),
+        "updated_at": _iso_utc(profile.updated_at),
     }
 
 
@@ -740,6 +807,18 @@ def _latest_timestamp(*values: datetime | None) -> datetime | None:
         if latest is None or current > latest:
             latest = current
     return latest
+
+
+def _posts_last_modified(posts) -> datetime | None:
+    """Freshness marker for a collection of posts.
+
+    Must fold in ``updated_at``: an edit leaves ``created_at`` untouched, so a
+    created_at-only Last-Modified never advanced and clients that only send
+    If-Modified-Since kept being told their stale copy was still fresh.
+    """
+    return _latest_timestamp(
+        *[value for post in posts for value in (post.updated_at, post.created_at)]
+    )
 
 
 def _build_topic_metrics_map(
@@ -843,12 +922,47 @@ def _build_latest_topic_posts_map(
     }
 
 
-def _resolved_post_date(post: Post) -> str:
-    if (post.coverage_date or "").strip():
-        return post.coverage_date.strip()
-    if post.created_at:
-        return post.created_at.date().isoformat()
-    return ""
+def _coverage_date_expr():
+    """The date a post is filed under: coverage_date when set, else the created_at day.
+
+    ``substr(cast(created_at AS VARCHAR), 1, 10)`` yields 'YYYY-MM-DD' on both SQLite and
+    Postgres and keeps both CASE branches textual, so the lexicographic comparison against
+    the date_from / date_to strings behaves like the string compare it replaces.
+    """
+    return case(
+        (func.coalesce(Post.coverage_date, "") != "", Post.coverage_date),
+        else_=func.substr(cast(Post.created_at, String), 1, 10),
+    )
+
+
+def _query_match_clause(pattern: str):
+    """Fields `_search_rank` looks at, as a SQL OR clause."""
+    return or_(
+        Post.title.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+        Post.summary.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+        Post.topic_key.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+        Post.series_slug.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+        Post.tags.any(
+            or_(
+                Tag.name.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+                Tag.slug.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+            )
+        ),
+    )
+
+
+# Weights for the four match flags at the head of a `_search_rank` tuple.
+_MATCH_FIELD_WEIGHTS = (4.0, 3.0, 2.0, 1.0)
+
+
+def _relevance_score(rank: tuple) -> float:
+    """Normalize the rank tuple's match flags into a 0-100 relevance score.
+
+    `rank[4]` is a freshness value (``created_at.timestamp()``); exposing it as
+    "match_score" published epoch seconds like 1767240000.0 to the client.
+    """
+    earned = sum(weight for flag, weight in zip(rank[:4], _MATCH_FIELD_WEIGHTS) if flag)
+    return round(earned / sum(_MATCH_FIELD_WEIGHTS) * 100, 2)
 
 
 def _search_rank(post: Post, query: str) -> tuple[tuple, str]:
@@ -909,9 +1023,12 @@ def build_posts_list_payload(
         stmt = stmt.join(Post.tags).where(Tag.slug == tag)
         count_stmt = count_stmt.join(Post.tags).where(Tag.slug == tag)
     if q:
-        pattern = f"%{q}%"
-        stmt = stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
-        count_stmt = count_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
+        pattern = _contains_pattern(q)
+        keyword_clause = Post.title.ilike(pattern, escape=LIKE_ESCAPE_CHAR) | Post.summary.ilike(
+            pattern, escape=LIKE_ESCAPE_CHAR
+        )
+        stmt = stmt.where(keyword_clause)
+        count_stmt = count_stmt.where(keyword_clause)
 
     total = db.execute(count_stmt).scalar()
     posts = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).scalars().all()
@@ -959,19 +1076,25 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
 
     # 浏览量防刷：同一 IP 对同一文章 10 分钟内不重复计数
     client_ip = _get_client_ip(request)
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=600)
+    # Same clock on both sides. ViewLog.created_at defaults to the DB's now(), which
+    # Postgres converts through the session TimeZone when storing into a naive column —
+    # against this Python UTC cutoff a +08 session made every log look "recent" (counts
+    # freeze after the first view) and a negative offset killed dedup entirely. Writing
+    # the timestamp explicitly keeps read and write on Python UTC regardless of session.
+    viewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff = viewed_at - timedelta(seconds=600)
     recent_view = db.query(ViewLog).filter(
         ViewLog.post_id == post.id,
         ViewLog.ip_address == client_ip,
         ViewLog.created_at > cutoff,
     ).first()
-    if not recent_view:
+    if not recent_view and not _is_automated_client(request):
         # Atomic increment so concurrent views don't read-modify-write the same
         # stale value and lose counts (invisible on SQLite, real on Postgres).
         db.execute(
             update(Post).where(Post.id == post.id).values(view_count=Post.view_count + 1)
         )
-        db.add(ViewLog(post_id=post.id, ip_address=client_ip))
+        db.add(ViewLog(post_id=post.id, ip_address=client_ip, created_at=viewed_at))
         db.commit()
         db.refresh(post, attribute_names=["view_count"])
 
@@ -1048,8 +1171,8 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
         "view_count": post.view_count,
         "is_pinned": post.is_pinned,
         "like_count": post.like_count or 0,
-        "created_at": post.created_at.isoformat() if post.created_at else None,
-        "updated_at": post.updated_at.isoformat() if post.updated_at else None,
+        "created_at": _iso_utc(post.created_at),
+        "updated_at": _iso_utc(post.updated_at),
         "tags": [{"name": t.name, "slug": t.slug} for t in post.tags],
         "series": _series_to_dict(series, db, include_posts=False) if series else None,
         "sources": [_source_to_dict(source) for source in sources],
@@ -1226,7 +1349,17 @@ def get_related_posts(slug: str, db: Session = Depends(get_db)):
 # ── 评论接口 ──
 
 @router.get("/posts/{slug}/comments")
-def list_comments(slug: str, db: Session = Depends(get_db)):
+def list_comments(
+    slug: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Newest-first approved comments.
+
+    Paginated (newest page first) so a popular thread can't return an unbounded payload;
+    the response stays a plain array for the existing client.
+    """
     post = db.execute(
         select(Post)
         .where(Post.slug == slug)
@@ -1238,7 +1371,9 @@ def list_comments(slug: str, db: Session = Depends(get_db)):
         select(Comment, User.avatar_url)
         .outerjoin(User, Comment.user_id == User.id)
         .where(Comment.post_id == post.id, Comment.is_approved == True)
-        .order_by(Comment.created_at.desc())
+        .order_by(Comment.created_at.desc(), Comment.id.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
     return [
         {
@@ -1248,7 +1383,7 @@ def list_comments(slug: str, db: Session = Depends(get_db)):
             "user_id": c.user_id,
             "is_registered": c.user_id is not None,
             "avatar_url": avatar_url or "",
-            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "created_at": _iso_utc(c.created_at),
         }
         for c, avatar_url in comments
     ]
@@ -1311,7 +1446,7 @@ def create_comment(
         "content": comment.content,
         "user_id": comment.user_id,
         "is_registered": comment.user_id is not None,
-        "created_at": comment.created_at.isoformat() if comment.created_at else None,
+        "created_at": _iso_utc(comment.created_at),
     }
 
 
@@ -1339,6 +1474,7 @@ def get_archive(request: Request, db: Session = Depends(get_db)):
                 Post.title,
                 Post.slug,
                 Post.created_at,
+                Post.updated_at,
                 Post.content_type,
                 Post.topic_key,
                 Post.published_mode,
@@ -1355,7 +1491,7 @@ def get_archive(request: Request, db: Session = Depends(get_db)):
         groups.setdefault(year, []).append({
             "title": p.title,
             "slug": p.slug,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "created_at": _iso_utc(p.created_at),
             "content_type": p.content_type or "post",
             "topic_key": p.topic_key or "",
             "published_mode": p.published_mode or "manual",
@@ -1363,7 +1499,7 @@ def get_archive(request: Request, db: Session = Depends(get_db)):
             "is_pinned": bool(p.is_pinned),
         })
     payload = [{"year": y, "posts": items} for y, items in sorted(groups.items(), reverse=True)]
-    last_modified = posts[0].created_at if posts else None
+    last_modified = _posts_last_modified(posts)
     return public_json_response(
         request,
         payload,
@@ -1376,13 +1512,22 @@ def get_archive(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/tags")
 def get_all_tags(request: Request, db: Session = Depends(get_db)):
+    # Inner join through to Post + is_published: the tag cloud is public, so drafts must
+    # not inflate post_count (a tag showing 2 led to a tag page listing 1) and tags whose
+    # only posts are drafts must not appear at all — TagsPage sizes labels by this number.
     results = db.execute(
-        select(Tag.name, Tag.slug, func.count(post_tags.c.post_id).label("post_count"))
-        .outerjoin(post_tags, Tag.id == post_tags.c.tag_id)
+        select(Tag.name, Tag.slug, func.count(Post.id).label("post_count"))
+        .join(post_tags, Tag.id == post_tags.c.tag_id)
+        .join(Post, Post.id == post_tags.c.post_id)
+        .where(Post.is_published == True)
         .group_by(Tag.id)
-        .order_by(func.count(post_tags.c.post_id).desc())
+        .order_by(func.count(Post.id).desc())
     ).all()
-    payload = [{"name": r.name, "slug": r.slug, "post_count": r.post_count} for r in results]
+    payload = [
+        {"name": r.name, "slug": r.slug, "post_count": r.post_count}
+        for r in results
+        if r.post_count > 0
+    ]
     return public_json_response(
         request,
         payload,
@@ -1421,15 +1566,14 @@ def get_series_detail(slug: str, request: Request, db: Session = Depends(get_db)
     if series is None:
         raise HTTPException(status_code=404, detail="Series not found")
     payload = _series_to_dict(series, db, include_posts=True)
-    last_modified = series.updated_at or series.created_at
-    if payload.get("posts"):
-        series_post_dates = [
-            datetime.fromisoformat(item["updated_at"]) if item.get("updated_at") else datetime.fromisoformat(item["created_at"])
-            for item in payload["posts"]
-            if item.get("created_at")
-        ]
-        if series_post_dates:
-            last_modified = max([last_modified, *series_post_dates] if last_modified else series_post_dates)
+    series_post_dates = [
+        datetime.fromisoformat(item["updated_at"] or item["created_at"])
+        for item in (payload.get("posts") or [])
+        if item.get("updated_at") or item.get("created_at")
+    ]
+    # _latest_timestamp normalizes tz-awareness: the serialized post dates carry an
+    # explicit UTC offset while the Series columns are naive, and max() over a mix raises.
+    last_modified = _latest_timestamp(series.updated_at, series.created_at, *series_post_dates)
     return public_json_response(
         request,
         payload,
@@ -1505,9 +1649,12 @@ def get_discover(
         total_stmt = select(func.count(Post.id)).where(Post.is_published == True)
 
         if q:
-            pattern = f"%{q}%"
-            items_stmt = items_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
-            total_stmt = total_stmt.where(Post.title.ilike(pattern) | Post.summary.ilike(pattern))
+            pattern = _contains_pattern(q)
+            keyword_clause = Post.title.ilike(pattern, escape=LIKE_ESCAPE_CHAR) | Post.summary.ilike(
+                pattern, escape=LIKE_ESCAPE_CHAR
+            )
+            items_stmt = items_stmt.where(keyword_clause)
+            total_stmt = total_stmt.where(keyword_clause)
         if content_type:
             items_stmt = items_stmt.where(Post.content_type == content_type)
             total_stmt = total_stmt.where(Post.content_type == content_type)
@@ -1541,6 +1688,7 @@ def get_discover(
 
 
 @router.get("/search")
+@limiter.limit("60/minute")
 def search_posts(
     request: Request,
     q: str = Query(default="", max_length=200),
@@ -1562,32 +1710,29 @@ def search_posts(
         )
 
     query_terms = [term for term in query.split(" ") if term]
-    stmt = (
-        select(Post)
-        .options(*_post_summary_options())
-        .where(Post.is_published == True)
-    )
+    filters = [Post.is_published == True]
     if content_type:
-        stmt = stmt.where(Post.content_type == content_type)
+        filters.append(Post.content_type == content_type)
     if series_slug:
-        stmt = stmt.where(Post.series_slug == series_slug)
+        filters.append(Post.series_slug == series_slug)
     if topic_key:
-        stmt = stmt.where(Post.topic_key == topic_key)
+        filters.append(Post.topic_key == topic_key)
+
+    # Date range must be filtered in SQL: applying it to the newest `candidate_limit`
+    # rows meant a query for an older window returned nothing even when the archive held
+    # matching posts.
+    if date_from:
+        filters.append(_coverage_date_expr() >= date_from)
+    if date_to:
+        filters.append(_coverage_date_expr() <= date_to)
 
     if query_terms:
         prefilter_clauses = []
         for term in query_terms[:6]:
-            pattern = f"%{term}%"
-            prefilter_clauses.append(
-                or_(
-                    Post.title.ilike(pattern),
-                    Post.summary.ilike(pattern),
-                    Post.topic_key.ilike(pattern),
-                    Post.series_slug.ilike(pattern),
-                    Post.tags.any(or_(Tag.name.ilike(pattern), Tag.slug.ilike(pattern))),
-                )
-            )
-        stmt = stmt.where(or_(*prefilter_clauses))
+            prefilter_clauses.append(_query_match_clause(_contains_pattern(term)))
+        filters.append(or_(*prefilter_clauses))
+
+    stmt = select(Post).options(*_post_summary_options()).where(*filters)
 
     candidate_limit = min(max(limit * 12, 120), 320)
     posts = db.execute(
@@ -1596,14 +1741,21 @@ def search_posts(
 
     ranked: list[tuple[tuple, str, Post]] = []
     for post in posts:
-        coverage = _resolved_post_date(post)
-        if date_from and coverage and coverage < date_from:
-            continue
-        if date_to and coverage and coverage > date_to:
-            continue
         rank, reason = _search_rank(post, query)
         if reason:
             ranked.append((rank, reason, post))
+
+    # `len(ranked)` only ever counts inside the truncated candidate window, so it caps at
+    # candidate_limit and reports a fabricated total. Count the whole match set in SQL
+    # using the same "full query as substring" rule the Python ranker applies.
+    total_matches = db.execute(
+        select(func.count(Post.id))
+        .where(*filters)
+        .where(_query_match_clause(_contains_pattern(query)))
+    ).scalar() or 0
+    # Case folding differs slightly between the SQL clause and the Python ranker; never
+    # report a total smaller than the rows actually being returned.
+    total_matches = max(total_matches, len(ranked))
 
     if sort == "latest":
         ranked.sort(
@@ -1629,7 +1781,7 @@ def search_posts(
     items = []
     for rank, reason, post in selected:
         payload = _post_list_item(post)
-        payload["match_score"] = round(float(rank[4]), 2)
+        payload["match_score"] = _relevance_score(rank)
         payload["match_reason"] = reason
         items.append(payload)
 
@@ -1674,11 +1826,11 @@ def search_posts(
                 "title": topic_presentation["display_title"],
                 "display_title": topic_presentation["display_title"],
                 "post_count": value["post_count"],
-                "latest_post_at": value["latest_post_at"].isoformat() if value["latest_post_at"] else None,
+                "latest_post_at": _iso_utc(value["latest_post_at"]),
             }
         )
 
-    _record_search_insight(db, query, len(ranked))
+    _record_search_insight(db, query, total_matches)
     available_series = db.execute(
         select(Series).order_by(Series.is_featured.desc(), Series.sort_order.asc(), Series.updated_at.desc())
     ).scalars().all()
@@ -1708,7 +1860,8 @@ def search_posts(
     payload = {
         "query": query,
         "items": items,
-        "total": len(ranked),
+        "total": total_matches,
+        "ranked_candidate_count": len(ranked),
         "topics": topics,
         "series_suggestions": suggested_series,
         "popular_queries": _popular_search_queries(db, query),
@@ -1785,7 +1938,7 @@ def list_topics(
             "taxonomy_type": "topic",
             "post_count": int(grouped_value.get("post_count") or 0),
             "source_count": int(grouped_value.get("source_count") or 0),
-            "latest_post_at": grouped_value["latest_post_at"].isoformat() if grouped_value.get("latest_post_at") else None,
+            "latest_post_at": _iso_utc(grouped_value.get("latest_post_at")),
             "avg_quality_score": grouped_value.get("avg_quality_score"),
             "display_title_source": presentation["display_title_source"],
             "profile": _topic_profile_to_dict_with_metrics(profile, db, grouped_value) if profile else None,
@@ -1906,7 +2059,7 @@ def get_topic_detail(topic_key: str, request: Request, db: Session = Depends(get
         "post_count": int(topic_metrics.get("post_count") or 0),
         "source_count": int(topic_metrics.get("source_count") or 0),
         "avg_quality_score": topic_metrics.get("avg_quality_score"),
-        "latest_post_at": topic_metrics["latest_post_at"].isoformat() if topic_metrics.get("latest_post_at") else None,
+        "latest_post_at": _iso_utc(topic_metrics.get("latest_post_at")),
         "display_title_source": presentation["display_title_source"],
         "profile": _topic_profile_to_dict_with_metrics(profile, db, topic_metrics) if profile else None,
         "posts": [_post_list_item(post) for post in recent_posts[:20]],
@@ -1932,13 +2085,13 @@ def feed_all(request: Request, db: Session = Depends(get_db)):
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
-        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at))
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at, Post.updated_at))
         .where(Post.is_published == True)
         .order_by(Post.created_at.desc())
         .limit(30)
     ).scalars().all()
     xml_str = _build_feed_xml(posts, site_url, RSS_ALL_TITLE, RSS_ALL_DESCRIPTION)
-    last_modified = max((post.created_at for post in posts if post.created_at), default=None)
+    last_modified = _posts_last_modified(posts)
     return public_text_response(
         request,
         xml_str,
@@ -1954,14 +2107,14 @@ def feed_daily(request: Request, db: Session = Depends(get_db)):
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
-        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at))
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at, Post.updated_at))
         .where(Post.is_published == True)
         .where(Post.content_type == "daily_brief")
         .order_by(Post.created_at.desc())
         .limit(30)
     ).scalars().all()
     xml_str = _build_feed_xml(posts, site_url, RSS_DAILY_TITLE, RSS_DAILY_DESCRIPTION)
-    last_modified = max((post.created_at for post in posts if post.created_at), default=None)
+    last_modified = _posts_last_modified(posts)
     return public_text_response(
         request,
         xml_str,
@@ -1977,14 +2130,14 @@ def feed_weekly(request: Request, db: Session = Depends(get_db)):
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
-        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at))
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at, Post.updated_at))
         .where(Post.is_published == True)
         .where(Post.content_type == "weekly_review")
         .order_by(Post.created_at.desc())
         .limit(30)
     ).scalars().all()
     xml_str = _build_feed_xml(posts, site_url, RSS_WEEKLY_TITLE, RSS_WEEKLY_DESCRIPTION)
-    last_modified = max((post.created_at for post in posts if post.created_at), default=None)
+    last_modified = _posts_last_modified(posts)
     return public_text_response(
         request,
         xml_str,
@@ -2006,7 +2159,7 @@ def feed_topic(topic_key: str, request: Request, db: Session = Depends(get_db)):
     ).scalar_one_or_none()
     posts = db.execute(
         select(Post)
-        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at, Post.content_type))
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at, Post.updated_at, Post.content_type))
         .where(Post.is_published == True)
         .where(Post.topic_key == normalized_topic_key)
         .order_by(Post.created_at.desc())
@@ -2024,7 +2177,7 @@ def feed_topic(topic_key: str, request: Request, db: Session = Depends(get_db)):
         build_topic_feed_title(presentation["display_title"]),
         build_topic_feed_description(presentation["display_title"]),
     )
-    last_modified = max((post.created_at for post in posts if post.created_at), default=None)
+    last_modified = _posts_last_modified(posts)
     return public_text_response(
         request,
         xml_str,
@@ -2046,7 +2199,7 @@ def feed_series(slug: str, request: Request, db: Session = Depends(get_db)):
     site_url = resolve_public_site_url(db, settings=settings)
     posts = db.execute(
         select(Post)
-        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at))
+        .options(load_only(Post.title, Post.slug, Post.summary, Post.created_at, Post.updated_at))
         .where(Post.is_published == True)
         .where(Post.series_slug == normalized_slug)
         .order_by(func.coalesce(Post.series_order, 10**9).asc(), Post.created_at.desc())
@@ -2059,7 +2212,7 @@ def feed_series(slug: str, request: Request, db: Session = Depends(get_db)):
         build_series_feed_description(series.title or normalized_slug),
     )
     last_modified = _latest_timestamp(
-        max((post.created_at for post in posts if post.created_at), default=None),
+        _posts_last_modified(posts),
         series.updated_at,
         series.created_at,
     )

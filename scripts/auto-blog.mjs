@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,7 +9,9 @@ import {
   applySourceDiversity,
   dedupeResearchItems,
   filterResearchItemsByPublishedWindow,
+  mapWithConcurrency,
   parseFeedXml,
+  readResponseTextCapped,
   resolveSourceDiversityConfig,
   runBlogwatcher,
 } from './lib/blogwatcher.mjs'
@@ -27,11 +30,18 @@ import {
   resolveBlogApiBase,
 } from './lib/blog-api.mjs'
 import { buildPostCoverBrief } from './lib/cover-art.mjs'
-import { evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
-import { generatePostCoverViaAdminJob, imageGenerationJobImageUrl, imageGenerationJobSucceeded } from './lib/admin-image-generation.mjs'
+import { countPhraseHits, evaluateQualityGate, formatQualityGateReport } from './lib/quality-gate.mjs'
+import {
+  generatePostCoverViaAdminJob,
+  imageGenerationJobId,
+  imageGenerationJobImageUrl,
+  imageGenerationJobSucceeded,
+  waitForImageGenerationJob,
+} from './lib/admin-image-generation.mjs'
 import { generateTextViaAdminApi } from './lib/admin-text-generation.mjs'
 import { pickSourceImages } from './lib/source-image-picker.mjs'
-import { assertPublicResolvedHttpUrl, isPublicHttpUrl } from './lib/url-guard.mjs'
+import { localizeImagePlans as localizeInlineImagePlans } from './lib/image-localizer.mjs'
+import { isPublicHttpUrl } from './lib/url-guard.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -241,11 +251,52 @@ export function buildTopicKey(value) {
   return slugify(source?.title || source?.url || 'daily-topic', 'daily-topic').slice(0, 80)
 }
 
+// The old key was derived from the cluster's *lead* item only. Clustering is order- and
+// score-sensitive, so a second run on the same day (new items arrive, a different item
+// becomes lead) produced a different topic_key for the same story — which defeated the
+// `fetchPublishedTopicKeys` dedupe and republished the same news.
+//
+// The key is now a function of the cluster's member set, not of which member ranks first:
+// a lexicographically-sorted token union for readability plus a fingerprint over the
+// sorted, normalized URL set for identity.
+export function buildClusterTopicKey(items = []) {
+  const list = (Array.isArray(items) ? items : []).filter(Boolean)
+  if (list.length === 0) return 'daily-topic'
+
+  const urls = [...new Set(list.map((item) => normalizeUrlForLookup(item?.url || '')).filter(Boolean))].sort()
+  const tokens = [...new Set(list.flatMap((item) => buildTokenSignature(item)))].sort().slice(0, 6)
+  const readable = slugify(tokens.join('-'), '') || slugify(list[0]?.title || '', 'daily-topic')
+
+  if (urls.length === 0) return (readable || 'daily-topic').slice(0, 80)
+  const fingerprint = createHash('sha1').update(urls.join('\n')).digest('hex').slice(0, 8)
+  return `${readable ? `${readable.slice(0, 60)}-` : ''}${fingerprint}`.slice(0, 80)
+}
+
+export const AUTO_BLOG_CLI_HELP = [
+  'Usage: node auto-blog.mjs [--mode daily-auto|daily-manual|weekly-review] [options]',
+  '',
+  '  --mode <mode>           Pipeline mode (default: config.default_mode).',
+  '  --max-posts <n>         Cap the number of posts this run may publish.',
+  '  --coverage-date <date>  YYYY-MM-DD coverage date (default: today).',
+  '  --force                 Ignore already-published slug/topic-key guards.',
+  '  --dry-run               Do not publish, upload images, write metadata bridges,',
+  '                          trigger the Vercel deploy hook, or generate covers.',
+  '  --help                  Show this message.',
+  '',
+  'COST WARNING: --dry-run is NOT free and NOT side-effect free. It still logs in to the',
+  'admin API and still calls POST /api/admin/ai-text/generate for the outline, every body',
+  'section, and every repair pass. Each of those inserts a row in admin_text_generation_jobs',
+  'and bills the upstream model. A daily --dry-run --max-posts 1 costs roughly 1 login plus',
+  '5-10 billed LLM jobs. What a dry run does NOT do: publish or update a post, upload or',
+  'generate images, write publishing-status/quality/topic metadata, or refresh the frontend.',
+].join('\n')
+
 export function parseCliArgs(argv = process.argv.slice(2)) {
-  const options = { dryRun: false, mode: null, maxPosts: null, coverageDate: null, force: false }
+  const options = { dryRun: false, mode: null, maxPosts: null, coverageDate: null, force: false, help: false }
   for (let index = 0; index < argv.length; index += 1) {
     const current = argv[index]
     if (current === '--dry-run') options.dryRun = true
+    else if (current === '--help' || current === '-h') options.help = true
     else if (current === '--force') options.force = true
     else if (current === '--mode' && argv[index + 1]) options.mode = argv[++index]
     else if (current.startsWith('--mode=')) options.mode = current.split('=')[1]
@@ -409,7 +460,10 @@ export function computeQualityScore({ gate, gateProfile }) {
   const highQualityRatio = Math.min(1, Number(metrics.high_quality_source_count || 0) / minHighQualitySources)
   const charsRatio = Math.min(1, Number(metrics.char_count || 0) / minChars)
   const analysisRatio = Math.min(1, Number(metrics.analysis_signal_count || 0) / minAnalysisSignals)
-  const bannedRatio = 1 - Math.min(1, Number(metrics.banned_phrase_hits || 0) / maxBannedHits)
+  // The pipeline rewrites banned phrases before the gate runs, so `banned_phrase_hits` is
+  // always 0 and this 10%-weight term was a constant that inflated every score. Prefer the
+  // pre-rewrite count when the gate reported one.
+  const bannedRatio = 1 - Math.min(1, Number(metrics.raw_banned_phrase_hits ?? metrics.banned_phrase_hits ?? 0) / maxBannedHits)
   const structureRatio = Array.isArray(metrics.missing_sections) && metrics.missing_sections.length > 0 ? 0 : 1
 
   const weighted = sourceRatio * 0.16
@@ -552,6 +606,7 @@ export function buildPublishingMetadataBridgePayload({
   workflowKey,
   coverageDate,
   candidateTopics = [],
+  failureReason = '',
 }) {
   const gateProfile = resolveGateProfile(config, metadata?.content_type || post?.content_type || '')
   const qualityScore = computeQualityScore({ gate, gateProfile })
@@ -573,6 +628,7 @@ export function buildPublishingMetadataBridgePayload({
     workflowKey,
     coverageDate,
     candidateTopics,
+    failureReason,
   })
 
   return {
@@ -646,7 +702,7 @@ export function buildQualitySnapshotPayload({
   const sourceCount = Number(metrics.source_count || researchPack?.sources?.length || 0)
   const highQualitySourceCount = Number(metrics.high_quality_source_count || 0)
   const analysisSignals = Number(metrics.analysis_signal_count || 0)
-  const bannedHits = Number(metrics.banned_phrase_hits || 0)
+  const bannedHits = Number(metrics.raw_banned_phrase_hits ?? metrics.banned_phrase_hits ?? 0)
   const missingSections = Array.isArray(metrics.missing_sections) ? metrics.missing_sections : []
   const readingTime = estimateReadingTimeMinutes(post?.content_md || '')
   const seriesDecision = assignSeriesForPost({
@@ -914,7 +970,7 @@ async function fetchBaseFeed(feed) {
     signal: AbortSignal.timeout(15000),
   })
   if (!resp.ok) return []
-  const xml = await resp.text()
+  const xml = await readResponseTextCapped(resp)
   return parseFeedXml(xml, {
     name: feed.name || feed.tag,
     source_type: feed.source_type || 'rss',
@@ -928,7 +984,9 @@ async function fetchBaseFeed(feed) {
 
 async function fetchAllFeeds(config, maxItems = 30) {
   console.log(`Fetching ${config.rss_feeds.length} base feeds...`)
-  const settled = await Promise.allSettled((config.rss_feeds || []).map((feed) => fetchBaseFeed(feed)))
+  // Bounded concurrency: ~30 simultaneous feed fetches tripped rate limits and made the
+  // whole batch share one 15s timeout budget.
+  const settled = await mapWithConcurrency(config.rss_feeds || [], (feed) => fetchBaseFeed(feed), 6)
   const items = settled
     .filter((result) => result.status === 'fulfilled')
     .flatMap((result) => result.value)
@@ -1026,10 +1084,16 @@ async function collectBaseMaterials(config, options = {}) {
   const sourceDiversity = resolveSourceDiversityConfig(config)
 
   const feedItems = await fetchAllFeeds(config, feedLimit)
-  const itemsWithLinks = feedItems.filter((item) => item.url).slice(0, enrichLimit)
-  const enriched = await enrichWithFullText(itemsWithLinks)
+  const itemsWithLinks = feedItems.filter((item) => item.url)
+  const enriched = await enrichWithFullText(itemsWithLinks.slice(0, enrichLimit))
+  // Jina enrichment is an enhancement, not a filter. Previously `materials` was built from
+  // the enriched subset alone, so anything past `enrichLimit` (hard-coded 15 for daily) was
+  // silently discarded and `max_candidate_items` had no effect at all.
+  const enrichedByFingerprint = new Map(enriched.map((item) => [sourceFingerprint(item), item]))
 
-  let materials = dedupeResearchItems(enriched)
+  let materials = dedupeResearchItems(
+    itemsWithLinks.map((item) => enrichedByFingerprint.get(sourceFingerprint(item)) || item)
+  )
   const combinedText = materials.map((item) => item.full_text || item.summary).join('\n')
   if (combinedText.length < fallbackMinText) {
     console.log('Base RSS materials are weak, using fallback pages...')
@@ -1209,7 +1273,7 @@ export function clusterResearchItemsByTopic(items, options = {}) {
       return String(sample?.channel_bucket || '') !== 'official_vendor'
     }).length
     return {
-      topic_key: buildTopicKey(lead),
+      topic_key: buildClusterTopicKey(orderedItems),
       title_key: cluster.title_key,
       candidate_title: lead?.title || 'AI 主题',
       lead_source_name: lead?.source_name || '',
@@ -1229,9 +1293,24 @@ export function clusterResearchItemsByTopic(items, options = {}) {
   })
 }
 
+const BRIEF_SLUG_PATTERN = /^ai-brief-(\d{4}-\d{2}-\d{2})-(.+)$/
+
+// The old helper hard-coded the *current* coverage date into the prefix, so it returned ''
+// for every slug stamped with another day — it could never contribute anything to a
+// cross-day lookup. Parsing the date out instead makes the slug usable at any distance.
+export function parseBriefSlug(slug) {
+  const match = BRIEF_SLUG_PATTERN.exec(String(slug || '').trim())
+  if (!match) return null
+  return { coverage_date: match[1], topic_key: match[2] }
+}
+
+// Deliberately still coverage-date-scoped: this feeds the *same-day* exact-key guard, and a
+// brief stamped with another day's date is another day's brief. Cross-day reruns are not
+// caught here at all — a cluster key is a fingerprint over its member URLs, so it never
+// repeats once the member set shifts. `findPublishedTopicOverlap` handles that case.
 function inferTopicKeyFromSlug(slug, coverageDate) {
-  const prefix = `ai-brief-${coverageDate}-`
-  return String(slug || '').startsWith(prefix) ? String(slug).slice(prefix.length) : ''
+  const parsed = parseBriefSlug(slug)
+  return parsed && parsed.coverage_date === coverageDate ? parsed.topic_key : ''
 }
 
 export async function fetchPublishedTopicKeys({ coverageDate, fetchImpl = fetch }) {
@@ -1264,14 +1343,315 @@ export async function fetchPublishedTopicKeys({ coverageDate, fetchImpl = fetch 
   return topicKeys
 }
 
+// --- Cross-day dedupe -------------------------------------------------------------------
+//
+// `buildClusterTopicKey` derives a cluster's identity from its member URL set, which is the
+// right call for same-day stability but makes exact topic_key matching structurally unable
+// to catch a rerun on a later day: the window slides, new coverage arrives, the member set
+// changes, and the fingerprint changes with it. Widening the lookback of an exact-match
+// lookup cannot fix that — it would still match zero rows.
+//
+// So cross-day reruns are judged on how much of the candidate cluster's source-URL set
+// already appears in a recently published article. Those URLs are reachable: the public
+// `GET /api/posts/{slug}` payload carries `sources[].source_url` (written by the publishing
+// metadata bridge), with the article body's reference links as a fallback for posts whose
+// bridge never landed.
+export const CROSS_DAY_DEDUPE_DEFAULTS = {
+  enabled: true,
+  lookbackDays: 7,
+  // Overlap coefficient, i.e. |A∩B| / min(|A|,|B|) — the same shape `computeTopicSimilarity`
+  // already uses for token overlap. Jaccard is the wrong measure here: a day-2 cluster is
+  // usually much larger than the day-1 article it duplicates (2 carried-over URLs out of 7
+  // candidates vs 3 published sources scores 0.25 by Jaccard but 0.67 by overlap), so a
+  // Jaccard threshold loose enough to catch it would also fire on unrelated topics.
+  overlapThreshold: 0.5,
+  // Guards the degenerate end of the overlap coefficient: when the smaller set holds a
+  // single URL, any incidental hit scores a perfect 1.0. Two shared sources is the point
+  // where "the same story" beats "both cited the same roundup".
+  minSharedSources: 2,
+  maxListPages: 4,
+  listPageSize: 50,
+  maxDetailFetches: 20,
+  requestTimeoutMs: 10000,
+}
+
+function clampNumber(value, { fallback, min, max, integer = false }) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  const bounded = Math.min(max, Math.max(min, numeric))
+  return integer ? Math.round(bounded) : bounded
+}
+
+export function resolveCrossDayDedupeConfig(config = {}, modeConfig = {}) {
+  const root = { ...(config?.cross_day_dedupe || {}), ...(modeConfig?.cross_day_dedupe || {}) }
+  const defaults = CROSS_DAY_DEDUPE_DEFAULTS
+  return {
+    enabled: Boolean(root.enabled ?? defaults.enabled),
+    lookbackDays: clampNumber(root.lookback_days, { fallback: defaults.lookbackDays, min: 1, max: 60, integer: true }),
+    overlapThreshold: clampNumber(root.overlap_threshold, { fallback: defaults.overlapThreshold, min: 0.05, max: 1 }),
+    minSharedSources: clampNumber(root.min_shared_sources, { fallback: defaults.minSharedSources, min: 1, max: 20, integer: true }),
+    maxListPages: clampNumber(root.max_list_pages, { fallback: defaults.maxListPages, min: 1, max: 10, integer: true }),
+    // The public list endpoint caps page_size at 50; asking for more is a 422.
+    listPageSize: clampNumber(root.list_page_size, { fallback: defaults.listPageSize, min: 1, max: 50, integer: true }),
+    maxDetailFetches: clampNumber(root.max_detail_fetches, { fallback: defaults.maxDetailFetches, min: 0, max: 100, integer: true }),
+    requestTimeoutMs: clampNumber(root.request_timeout_ms, { fallback: defaults.requestTimeoutMs, min: 1000, max: 60000, integer: true }),
+  }
+}
+
+export function shiftCoverageDate(coverageDate, deltaDays) {
+  const parsed = Date.parse(`${String(coverageDate || '').trim()}T00:00:00Z`)
+  if (!Number.isFinite(parsed)) return String(coverageDate || '').trim()
+  return new Date(parsed + Number(deltaDays || 0) * 86_400_000).toISOString().slice(0, 10)
+}
+
+// ISO dates sort lexicographically, so plain string comparison is enough.
+function isCoverageDateInWindow(value, windowStart, windowEnd) {
+  const date = String(value || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false
+  return date >= windowStart && date <= windowEnd
+}
+
+const MARKDOWN_LINK_PATTERN = /\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g
+const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*\]\([^)]*\)/g
+const IMAGE_URL_PATTERN = /\.(png|jpe?g|gif|webp|avif|svg|bmp)(?:$|[?#])/i
+
+// Fallback for published posts whose `post_sources` bridge failed: the rendered article
+// still carries its 参考来源 links, and content_md rides along in the same detail response,
+// so this costs no extra request.
+export function extractReferenceUrlsFromMarkdown(markdown, { excludeHosts = [] } = {}) {
+  const blocked = new Set(excludeHosts.map((host) => String(host || '').replace(/^www\./i, '').toLowerCase()).filter(Boolean))
+  const body = String(markdown || '').replace(MARKDOWN_IMAGE_PATTERN, ' ')
+  const urls = new Set()
+  for (const match of body.matchAll(MARKDOWN_LINK_PATTERN)) {
+    const raw = match[1].replace(/[).,;]+$/, '')
+    if (IMAGE_URL_PATTERN.test(raw)) continue
+    const host = extractDomain(raw)
+    if (!host || blocked.has(host)) continue
+    const normalized = normalizeUrlForLookup(raw)
+    if (normalized) urls.add(normalized)
+  }
+  return urls
+}
+
+export function collectTopicSourceUrls(topic) {
+  const items = Array.isArray(topic?.items) ? topic.items : []
+  return new Set(items.map((item) => normalizeUrlForLookup(item?.url || item?.source_url || '')).filter(Boolean))
+}
+
+export function computeSourceOverlap(candidateUrls, publishedUrls) {
+  const left = candidateUrls instanceof Set ? candidateUrls : new Set(candidateUrls || [])
+  const right = publishedUrls instanceof Set ? publishedUrls : new Set(publishedUrls || [])
+  if (left.size === 0 || right.size === 0) return { shared: 0, ratio: 0 }
+  let shared = 0
+  for (const url of left) {
+    if (right.has(url)) shared += 1
+  }
+  return { shared, ratio: shared / Math.min(left.size, right.size) }
+}
+
+export function findPublishedTopicOverlap(topic, fingerprints = [], options = {}) {
+  const overlapThreshold = Number.isFinite(Number(options.overlapThreshold))
+    ? Number(options.overlapThreshold)
+    : CROSS_DAY_DEDUPE_DEFAULTS.overlapThreshold
+  const minSharedSources = Number.isFinite(Number(options.minSharedSources))
+    ? Number(options.minSharedSources)
+    : CROSS_DAY_DEDUPE_DEFAULTS.minSharedSources
+  const candidateUrls = collectTopicSourceUrls(topic)
+  if (candidateUrls.size === 0) return null
+
+  let best = null
+  for (const fingerprint of Array.isArray(fingerprints) ? fingerprints : []) {
+    const { shared, ratio } = computeSourceOverlap(candidateUrls, fingerprint?.source_urls)
+    if (shared < minSharedSources || ratio < overlapThreshold) continue
+    if (!best || ratio > best.overlap_ratio) {
+      best = {
+        post_slug: String(fingerprint?.slug || ''),
+        // Named `post_topic_key`, not `topic_key`: callers merge this into a record keyed by
+        // the *candidate's* topic_key, and a bare `topic_key` here silently overwrote it.
+        post_topic_key: String(fingerprint?.topic_key || ''),
+        coverage_date: String(fingerprint?.coverage_date || ''),
+        overlap_ratio: Number(ratio.toFixed(4)),
+        shared_source_count: shared,
+      }
+    }
+  }
+  return best
+}
+
+async function fetchPublishedPostSourceUrls({ slug, blogApiBase, fetchImpl, requestTimeoutMs, logger }) {
+  try {
+    const response = await fetchImpl(`${blogApiBase}/api/posts/${encodeURIComponent(slug)}`, {
+      // Identifying as a bot keeps `/api/posts/{slug}` from counting the dedupe scan as a
+      // reader view — the backend excludes automated user agents from view_count.
+      headers: { 'User-Agent': 'AutoBlogBot/3.0' },
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const detail = await response.json()
+    const urls = new Set(
+      (Array.isArray(detail?.sources) ? detail.sources : [])
+        .map((source) => normalizeUrlForLookup(source?.source_url || ''))
+        .filter(Boolean),
+    )
+    if (urls.size > 0) return { urls, ok: true }
+    return {
+      urls: extractReferenceUrlsFromMarkdown(detail?.content_md, { excludeHosts: [extractDomain(blogApiBase)] }),
+      ok: true,
+    }
+  } catch (error) {
+    logger?.warn?.(`Cross-day dedupe: could not read sources of published post "${slug}" (${error?.message || error}).`)
+    return { urls: new Set(), ok: false }
+  }
+}
+
+// Returns the same-day exact-key set (drop-in for `fetchPublishedTopicKeys`) plus a
+// source-URL fingerprint per recently published post, from a single list pass.
+export async function fetchRecentPublishedTopicFingerprints({
+  coverageDate,
+  lookbackDays = CROSS_DAY_DEDUPE_DEFAULTS.lookbackDays,
+  maxListPages = CROSS_DAY_DEDUPE_DEFAULTS.maxListPages,
+  listPageSize = CROSS_DAY_DEDUPE_DEFAULTS.listPageSize,
+  maxDetailFetches = CROSS_DAY_DEDUPE_DEFAULTS.maxDetailFetches,
+  requestTimeoutMs = CROSS_DAY_DEDUPE_DEFAULTS.requestTimeoutMs,
+  blogApiBase = BLOG_API_BASE,
+  fetchImpl = fetch,
+  logger = console,
+} = {}) {
+  const windowStart = shiftCoverageDate(coverageDate, -(Math.max(1, lookbackDays) - 1))
+  const sameDayTopicKeys = new Set()
+  const recentPosts = []
+  let degraded = false
+
+  for (let page = 1; page <= maxListPages; page += 1) {
+    let payload = null
+    try {
+      const response = await fetchImpl(`${blogApiBase}/api/posts?page=${page}&page_size=${listPageSize}`, {
+        headers: { 'User-Agent': 'AutoBlogBot/3.0' },
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      payload = await response.json()
+    } catch (error) {
+      // Silently returning an empty set here used to disable dedupe outright whenever the
+      // backend hiccuped, with nothing in the log to say so. Degrading is still the right
+      // call, but it has to be visible.
+      degraded = true
+      logger?.warn?.(`Cross-day dedupe DEGRADED: post list page ${page} unavailable (${error?.message || error}); duplicate topics may be republished.`)
+      break
+    }
+
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    let inWindow = 0
+    for (const post of items) {
+      if (!isCoverageDateInWindow(post?.coverage_date, windowStart, coverageDate)) continue
+      inWindow += 1
+      const slug = String(post?.slug || '').trim()
+      const topicKey = String(post?.topic_key || '').trim() || parseBriefSlug(slug)?.topic_key || ''
+      if (String(post?.coverage_date || '').trim() === coverageDate) {
+        const sameDayKey = String(post?.topic_key || '').trim() || inferTopicKeyFromSlug(slug, coverageDate)
+        if (sameDayKey) sameDayTopicKeys.add(sameDayKey)
+      }
+      if (slug) recentPosts.push({ slug, topic_key: topicKey, coverage_date: String(post?.coverage_date || '').trim() })
+    }
+
+    if (items.length < listPageSize) break
+    // The list is ordered pinned-first then newest-first, so pinned strays can only sit on
+    // page 1. A later page with nothing in the window means we have walked past it.
+    if (page > 1 && inWindow === 0) break
+  }
+
+  const selected = recentPosts.slice(0, maxDetailFetches)
+  if (recentPosts.length > selected.length) {
+    degraded = true
+    logger?.warn?.(`Cross-day dedupe DEGRADED: ${recentPosts.length} posts in the ${lookbackDays}-day window exceed the ${maxDetailFetches}-detail budget; only the newest ${selected.length} were fingerprinted.`)
+  }
+
+  const fingerprints = []
+  let detailFailures = 0
+  for (const post of selected) {
+    const { urls, ok } = await fetchPublishedPostSourceUrls({
+      slug: post.slug,
+      blogApiBase,
+      fetchImpl,
+      requestTimeoutMs,
+      logger,
+    })
+    if (!ok) detailFailures += 1
+    if (urls.size > 0) fingerprints.push({ ...post, source_urls: urls })
+  }
+
+  if (detailFailures > 0) degraded = true
+  logger?.log?.(`Cross-day dedupe: ${fingerprints.length}/${selected.length} published posts fingerprinted since ${windowStart}${detailFailures > 0 ? ` (${detailFailures} unreadable)` : ''}.`)
+
+  return { fingerprints, same_day_topic_keys: sameDayTopicKeys, degraded, scanned_post_count: selected.length, window_start: windowStart }
+}
+
+// Single place where the guard is switched off, so `--force` cannot drift out of sync
+// between the same-day and the cross-day check.
+export async function resolvePublishedTopicGuards(runtime = {}, { coverageDate, fetchImpl = fetch, logger = console } = {}) {
+  const empty = { publishedTopicKeys: new Set(), publishedTopicFingerprints: [], degraded: false, bypassed: true }
+  if (!runtime.skipPublishedTopicKeys || runtime.force || runtime.dryRun) return empty
+
+  const dedupe = runtime.crossDayDedupe || resolveCrossDayDedupeConfig()
+  if (!dedupe.enabled) {
+    return {
+      publishedTopicKeys: await fetchPublishedTopicKeys({ coverageDate, fetchImpl }),
+      publishedTopicFingerprints: [],
+      degraded: false,
+      bypassed: false,
+    }
+  }
+
+  const recent = await fetchRecentPublishedTopicFingerprints({
+    coverageDate,
+    lookbackDays: dedupe.lookbackDays,
+    maxListPages: dedupe.maxListPages,
+    listPageSize: dedupe.listPageSize,
+    maxDetailFetches: dedupe.maxDetailFetches,
+    requestTimeoutMs: dedupe.requestTimeoutMs,
+    fetchImpl,
+    logger,
+  })
+
+  return {
+    publishedTopicKeys: recent.same_day_topic_keys,
+    publishedTopicFingerprints: recent.fingerprints,
+    degraded: recent.degraded,
+    bypassed: false,
+  }
+}
+
 export function selectTopicsForPublishing(topics, runtime) {
   const publishedTopicKeys = runtime.publishedTopicKeys || new Set()
+  const publishedFingerprints = Array.isArray(runtime.publishedTopicFingerprints) ? runtime.publishedTopicFingerprints : []
+  const overlapThreshold = Number.isFinite(Number(runtime.overlapThreshold))
+    ? Number(runtime.overlapThreshold)
+    : CROSS_DAY_DEDUPE_DEFAULTS.overlapThreshold
+  const minSharedSources = Number.isFinite(Number(runtime.minSharedSources))
+    ? Number(runtime.minSharedSources)
+    : CROSS_DAY_DEDUPE_DEFAULTS.minSharedSources
   const maxPosts = Math.max(1, Number(runtime.maxPosts || 1))
   const minSourcesSoft = Math.max(1, Number(runtime.minSourcesPerTopic || 1))
+  const skippedTopics = []
 
   const queue = [...(topics || [])]
     .filter((topic) => topic.items?.length > 0)
-    .filter((topic) => !publishedTopicKeys.has(topic.topic_key))
+    .filter((topic) => {
+      if (publishedTopicKeys.has(topic.topic_key)) {
+        skippedTopics.push({ topic_key: topic.topic_key, reason: 'already published for coverage date' })
+        return false
+      }
+      const overlap = findPublishedTopicOverlap(topic, publishedFingerprints, { overlapThreshold, minSharedSources })
+      if (overlap) {
+        skippedTopics.push({
+          ...overlap,
+          topic_key: topic.topic_key,
+          reason: `source overlap ${Math.round(overlap.overlap_ratio * 100)}% with ${overlap.post_slug || 'a recent post'}${overlap.coverage_date ? ` (${overlap.coverage_date})` : ''}`,
+        })
+        return false
+      }
+      return true
+    })
     .sort((left, right) => {
       const leftBoost = left.source_count >= minSourcesSoft ? 1 : 0
       const rightBoost = right.source_count >= minSourcesSoft ? 1 : 0
@@ -1285,7 +1665,18 @@ export function selectTopicsForPublishing(topics, runtime) {
       return scoreTimestamp(right.latest_published_at) - scoreTimestamp(left.latest_published_at)
     })
 
-  return { queue, target_count: maxPosts, skipped_topic_keys: [...publishedTopicKeys] }
+  return {
+    queue,
+    target_count: maxPosts,
+    // Keeps carrying every already-published key (even ones this run never saw as a
+    // candidate) so the publishing-status report stays complete, now unioned with the
+    // cross-day overlap skips.
+    skipped_topic_keys: [...new Set([
+      ...publishedTopicKeys,
+      ...skippedTopics.map((entry) => entry.topic_key).filter(Boolean),
+    ])],
+    skipped_topics: skippedTopics,
+  }
 }
 
 function stringifyPromptPayload(payload, maxChars = 18000) {
@@ -1326,11 +1717,58 @@ function extractArticleSections(contentMd, headings) {
   return sections
 }
 
-function ensureSectionHeading(markdown, heading) {
+export function ensureSectionHeading(markdown, heading) {
   const text = String(markdown || '').trim()
   if (!text) return `${heading}\n\n`
   if (text.startsWith(heading)) return text
-  return `${heading}\n\n${text.replace(/^#{1,6}\s+.*$/m, '').trim()}`
+  // Only a heading on the very first line is the model's own (wrong) chapter title and may
+  // be replaced. The previous `/^#{1,6}\s+.*$/m` matched the first heading *anywhere*, so a
+  // section that opened with prose and used a legitimate `###` subheading later lost that
+  // subheading on every normalization pass.
+  const withoutLeadingHeading = /^#{1,6}\s+/.test(text)
+    ? text.replace(/^#{1,6}\s+[^\n]*\r?\n?/, '').trim()
+    : text
+  return `${heading}\n\n${withoutLeadingHeading}`
+}
+
+// Rebuild an article after a partial repair by splicing ONLY the repaired chapters back
+// into the original Markdown.
+//
+// The previous implementation rebuilt the whole article from `requiredSections.map(...)`,
+// which meant: (a) the lede before the first heading was destroyed on every repair pass,
+// and (b) if the model had renamed a heading (a space, a different 顿号) nothing matched,
+// so a single repair could collapse the entire article into a handful of empty headings.
+export function spliceRepairedSections(originalContent, headings, repairedByHeading) {
+  const lines = String(originalContent || '').split('\n')
+  const headingLineIndexes = []
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^##\s+/.test(lines[index].trim())) headingLineIndexes.push(index)
+  }
+
+  const placed = []
+  const appended = []
+  for (const heading of Array.isArray(headings) ? headings : []) {
+    const markdown = String(repairedByHeading?.get?.(heading) || '').trim()
+    if (!markdown) continue
+    const start = lines.findIndex((line) => line.trim() === String(heading).trim())
+    if (start < 0) {
+      // The chapter is not in the current draft at all (a missing_sections failure);
+      // append it instead of overwriting an unrelated block.
+      appended.push(markdown)
+      continue
+    }
+    // End at the next level-2 heading, even one the model invented, so a repaired chapter
+    // never swallows the chapter after it.
+    const nextHeadingIndex = headingLineIndexes.find((index) => index > start)
+    placed.push({ start, end: nextHeadingIndex === undefined ? lines.length : nextHeadingIndex, markdown })
+  }
+
+  const output = [...lines]
+  for (const edit of placed.sort((left, right) => right.start - left.start)) {
+    output.splice(edit.start, edit.end - edit.start, ...edit.markdown.split('\n'), '')
+  }
+
+  return [output.join('\n').trim(), ...appended].filter(Boolean).join('\n\n')
 }
 
 function sleep(ms) {
@@ -1405,6 +1843,77 @@ function clearAdminTokenCache() {
   adminTokenCache = ''
 }
 
+// Only a deterministic request-shape rejection justifies shrinking max_tokens for the next
+// attempt. The previous code set providerRejected on *every* non-401/403 failure, so an
+// AbortError / 240s timeout / "fetch failed" cut the budget from 16384 to 8192 — making the
+// next attempt more likely to truncate, which then looked like another failure. That is a
+// reinforcing loop: the flakier the network, the shorter the article.
+export function isProviderParameterRejection(message) {
+  const text = String(message || '')
+  if (/^Admin text generation failed:\s*(400|413|422)\b/i.test(text)) return true
+  return /max[_\s-]?tokens|context[_\s-]?length|maximum context|token limit|too many tokens|exceeds? the (?:model|maximum)/i.test(text)
+}
+
+// Minimal shape checks for LLM JSON. Without them a structurally wrong-but-parseable
+// payload (outline.outline returned as a string, a section returned under an unexpected
+// key, a package with no title) produced an empty article, burned the whole repair budget
+// on nothing, and only surfaced as an exception several thousand tokens later.
+export function validateOutlinePayload(outline, { isFreeStructure = false } = {}) {
+  if (!outline || typeof outline !== 'object' || Array.isArray(outline)) {
+    return { ok: false, reason: 'outline must be a JSON object' }
+  }
+  if (!String(outline.topic || '').trim()) {
+    return { ok: false, reason: 'outline.topic is missing or empty' }
+  }
+  const briefHeadings = Array.isArray(outline.section_briefs)
+    ? outline.section_briefs.filter((brief) => String(brief?.heading || '').trim())
+    : []
+  if (isFreeStructure) {
+    const headings = Array.isArray(outline.outline)
+      ? outline.outline.filter((item) => String(item || '').trim())
+      : []
+    if (headings.length === 0 && briefHeadings.length === 0) {
+      return { ok: false, reason: 'outline.outline must be a non-empty array of headings (or section_briefs must carry headings)' }
+    }
+    if (!Array.isArray(outline.outline) && briefHeadings.length === 0) {
+      return { ok: false, reason: `outline.outline must be an array, received ${typeof outline.outline}` }
+    }
+  }
+  return { ok: true }
+}
+
+export function validateArticlePackagePayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { ok: false, reason: 'package must be a JSON object' }
+  }
+  if (!String(payload.title || '').trim()) {
+    return { ok: false, reason: 'package.title is missing or empty' }
+  }
+  return { ok: true }
+}
+
+export function readSectionMarkdown(result) {
+  if (typeof result === 'string') return result
+  if (!result || typeof result !== 'object') return ''
+  return String(result.markdown || result.section_md || result.content_md || '')
+}
+
+export function validateSectionPayload(result, { minChars = 40 } = {}) {
+  const markdown = readSectionMarkdown(result).trim()
+  if (!markdown) {
+    return {
+      ok: false,
+      reason: `section payload has no markdown/section_md/content_md string (keys: ${
+        result && typeof result === 'object' ? Object.keys(result).join(',') || 'none' : typeof result
+      })`,
+    }
+  }
+  if (markdown.length < minChars) {
+    return { ok: false, reason: `section markdown is only ${markdown.length} chars` }
+  }
+  return { ok: true }
+}
+
 export function buildLLMMaxTokenAttempts(maxTokens = 16384) {
   const requested = Math.max(1, Math.floor(Number(maxTokens) || 16384))
   return [requested, 8192, 4096, 3072]
@@ -1420,6 +1929,9 @@ export async function callLLM(systemPrompt, userPrompt, maxTokens = 16384, {
   blogApiBase = BLOG_API_BASE,
   retryDelaysSec = [0, 10, 30, 60],
   logger = console,
+  // Optional shape check. A payload that parses but fails the check is retried inside this
+  // loop (keeping the full token budget), instead of flowing downstream as an empty article.
+  validate = null,
 } = {}) {
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -1464,7 +1976,11 @@ export async function callLLM(systemPrompt, userPrompt, maxTokens = 16384, {
           timeoutMs: 240000,
         })
         try {
-          return parseJsonFromLlm(raw)
+          const parsed = parseJsonFromLlm(raw)
+          const validation = validate ? validate(parsed) : null
+          if (!validation || validation.ok !== false) return parsed
+          lastError = `LLM output failed shape check (${validation.reason || 'unknown'}): preview=${String(raw).slice(0, 220)}`
+          logger?.log?.(`LLM output rejected by shape check: ${validation.reason || 'unknown'}; retrying...`)
         } catch (error) {
           const rawText = String(raw)
           const preview = rawText.slice(0, 220)
@@ -1480,7 +1996,7 @@ export async function callLLM(systemPrompt, userPrompt, maxTokens = 16384, {
           logger?.log?.('Admin token rejected (401/403); clearing cache and re-authenticating...')
           continue
         }
-        providerRejected = true
+        if (isProviderParameterRejection(lastError)) providerRejected = true
       }
     }
 
@@ -1554,87 +2070,21 @@ function resolveDailyRuntime(config, cliOptions) {
       minPosts,
       maxPosts,
     }),
-    lookbackHours: Number(modeConfig.lookback_hours || dailyConfig.lookback_hours || 30),
-    maxCandidateItems: Number(modeConfig.max_candidate_items || dailyConfig.max_candidate_items || 24),
-    minSourcesPerTopic: Number(modeConfig.min_sources_per_topic || dailyConfig.min_sources_per_topic || 2),
+    // Code-side fallbacks must mirror config/auto-blog.config.json. They drifted (30 vs 36,
+    // 24 vs 40, 2 vs 3), so any missing config key quietly enforced a different policy than
+    // the one the file documents.
+    lookbackHours: Number(modeConfig.lookback_hours || dailyConfig.lookback_hours || 36),
+    maxCandidateItems: Number(modeConfig.max_candidate_items || dailyConfig.max_candidate_items || 40),
+    minSourcesPerTopic: Number(modeConfig.min_sources_per_topic || dailyConfig.min_sources_per_topic || 3),
+    sectionTargetChars: Number(modeConfig.section_target_chars || dailyConfig.section_target_chars || 850),
+    feedLimit: Number(modeConfig.base_feed_limit || dailyConfig.base_feed_limit || 60),
+    enrichLimit: Number(modeConfig.base_enrich_limit || dailyConfig.base_enrich_limit || 20),
     clusterSimilarityThreshold: Number(modeConfig.cluster_similarity_threshold || dailyConfig.cluster_similarity_threshold || 0.5),
     enableBlogwatcherFallback: Boolean(modeConfig.enable_blogwatcher_fallback ?? dailyConfig.enable_blogwatcher_fallback ?? false),
     skipPublishedTopicKeys: Boolean(modeConfig.skip_published_topic_keys ?? true),
+    crossDayDedupe: resolveCrossDayDedupeConfig(config, modeConfig),
     force: cliOptions.force,
   }
-}
-
-async function chooseTopic({ researchPack, formatProfile, today }) {
-  const system = [
-    '你是一位资深中文科技博客作者兼选题编辑。',
-    '你的任务不是罗列新闻，而是从素材里挑出一条最值得展开的主线。',
-    '',
-    '请输出一个 JSON，键必须是：',
-    'topic, thesis, keywords, arxiv_queries, outline, image_sections, key_sources, tags, cover_brief',
-    '',
-    '要求：',
-    '- outline 必须优先使用以下章节骨架，并允许同名章节下增加少量三级子标题。',
-    ...formatProfile.required_sections.map((section) => `- ${section}`),
-    '- Add 2-4 third-level subheadings (###) across the middle and later sections so the article feels like a deep single-topic analysis.',
-    '- image_sections 最多 3 个，只能从 outline 里挑。',
-    '- thesis 是一句明确判断，不是摘要。',
-    '- key_sources 用标题或 URL 标识真正重要的来源。',
-    '- cover_brief 只写与文章内容直接相关的简短视觉线索，不写配色、媒介、构图、品牌模板或负面词。',
-  ].join('\n')
-
-  const user = [
-    `日期：${today}`,
-    '',
-    '博客格式规范：',
-    buildFormatPrompt(formatProfile),
-    '',
-    '研究包：',
-    stringifyPromptPayload(researchPack, 14000),
-  ].join('\n')
-
-  return callLLM(system, user, 3072)
-}
-
-async function generateArticle({ outline, researchPack, formatProfile, workflow, today }) {
-  const system = [
-    '# Role',
-    '你是中文技术博客作者，文章直接发布到个人技术博客。',
-    '',
-    '# 输出格式',
-    '只返回一个 JSON，对象键固定为：title, slug, summary, content_md, tags, takeaway。',
-    '',
-    '# 正文要求',
-    '- content_md 必须包含以下五个二级标题，且按顺序出现：',
-    ...formatProfile.required_sections.map((section) => `- ${section}`),
-    '- 暂时不要输出“参考来源”“图片来源”“一句话结论”三个尾部章节，这三部分由程序补齐。',
-    '- 正文要区分事实与观点，至少做两处对比、影响或取舍分析。',
-    '- 正文中的关键事实、数据、产品发布、论文观点必须使用 researchPack.evidence_cards 里的来源编号标注，例如 [S1]、[S2]。',
-    '- 每个主要章节至少使用 1 个来源编号，全文至少使用 2 个不同来源编号；不要编造未提供的 [S99] 之类编号。',
-    '- 如果 researchPack 中存在论文素材，必须解释论文与现实产品、新闻或工程实践的关系。',
-    '- 禁止写成新闻罗列，禁止无来源结论。',
-    '- 禁止让正文插图逻辑影响封面图内容。',
-    `- slug 必须返回 ${workflow.slug}`,
-    '- summary 不超过 50 字，不要以“本文将”开头。',
-    '- takeaway 是一句简短结论，后续会被用于“一句话结论”区块。',
-    '',
-    '# 禁用套话',
-    ...formatProfile.banned_phrases.map((phrase) => `- ${phrase}`),
-  ].join('\n')
-
-  const user = [
-    `日期：${today}`,
-    '',
-    '写作规范：',
-    buildFormatPrompt(formatProfile),
-    '',
-    '选题与大纲：',
-    stringifyPromptPayload(outline, 4000),
-    '',
-    '研究包：',
-    stringifyPromptPayload(researchPack, 16000),
-  ].join('\n')
-
-  return callLLM(system, user, 16384)
 }
 
 function isWeeklyReviewWorkflow(workflow, formatProfile) {
@@ -1878,7 +2328,9 @@ async function chooseTopicDetailed({ researchPack, formatProfile, today, workflo
     stringifyPromptPayload(researchPack, isWeeklyReview ? 22000 : 14000),
   ].join('\n')
 
-  return callLLM(system, user, 8192)
+  return callLLM(system, user, 8192, {
+    validate: (payload) => validateOutlinePayload(payload, { isFreeStructure }),
+  })
 }
 
 async function generateWeeklyReviewPackage({ outline, researchPack, formatProfile, workflow, today }) {
@@ -1905,7 +2357,7 @@ async function generateWeeklyReviewPackage({ outline, researchPack, formatProfil
     stringifyPromptPayload(buildWeeklyResearchDigest(researchPack, 14), 12000),
   ].join('\n')
 
-  return callLLM(system, user, 2048)
+  return callLLM(system, user, 2048, { validate: validateArticlePackagePayload })
 }
 
 async function generateWeeklyReviewSection({
@@ -1959,7 +2411,12 @@ async function generateWeeklyReviewSection({
     buildFormatPrompt(formatProfile),
   ].join('\n')
 
-  return callLLM(system, user, 6144)
+  // Weekly sections used to be returned as the raw LLM object and consumed field-by-field
+  // by the caller, so a heading the model reworded (an extra space, a different 顿号) no
+  // longer matched `extractArticleSections` and the repair path could blank the article.
+  // Normalize here exactly like the daily path already does.
+  const result = await callLLM(system, user, 6144, { validate: validateSectionPayload })
+  return ensureSectionHeading(readSectionMarkdown(result), heading)
 }
 
 async function generateDailyArticlePackage({ outline, researchPack, formatProfile, workflow, today }) {
@@ -1985,7 +2442,7 @@ async function generateDailyArticlePackage({ outline, researchPack, formatProfil
     stringifyPromptPayload(buildDailyResearchDigest(researchPack, 14), 14000),
   ].join('\n')
 
-  return callLLM(system, user, 2048)
+  return callLLM(system, user, 2048, { validate: validateArticlePackagePayload })
 }
 
 async function generateDailyArticleSection({
@@ -2051,8 +2508,8 @@ async function generateDailyArticleSection({
     buildFormatPrompt(formatProfile),
   ].join('\n')
 
-  const result = await callLLM(system, user, 6144)
-  return ensureSectionHeading(result.markdown || result.section_md || result.content_md || '', heading)
+  const result = await callLLM(system, user, 6144, { validate: validateSectionPayload })
+  return ensureSectionHeading(readSectionMarkdown(result), heading)
 }
 
 async function generateDailyArticleFromSections({ outline, researchPack, formatProfile, workflow, today }) {
@@ -2103,11 +2560,13 @@ async function generateArticleForWorkflow({ outline, researchPack, formatProfile
     today,
   })
   const sectionBriefs = normalizeSectionBriefs(outline, formatProfile)
-  const sectionTargetChars = Number(workflow.section_target_chars || 1600)
+  const sectionTargetChars = Number(workflow.section_target_chars || 1900)
   const renderedSections = []
 
   for (const brief of sectionBriefs) {
-    const section = await generateWeeklyReviewSection({
+    // generateWeeklyReviewSection now returns heading-normalized Markdown, so the heading
+    // in the article always matches the heading the gate and the repair path look for.
+    renderedSections.push(await generateWeeklyReviewSection({
       heading: brief.heading,
       brief,
       outline,
@@ -2116,8 +2575,7 @@ async function generateArticleForWorkflow({ outline, researchPack, formatProfile
       workflow,
       today,
       targetChars: sectionTargetChars,
-    })
-    renderedSections.push(String(section.content_md || section.section_md || section.markdown || '').trim())
+    }))
   }
 
   return {
@@ -2188,8 +2646,8 @@ async function repairWeeklyReviewSection({
     buildFormatPrompt(formatProfile),
   ].join('\n')
 
-  const result = await callLLM(system, user, 6144)
-  return ensureSectionHeading(result.markdown || result.section_md || result.content_md || '', heading)
+  const result = await callLLM(system, user, 6144, { validate: validateSectionPayload })
+  return ensureSectionHeading(readSectionMarkdown(result), heading)
 }
 
 async function repairWeeklyReviewArticle({
@@ -2239,7 +2697,9 @@ async function repairWeeklyReviewArticle({
       .slice(0, 4)
   }
 
-  const repairedSections = new Map(currentSections)
+  // Only the chapters we actually rewrite go into the map; everything else is preserved
+  // untouched by the splice below (including the article lede before the first heading).
+  const repairedSections = new Map()
   for (const candidate of sectionsToRepair) {
     const repairedMarkdown = await repairWeeklyReviewSection({
       heading: candidate.brief.heading,
@@ -2261,9 +2721,7 @@ async function repairWeeklyReviewArticle({
   return {
     ...post,
     slug: workflow.slug,
-    content_md: requiredSections
-      .map((heading) => ensureSectionHeading(repairedSections.get(heading) || '', heading))
-      .join('\n\n'),
+    content_md: spliceRepairedSections(post.content_md, requiredSections, repairedSections),
   }
 }
 
@@ -2371,8 +2829,8 @@ async function repairDailyArticleSection({
     buildFormatPrompt(formatProfile),
   ].join('\n')
 
-  const result = await callLLM(system, user, 6144)
-  return ensureSectionHeading(result.markdown || result.section_md || result.content_md || '', heading)
+  const result = await callLLM(system, user, 6144, { validate: validateSectionPayload })
+  return ensureSectionHeading(readSectionMarkdown(result), heading)
 }
 
 async function repairDailyArticle({
@@ -2437,7 +2895,7 @@ async function repairDailyArticle({
     sectionsToRepair = [...sectionsToRepair].sort((left, right) => left.charCount - right.charCount).slice(0, 3)
   }
 
-  const repairedSections = new Map(currentSections)
+  const repairedSections = new Map()
   for (const candidate of sectionsToRepair) {
     const repairedMarkdown = await repairDailyArticleSection({
       heading: candidate.brief.heading,
@@ -2458,9 +2916,7 @@ async function repairDailyArticle({
   return {
     ...post,
     slug: workflow.slug,
-    content_md: sectionHeadings
-      .map((heading) => ensureSectionHeading(repairedSections.get(heading) || '', heading))
-      .join('\n\n'),
+    content_md: spliceRepairedSections(post.content_md, sectionHeadings, repairedSections),
   }
 }
 
@@ -2502,11 +2958,6 @@ async function repairArticle({
   })
 }
 
-async function downloadAndUploadImage(imageUrl, token) {
-  const result = await downloadAndUploadImageResult(imageUrl, token)
-  return result.ok ? result.imageUrl : null
-}
-
 function buildCoverGenerationResult({
   ok = false,
   imageUrl = '',
@@ -2532,83 +2983,6 @@ function logCoverGenerationResult(context, result) {
   const code = result.errorCode || 'unknown_error'
   const message = result.error || 'Unknown cover generation failure.'
   console.warn(`${context} skipped: [${code}] ${message}`)
-}
-
-async function downloadAndUploadImageResult(imageUrl, token) {
-  try {
-    await assertPublicResolvedHttpUrl(imageUrl)
-    const resp = await fetch(imageUrl, {
-      signal: AbortSignal.timeout(15000),
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AutoBlogBot/3.0)' },
-      redirect: 'manual',
-    })
-    if (!resp.ok) {
-      return buildCoverGenerationResult({
-        ok: false,
-        errorCode: 'download_failed',
-        error: `Failed to download generated image: HTTP ${resp.status}`,
-      })
-    }
-    const contentType = resp.headers.get('content-type') || ''
-    if (!contentType.startsWith('image/')) {
-      return buildCoverGenerationResult({
-        ok: false,
-        errorCode: 'download_failed',
-        error: 'Generated asset is not an image.',
-      })
-    }
-    const buffer = Buffer.from(await resp.arrayBuffer())
-    if (buffer.length < 1000 || buffer.length > 5 * 1024 * 1024) {
-      return buildCoverGenerationResult({
-        ok: false,
-        errorCode: 'download_failed',
-        error: 'Generated image size is outside the accepted upload range.',
-      })
-    }
-
-    const ext = contentType.includes('png')
-      ? '.png'
-      : contentType.includes('gif')
-        ? '.gif'
-        : contentType.includes('webp')
-          ? '.webp'
-          : '.jpg'
-
-    const filename = `auto-blog-${Date.now()}${ext}`
-    const boundary = `----FormBoundary${Date.now()}`
-    const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`
-    const footer = `\r\n--${boundary}--\r\n`
-    const body = Buffer.concat([Buffer.from(header), buffer, Buffer.from(footer)])
-
-    const uploadResp = await fetch(`${BLOG_API_BASE}/api/admin/upload`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      },
-      body,
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!uploadResp.ok) {
-      return buildCoverGenerationResult({
-        ok: false,
-        errorCode: 'upload_failed',
-        error: `Failed to upload generated image: HTTP ${uploadResp.status}`,
-      })
-    }
-    const data = await uploadResp.json()
-    return buildCoverGenerationResult({
-      ok: true,
-      imageUrl: data.url?.startsWith('http') ? data.url : `${BLOG_API_BASE}${data.url}`,
-      sourceUrl: imageUrl,
-    })
-  } catch (error) {
-    return buildCoverGenerationResult({
-      ok: false,
-      errorCode: 'upload_failed',
-      error: error?.message || 'Failed to download or upload generated image.',
-    })
-  }
 }
 
 async function generatePostCoverWithAdminApi(postId, coverBrief, token) {
@@ -2643,9 +3017,28 @@ function createAdminLoginError(status) {
   return error
 }
 
+// `POST /api/admin/login` is rate limited to 5/minute on the backend, so two overlapping
+// workflows trivially collide and get a 429. 429 was in no retry predicate at all, so the
+// collision killed the whole run instantly.
+export function isRetryableHttpStatus(status) {
+  const code = Number(status || 0)
+  return code === 408 || code === 429 || code >= 500
+}
+
+// `Retry-After` is either delta-seconds or an HTTP-date; honour both, clamped so a hostile
+// or absurd value cannot stall the run.
+export function parseRetryAfterMs(value, { maxMs = 120000 } = {}) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return 0
+  if (/^\d+$/.test(raw)) return Math.min(maxMs, Number(raw) * 1000)
+  const timestamp = Date.parse(raw)
+  if (!Number.isFinite(timestamp)) return 0
+  return Math.min(maxMs, Math.max(0, timestamp - Date.now()))
+}
+
 function isRetryableAdminLoginError(error) {
   const status = Number(error?.status || 0)
-  if (status) return status === 408 || status >= 500
+  if (status) return isRetryableHttpStatus(status)
 
   const code = String(error?.code || '')
   const message = String(error?.message || '')
@@ -2844,9 +3237,26 @@ function finalizeArticle({ post, outline, researchPack, imagePlans, metadata = n
   return sections.join('\n\n')
 }
 
+// A topic-scoped failure: it means "this topic cannot be published", not "this run is
+// broken". Marking it lets the daily/weekly loop skip the topic and still report the run
+// and refresh the frontend for the posts that did succeed.
+export function createSkippableTopicError(message, cause = null) {
+  const error = new Error(message)
+  error.skippableTopic = true
+  if (cause) error.cause = cause
+  return error
+}
+
+export function isSkippableTopicError(error) {
+  return Boolean(error?.skippableTopic)
+    || String(error?.message || '').startsWith('Quality gate failed after repair attempts:')
+}
+
 function normalizeForApi(post, fixedSlug, outline, metadata = {}) {
   if (!post.title || !post.content_md) {
-    throw new Error('LLM output missing title or content_md')
+    // Previously a plain Error, which did not match the quality-gate prefix the daily loop
+    // checked, so one malformed LLM package aborted the entire run.
+    throw createSkippableTopicError('LLM output missing title or content_md')
   }
 
   const slug = fixedSlug || String(post.slug || '')
@@ -2905,6 +3315,7 @@ export async function sendPublishRequest({
   let lastError = null
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let retryAfterMs = 0
     try {
       const resp = await fetchImpl(url, {
         method,
@@ -2920,19 +3331,21 @@ export async function sendPublishRequest({
       // 409 is a meaningful signal for the caller; surface it without retrying.
       if (resp.status === 409) return { ok: false, status: 409, json: null }
 
+      retryAfterMs = parseRetryAfterMs(resp.headers?.get?.('retry-after'))
       const detail = (await resp.text()).slice(0, 300)
-      // 5xx is transient and worth retrying; 4xx is deterministic and is not.
-      if (resp.status < 500 || attempt >= attempts) {
+      // 5xx/408/429 are transient and worth retrying; other 4xx are deterministic.
+      if (!isRetryableHttpStatus(resp.status) || attempt >= attempts) {
         throw new Error(`${label} failed: ${resp.status} ${detail}`)
       }
       lastError = new Error(`${label} failed: ${resp.status} ${detail}`)
     } catch (error) {
       lastError = error
-      const retryable = isRetryableAdminLoginError(error) || /^.*failed: 5\d\d\b/.test(String(error?.message || ''))
+      const retryable = isRetryableAdminLoginError(error)
+        || /failed:\s*(408|429|5\d\d)\b/.test(String(error?.message || ''))
       if (!retryable || attempt >= attempts) throw error
     }
 
-    const delayMs = retryDelaysMs[attempt - 1]
+    const delayMs = Math.max(retryDelaysMs[attempt - 1], retryAfterMs)
     logger?.warn?.(`${label} attempt ${attempt}/${attempts} failed (${lastError?.message || 'unknown error'}); retrying in ${Math.round(delayMs / 1000)}s...`)
     await sleepImpl(delayMs)
   }
@@ -3053,20 +3466,31 @@ async function reportPublishingRun(token, payload) {
   }
 }
 
-async function upsertPublishingMetadata(token, payload) {
-  const resp = await fetch(`${BLOG_API_BASE}/api/admin/publishing-metadata`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(15000),
+// All three bridges used to be bare fetches with a 15s timeout and zero retries, while the
+// far cheaper publish call had four attempts with backoff. Render cold starts and rolling
+// deploys make a 502/timeout inside 15s ordinary, and a bridge failure discarded a fully
+// paid-for article. They now share sendPublishRequest's backoff (which also honours 429).
+async function sendBridgeRequest({ url, method, body, token, label, fetchImpl = fetch }) {
+  const result = await sendPublishRequest({
+    url,
+    method,
+    requestBody: body,
+    token,
+    label,
+    fetchImpl,
+    timeoutMs: 30000,
   })
-  if (!resp.ok) {
-    throw new Error(`Publishing metadata bridge failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-  return resp.json()
+  return result.json
+}
+
+async function upsertPublishingMetadata(token, payload) {
+  return sendBridgeRequest({
+    url: `${BLOG_API_BASE}/api/admin/publishing-metadata`,
+    method: 'POST',
+    body: payload,
+    token,
+    label: 'Publishing metadata bridge',
+  })
 }
 
 export async function bridgePublishingMetadata(token, payload, {
@@ -3080,54 +3504,16 @@ export async function bridgePublishingMetadata(token, payload, {
 async function upsertQualitySnapshot(token, payload) {
   if (!token || !payload?.post_id) return null
   const postId = Number(payload.post_id)
-  const endpoints = [
-    {
-      method: 'PUT',
-      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/quality`,
-      body: {
-        quality_snapshot: payload.quality_snapshot,
-      },
-    },
-    {
-      method: 'PUT',
-      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/quality-snapshot`,
-      body: payload,
-    },
-    {
-      method: 'POST',
-      url: `${BLOG_API_BASE}/api/admin/quality-snapshots`,
-      body: payload,
-    },
-  ]
-
-  const failures = []
-  for (const endpoint of endpoints) {
-    const resp = await fetch(endpoint.url, {
-      method: endpoint.method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(endpoint.body),
-      signal: AbortSignal.timeout(15000),
-    })
-    if (resp.ok) {
-      const text = await resp.text()
-      if (!text) return null
-      try {
-        return JSON.parse(text)
-      } catch {
-        return { status: 'ok' }
-      }
-    }
-    if (resp.status === 404 || resp.status === 405) {
-      failures.push(`${endpoint.method} ${endpoint.url} -> ${resp.status}`)
-      continue
-    }
-    throw new Error(`Quality snapshot bridge failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-
-  throw new Error(`Quality snapshot endpoint unavailable (${failures.join('; ')})`)
+  // Verified against backend/app/routers/admin.py: `PUT /posts/{id}/quality` is the only
+  // quality write route. `/posts/{id}/quality-snapshot` and `POST /quality-snapshots` do
+  // not exist, so probing them only added guaranteed-404 round trips.
+  return sendBridgeRequest({
+    url: `${BLOG_API_BASE}/api/admin/posts/${postId}/quality`,
+    method: 'PUT',
+    body: { quality_snapshot: payload.quality_snapshot },
+    token,
+    label: 'Quality snapshot bridge',
+  })
 }
 
 export async function bridgeQualitySnapshot(token, payload, {
@@ -3142,52 +3528,15 @@ export async function bridgeQualitySnapshot(token, payload, {
 async function upsertTopicMetadata(token, payload) {
   if (!token || !payload?.post_id) return null
   const postId = Number(payload.post_id)
-  const endpoints = [
-    {
-      method: 'PUT',
-      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-metadata`,
-      body: payload,
-    },
-    {
-      method: 'PUT',
-      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-profile`,
-      body: payload,
-    },
-    {
-      method: 'POST',
-      url: `${BLOG_API_BASE}/api/admin/topic-metadata`,
-      body: payload,
-    },
-  ]
-
-  const failures = []
-  for (const endpoint of endpoints) {
-    const resp = await fetch(endpoint.url, {
-      method: endpoint.method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(endpoint.body),
-      signal: AbortSignal.timeout(15000),
-    })
-    if (resp.ok) {
-      const text = await resp.text()
-      if (!text) return null
-      try {
-        return JSON.parse(text)
-      } catch {
-        return { status: 'ok' }
-      }
-    }
-    if (resp.status === 404 || resp.status === 405) {
-      failures.push(`${endpoint.method} ${endpoint.url} -> ${resp.status}`)
-      continue
-    }
-    throw new Error(`Topic metadata bridge failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-
-  throw new Error(`Topic metadata endpoint unavailable (${failures.join('; ')})`)
+  // `/posts/{id}/topic-profile` and `POST /topic-metadata` are aliases of the same backend
+  // handler, so one call to the canonical route is enough.
+  return sendBridgeRequest({
+    url: `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-metadata`,
+    method: 'PUT',
+    body: payload,
+    token,
+    label: 'Topic metadata bridge',
+  })
 }
 
 export async function bridgeTopicMetadata(token, payload, {
@@ -3199,26 +3548,57 @@ export async function bridgeTopicMetadata(token, payload, {
   return upsert(token, payload)
 }
 
-async function localizeImagePlans(imagePlans, token) {
-  const localizedPlans = []
+// Metadata bridges are not a precondition for the article being readable: publishing
+// status, quality snapshot and topic profile are all reporting surfaces. Previously a
+// single bridge failure threw, leaving the fully-generated article stuck at
+// is_published=false with no status row and no cleanup — and the next run could not see
+// the draft through the public slug check, so it regenerated (and re-billed) the article.
+// Now each bridge is attempted independently, failures degrade to warnings, and the
+// reasons are recorded on the publishing artifact's reserved `failure_reason` field.
+export async function runPublishingBridges(token, {
+  metadataBridgePayload = null,
+  qualitySnapshotPayload = null,
+  topicMetadataPayload = null,
+} = {}, {
+  bridgeMetadataImpl = bridgePublishingMetadata,
+  bridgeQualityImpl = bridgeQualitySnapshot,
+  bridgeTopicImpl = bridgeTopicMetadata,
+  logger = console,
+} = {}) {
+  const steps = [
+    ['publishing_metadata', metadataBridgePayload, bridgeMetadataImpl],
+    ['quality_snapshot', qualitySnapshotPayload, bridgeQualityImpl],
+    ['topic_metadata', topicMetadataPayload, bridgeTopicImpl],
+  ]
+  const failures = []
 
-  for (const plan of imagePlans || []) {
-    const uploadedUrl = await downloadAndUploadImage(plan.image_url, token)
-    localizedPlans.push({
-      ...plan,
-      image_url: uploadedUrl || plan.image_url,
-      uploaded_image_url: uploadedUrl || '',
-    })
+  for (const [name, payload, run] of steps) {
+    if (!payload) continue
+    try {
+      await run(token, payload)
+    } catch (error) {
+      const reason = `${name}:${error?.message || 'unknown error'}`
+      failures.push(reason)
+      logger?.warn?.(`Metadata bridge degraded (${reason}); the article will still be published.`)
+    }
   }
 
-  return localizedPlans
+  if (failures.length > 0 && metadataBridgePayload?.publishing_artifact) {
+    metadataBridgePayload.publishing_artifact.failure_reason = failures.join(' | ').slice(0, 1000)
+  }
+  return failures
 }
 
-async function fillMissingIllustrations({
+export async function fillMissingIllustrations({
   desiredSections,
   existingPlans,
   outline,
   config,
+  dryRun = false,
+  fetchImpl = fetch,
+  waitForJob = waitForImageGenerationJob,
+  resolveToken = getCachedAdminToken,
+  blogApiBase = BLOG_API_BASE,
 }) {
   // For every section in desiredSections that has no plan in existingPlans, generate an AI
   // illustration via the admin endpoint and append it to the plans. This is the "缺图才 AI 补"
@@ -3231,8 +3611,14 @@ async function fillMissingIllustrations({
   const missingSections = desiredSections.filter((heading) => !coveredSections.has(heading))
   if (missingSections.length === 0) return existingPlans
 
-  const token = await getCachedAdminToken()
-  const blogApiBase = BLOG_API_BASE
+  // This function had no dryRun awareness at all: the moment ai_illustration_enabled is
+  // flipped on, a `--dry-run` would have generated and persisted real images.
+  if (dryRun) {
+    console.log(`Dry run: skipping AI illustration generation for ${missingSections.length} section(s).`)
+    return existingPlans
+  }
+
+  const token = await resolveToken()
   const generatedPlans = []
 
   for (const sectionHeading of missingSections) {
@@ -3242,7 +3628,7 @@ async function fillMissingIllustrations({
     const prompt = `Editorial explanatory illustration for article section: ${sectionHeading}. Topic: ${outline.topic || 'AI technology'}. Style: clean, minimal, modern editorial illustration.`
 
     try {
-      const response = await fetch(`${blogApiBase}/api/admin/illustrations/generate`, {
+      const response = await fetchImpl(`${blogApiBase}/api/admin/illustrations/generate`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -3255,20 +3641,39 @@ async function fillMissingIllustrations({
         console.warn(`Illustration generation failed for ${sectionHeading}: HTTP ${response.status}`)
         continue
       }
-      const result = await response.json()
-      if (result.generated && result.image_url) {
+      // POST /illustrations/generate now only *enqueues* the job (it used to run the model
+      // inline and answer with the finished image). At enqueue time `generated` is false and
+      // `image_url` is empty, so the old `result.generated && result.image_url` check silently
+      // dropped every illustration — while the backend still generated, paid for and uploaded
+      // it, leaving an orphaned R2 object. Poll the job the same way covers do.
+      const submitted = await response.json()
+      const jobId = imageGenerationJobId(submitted)
+      if (!jobId) {
+        console.warn(`Illustration generation returned no job id for ${sectionHeading}: ${submitted.error || submitted.error_code || 'unknown error'}`)
+        continue
+      }
+      const job = await waitForJob({
+        blogApiBase,
+        token,
+        jobId,
+        initialJob: submitted,
+        fetchImpl,
+        label: 'Illustration generation',
+      })
+      const imageUrl = imageGenerationJobImageUrl(job)
+      if (imageGenerationJobSucceeded(job)) {
         generatedPlans.push({
           section_heading: sectionHeading,
-          image_url: result.image_url,
+          image_url: imageUrl,
           source_page_url: '',
           source_name: 'AI Generated',
           reason: 'ai_fallback',
           alt_text: `Illustration for ${sectionHeading}`,
           score: 0,
         })
-        console.log(`Generated AI illustration for ${sectionHeading}: ${result.image_url}`)
+        console.log(`Generated AI illustration for ${sectionHeading}: ${imageUrl}`)
       } else {
-        console.warn(`Illustration generation returned no image for ${sectionHeading}: ${result.error || result.error_code}`)
+        console.warn(`Illustration generation returned no image for ${sectionHeading}: ${job.error || job.error_code || job.status}`)
       }
     } catch (error) {
       console.warn(`Illustration generation request failed for ${sectionHeading}: ${error.message}`)
@@ -3276,6 +3681,22 @@ async function fillMissingIllustrations({
   }
 
   return [...existingPlans, ...generatedPlans]
+}
+
+export async function prepareImagePlansForPublication(imagePlans, {
+  imageUploadToken = '',
+  localize = localizeInlineImagePlans,
+  blogApiBase = BLOG_API_BASE,
+} = {}) {
+  // Dry runs intentionally keep candidate URLs for inspection but never call the
+  // upload endpoint. Every real publish path supplies imageUploadToken below.
+  if (!imageUploadToken || !Array.isArray(imagePlans) || imagePlans.length === 0) {
+    return imagePlans || []
+  }
+  return localize(imagePlans, {
+    token: imageUploadToken,
+    blogApiBase,
+  })
 }
 
 async function buildPublishablePost({
@@ -3287,6 +3708,8 @@ async function buildPublishablePost({
   metadata,
   fixedSlug,
   workflow = null,
+  imageUploadToken = '',
+  dryRun = false,
 }) {
   const workflowProfile = workflow || {
     slug: fixedSlug || `ai-brief-${today}`,
@@ -3330,6 +3753,7 @@ async function buildPublishablePost({
     existingPlans: imagePlans,
     outline,
     config,
+    dryRun,
   })
 
   let generatedPost = await generateArticleForWorkflow({
@@ -3341,11 +3765,18 @@ async function buildPublishablePost({
   })
 
   const gateConfig = config.quality_gate?.[metadata.content_type] || config.quality_gate || {}
-  const maxRepairAttempts = Math.max(0, Number(gateConfig.max_repair_attempts ?? 2))
+  const maxRepairAttempts = Math.max(0, Number(gateConfig.max_repair_attempts ?? 4))
   let postForGate = null
   let gate = null
 
   for (let attempt = 0; attempt <= maxRepairAttempts; attempt += 1) {
+    // finalizeArticle deterministically rewrites banned phrases, so by the time the gate
+    // runs the count is structurally 0. Capture the pre-rewrite count here and hand it to
+    // the gate so the quality score keeps a real (non-constant) banned-phrase signal.
+    const rawBannedPhraseHits = countPhraseHits(
+      String(generatedPost.content_md || ''),
+      formatProfile.banned_phrases || [],
+    )
     const finalizedContent = finalizeArticle({
       post: generatedPost,
       outline,
@@ -3359,6 +3790,7 @@ async function buildPublishablePost({
       gate_profile: metadata.content_type,
       content_type: metadata.content_type,
       content_md: finalizedContent,
+      raw_banned_phrase_hits: rawBannedPhraseHits,
     }
 
     gate = evaluateQualityGate({
@@ -3390,7 +3822,26 @@ async function buildPublishablePost({
     throw new Error(`Quality gate failed after repair attempts: ${gate.reasons.join(', ')}`)
   }
 
-  const normalizedPost = normalizeForApi(postForGate, fixedSlug, outline, metadata)
+  // Inline images are downloaded and uploaded to R2 only AFTER the gate accepts the
+  // article. Doing it before meant every gate-rejected topic left permanently orphaned,
+  // unreferenced objects in the bucket.
+  const localizedImagePlans = await prepareImagePlansForPublication(imagePlans, { imageUploadToken })
+  const publishContentMd = localizedImagePlans === imagePlans
+    ? postForGate.content_md
+    : finalizeArticle({
+      post: generatedPost,
+      outline,
+      researchPack,
+      imagePlans: localizedImagePlans,
+      metadata,
+    })
+
+  const normalizedPost = normalizeForApi(
+    { ...postForGate, content_md: publishContentMd },
+    fixedSlug,
+    outline,
+    metadata,
+  )
   const normalizedOutline = {
     ...outline,
     cover_brief: buildPostCoverBrief(normalizedPost, {
@@ -3401,248 +3852,28 @@ async function buildPublishablePost({
   return {
     outline: normalizedOutline,
     researchPack,
-    imagePlans,
+    imagePlans: localizedImagePlans,
     gate,
     post: normalizedPost,
   }
 }
 
-async function runDailyMode(config, cliOptions) {
-  const runtime = resolveDailyRuntime(config, cliOptions)
-  const baseItems = await collectBaseMaterials(config, {
-    coverageDate: runtime.coverageDate,
-    lookbackHours: runtime.lookbackHours,
-  })
-  if (baseItems.length === 0) {
-    throw new Error('No usable base research items were collected')
-  }
-
-  const coverageDate = runtime.coverageDate
-  const formatProfile = createDailyBriefFormatProfile()
-  const workflow = getContentWorkflowProfile(config, runtime.mode, coverageDate)
-  const clusteredTopics = clusterResearchItemsByTopic(baseItems.slice(0, runtime.maxCandidateItems), {
-    similarityThreshold: runtime.clusterSimilarityThreshold,
-  })
-  const publishedTopicKeys = runtime.skipPublishedTopicKeys && !runtime.force && !runtime.dryRun
-    ? await fetchPublishedTopicKeys({ coverageDate })
-    : new Set()
-  const selection = selectTopicsForPublishing(clusteredTopics, {
-    maxPosts: runtime.maxPosts,
-    minSourcesPerTopic: runtime.minSourcesPerTopic,
-    publishedTopicKeys,
-  })
-
-  const token = runtime.dryRun ? null : await getCachedAdminToken()
-  const candidateTopics = clusteredTopics.map((topic) => createTopicSnapshot(topic, {
-    content_type: workflow.content_type,
-  }))
-  const skippedTopics = []
-  const results = []
-  const gateProfile = resolveGateProfile(config, workflow.content_type)
-
-  if (selection.queue.length === 0) {
-    console.log('No eligible topics to publish for this coverage date.')
-    if (!runtime.dryRun) {
-      await reportPublishingRun(token, {
-        workflow_key: runtime.mode.replace('-', '_'),
-        external_run_id: process.env.GITHUB_RUN_ID || '',
-        run_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
-        status: 'skipped',
-        coverage_date: coverageDate,
-        message: 'No eligible topics to publish for this coverage date.',
-        candidate_topics: candidateTopics,
-        published_topics: [],
-        skipped_topics: selection.skipped_topic_keys.map((topicKey) => createTopicSnapshot(
-          clusteredTopics.find((topic) => topic.topic_key === topicKey),
-          {
-            topic_key: topicKey,
-            content_type: workflow.content_type,
-            reason: 'already published for coverage date',
-            status: 'skipped',
-          }
-        )),
-      })
-    }
-    return []
-  }
-
-  for (const topic of selection.queue) {
-    if (results.length >= selection.target_count) break
-
-    const topicBlogItems = runtime.enableBlogwatcherFallback && config.blogwatcher_enabled
-      ? await runBlogwatcher({
-        config,
-        topicHint: topic.candidate_title,
-        maxItems: 6,
-        mode: runtime.mode,
-        coverageDate,
-        lookbackHours: runtime.lookbackHours,
-      })
-      : []
-    let paperItems = []
-    let researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems })
-    let support = assessResearchPackSourceSupport({ researchPack, gateProfile })
-    if (!support.passed && config.arxiv_enabled) {
-      paperItems = await runDailyArxivSupplement({ config, topic })
-      if (paperItems.length > 0) {
-        researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems })
-        support = assessResearchPackSourceSupport({ researchPack, gateProfile })
-      }
-    }
-    if (!support.passed) {
-      console.log(`Skipping topic ${topic.topic_key}: insufficient source support (${support.reasons.join(', ')})`)
-      skippedTopics.push(createTopicSnapshot(topic, {
-        content_type: workflow.content_type,
-        published_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
-        reason: `insufficient_source_support:${support.reasons.join(',')}`,
-        status: 'skipped',
-      }))
-      continue
-    }
-
-    console.log(`Topic ${topic.topic_key} source support: sources=${support.metrics.source_count} domains=${support.metrics.unique_domain_count} high_quality=${support.metrics.high_quality_source_count}`)
-
-    const outline = await chooseTopicDetailed({
-      researchPack,
-      formatProfile,
-      today: coverageDate,
-      workflow,
-    })
-    const metadata = {
-      content_type: workflow.content_type,
-      topic_key: topic.topic_key,
-      published_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
-      coverage_date: coverageDate,
-    }
-    const slug = `${workflow.slug}-${topic.topic_key}`.slice(0, 200)
-
-    if (!runtime.dryRun && !runtime.force && (await checkSlugExists(slug))) {
-      console.log(`Skipping existing slug: ${slug}`)
-      skippedTopics.push(createTopicSnapshot(topic, {
-        content_type: workflow.content_type,
-        published_mode: metadata.published_mode,
-        reason: 'slug already exists',
-        status: 'skipped',
-      }))
-      continue
-    }
-
-    let artifact = null
-    try {
-      artifact = await buildPublishablePost({
-        outline,
-        researchPack,
-        formatProfile,
-        config,
-        today: coverageDate,
-        metadata,
-        fixedSlug: slug,
-        workflow: {
-          ...workflow,
-          slug,
-        },
-      })
-    } catch (error) {
-      if (!String(error?.message || '').startsWith('Quality gate failed after repair attempts:')) {
-        throw error
-      }
-
-      console.log(`Skipping topic ${topic.topic_key}: ${error.message}`)
-      skippedTopics.push(createTopicSnapshot(topic, {
-        content_type: workflow.content_type,
-        published_mode: metadata.published_mode,
-        reason: `quality_gate_failed:${error.message.replace(/^Quality gate failed after repair attempts:\s*/i, '')}`,
-        status: 'skipped',
-      }))
-      continue
-    }
-
-    const bridgeWorkflowKey = runtime.mode.replace('-', '_')
-    const metadataBridgePayload = buildPublishingMetadataBridgePayload({
-      postId: null,
-      post: artifact.post,
-      outline: artifact.outline,
-      metadata,
-      gate: artifact.gate,
-      config,
-      researchPack: artifact.researchPack,
-      imagePlans: artifact.imagePlans,
-      workflowKey: bridgeWorkflowKey,
-      coverageDate,
-      candidateTopics: [
-        createTopicSnapshot(topic, {
-          topic_key: topic.topic_key,
-          title: artifact.post.title,
-          summary: artifact.post.summary,
-          content_type: workflow.content_type,
-          published_mode: metadata.published_mode,
-          post_slug: artifact.post.slug,
-          source_count: artifact.researchPack.sources.length,
-          source_names: [...new Set(artifact.researchPack.sources.map((source) => source.source_name).filter(Boolean))],
-        }),
-      ],
-    })
-    const qualitySnapshotPayload = buildQualitySnapshotPayload({
-      postId: null,
-      post: artifact.post,
-      outline: artifact.outline,
-      metadata,
-      gate: artifact.gate,
-      config,
-      researchPack: artifact.researchPack,
-    })
-    const topicMetadataPayload = buildTopicMetadataPayload({
-      postId: null,
-      post: artifact.post,
-      outline: artifact.outline,
-      metadata,
-      gate: artifact.gate,
-      researchPack: artifact.researchPack,
-      config,
-    })
-
-    if (runtime.dryRun) {
-      results.push({
-        ...artifact,
-        cover_image: null,
-        publishing_metadata: metadataBridgePayload,
-        quality_snapshot: qualitySnapshotPayload,
-        topic_metadata: topicMetadataPayload,
-      })
-      continue
-    }
-
-    let result = await publishPost(token, artifact.post, null, { isPublished: false })
-    metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
-    qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
-    topicMetadataPayload.post_id = metadataBridgePayload.post_id
-
-    let coverImage = ''
-    const coverBrief = artifact.outline.cover_brief || artifact.outline.cover_prompt || ''
-    if (metadataBridgePayload.post_id && coverBrief) {
-      console.log(`Requesting configured cover generation for ${slug}...`)
-      const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, coverBrief, token)
-      logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
-      coverImage = coverResult.ok ? coverResult.imageUrl : ''
-    }
-
-    await bridgePublishingMetadata(token, metadataBridgePayload)
-    await bridgeQualitySnapshot(token, qualitySnapshotPayload)
-    await bridgeTopicMetadata(token, topicMetadataPayload)
-    result = await publishPost(token, artifact.post, null, { isPublished: true })
-    console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
-    results.push({
-      ...artifact,
-      result,
-      cover_image: coverImage || null,
-      post: coverImage ? { ...artifact.post, cover_image: coverImage } : artifact.post,
-      publishing_metadata: metadataBridgePayload,
-      quality_snapshot: qualitySnapshotPayload,
-      topic_metadata: topicMetadataPayload,
-    })
-  }
-
-  if (!runtime.dryRun) {
+// Extracted so it can run from `finally`: reporting the run and refreshing the frontend
+// must happen whether the loop completed, was cut short by a topic-level failure, or threw.
+// Both calls are individually failure-tolerant so nothing here can mask the original error.
+async function reportDailyRunOutcome({
+  token,
+  runtime,
+  workflow,
+  coverageDate,
+  clusteredTopics,
+  candidateTopics,
+  selection,
+  results,
+  skippedTopics,
+  runFailure = null,
+}) {
+  try {
     const publishedTopics = results.map((item) => createTopicSnapshot(item.outline, {
       topic_key: item.post.topic_key,
       title: item.post.title,
@@ -3655,38 +3886,312 @@ async function runDailyMode(config, cliOptions) {
       status: 'published',
     }))
     const publishedKeys = new Set(publishedTopics.map((topic) => topic.topic_key).filter(Boolean))
-    const preSkippedTopics = selection.skipped_topic_keys
+    // Cross-day skips carry their own reason (which post they overlap with, and by how
+    // much); without this map they would all be reported as plain same-day duplicates.
+    const skipReasonByKey = new Map(
+      (selection?.skipped_topics || [])
+        .filter((entry) => entry?.topic_key)
+        .map((entry) => [entry.topic_key, entry.reason]),
+    )
+    const preSkippedTopics = (selection?.skipped_topic_keys || [])
       .filter((topicKey) => !publishedKeys.has(topicKey))
       .map((topicKey) => createTopicSnapshot(
         clusteredTopics.find((topic) => topic.topic_key === topicKey),
         {
           topic_key: topicKey,
           content_type: workflow.content_type,
-          reason: 'already published for coverage date',
+          reason: skipReasonByKey.get(topicKey) || 'already published for coverage date',
           status: 'skipped',
         }
       ))
+
+    const failureMessage = runFailure ? ` Run aborted: ${String(runFailure.message || runFailure).slice(0, 300)}.` : ''
+    const emptyQueue = (selection?.queue || []).length === 0
+    const message = emptyQueue && results.length === 0
+      ? `No eligible topics to publish for this coverage date.${failureMessage}`
+      : results.length > 0
+        ? `Published ${results.length} post(s), skipped ${preSkippedTopics.length + skippedTopics.length} topic(s).${failureMessage}`
+        : `No posts were published in this run.${failureMessage}`
 
     await reportPublishingRun(token, {
       workflow_key: runtime.mode.replace('-', '_'),
       external_run_id: process.env.GITHUB_RUN_ID || '',
       run_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
-      status: results.length > 0 ? 'success' : 'skipped',
+      status: runFailure && results.length === 0 ? 'failed' : (results.length > 0 ? 'success' : 'skipped'),
       coverage_date: coverageDate,
-      message: results.length > 0
-        ? `Published ${results.length} post(s), skipped ${preSkippedTopics.length + skippedTopics.length} topic(s).`
-        : 'No posts were published in this run.',
+      message,
       candidate_topics: candidateTopics,
       published_topics: publishedTopics,
       skipped_topics: [...preSkippedTopics, ...skippedTopics],
     })
 
+    // The site is SSG-prerendered: without this hook a post that is is_published=true in
+    // the database is still invisible to readers.
     if (results.length > 0) {
       await triggerFrontendRefreshSafe({
         source: 'auto-blog',
         mode: runtime.mode,
         coverage_date: coverageDate,
         published_count: results.length,
+      })
+    }
+  } catch (error) {
+    console.warn(`Failed to finalize daily run reporting: ${error?.message || error}`)
+  }
+}
+
+async function runDailyMode(config, cliOptions) {
+  const runtime = resolveDailyRuntime(config, cliOptions)
+  // Daily used to call this with no limits, so it silently inherited the defaults
+  // (enrichLimit 15 / maxReturnItems 30) and `max_candidate_items` never took effect.
+  const baseItems = await collectBaseMaterials(config, {
+    coverageDate: runtime.coverageDate,
+    lookbackHours: runtime.lookbackHours,
+    feedLimit: runtime.feedLimit,
+    enrichLimit: runtime.enrichLimit,
+    maxReturnItems: runtime.maxCandidateItems,
+  })
+  if (baseItems.length === 0) {
+    throw new Error('No usable base research items were collected')
+  }
+
+  const coverageDate = runtime.coverageDate
+  const formatProfile = createDailyBriefFormatProfile()
+  const workflow = getContentWorkflowProfile(config, runtime.mode, coverageDate)
+  const clusteredTopics = clusterResearchItemsByTopic(baseItems.slice(0, runtime.maxCandidateItems), {
+    similarityThreshold: runtime.clusterSimilarityThreshold,
+  })
+  const guards = await resolvePublishedTopicGuards(runtime, { coverageDate })
+  const selection = selectTopicsForPublishing(clusteredTopics, {
+    maxPosts: runtime.maxPosts,
+    minSourcesPerTopic: runtime.minSourcesPerTopic,
+    publishedTopicKeys: guards.publishedTopicKeys,
+    publishedTopicFingerprints: guards.publishedTopicFingerprints,
+    overlapThreshold: runtime.crossDayDedupe?.overlapThreshold,
+    minSharedSources: runtime.crossDayDedupe?.minSharedSources,
+  })
+
+  const token = runtime.dryRun ? null : await getCachedAdminToken()
+  const candidateTopics = clusteredTopics.map((topic) => createTopicSnapshot(topic, {
+    content_type: workflow.content_type,
+  }))
+  const skippedTopics = []
+  const results = []
+  const gateProfile = resolveGateProfile(config, workflow.content_type)
+  // Everything below runs inside try/finally: a post that reached is_published=true must
+  // get its publishing-status row and its Vercel deploy-hook trigger even if a later topic
+  // blows up. The site is statically prerendered, so a missed hook means the article that
+  // is already live in the database is invisible on the site.
+  let runFailure = null
+
+  try {
+    if (selection.queue.length === 0) {
+      console.log('No eligible topics to publish for this coverage date.')
+      return []
+    }
+
+    for (const topic of selection.queue) {
+      if (results.length >= selection.target_count) break
+
+      try {
+        const topicBlogItems = runtime.enableBlogwatcherFallback && config.blogwatcher_enabled
+          ? await runBlogwatcher({
+            config,
+            topicHint: topic.candidate_title,
+            maxItems: 6,
+            mode: runtime.mode,
+            coverageDate,
+            lookbackHours: runtime.lookbackHours,
+          })
+          : []
+        let paperItems = []
+        let researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems })
+        let support = assessResearchPackSourceSupport({ researchPack, gateProfile })
+        if (!support.passed && config.arxiv_enabled) {
+          paperItems = await runDailyArxivSupplement({ config, topic })
+          if (paperItems.length > 0) {
+            researchPack = buildResearchPack({ baseItems: topic.items, blogItems: topicBlogItems, paperItems })
+            support = assessResearchPackSourceSupport({ researchPack, gateProfile })
+          }
+        }
+        if (!support.passed) {
+          console.log(`Skipping topic ${topic.topic_key}: insufficient source support (${support.reasons.join(', ')})`)
+          skippedTopics.push(createTopicSnapshot(topic, {
+            content_type: workflow.content_type,
+            published_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
+            reason: `insufficient_source_support:${support.reasons.join(',')}`,
+            status: 'skipped',
+          }))
+          continue
+        }
+
+        console.log(`Topic ${topic.topic_key} source support: sources=${support.metrics.source_count} domains=${support.metrics.unique_domain_count} high_quality=${support.metrics.high_quality_source_count}`)
+
+        const outline = await chooseTopicDetailed({
+          researchPack,
+          formatProfile,
+          today: coverageDate,
+          workflow,
+        })
+        const metadata = {
+          content_type: workflow.content_type,
+          topic_key: topic.topic_key,
+          published_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
+          coverage_date: coverageDate,
+        }
+        const slug = `${workflow.slug}-${topic.topic_key}`.slice(0, 200)
+
+        if (!runtime.dryRun && !runtime.force && (await checkSlugExists(slug))) {
+          console.log(`Skipping existing slug: ${slug}`)
+          skippedTopics.push(createTopicSnapshot(topic, {
+            content_type: workflow.content_type,
+            published_mode: metadata.published_mode,
+            reason: 'slug already exists',
+            status: 'skipped',
+          }))
+          continue
+        }
+
+        const artifact = await buildPublishablePost({
+          outline,
+          researchPack,
+          formatProfile,
+          config,
+          today: coverageDate,
+          metadata,
+          fixedSlug: slug,
+          workflow: {
+            ...workflow,
+            slug,
+            section_target_chars: runtime.sectionTargetChars,
+          },
+          imageUploadToken: token || '',
+          dryRun: runtime.dryRun,
+        })
+
+        const bridgeWorkflowKey = runtime.mode.replace('-', '_')
+        const metadataBridgePayload = buildPublishingMetadataBridgePayload({
+          postId: null,
+          post: artifact.post,
+          outline: artifact.outline,
+          metadata,
+          gate: artifact.gate,
+          config,
+          researchPack: artifact.researchPack,
+          imagePlans: artifact.imagePlans,
+          workflowKey: bridgeWorkflowKey,
+          coverageDate,
+          candidateTopics: [
+            createTopicSnapshot(topic, {
+              topic_key: topic.topic_key,
+              title: artifact.post.title,
+              summary: artifact.post.summary,
+              content_type: workflow.content_type,
+              published_mode: metadata.published_mode,
+              post_slug: artifact.post.slug,
+              source_count: artifact.researchPack.sources.length,
+              source_names: [...new Set(artifact.researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+            }),
+          ],
+        })
+        const qualitySnapshotPayload = buildQualitySnapshotPayload({
+          postId: null,
+          post: artifact.post,
+          outline: artifact.outline,
+          metadata,
+          gate: artifact.gate,
+          config,
+          researchPack: artifact.researchPack,
+        })
+        const topicMetadataPayload = buildTopicMetadataPayload({
+          postId: null,
+          post: artifact.post,
+          outline: artifact.outline,
+          metadata,
+          gate: artifact.gate,
+          researchPack: artifact.researchPack,
+          config,
+        })
+
+        if (runtime.dryRun) {
+          results.push({
+            ...artifact,
+            cover_image: null,
+            publishing_metadata: metadataBridgePayload,
+            quality_snapshot: qualitySnapshotPayload,
+            topic_metadata: topicMetadataPayload,
+          })
+          continue
+        }
+
+        let result = await publishPost(token, artifact.post, null, { isPublished: false })
+        metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
+        qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
+        topicMetadataPayload.post_id = metadataBridgePayload.post_id
+
+        let coverImage = ''
+        const coverBrief = artifact.outline.cover_brief || artifact.outline.cover_prompt || ''
+        if (metadataBridgePayload.post_id && coverBrief) {
+          console.log(`Requesting configured cover generation for ${slug}...`)
+          const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, coverBrief, token)
+          logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
+          coverImage = coverResult.ok ? coverResult.imageUrl : ''
+        }
+
+        // Bridges are reporting surfaces, not publish preconditions: a failure here degrades
+        // to a warning (recorded on publishing_artifact.failure_reason) so the paid-for
+        // article still goes live instead of being stranded as an invisible draft.
+        const bridgeFailures = await runPublishingBridges(token, {
+          metadataBridgePayload,
+          qualitySnapshotPayload,
+          topicMetadataPayload,
+        })
+        result = await publishPost(token, artifact.post, null, { isPublished: true })
+        console.log(`Published daily brief: id=${result.id} slug=${artifact.post.slug}`)
+        results.push({
+          ...artifact,
+          result,
+          cover_image: coverImage || null,
+          post: coverImage ? { ...artifact.post, cover_image: coverImage } : artifact.post,
+          publishing_metadata: metadataBridgePayload,
+          quality_snapshot: qualitySnapshotPayload,
+          topic_metadata: topicMetadataPayload,
+          bridge_failures: bridgeFailures,
+        })
+      } catch (error) {
+        // One bad topic must not abort the run. Anything thrown here (LLM shape failure,
+        // bridge outage, publish 4xx, arXiv/blogwatcher error) is recorded against the topic
+        // and the loop moves on; already-published posts keep their status report and their
+        // frontend refresh.
+        const reason = isSkippableTopicError(error)
+          ? `quality_gate_failed:${String(error.message).replace(/^Quality gate failed after repair attempts:\s*/i, '')}`
+          : `topic_failed:${String(error?.message || 'unknown error').slice(0, 300)}`
+        console.warn(`Skipping topic ${topic.topic_key}: ${error?.message || error}`)
+        if (!isSkippableTopicError(error) && error?.stack) console.warn(error.stack)
+        skippedTopics.push(createTopicSnapshot(topic, {
+          content_type: workflow.content_type,
+          published_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
+          reason,
+          status: isSkippableTopicError(error) ? 'skipped' : 'failed',
+        }))
+      }
+    }
+  } catch (error) {
+    runFailure = error
+    throw error
+  } finally {
+    if (!runtime.dryRun) {
+      await reportDailyRunOutcome({
+        token,
+        runtime,
+        workflow,
+        coverageDate,
+        clusteredTopics,
+        candidateTopics,
+        selection,
+        results,
+        skippedTopics,
+        runFailure,
       })
     }
   }
@@ -3699,8 +4204,10 @@ async function runWeeklyReviewMode(config, cliOptions) {
   const weeklyConfig = config.weekly_review || {}
   const workflow = {
     ...getContentWorkflowProfile(config, 'weekly-review', today),
-    target_min_chars: Number(weeklyConfig.target_min_chars || 9000),
-    section_target_chars: Number(weeklyConfig.section_target_chars || 1600),
+    // Fallbacks mirror config/auto-blog.config.json (they had drifted: 9000 vs 11000,
+    // 1600 vs 1900), so a missing config key no longer silently lowers the target.
+    target_min_chars: Number(weeklyConfig.target_min_chars || 11000),
+    section_target_chars: Number(weeklyConfig.section_target_chars || 1900),
   }
   const slug = workflow.slug
   const formatProfile = getBlogFormatProfile(resolveFormatProfileName(config, 'weekly-review'))
@@ -3736,8 +4243,8 @@ async function runWeeklyReviewMode(config, cliOptions) {
 
   const baseItems = await collectBaseMaterials(config, {
     feedLimit: Number(weeklyConfig.base_feed_limit || 72),
-    enrichLimit: Number(weeklyConfig.base_enrich_limit || 30),
-    maxReturnItems: Number(weeklyConfig.base_material_cap || 42),
+    enrichLimit: Number(weeklyConfig.base_enrich_limit || 40),
+    maxReturnItems: Number(weeklyConfig.base_material_cap || 56),
     coverageDate: today,
     lookbackDays: Number(weeklyConfig.lookback_days || 7),
     fallbackMinText: 1200,
@@ -3757,173 +4264,221 @@ async function runWeeklyReviewMode(config, cliOptions) {
     })
   }
 
-  const preResearchPack = buildResearchPack({ baseItems, blogItems, paperItems: [] })
-  const outline = await chooseTopicDetailed({
-    researchPack: preResearchPack,
-    formatProfile,
-    today,
-    workflow,
-  })
-
-  const arxivKeywords = normalizeKeywords(outline.arxiv_queries || outline.keywords || [])
-  let paperItems = []
-  if ((config.arxiv_enabled || config.weekly_review?.arxiv_enabled) && arxivKeywords.length > 0) {
-    paperItems = await runArxiv({
-      keywords: arxivKeywords,
-      maxPapers: weeklyConfig.arxiv_max_papers || config.arxiv_max_papers || 2,
-      minScore: weeklyConfig.arxiv_min_score || 0.8,
-      config,
-      mode: 'weekly-review',
+  // A weekly run that dies mid-way used to leave the publishing status showing the
+  // previous run forever. Any failure now records a failed run before propagating.
+  try {
+    const preResearchPack = buildResearchPack({ baseItems, blogItems, paperItems: [] })
+    const outline = await chooseTopicDetailed({
+      researchPack: preResearchPack,
+      formatProfile,
+      today,
+      workflow,
     })
-  }
 
-  const researchPack = buildResearchPack({ baseItems, blogItems, paperItems })
-  const metadata = {
-    content_type: workflow.content_type,
-    topic_key: buildTopicKey(outline.topic || slug),
-    published_mode: 'auto',
-    coverage_date: today,
-  }
-  const artifact = await buildPublishablePost({
-    outline,
-    researchPack,
-    formatProfile,
-    config,
-    today,
-    metadata,
-    fixedSlug: slug,
-    workflow,
-  })
+    const arxivKeywords = normalizeKeywords(outline.arxiv_queries || outline.keywords || [])
+    let paperItems = []
+    if ((config.arxiv_enabled || config.weekly_review?.arxiv_enabled) && arxivKeywords.length > 0) {
+      paperItems = await runArxiv({
+        keywords: arxivKeywords,
+        maxPapers: weeklyConfig.arxiv_max_papers || config.arxiv_max_papers || 2,
+        minScore: weeklyConfig.arxiv_min_score || 0.8,
+        config,
+        mode: 'weekly-review',
+      })
+    }
 
-  const metadataBridgePayload = buildPublishingMetadataBridgePayload({
-    postId: null,
-    post: artifact.post,
-    outline: artifact.outline,
-    metadata,
-    gate: artifact.gate,
-    config,
-    researchPack: artifact.researchPack,
-    imagePlans: artifact.imagePlans,
-    workflowKey: 'weekly_review',
-    coverageDate: today,
-    candidateTopics: [
-      createTopicSnapshot(outline, {
-        topic_key: metadata.topic_key,
-        title: artifact.post.title,
-        summary: artifact.post.summary,
-        content_type: workflow.content_type,
-        published_mode: 'auto',
-        post_slug: artifact.post.slug,
-        source_count: artifact.researchPack.sources.length,
-        source_names: [...new Set(artifact.researchPack.sources.map((source) => source.source_name).filter(Boolean))],
-      }),
-    ],
-  })
-  const qualitySnapshotPayload = buildQualitySnapshotPayload({
-    postId: null,
-    post: artifact.post,
-    outline: artifact.outline,
-    metadata,
-    gate: artifact.gate,
-    config,
-    researchPack: artifact.researchPack,
-  })
-  const topicMetadataPayload = buildTopicMetadataPayload({
-    postId: null,
-    post: artifact.post,
-    outline: artifact.outline,
-    metadata,
-    gate: artifact.gate,
-    researchPack: artifact.researchPack,
-    config,
-  })
+    const researchPack = buildResearchPack({ baseItems, blogItems, paperItems })
+    const metadata = {
+      content_type: workflow.content_type,
+      topic_key: buildTopicKey(outline.topic || slug),
+      published_mode: 'auto',
+      coverage_date: today,
+    }
+    const imageUploadToken = cliOptions.dryRun ? '' : await getCachedAdminToken()
+    const artifact = await buildPublishablePost({
+      outline,
+      researchPack,
+      formatProfile,
+      config,
+      today,
+      metadata,
+      fixedSlug: slug,
+      workflow,
+      imageUploadToken,
+      dryRun: cliOptions.dryRun,
+    })
 
-  if (cliOptions.dryRun) {
+    const metadataBridgePayload = buildPublishingMetadataBridgePayload({
+      postId: null,
+      post: artifact.post,
+      outline: artifact.outline,
+      metadata,
+      gate: artifact.gate,
+      config,
+      researchPack: artifact.researchPack,
+      imagePlans: artifact.imagePlans,
+      workflowKey: 'weekly_review',
+      coverageDate: today,
+      candidateTopics: [
+        createTopicSnapshot(outline, {
+          topic_key: metadata.topic_key,
+          title: artifact.post.title,
+          summary: artifact.post.summary,
+          content_type: workflow.content_type,
+          published_mode: 'auto',
+          post_slug: artifact.post.slug,
+          source_count: artifact.researchPack.sources.length,
+          source_names: [...new Set(artifact.researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+        }),
+      ],
+    })
+    const qualitySnapshotPayload = buildQualitySnapshotPayload({
+      postId: null,
+      post: artifact.post,
+      outline: artifact.outline,
+      metadata,
+      gate: artifact.gate,
+      config,
+      researchPack: artifact.researchPack,
+    })
+    const topicMetadataPayload = buildTopicMetadataPayload({
+      postId: null,
+      post: artifact.post,
+      outline: artifact.outline,
+      metadata,
+      gate: artifact.gate,
+      researchPack: artifact.researchPack,
+      config,
+    })
+
+    if (cliOptions.dryRun) {
+      return [{
+        ...artifact,
+        cover_image: null,
+        publishing_metadata: metadataBridgePayload,
+        quality_snapshot: qualitySnapshotPayload,
+        topic_metadata: topicMetadataPayload,
+      }]
+    }
+
+    const token = imageUploadToken
+    let result = await publishPost(token, artifact.post, null, { isPublished: false })
+    metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
+    qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
+    topicMetadataPayload.post_id = metadataBridgePayload.post_id
+
+    let coverImage = ''
+    const coverBrief = artifact.outline.cover_brief || artifact.outline.cover_prompt || ''
+    if (metadataBridgePayload.post_id && coverBrief) {
+      console.log('Requesting configured cover generation...')
+      const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, coverBrief, token)
+      logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
+      coverImage = coverResult.ok ? coverResult.imageUrl : ''
+    }
+
+    // Same degradation policy as the daily path: a metadata bridge outage must not strand a
+    // fully generated (and fully paid for) weekly review as an unpublished draft.
+    const bridgeFailures = await runPublishingBridges(token, {
+      metadataBridgePayload,
+      qualitySnapshotPayload,
+      topicMetadataPayload,
+    })
+    result = await publishPost(token, artifact.post, null, { isPublished: true })
+    console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
+    await reportPublishingRun(token, {
+      workflow_key: 'weekly_review',
+      external_run_id: process.env.GITHUB_RUN_ID || '',
+      run_mode: 'auto',
+      status: 'success',
+      coverage_date: today,
+      message: 'Weekly review published successfully.',
+      candidate_topics: [
+        createTopicSnapshot(outline, {
+          topic_key: metadata.topic_key,
+          title: artifact.post.title,
+          summary: artifact.post.summary,
+          content_type: workflow.content_type,
+          source_count: researchPack.sources.length,
+          source_names: [...new Set(researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+        }),
+      ],
+      published_topics: [
+        createTopicSnapshot(outline, {
+          topic_key: metadata.topic_key,
+          title: artifact.post.title,
+          summary: artifact.post.summary,
+          content_type: artifact.post.content_type,
+          published_mode: artifact.post.published_mode,
+          post_slug: artifact.post.slug,
+          source_count: researchPack.sources.length,
+          source_names: [...new Set(researchPack.sources.map((source) => source.source_name).filter(Boolean))],
+          status: 'published',
+        }),
+      ],
+      skipped_topics: [],
+    })
+    await triggerFrontendRefreshSafe({
+      source: 'auto-blog',
+      mode: 'weekly-review',
+      coverage_date: today,
+      published_count: 1,
+      slug: artifact.post.slug,
+    })
     return [{
       ...artifact,
-      cover_image: null,
+      result,
+      cover_image: coverImage || null,
+      post: coverImage ? { ...artifact.post, cover_image: coverImage } : artifact.post,
       publishing_metadata: metadataBridgePayload,
       quality_snapshot: qualitySnapshotPayload,
       topic_metadata: topicMetadataPayload,
+      bridge_failures: bridgeFailures,
     }]
+  } catch (error) {
+    if (!cliOptions.dryRun) {
+      const failureToken = await getCachedAdminToken().catch(() => '')
+      await reportPublishingRun(failureToken, {
+        workflow_key: 'weekly_review',
+        external_run_id: process.env.GITHUB_RUN_ID || '',
+        run_mode: 'auto',
+        status: 'failed',
+        coverage_date: today,
+        message: `Weekly review failed: ${String(error?.message || error).slice(0, 400)}`,
+        candidate_topics: [],
+        published_topics: [],
+        skipped_topics: [
+          createTopicSnapshot(
+            { title: slug, topic_key: slug, summary: '' },
+            {
+              topic_key: slug,
+              title: slug,
+              content_type: workflow.content_type,
+              published_mode: 'auto',
+              reason: `run_failed:${String(error?.message || error).slice(0, 300)}`,
+              status: 'failed',
+            }
+          ),
+        ],
+      })
+    }
+    throw error
   }
-
-  const token = await getCachedAdminToken()
-  let result = await publishPost(token, artifact.post, null, { isPublished: false })
-  metadataBridgePayload.post_id = Number.isFinite(Number(result?.id)) ? Number(result.id) : null
-  qualitySnapshotPayload.post_id = metadataBridgePayload.post_id
-  topicMetadataPayload.post_id = metadataBridgePayload.post_id
-
-  let coverImage = ''
-  const coverBrief = artifact.outline.cover_brief || artifact.outline.cover_prompt || ''
-  if (metadataBridgePayload.post_id && coverBrief) {
-    console.log('Requesting configured cover generation...')
-    const coverResult = await generatePostCoverWithAdminApi(metadataBridgePayload.post_id, coverBrief, token)
-    logCoverGenerationResult(`Cover image for ${slug}`, coverResult)
-    coverImage = coverResult.ok ? coverResult.imageUrl : ''
-  }
-
-  await bridgePublishingMetadata(token, metadataBridgePayload)
-  await bridgeQualitySnapshot(token, qualitySnapshotPayload)
-  await bridgeTopicMetadata(token, topicMetadataPayload)
-  result = await publishPost(token, artifact.post, null, { isPublished: true })
-  console.log(`Published weekly review: id=${result.id} slug=${artifact.post.slug}`)
-  await reportPublishingRun(token, {
-    workflow_key: 'weekly_review',
-    external_run_id: process.env.GITHUB_RUN_ID || '',
-    run_mode: 'auto',
-    status: 'success',
-    coverage_date: today,
-    message: 'Weekly review published successfully.',
-    candidate_topics: [
-      createTopicSnapshot(outline, {
-        topic_key: metadata.topic_key,
-        title: artifact.post.title,
-        summary: artifact.post.summary,
-        content_type: workflow.content_type,
-        source_count: researchPack.sources.length,
-        source_names: [...new Set(researchPack.sources.map((source) => source.source_name).filter(Boolean))],
-      }),
-    ],
-    published_topics: [
-      createTopicSnapshot(outline, {
-        topic_key: metadata.topic_key,
-        title: artifact.post.title,
-        summary: artifact.post.summary,
-        content_type: artifact.post.content_type,
-        published_mode: artifact.post.published_mode,
-        post_slug: artifact.post.slug,
-        source_count: researchPack.sources.length,
-        source_names: [...new Set(researchPack.sources.map((source) => source.source_name).filter(Boolean))],
-        status: 'published',
-      }),
-    ],
-    skipped_topics: [],
-  })
-  await triggerFrontendRefreshSafe({
-    source: 'auto-blog',
-    mode: 'weekly-review',
-    coverage_date: today,
-    published_count: 1,
-    slug: artifact.post.slug,
-  })
-  return [{
-    ...artifact,
-    result,
-    cover_image: coverImage || null,
-    post: coverImage ? { ...artifact.post, cover_image: coverImage } : artifact.post,
-    publishing_metadata: metadataBridgePayload,
-    quality_snapshot: qualitySnapshotPayload,
-    topic_metadata: topicMetadataPayload,
-  }]
 }
 
 async function main() {
+  const cliOptions = parseCliArgs()
+  if (cliOptions.help) {
+    console.log(AUTO_BLOG_CLI_HELP)
+    return
+  }
+
   console.log('Auto blog v4 starting...')
   console.log(`Publishing target: ${BLOG_API_BASE}`)
 
-  const cliOptions = parseCliArgs()
   const dryRun = cliOptions.dryRun
+  if (dryRun) {
+    console.log('Dry run: no post/image/metadata/deploy-hook writes. NOTE: LLM calls still run and are billed.')
+  }
 
   if (!ADMIN_PASSWORD) throw new Error('Missing ADMIN_PASSWORD')
 

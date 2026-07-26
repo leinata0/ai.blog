@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import { createDailyBriefFormatProfile } from '../auto-blog.mjs'
 import { getBlogFormatProfile } from '../lib/blog-format.mjs'
-import { evaluateQualityGate } from '../lib/quality-gate.mjs'
+import { countPhraseHits, evaluateQualityGate, extractAuthoredBody } from '../lib/quality-gate.mjs'
 
 const formatProfile = getBlogFormatProfile()
 const config = {
@@ -515,4 +515,125 @@ test('free mode still enforces per-section checks on authored chapters', () => {
 
   assert.equal(result.passed, false)
   assert.ok(result.reasons.some((reason) => reason.startsWith('thin_sections:')))
+})
+
+// --- P1-7: the gate must actually constrain, not measure program-appended text ---
+
+test('char_count ignores the program-appended tail blocks and the auto-blog-meta comment', () => {
+  const chapters = [
+    ['## 标题甲', 'OpenAI 给出事实背景。[S1] 这意味着入口竞争出现取舍。'],
+    ['## 标题乙', '独立博客补充开发者视角。[S2] 更关键的是组织协作被改变。'],
+    ['## 标题丙', '论文说明长期脉络。[S3] 我的判断是影响落在工具链。'],
+  ]
+  const body = buildFreeArticle(chapters)
+  // What the pipeline really publishes: body + a large, nearly whitespace-free JSON
+  // metadata comment. That comment used to be counted as article length.
+  const withMetadata = `${body}\n\n<!-- auto-blog-meta: ${JSON.stringify({
+    content_type: 'daily_brief',
+    topic_key: 'x'.repeat(400),
+    cited_source_ids: ['S1', 'S2', 'S3'],
+    source_stats: { total_sources: 3, domains: Array.from({ length: 20 }, (_, i) => `domain-${i}.example.com`) },
+  })} -->`
+
+  const bare = evaluateQualityGate({
+    post: { content_type: 'daily_brief', gate_profile: 'daily_brief', content_md: body },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+  const withMeta = evaluateQualityGate({
+    post: { content_type: 'daily_brief', gate_profile: 'daily_brief', content_md: withMetadata },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  assert.equal(bare.metrics.char_count, withMeta.metrics.char_count)
+  // And the count is the authored body only — the 参考来源/图片来源/一句话结论 tails are excluded.
+  const authoredOnly = chapters.map(([heading, text]) => `${heading}\n\n${text}`).join('\n\n')
+  const authoredResult = evaluateQualityGate({
+    post: { content_type: 'daily_brief', gate_profile: 'daily_brief', content_md: authoredOnly },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+  assert.equal(authoredResult.metrics.char_count, bare.metrics.char_count)
+})
+
+test('judgment dimension is not satisfied by the program-appended 一句话结论 block alone', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: buildFreeArticle([
+        ['## 标题甲', 'OpenAI 发布了新模型。[S1] 这意味着入口竞争出现取舍。'],
+        ['## 标题乙', '独立博客补充了细节。[S2] 更关键的是组织协作被改变。'],
+        ['## 标题丙', '论文补充了脉络。[S3] 这件事意味着工具链会被重写。'],
+      ], { takeaway: '这是程序追加的一句话结论。' }),
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  assert.equal(result.metrics.judgment_marker_count, 0)
+  assert.ok(result.metrics.missing_dimensions.includes('judgment'))
+  assert.ok(result.reasons.some((reason) => reason.includes('judgment')))
+})
+
+test('judgment dimension is satisfied by explicit stance markers in the authored body', () => {
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: buildFreeArticle([
+        ['## 标题甲', 'OpenAI 发布了新模型。[S1] 这意味着入口竞争出现取舍。'],
+        ['## 标题乙', '独立博客补充了细节。[S2] 更关键的是组织协作被改变。'],
+        ['## 标题丙', '论文补充了脉络。[S3] 我的判断是短期内工具链不会被重写，风险在于生态绑定。'],
+      ]),
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  assert.ok(result.metrics.judgment_marker_count >= 1)
+  assert.deepEqual(result.metrics.missing_dimensions, [])
+})
+
+test('raw banned-phrase hits survive the deterministic rewrite as a reported metric', () => {
+  const content = buildFreeArticle([
+    ['## 标题甲', 'OpenAI 发布了新模型。[S1] 这意味着入口竞争出现取舍。'],
+    ['## 标题乙', '独立博客补充了细节。[S2] 更关键的是组织协作被改变。'],
+    ['## 标题丙', '论文补充了脉络。[S3] 我的判断是风险在于生态绑定。'],
+  ])
+  const result = evaluateQualityGate({
+    post: {
+      content_type: 'daily_brief',
+      gate_profile: 'daily_brief',
+      content_md: content,
+      raw_banned_phrase_hits: 4,
+    },
+    researchPack: freeResearchPack,
+    formatProfile: freeProfile,
+    config: freeGateConfig,
+  })
+
+  // The rewrite already removed them, so the gate still passes...
+  assert.equal(result.metrics.banned_phrase_hits, 0)
+  assert.ok(!result.reasons.some((reason) => reason.startsWith('banned_phrases:')))
+  // ...but the pre-rewrite count is preserved so the quality score is not a constant.
+  assert.equal(result.metrics.raw_banned_phrase_hits, 4)
+})
+
+test('countPhraseHits escapes regex metacharacters in phrases', () => {
+  assert.equal(countPhraseHits('a (b) c (b)', ['(b)']), 2)
+  assert.equal(countPhraseHits('nothing here', ['(b)']), 0)
+})
+
+test('extractAuthoredBody cuts at the references heading and drops html comments', () => {
+  const body = extractAuthoredBody('正文内容<!-- auto-blog-meta: {"a":1} -->\n\n## 参考来源\n\n- [A](https://x.example/a)')
+  assert.ok(body.includes('正文内容'))
+  assert.ok(!body.includes('auto-blog-meta'))
+  assert.ok(!body.includes('参考来源'))
 })

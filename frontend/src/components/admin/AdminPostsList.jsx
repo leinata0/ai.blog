@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, EyeOff, Pencil, Pin, Plus, Search, Trash2 } from 'lucide-react'
 
 import { formatDate } from '../../utils/date'
@@ -82,6 +82,16 @@ export default function AdminPostsList({
   const [draftFilters, setDraftFilters] = useState(filters)
   const [bulkNotice, setBulkNotice] = useState('')
   const isMobile = useAdminMobileLayout()
+  // Bulk cover jobs can outlive this panel (the dashboard lazily unmounts it on
+  // section change), so state writes after the awaits below must be gated.
+  const activeRef = useRef(true)
+
+  useEffect(() => {
+    activeRef.current = true
+    return () => {
+      activeRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     setDraftFilters(filters)
@@ -147,7 +157,7 @@ export default function AdminPostsList({
         description: `将为选中的 ${ids.length} 篇文章重新生成封面，其中 ${selectedWithCoverCount} 篇现有封面会被替换。`,
         confirmLabel: '提交替换任务',
       })
-      if (!confirmed) return
+      if (!confirmed || !activeRef.current) return
       setBulkNotice(`正在提交 ${ids.length} 篇文章的封面替换任务，请稍候…`)
     } else if (!ids.length) {
       return
@@ -155,6 +165,7 @@ export default function AdminPostsList({
       setBulkNotice('')
     }
     await onRunBulkAction({ action, postIds: ids, value: bulkValue, skippedCount })
+    if (!activeRef.current) return
     setSelectedPostIds(new Set())
     setBulkNotice('')
   }
@@ -442,7 +453,7 @@ export default function AdminPostsList({
                 </div>
                 <div className="mt-3 flex justify-end gap-2 border-t border-[var(--border-muted)] pt-3">
                   <button type="button" onClick={() => onEdit(post)} className="min-h-11 rounded-lg border border-[var(--border-muted)] px-4 text-sm text-[var(--accent)]">编辑</button>
-                  <button type="button" onClick={() => onDelete(post)} className="min-h-11 rounded-lg border border-[var(--danger-border)] px-4 text-sm text-[#ef4444]">删除</button>
+                  <button type="button" onClick={() => onDelete(post)} className="min-h-11 rounded-lg border border-[var(--danger-border)] px-4 text-sm text-[var(--danger-text)]">删除</button>
                 </div>
               </article>
             ))}
@@ -547,7 +558,7 @@ export default function AdminPostsList({
                         aria-label={`删除文章：${post.title}`}
                         title="删除"
                       >
-                        <Trash2 size={15} className="text-[#ef4444]" />
+                        <Trash2 size={15} className="text-[var(--danger-text)]" />
                       </button>
                     </td>
                   </tr>

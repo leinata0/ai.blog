@@ -3,14 +3,15 @@ import json
 import re
 from datetime import datetime, timezone
 from html import escape
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import url_safety
 from app.db import SessionLocal  # noqa: F401  (kept for backwards-compat imports)
-from app.env import clean_env
+from app.env import clean_env, clean_env_list
 from app.models import (
     EmailSubscription,
     Post,
@@ -22,6 +23,24 @@ from app.site_config import resolve_public_site_url
 
 ALLOWED_SUBSCRIPTION_CONTENT_TYPES = {"all", "daily_brief", "weekly_review"}
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# Push endpoints are minted by the browser vendor's push service, so the set of
+# reachable hosts is small and closed. Anything else is either stale junk or an
+# attacker-supplied SSRF target. A leading dot means "this host and anything
+# under it" — same rule format the subscribe-time check in
+# routers/subscriptions.py uses, so the shared WEB_PUSH_ALLOWED_ENDPOINT_HOSTS
+# env var cannot be interpreted differently by the two layers.
+WEB_PUSH_ALLOWED_ENDPOINT_HOSTS = (
+    "fcm.googleapis.com",
+    ".push.services.mozilla.com",
+    ".notify.windows.com",
+    "web.push.apple.com",
+)
+# Statuses the push services use to say "this subscription is gone for good".
+WEB_PUSH_GONE_STATUSES = frozenset({404, 410})
+# Upstream bodies must never be persisted verbatim: with a hostile endpoint they
+# are attacker-chosen content, and with a real one they can carry token material.
+_WEB_PUSH_ERROR_TEXT_LIMIT = 200
 
 
 def is_valid_email(value: str) -> bool:
@@ -351,15 +370,131 @@ def _send_wecom_notification(url: str, post: Post, site_url: str) -> None:
     response.raise_for_status()
 
 
-def _send_web_push_notification(subscription: WebPushSubscription, post: Post, site_url: str) -> None:
+class WebPushEndpointRejected(Exception):
+    """A stored push endpoint failed the outbound SSRF / allowlist gate.
+
+    ``permanent`` distinguishes a policy violation (the endpoint can never be a
+    real push service, so the row should be deactivated) from an environmental
+    failure such as DNS being briefly unavailable (retry, keep the subscriber).
+    """
+
+    def __init__(self, reason: str, *, permanent: bool = True) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.permanent = permanent
+
+
+def web_push_allowed_endpoint_host_rules() -> tuple[str, ...]:
+    """Built-in push-service hosts plus any operator-configured additions.
+
+    ``WEB_PUSH_ALLOWED_ENDPOINT_HOSTS`` exists so a vendor adding a host does not
+    require a code deploy. Extra hosts still go through the private-address
+    checks below, so a misconfigured value cannot open an internal target.
+    """
+    extra = tuple(
+        host
+        for host in (
+            url_safety.normalize_hostname(item)
+            for item in clean_env_list("WEB_PUSH_ALLOWED_ENDPOINT_HOSTS")
+        )
+        if host
+    )
+    return WEB_PUSH_ALLOWED_ENDPOINT_HOSTS + extra
+
+
+def is_allowed_web_push_endpoint_host(hostname: str) -> bool:
+    host = url_safety.normalize_hostname(hostname)
+    if not host:
+        return False
+    for rule in web_push_allowed_endpoint_host_rules():
+        if rule.startswith("."):
+            if host == rule[1:] or host.endswith(rule):
+                return True
+        elif host == rule:
+            return True
+    return False
+
+
+def validate_outbound_web_push_endpoint(endpoint: str) -> None:
+    """Gate an endpoint immediately before it is turned into an HTTP request.
+
+    ``pywebpush`` calls ``requests.post(endpoint, ...)`` with redirects enabled
+    and no address filtering, so an endpoint row is an outbound request the
+    server will make on the admin's behalf. The subscribe API validates on the
+    way in, but that only protects rows written after the check shipped — rows
+    already in the table (or written by any future/alternate path) are only
+    stopped here. Keep both layers.
+
+    Deliberately named apart from ``routers.subscriptions.validate_web_push_endpoint``:
+    that one is the request-time check and answers 400, this one is the delivery
+    gate and raises :class:`WebPushEndpointRejected`.
+    """
+    raw = (endpoint or "").strip()
+    if not raw:
+        raise WebPushEndpointRejected("empty endpoint")
+
+    parsed = urlparse(raw)
+    # Push endpoints are always https; http would also expose the payload.
+    if parsed.scheme != "https":
+        raise WebPushEndpointRejected(f"endpoint scheme not https: {parsed.scheme or 'none'}")
+    if parsed.username is not None or parsed.password is not None:
+        raise WebPushEndpointRejected("endpoint carries credentials")
+
+    host = url_safety.normalize_hostname(parsed.hostname or "")
+    if not host:
+        raise WebPushEndpointRejected("endpoint has no host")
+    # Host allowlist first: it is a pure string check, so a hostile endpoint is
+    # rejected without the server performing any DNS lookup on its behalf.
+    if not is_allowed_web_push_endpoint_host(host):
+        raise WebPushEndpointRejected(f"endpoint host not an allowed push service: {host}")
+
+    # Allowlisted host, but still confirm it resolves to a public address —
+    # defense against a poisoned/split-horizon resolver. A resolution failure is
+    # indistinguishable from "resolves to private", so treat it as retryable
+    # rather than permanently dropping every subscriber during a DNS blip.
+    if not url_safety.is_public_http_url(raw):
+        raise WebPushEndpointRejected(
+            f"endpoint host does not resolve to a public address: {host}",
+            permanent=False,
+        )
+
+
+def _default_web_push_sender(
+    *,
+    subscription_info: dict,
+    data: str,
+    vapid_private_key: str,
+    vapid_claims: dict,
+) -> None:
+    """Real delivery seam. Tests inject a fake here instead of hitting the network."""
+    try:
+        from pywebpush import webpush
+    except Exception as exc:  # pragma: no cover - runtime safeguard
+        raise RuntimeError("pywebpush is not installed") from exc
+
+    webpush(
+        subscription_info=subscription_info,
+        data=data,
+        vapid_private_key=vapid_private_key,
+        vapid_claims=vapid_claims,
+    )
+
+
+def _send_web_push_notification(
+    subscription: WebPushSubscription,
+    post: Post,
+    site_url: str,
+    *,
+    sender=None,
+) -> None:
     private_key = clean_env("WEB_PUSH_VAPID_PRIVATE_KEY")
     subject = clean_env("WEB_PUSH_SUBJECT")
     if not private_key or not subject:
         return
-    try:
-        from pywebpush import WebPushException, webpush
-    except Exception as exc:  # pragma: no cover - runtime safeguard
-        raise RuntimeError("pywebpush is not installed") from exc
+
+    # Validate before building the payload so a rejected endpoint costs nothing
+    # and, more importantly, never reaches the HTTP client.
+    validate_outbound_web_push_endpoint(subscription.endpoint)
 
     payload = json.dumps(
         {
@@ -370,21 +505,62 @@ def _send_web_push_notification(subscription: WebPushSubscription, post: Post, s
         },
         ensure_ascii=False,
     )
-    try:
-        webpush(
-            subscription_info={
-                "endpoint": subscription.endpoint,
-                "keys": {
-                    "p256dh": subscription.p256dh,
-                    "auth": subscription.auth,
-                },
+    send = sender or _default_web_push_sender
+    send(
+        subscription_info={
+            "endpoint": subscription.endpoint,
+            "keys": {
+                "p256dh": subscription.p256dh,
+                "auth": subscription.auth,
             },
-            data=payload,
-            vapid_private_key=private_key,
-            vapid_claims={"sub": subject},
-        )
-    except WebPushException:
-        raise
+        },
+        data=payload,
+        vapid_private_key=private_key,
+        vapid_claims={"sub": subject},
+    )
+
+
+def web_push_error_status(exc: BaseException) -> int | None:
+    """Real HTTP status behind a push failure, or None when unavailable.
+
+    ``pywebpush.WebPushException`` carries the ``requests.Response`` (``.response``
+    with ``.status_code``); its async path attaches an ``aiohttp`` response whose
+    attribute is ``.status``. Duck-typed so neither import is needed here.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    status = getattr(response, "status_code", None)
+    if status is None:
+        status = getattr(response, "status", None)
+    try:
+        return int(status)
+    except (TypeError, ValueError):
+        return None
+
+
+def web_push_subscription_is_gone(exc: BaseException) -> bool:
+    """Whether a failure means the subscription should be deactivated.
+
+    Prefer the real status code. Matching ``"410" in str(exc)`` alone is unsafe:
+    the message embeds the upstream response body, so an unrelated id or
+    timestamp containing those digits would silently drop a live subscriber.
+    """
+    status = web_push_error_status(exc)
+    if status is not None:
+        return status in WEB_PUSH_GONE_STATUSES
+    # No status available (transport error, non-pywebpush exception): fall back
+    # to the historical string match rather than retrying a dead endpoint forever.
+    text = str(exc)
+    return "410" in text or "404" in text
+
+
+def _summarize_web_push_error(exc: BaseException) -> str:
+    """Compact, body-free description safe to persist in ``last_error``."""
+    status = web_push_error_status(exc)
+    if status is not None:
+        return f"{type(exc).__name__}: http {status}"
+    return f"{type(exc).__name__}: {_trim_text(str(exc), _WEB_PUSH_ERROR_TEXT_LIMIT)}"
 
 
 def dispatch_post_notifications_for_post(post_id: int) -> None:
@@ -511,12 +687,23 @@ def _dispatch_post_notifications(db: Session, post_id: int) -> None:
                 subscription.last_notified_at = now
                 subscription.updated_at = now
                 sent_count += 1
-            except Exception as exc:  # pragma: no cover - external delivery
-                if "410" in str(exc) or "404" in str(exc):
+            except WebPushEndpointRejected as exc:
+                # Never retried: a rejected endpoint is either a permanent policy
+                # violation (deactivate) or a resolver problem (retry next run).
+                if exc.permanent:
                     subscription.is_active = False
+                    subscription.updated_at = now
                 else:
                     failed_ids.append(subscription.id)
-                errors.append(f"web_push:{subscription.id}:{exc}")
+                reason = _trim_text(exc.reason, _WEB_PUSH_ERROR_TEXT_LIMIT)
+                errors.append(f"web_push:{subscription.id}:rejected:{reason}")
+            except Exception as exc:  # external delivery
+                if web_push_subscription_is_gone(exc):
+                    subscription.is_active = False
+                    subscription.updated_at = now
+                else:
+                    failed_ids.append(subscription.id)
+                errors.append(f"web_push:{subscription.id}:{_summarize_web_push_error(exc)}")
         dispatch.web_push_recipient_count = (dispatch.web_push_recipient_count or 0) + sent_count
         if failed_ids:
             delivery_state["web_push_pending_ids"] = failed_ids

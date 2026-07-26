@@ -15,7 +15,10 @@ export function loadCoverArtConfig() {
   let parsed = {}
   try {
     parsed = JSON.parse(readFileSync(COVER_ART_CONFIG_PATH, 'utf8'))
-  } catch {
+  } catch (error) {
+    // Degrading silently here strips the whole brand/negative-prompt grammar from every
+    // generated cover, which is very hard to spot after the fact. Keep going, but say so.
+    console.warn(`[cover-art] Failed to load ${COVER_ART_CONFIG_PATH}: ${error?.message || error}. Falling back to an empty brand spec.`)
     parsed = {}
   }
 
@@ -63,8 +66,21 @@ export function sanitizeCoverPrompt(prompt) {
     .trim()
 }
 
+// NOTE: `lib/quality-gate.mjs` has its own `stripMarkdown`. The two must stay separate —
+// do not merge them.
+//   - quality-gate's version measures length: it collapses whitespace away entirely
+//     (`\s+` -> '') so CJK character counts are comparable, and returns the whole document.
+//   - this version extracts *meaning* for an image prompt: it keeps single spaces so words
+//     stay readable to the model, and truncates to `maxChars` with an ellipsis.
+// Collapsing whitespace to '' here would glue words together in the prompt; truncating
+// there would corrupt the word-count gate.
+// What they must share is HTML-comment stripping: published Markdown carries a
+// program-appended `<!-- auto-blog-meta: {...} -->` JSON blob (see auto-blog.mjs
+// buildMetadataComment). In quality-gate it inflated char_count; here it would leak raw
+// JSON keys into the cover prompt, so it is removed first in both.
 function stripMarkdown(value, maxChars = 320) {
   const text = String(value || '')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]*`/g, ' ')
     .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
@@ -79,6 +95,10 @@ function stripMarkdown(value, maxChars = 320) {
 
 export function extractHeadings(contentMd, limit = 6) {
   const headings = String(contentMd || '')
+    // Fenced code and HTML comments can contain `## ...` lines (shell comments, editorial
+    // notes); those are not article sections and must not become cover "key angles".
+    .replace(/```[\s\S]*?```/g, '\n')
+    .replace(/<!--[\s\S]*?-->/g, '\n')
     .split(/\r?\n/)
     .map((line) => line.match(/^##+\s+(.*)$/)?.[1]?.trim() || '')
     .filter(Boolean)
@@ -188,7 +208,8 @@ export function buildTopicCoverPrompt(profile = {}, recentPost = null, { manualP
     : (() => {
         try {
           return JSON.parse(profile?.aliases_json || '[]')
-        } catch {
+        } catch (error) {
+          console.warn(`[cover-art] Ignoring unparsable aliases_json for topic "${profile?.topic_key || profile?.title || 'unknown'}": ${error?.message || error}`)
           return []
         }
       })()

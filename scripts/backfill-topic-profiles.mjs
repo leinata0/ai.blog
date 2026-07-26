@@ -28,9 +28,13 @@ const CONFIG_PATH = process.env.AUTO_BLOG_CONFIG_PATH
   : resolve(__dirname, 'config', 'auto-blog.config.json')
 const DEFAULT_TOPIC_PRESENTATION_RULES_PATH = resolve(__dirname, 'config', 'topic-presentation.rules.json')
 
+// Writing is opt-in. `repair-post-media.mjs` already uses this convention; having the
+// backfill scripts default to writing meant `node backfill-topic-profiles.mjs` with no
+// arguments rewrote every post's topic metadata on whatever BLOG_API_BASE points at
+// (production, in CI). Dry run is the default; `--apply` is required to write.
 export function parseBackfillTopicArgs(argv = process.argv.slice(2)) {
   const options = {
-    dryRun: false,
+    dryRun: true,
     force: false,
     withCover: false,
     limit: 50,
@@ -40,6 +44,7 @@ export function parseBackfillTopicArgs(argv = process.argv.slice(2)) {
   for (let index = 0; index < argv.length; index += 1) {
     const current = argv[index]
     if (current === '--dry-run') options.dryRun = true
+    else if (current === '--apply') options.dryRun = false
     else if (current === '--force') options.force = true
     else if (current === '--with-cover') options.withCover = true
     else if (current === '--limit' && argv[index + 1]) options.limit = Number(argv[++index])
@@ -133,6 +138,7 @@ async function getAdminToken() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
+    signal: AbortSignal.timeout(30000),
   })
   if (!resp.ok) {
     throw new Error(`Admin login failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
@@ -149,59 +155,53 @@ async function fetchAdminPosts(token, { limit, offset }) {
   })
 }
 
-async function fetchExistingTopicMetadata(token, postId) {
-  const candidates = [
-    `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-metadata`,
-    `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-profile`,
-  ]
-  for (const url of candidates) {
-    const resp = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (resp.ok) {
-      const data = await resp.json()
-      return data?.topic_metadata || data || {}
-    }
-    if (resp.status === 404 || resp.status === 405) continue
+// `GET /api/admin/posts/{id}/topic-metadata` does not exist — the backend only registers
+// PUT on that path, so every probe returned 405, the function returned null, and the
+// "skip when a profile already exists" branch was permanently dead: each run rewrote
+// every post's topic metadata. The list endpoint below is a real GET; it is fetched once
+// and answers the existence question for the whole run.
+export function collectStoredTopicProfileKeys(profiles = []) {
+  return new Set(
+    (Array.isArray(profiles) ? profiles : [])
+      .filter((profile) => profile?.profile_exists !== false && profile?.is_virtual !== true)
+      .map((profile) => String(profile?.topic_key || '').trim())
+      .filter(Boolean)
+  )
+}
+
+async function fetchStoredTopicProfileKeys(token) {
+  const resp = await fetch(`${BLOG_API_BASE}/api/admin/topic-profiles`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(30000),
+  })
+  // Anything other than success is a real failure. Previously 401/500 fell through the
+  // same path as "not found" and was read as "no existing data" -> overwrite.
+  if (!resp.ok) {
+    throw new Error(`Fetch topic profiles failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
   }
-  return null
+  const data = await resp.json()
+  const profiles = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : [])
+  return collectStoredTopicProfileKeys(profiles)
 }
 
 async function upsertTopicProfile(token, payload) {
   const postId = Number(payload?.post_id)
   if (!Number.isFinite(postId)) return { ok: false, reason: 'missing_post_id' }
-  const endpoints = [
-    {
-      method: 'PUT',
-      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-metadata`,
-      body: payload,
+  // Verified against backend/app/routers/admin.py: PUT /posts/{id}/topic-metadata is the
+  // canonical route (the /topic-profile alias and POST /topic-metadata target the same
+  // handler), so a single call is enough — no endpoint probing.
+  const url = `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-metadata`
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
     },
-    {
-      method: 'PUT',
-      url: `${BLOG_API_BASE}/api/admin/posts/${postId}/topic-profile`,
-      body: payload,
-    },
-    {
-      method: 'POST',
-      url: `${BLOG_API_BASE}/api/admin/topic-metadata`,
-      body: payload,
-    },
-  ]
-
-  for (const endpoint of endpoints) {
-    const resp = await fetch(endpoint.url, {
-      method: endpoint.method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(endpoint.body),
-    })
-    if (resp.ok) return { ok: true, endpoint: endpoint.url, data: await resp.json() }
-    if (resp.status === 404 || resp.status === 405) continue
-    throw new Error(`Upsert topic metadata failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
-  }
-  return { ok: false, reason: 'no_supported_endpoint' }
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30000),
+  })
+  if (resp.ok) return { ok: true, endpoint: url, data: await resp.json() }
+  throw new Error(`Upsert topic metadata failed: ${resp.status} ${(await resp.text()).slice(0, 300)}`)
 }
 
 function buildTopicCoverPrompt(payload) {
@@ -229,30 +229,52 @@ async function generateTopicCover(payload, profileId, token, overwrite) {
   return imageGenerationJobImageUrl(job)
 }
 
+export function describeBackfillTarget(blogApiBase = BLOG_API_BASE) {
+  try {
+    return new URL(String(blogApiBase)).host
+  } catch {
+    return String(blogApiBase || 'unknown')
+  }
+}
+
 export async function runBackfillTopicProfiles(options = {}) {
   const args = {
-    dryRun: Boolean(options.dryRun),
+    dryRun: options.dryRun === undefined ? true : Boolean(options.dryRun),
     force: Boolean(options.force),
     withCover: Boolean(options.withCover),
     limit: Number.isFinite(Number(options.limit)) ? Number(options.limit) : 50,
     offset: Number.isFinite(Number(options.offset)) ? Number(options.offset) : 0,
     maxPages: Number.isFinite(Number(options.maxPages)) ? Number(options.maxPages) : 20,
   }
-  const token = await getAdminToken()
-  const config = await loadAutoBlogConfig()
+  const getTokenImpl = options.getAdminTokenImpl || getAdminToken
+  const fetchPostsImpl = options.fetchAdminPostsImpl || fetchAdminPosts
+  const fetchStoredKeysImpl = options.fetchStoredTopicProfileKeysImpl || fetchStoredTopicProfileKeys
+  const loadConfigImpl = options.loadConfigImpl || loadAutoBlogConfig
+  const upsertImpl = options.upsertTopicProfileImpl || upsertTopicProfile
+  const logger = options.logger === undefined ? console : options.logger
+
+  logger?.log?.(
+    `Topic profile backfill target: ${describeBackfillTarget()} `
+    + `(mode=${args.dryRun ? 'dry-run' : 'APPLY'}, force=${args.force}, with_cover=${args.withCover}, `
+    + `max_scan=${args.maxPages * args.limit} post(s))`
+  )
+
+  const token = await getTokenImpl()
+  const config = await loadConfigImpl()
+  const storedTopicProfileKeys = await fetchStoredKeysImpl(token)
   const items = []
 
   for (let page = 0; page < args.maxPages; page += 1) {
     const currentOffset = args.offset + page * args.limit
-    const posts = await fetchAdminPosts(token, { limit: args.limit, offset: currentOffset })
+    const posts = await fetchPostsImpl(token, { limit: args.limit, offset: currentOffset })
     if (!posts.length) break
 
     for (const post of posts) {
       const postId = Number(post?.id)
       if (!Number.isFinite(postId)) continue
-      const existingTopicProfile = await fetchExistingTopicMetadata(token, postId)
-      if (!args.force && existingTopicProfile) {
-        items.push({ post_id: postId, status: 'skipped_existing' })
+      const postTopicKey = String(post?.topic_key || '').trim()
+      if (!args.force && postTopicKey && storedTopicProfileKeys.has(postTopicKey)) {
+        items.push({ post_id: postId, status: 'skipped_existing', topic_key: postTopicKey })
         continue
       }
 
@@ -274,7 +296,8 @@ export async function runBackfillTopicProfiles(options = {}) {
         continue
       }
 
-      const result = await upsertTopicProfile(token, payload)
+      const result = await upsertImpl(token, payload)
+      if (result.ok && postTopicKey) storedTopicProfileKeys.add(postTopicKey)
       let coverImage = ''
       let coverError = ''
       if (result.ok && shouldGenerateCover) {
@@ -305,8 +328,12 @@ export async function runBackfillTopicProfiles(options = {}) {
 }
 
 async function main() {
-  const report = await runBackfillTopicProfiles(parseBackfillTopicArgs())
+  const args = parseBackfillTopicArgs()
+  const report = await runBackfillTopicProfiles(args)
   console.log(JSON.stringify(report, null, 2))
+  if (report.dry_run) {
+    console.log(`Dry run: nothing was written to ${describeBackfillTarget()}. Re-run with --apply to persist.`)
+  }
 }
 
 const isMainModule = process.argv[1] ? resolve(process.argv[1]) === fileURLToPath(import.meta.url) : false

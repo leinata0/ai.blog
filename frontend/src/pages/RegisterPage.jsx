@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Check, Eye, EyeOff } from 'lucide-react'
 
@@ -27,6 +27,11 @@ export default function RegisterPage() {
     return score
   }, [password])
   const handleVerify = useCallback((token) => setTurnstileToken(token), [])
+  const mountedRef = useRef(true)
+
+  useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -44,9 +49,9 @@ export default function RegisterPage() {
       await register({ email, password, nickname: nickname || undefined, turnstile_token: turnstileToken })
       navigate('/account?tab=overview')
     } catch (submitError) {
-      setError(String(submitError?.message || '注册失败，请稍后重试'))
+      if (mountedRef.current) setError(String(submitError?.message || '注册失败，请稍后重试'))
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -77,7 +82,7 @@ export default function RegisterPage() {
           <p className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-faint)' }}><Check size={12} /> 建议混合字母、数字，避免复用其他网站密码</p>
         </div>
         <TurnstileWidget onVerify={handleVerify} />
-        {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: '#ef4444' }}>{error}</div> : null}
+        {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: 'var(--danger-text)' }}>{error}</div> : null}
         <button type="submit" disabled={loading} className="min-h-11 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--accent)' }}>{loading ? '注册中…' : '注册'}</button>
       </form>
       <div className="mt-6 space-y-2 text-center text-sm" style={{ color: 'var(--text-tertiary)' }}>

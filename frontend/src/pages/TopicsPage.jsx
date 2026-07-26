@@ -131,8 +131,8 @@ export default function TopicsPage() {
                     <span
                       className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
                       style={{
-                        backgroundColor: topic.is_featured ? 'rgba(37, 99, 235, 0.12)' : 'var(--accent-soft)',
-                        color: topic.is_featured ? '#2563eb' : 'var(--accent)',
+                        backgroundColor: topic.is_featured ? 'var(--highlight-soft)' : 'var(--accent-soft)',
+                        color: topic.is_featured ? 'var(--highlight-text)' : 'var(--accent)',
                       }}
                     >
                       {topic.is_featured ? <Sparkles size={12} /> : <Flame size={12} />}

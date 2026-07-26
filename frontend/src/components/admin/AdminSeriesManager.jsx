@@ -320,7 +320,7 @@ export default function AdminSeriesManager() {
       <StatusPanel status={coverStatus} />
 
       {error ? (
-        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[var(--danger-text)]">{error}</div>
       ) : null}
       {notice ? (
         <div className="mb-4 rounded-lg bg-[var(--bg-surface)] px-4 py-2 text-sm text-[var(--text-secondary)]">{notice}</div>

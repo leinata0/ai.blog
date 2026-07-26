@@ -1,3 +1,9 @@
+// Canonical host for the whole site. The backend (RSS / sitemap) resolves it from
+// settings.site_url, the build-time prerender from PUBLIC_SITE_URL — this constant is
+// the single front-end fallback so a missing env var can never downgrade canonical
+// URLs to an apex or Vercel preview host.
+export const SITE_CANONICAL_ORIGIN = 'https://www.563118077.xyz'
+
 export const SITE_COPY = {
   brand: 'AI 资讯观察',
   homeBadge: 'AI INTELLIGENCE DESK · 中文信号站',
@@ -15,6 +21,21 @@ export const SITE_COPY = {
   homeSearchPlaceholder: '输入模型、公司、产品或主题…',
   homeSearchAction: '校准信号',
   homeClearAction: '清空',
+}
+
+const HOME_TAGLINE = '持续更新 AI 最新动态与关键变化的中文博客'
+
+// SEO copy shared by index.html, the build-time prerender (frontend/scripts/prerender-public.mjs)
+// and runtime <SeoMeta>. Three hand-written variants used to disagree, so the crawler
+// executed JS and ended up with a shorter title than the prerendered one. Add new SEO
+// strings here instead of inlining them per surface.
+export const SITE_SEO = {
+  canonicalOrigin: SITE_CANONICAL_ORIGIN,
+  brand: SITE_COPY.brand,
+  homeTagline: HOME_TAGLINE,
+  homeTitle: `${SITE_COPY.brand} | ${HOME_TAGLINE}`,
+  homeDescription:
+    '聚焦值得持续追踪的消息、产品更新与产业线索，用更清晰的结构整理每一天和每一周的重要变化。',
 }
 
 const SERIES_TITLES = {
@@ -49,8 +70,9 @@ export const CONTENT_TYPE_META = {
     label: '周报',
     title: 'AI 周报',
     englishTitle: 'AI Weekly Review',
-    accent: '#1d4ed8',
-    background: 'rgba(37, 99, 235, 0.12)',
+    // 固定色 #1d4ed8 配这块半透明蓝底，在暗色画布上只有 2.6:1；令牌在明暗两套画布下都达 AA。
+    accent: 'var(--highlight-text)',
+    background: 'var(--highlight-soft)',
     description: '从一周视角梳理关键变化，帮助你快速回看主线与趋势。',
     kicker: '每周回看',
   },

@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +21,7 @@ JOB_POST_COVER = "post_cover"
 JOB_SITE_HERO = "site_hero"
 JOB_SERIES_COVER = "series_cover"
 JOB_TOPIC_COVER = "topic_cover"
+JOB_ILLUSTRATION = "illustration"
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
@@ -105,6 +107,16 @@ def _finish_success(job: AdminImageGenerationJob, image_url: str, prompt: str | 
 
 
 def _finish_failure(job: AdminImageGenerationJob, code: str, message: str, prompt: str | None = None, preset: str | None = None) -> None:
+    # Every failure path funnels through here, so this is the one place that
+    # guarantees a server-side trace of *why* a generation job failed.
+    logger.warning(
+        "image_generation_job_failed job_id=%s type=%s target_id=%s code=%s message=%s",
+        job.id,
+        job.job_type,
+        job.target_id,
+        code or "unexpected_error",
+        message,
+    )
     job.status = STATUS_FAILED
     job.locked_at = None
     job.error_code = code or "unexpected_error"
@@ -168,6 +180,7 @@ def history_item(job: AdminImageGenerationJob) -> dict[str, Any]:
         JOB_SITE_HERO: "站点 Hero",
         JOB_SERIES_COVER: "系列封面",
         JOB_TOPIC_COVER: "主题封面",
+        JOB_ILLUSTRATION: "文内插图",
     }
     label = type_labels.get(job.job_type or "", "图片生成")
     if job.target_id:
@@ -236,9 +249,29 @@ def mark_stale_running_failed(db: Session, *, max_age_minutes: int = 60) -> int:
     return len(jobs)
 
 
-def run_job(job_id: int, *, executor) -> None:
+def _fail_job_out_of_band(job_id: int, code: str, message: str) -> None:
+    """Mark a job failed from a fresh session when its own session is unusable."""
     db = SessionLocal()
     try:
+        job = db.get(AdminImageGenerationJob, job_id)
+        if job is None or job.status in TERMINAL_STATUSES:
+            return
+        _finish_failure(job, code, message, job.prompt or None, job.preset or None)
+        db.commit()
+    except Exception:
+        logger.exception("image_generation_job_failure_write_failed job_id=%s", job_id)
+    finally:
+        db.close()
+
+
+def run_job(job_id: int, *, executor) -> None:
+    # The whole body is guarded: this runs on a pool thread whose Future nobody
+    # awaits, so an exception raised before/around `_execute_job` (session
+    # creation, the "running" commit, a dropped DB connection) used to vanish
+    # and leave the row queued forever with no log line.
+    db = None
+    try:
+        db = SessionLocal()
         job = db.get(AdminImageGenerationJob, job_id)
         if job is None or job.status in TERMINAL_STATUSES:
             return
@@ -258,8 +291,12 @@ def run_job(job_id: int, *, executor) -> None:
             if job is not None:
                 _finish_failure(job, "unexpected_error", "图片生成出现未预期错误，请查看后端日志。", job.prompt or None, job.preset or None)
                 db.commit()
+    except Exception:
+        logger.exception("image_generation_job_crashed job_id=%s", job_id)
+        _fail_job_out_of_band(job_id, "worker_error", "图片生成任务未能启动或异常中断，请重新发起生成。")
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def _execute_job(db: Session, job: AdminImageGenerationJob, *, executor) -> None:
@@ -272,6 +309,8 @@ def _execute_job(db: Session, job: AdminImageGenerationJob, *, executor) -> None
         _execute_series_cover(db, job, payload, executor=executor)
     elif job.job_type == JOB_TOPIC_COVER:
         _execute_topic_cover(db, job, payload, executor=executor)
+    elif job.job_type == JOB_ILLUSTRATION:
+        _execute_illustration(db, job, payload, executor=executor)
     else:
         _finish_failure(job, "invalid_job_type", "未知图片生成任务类型。")
     db.commit()
@@ -337,6 +376,31 @@ def _execute_post_cover(db: Session, job: AdminImageGenerationJob, payload: dict
         post.cover_image = generated_image_url
         post.updated_at = _now()
     _finish_success(job, generated_image_url or "", prompt, preset)
+
+
+def _execute_illustration(db: Session, job: AdminImageGenerationJob, payload: dict[str, Any], *, executor) -> None:
+    """Inline article illustration — post-independent, prompt in / hosted URL out."""
+    preset = "illustration"
+    prompt = cover_art_service.sanitize_cover_prompt(payload.get("prompt") or "")
+    if not prompt:
+        _finish_failure(job, "prompt_unavailable", "插图生成缺少可用提示词。", prompt or None, preset)
+        return
+    framing_hint = (
+        "Square editorial explanatory illustration, clean and minimal, high quality"
+        if str(payload.get("aspect") or "").strip() == "square"
+        else "Wide landscape editorial explanatory illustration, clean and minimal, high quality"
+    )
+    try:
+        image_url = executor.generate_cover_asset(
+            db,
+            prompt,
+            f"auto-illust-{uuid4().hex[:12]}",
+            framing_hint=framing_hint,
+        )
+    except executor.CoverGenerationError as exc:
+        _finish_failure(job, exc.code, exc.message, prompt, preset)
+        return
+    _finish_success(job, image_url or "", prompt, preset)
 
 
 def _execute_site_hero(db: Session, job: AdminImageGenerationJob, payload: dict[str, Any], *, executor) -> None:

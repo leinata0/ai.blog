@@ -24,8 +24,9 @@ on:
 permissions:
   contents: read
 
+# 与 auto-blog.yml 共用同一并发组，避免周一日报/周报同时发布与刷新（见该文件注释）。
 concurrency:
-  group: weekly-review-${{ github.workflow }}-${{ github.ref }}
+  group: content-pipeline
   cancel-in-progress: false
 
 jobs:

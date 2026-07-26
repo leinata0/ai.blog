@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout'
 import TurnstileWidget, { TURNSTILE_ENABLED } from '../components/TurnstileWidget'
@@ -14,6 +14,11 @@ export default function ForgotPasswordPage() {
   const [token, setToken] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const mountedRef = useRef(true)
+
+  useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -27,9 +32,9 @@ export default function ForgotPasswordPage() {
       const result = await requestPasswordReset({ email, turnstile_token: token })
       navigate(`/reset-password?email=${encodeURIComponent(email.trim())}&challenge=${encodeURIComponent(result.challenge_id)}`)
     } catch (submitError) {
-      setError(String(submitError?.message || '请求失败，请稍后重试'))
+      if (mountedRef.current) setError(String(submitError?.message || '请求失败，请稍后重试'))
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -44,7 +49,7 @@ export default function ForgotPasswordPage() {
           <input id="forgot-email" name="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} style={inputStyle} placeholder="you@example.com" autoComplete="email" spellCheck={false} required />
         </div>
         <TurnstileWidget onVerify={setToken} />
-        {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: '#ef4444' }}>{error}</div> : null}
+        {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: 'var(--danger-text)' }}>{error}</div> : null}
         <button type="submit" disabled={loading} className="min-h-11 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--accent)' }}>
           {loading ? '发送中…' : '发送重置验证码'}
         </button>

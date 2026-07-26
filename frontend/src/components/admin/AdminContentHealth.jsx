@@ -60,7 +60,7 @@ export default function AdminContentHealth() {
       </div>
 
       {error ? (
-        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[var(--danger-text)]">
           内容健康接口暂不可用：{error}
         </div>
       ) : null}

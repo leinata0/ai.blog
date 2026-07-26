@@ -238,8 +238,8 @@ function ChannelStatusBadge({ enabled, readyText, pendingText }) {
     <span
       className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
       style={{
-        backgroundColor: enabled ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
-        color: enabled ? '#047857' : '#B45309',
+        backgroundColor: enabled ? 'var(--success-soft)' : 'var(--warning-soft)',
+        color: enabled ? 'var(--success-text)' : 'var(--warning-text)',
       }}
     >
       {enabled ? readyText : pendingText}
@@ -350,12 +350,12 @@ function EmailSubscriptionCard({ status, contentType, topicKey, seriesSlug }) {
         </div>
 
         {message ? (
-          <div className="mt-4 rounded-[1.1rem] px-4 py-3 text-sm" style={{ backgroundColor: 'rgba(16,185,129,0.12)', color: '#047857' }}>
+          <div className="mt-4 rounded-[1.1rem] px-4 py-3 text-sm" style={{ backgroundColor: 'var(--success-soft)', color: 'var(--success-text)' }}>
             {message}
           </div>
         ) : null}
         {error ? (
-          <div className="mt-4 rounded-[1.1rem] px-4 py-3 text-sm" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#b91c1c' }}>
+          <div className="mt-4 rounded-[1.1rem] px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', color: 'var(--danger-text)' }}>
             {error}
           </div>
         ) : null}
@@ -373,9 +373,9 @@ function EmailConfirmationNotice({ state }) {
       role={isError ? 'alert' : 'status'}
       className="mb-8 rounded-[1.3rem] border px-5 py-4 text-sm"
       style={{
-        borderColor: isError ? 'rgba(239,68,68,0.35)' : 'rgba(16,185,129,0.35)',
-        backgroundColor: isError ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)',
-        color: isError ? '#b91c1c' : '#047857',
+        borderColor: isError ? 'var(--danger-border)' : 'var(--success-border)',
+        backgroundColor: isError ? 'var(--danger-soft)' : 'var(--success-soft)',
+        color: isError ? 'var(--danger-text)' : 'var(--success-text)',
       }}
     >
       {isPending ? '正在验证邮件确认链接...' : state.message}
@@ -543,12 +543,12 @@ function BrowserPushCard({ status, contentType, topicKey, seriesSlug }) {
       </div>
 
       {message ? (
-        <div className="mt-4 rounded-[1.1rem] px-4 py-3 text-sm" style={{ backgroundColor: 'rgba(16,185,129,0.12)', color: '#047857' }}>
+        <div className="mt-4 rounded-[1.1rem] px-4 py-3 text-sm" style={{ backgroundColor: 'var(--success-soft)', color: 'var(--success-text)' }}>
           {message}
         </div>
       ) : null}
       {error ? (
-        <div className="mt-4 rounded-[1.1rem] px-4 py-3 text-sm" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#b91c1c' }}>
+        <div className="mt-4 rounded-[1.1rem] px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', color: 'var(--danger-text)' }}>
           {error}
         </div>
       ) : null}

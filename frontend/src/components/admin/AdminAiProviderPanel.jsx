@@ -60,7 +60,7 @@ export default function AdminAiProviderPanel({
             aria-live="polite"
             style={{
               backgroundColor: providerResult.ok ? 'var(--accent-soft)' : 'var(--danger-soft)',
-              color: providerResult.ok ? 'var(--accent)' : '#ef4444',
+              color: providerResult.ok ? 'var(--accent)' : 'var(--danger-text)',
             }}
           >
             {providerResult.ok ? '✓ ' : '✗ '}{providerResult.message}
@@ -230,7 +230,7 @@ export default function AdminAiProviderPanel({
                     <div className="flex flex-wrap gap-2">
                       <button type="button" onClick={() => setProviderSourceForm(providerFormFromSource(source))} className="min-h-11 rounded border border-[var(--border-muted)] px-3 text-[var(--accent)]">编辑</button>
                       <button type="button" disabled={providerBusy === `source:models:${source.id}`} onClick={() => handleDiscoverProviderModels(source.id)} className="min-h-11 rounded border border-[var(--border-muted)] px-3 text-[var(--accent)] disabled:opacity-50">{providerBusy === `source:models:${source.id}` ? '发现中…' : '发现模型'}</button>
-                      <button type="button" disabled={providerBusy === `source:delete:${source.id}`} onClick={() => handleDeleteProviderSource(source.id)} className="min-h-11 rounded border border-[var(--border-muted)] px-3 text-[#ef4444] disabled:opacity-50">删除</button>
+                      <button type="button" disabled={providerBusy === `source:delete:${source.id}`} onClick={() => handleDeleteProviderSource(source.id)} className="min-h-11 rounded border border-[var(--border-muted)] px-3 text-[var(--danger-text)] disabled:opacity-50">删除</button>
                     </div>
                   </div>
                   <div className="mt-2 truncate text-[var(--text-secondary)]">{source.base_url || '未配置 Base URL'}</div>
@@ -395,7 +395,7 @@ export default function AdminAiProviderPanel({
                         <div className="flex flex-wrap gap-2">
                           <button type="button" onClick={() => setModelInstanceForm(instanceFormFromModel(item))} className="rounded border border-[var(--border-muted)] px-2 py-1 text-[var(--accent)]">编辑</button>
                           <button type="button" disabled={providerBusy === `model:test:${item.id}`} onClick={() => handleTestModelInstance(item.id)} className="rounded border border-[var(--border-muted)] px-2 py-1 text-[var(--accent)] disabled:opacity-50">{providerBusy === `model:test:${item.id}` ? '测试中…' : '测试'}</button>
-                          <button type="button" disabled={providerBusy === `model:delete:${item.id}`} onClick={() => handleDeleteModelInstance(item.id)} className="rounded border border-[var(--border-muted)] px-2 py-1 text-[#ef4444] disabled:opacity-50">删除</button>
+                          <button type="button" disabled={providerBusy === `model:delete:${item.id}`} onClick={() => handleDeleteModelInstance(item.id)} className="rounded border border-[var(--border-muted)] px-2 py-1 text-[var(--danger-text)] disabled:opacity-50">删除</button>
                         </div>
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-[7rem_1fr] sm:items-center">
@@ -403,7 +403,7 @@ export default function AdminAiProviderPanel({
                         <label className="flex items-center gap-2 text-[var(--text-secondary)]">优先级<input name={`model_priority_${item.id}`} type="number" min="1" value={item.priority || 1} onChange={(event) => updateModelInstanceLocal(item.id, 'priority', Number(event.target.value) || 1)} className="min-h-11 w-20 rounded px-2 focus-visible:ring-2 focus-visible:ring-[var(--accent)]" style={inputStyle} /></label>
                       </div>
                       {testResult ? (
-                        <div className="mt-2 rounded px-3 py-2" style={{ backgroundColor: testResult.ok ? 'var(--accent-soft)' : 'var(--danger-soft)', color: testResult.ok ? 'var(--accent)' : '#ef4444' }}>
+                        <div className="mt-2 rounded px-3 py-2" style={{ backgroundColor: testResult.ok ? 'var(--accent-soft)' : 'var(--danger-soft)', color: testResult.ok ? 'var(--accent)' : 'var(--danger-text)' }}>
                           {testResult.ok ? '✓ ' : '✗ '}{testResult.message}{testResult.latency_ms ? ` · ${formatLatency(testResult.latency_ms)}` : ''}
                         </div>
                       ) : null}

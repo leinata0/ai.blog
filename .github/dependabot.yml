@@ -1,0 +1,82 @@
+version: 2
+
+updates:
+  # GitHub Actions：workflow 里的 actions/* 版本目前靠手工升级，容易长期停在旧 major。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '03:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(actions)
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '03:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    commit-message:
+      prefix: chore(frontend-deps)
+    groups:
+      frontend-dev:
+        dependency-type: development
+        patterns:
+          - '*'
+      frontend-prod:
+        dependency-type: production
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /scripts
+    schedule:
+      interval: weekly
+      day: monday
+      time: '03:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    commit-message:
+      prefix: chore(scripts-deps)
+    groups:
+      scripts-deps:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+
+  # 后端用 uv，但依赖声明在 backend/pyproject.toml（PEP 621），由 pip ecosystem 解析。
+  # 注意：升级 PR 若未同步 backend/uv.lock，ci-quality 的 `uv sync --frozen` 会失败，
+  # 需要在该 PR 上补跑一次 `uv lock --project backend`。
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '03:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(backend-deps)
+    groups:
+      backend-deps:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch

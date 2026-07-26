@@ -625,7 +625,10 @@ it('opens endpoint health tab and renders probe and subscription results', async
 
   await userEvent.click(screen.getByRole('button', { name: '接口与订阅' }))
 
-  expect(await screen.findByRole('heading', { name: /接口与订阅健康/ })).toBeInTheDocument()
+  // The shell renders the section title as <h1> and the panel repeats it as <h2>. Under
+  // React Router 7 both land in the same commit, so pin the panel heading by level
+  // instead of relying on the two renders being split.
+  expect(await screen.findByRole('heading', { level: 2, name: /接口与订阅健康/ })).toBeInTheDocument()
   expect(await screen.findByText('/feed.xml')).toBeInTheDocument()
   expect(await screen.findByText('HTTP 404')).toBeInTheDocument()
   expect(await screen.findByText('订阅配置')).toBeInTheDocument()

@@ -46,8 +46,8 @@ export default function VerifyEmailPage() {
       <div className="space-y-5 py-2 text-center" aria-live="polite" aria-busy={status === 'pending'}>
         <div className="flex justify-center">
           {status === 'pending' ? <Loader2 size={40} className="animate-spin" aria-hidden="true" style={{ color: 'var(--accent)' }} /> : null}
-          {status === 'success' ? <CheckCircle2 size={40} aria-hidden="true" style={{ color: '#16a34a' }} /> : null}
-          {status === 'error' ? <XCircle size={40} aria-hidden="true" style={{ color: '#ef4444' }} /> : null}
+          {status === 'success' ? <CheckCircle2 size={40} aria-hidden="true" style={{ color: 'var(--success-text)' }} /> : null}
+          {status === 'error' ? <XCircle size={40} aria-hidden="true" style={{ color: 'var(--danger-text)' }} /> : null}
         </div>
         <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
           {status === 'pending' ? '正在验证邮箱…' : status === 'success' ? '验证成功' : '验证失败'}

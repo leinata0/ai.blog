@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, Mail, ShieldCheck } from 'lucide-react'
 
@@ -29,6 +29,7 @@ export default function LoginPage() {
   const [code, setCode] = useState('')
   const [challengeId, setChallengeId] = useState('')
   const [cooldown, setCooldown] = useState(0)
+  const [cooldownUntil, setCooldownUntil] = useState(0)
   const [showPassword, setShowPassword] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -39,13 +40,36 @@ export default function LoginPage() {
     ? '所有设备均已安全退出，请重新登录。'
     : ''
 
+  const mountedRef = useRef(true)
+
   const handleVerify = useCallback((token) => setTurnstileToken(token), [])
 
+  useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
+
+  // 依赖倒计时秒数会让 interval 每秒销毁重建并逐渐漂移；
+  // 这里只依赖冷却截止时间戳，单个 interval 从时间戳反推剩余秒数。
   useEffect(() => {
-    if (!cooldown) return undefined
-    const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000)
+    if (!cooldownUntil) return undefined
+
+    function tick() {
+      const remaining = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000))
+      setCooldown(remaining)
+      if (remaining === 0) setCooldownUntil(0)
+    }
+
+    tick()
+    const timer = window.setInterval(tick, 1000)
     return () => window.clearInterval(timer)
-  }, [cooldown])
+  }, [cooldownUntil])
+
+  const startCooldown = useCallback((seconds) => {
+    const parsed = Number(seconds)
+    const safeSeconds = Number.isFinite(parsed) && parsed > 0 ? Math.ceil(parsed) : 60
+    setCooldown(safeSeconds)
+    setCooldownUntil(Date.now() + safeSeconds * 1000)
+  }, [])
 
   function switchMode(nextMode) {
     setMode(nextMode)
@@ -68,15 +92,16 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const result = await requestLoginCode({ email, turnstile_token: turnstileToken })
+      if (!mountedRef.current) return
       setChallengeId(result.challenge_id)
-      setCooldown(result.retry_after || 60)
+      startCooldown(result.retry_after)
       setTurnstileToken('')
       setTurnstileResetKey((value) => value + 1)
       setMessage(`验证码已发送至 ${maskEmail(email)}，请检查收件箱和垃圾邮件`)
     } catch (submitError) {
-      setError(String(submitError?.message || '验证码发送失败，请稍后重试'))
+      if (mountedRef.current) setError(String(submitError?.message || '验证码发送失败，请稍后重试'))
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -97,9 +122,9 @@ export default function LoginPage() {
       }
       navigate('/account?tab=overview')
     } catch (submitError) {
-      setError(String(submitError?.message || '登录失败，请稍后重试'))
+      if (mountedRef.current) setError(String(submitError?.message || '登录失败，请稍后重试'))
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -168,7 +193,7 @@ export default function LoginPage() {
         )}
 
         <TurnstileWidget onVerify={handleVerify} resetKey={turnstileResetKey} />
-        {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: '#ef4444' }}>{error}</div> : null}
+        {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: 'var(--danger-text)' }}>{error}</div> : null}
         {message ? <div role="status" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>{message}</div> : null}
 
         <button type="submit" disabled={loading} className="min-h-11 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-50" style={{ backgroundColor: 'var(--accent)' }}>

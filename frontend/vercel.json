@@ -16,6 +16,18 @@
     { "source": "/account", "destination": "/account/index.html" },
     { "source": "/admin/login", "destination": "/admin/login/index.html" },
     { "source": "/admin/dashboard", "destination": "/admin/dashboard/index.html" },
+    { "source": "/archive", "destination": "/archive/index.html" },
+    { "source": "/topics", "destination": "/topics/index.html" },
+    { "source": "/series", "destination": "/series/index.html" },
+    { "source": "/daily", "destination": "/daily/index.html" },
+    { "source": "/weekly", "destination": "/weekly/index.html" },
+    { "source": "/discover", "destination": "/discover/index.html" },
+    { "source": "/search", "destination": "/search/index.html" },
+    { "source": "/start-here", "destination": "/start-here/index.html" },
+    { "source": "/feeds", "destination": "/feeds/index.html" },
+    { "source": "/following", "destination": "/following/index.html" },
+    { "source": "/tags", "destination": "/tags/index.html" },
+    { "source": "/friends", "destination": "/friends/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

@@ -9,6 +9,7 @@ import {
   generateTopicCoverViaAdminJob,
   imageGenerationJobImageUrl,
   imageGenerationJobSucceeded,
+  waitForImageGenerationJob,
 } from '../lib/admin-image-generation.mjs'
 
 test('generatePostCoverViaAdminJob submits post cover job to admin API', async () => {
@@ -89,6 +90,104 @@ test('configured image channel helper maps every cover target to its admin endpo
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('waitForImageGenerationJob polls an injected fetch until the job is terminal', async () => {
+  const statuses = ['queued', 'running', 'succeeded']
+  const polls = []
+  const sleeps = []
+
+  const job = await waitForImageGenerationJob({
+    blogApiBase: 'https://blog.example.com',
+    token: 'admin-token',
+    jobId: 11,
+    initialJob: { job_id: 11, status: 'queued' },
+    intervalMs: 1234,
+    requestTimeoutMs: 9000,
+    sleepImpl: async (ms) => sleeps.push(ms),
+    fetchImpl: async (url, options) => {
+      polls.push({ url: String(url), options })
+      const status = statuses[polls.length] || 'succeeded'
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            job_id: 11,
+            status,
+            result_image_url: status === 'succeeded' ? 'https://cdn.example.com/done.png' : '',
+          }
+        },
+      }
+    },
+  })
+
+  assert.equal(job.status, 'succeeded')
+  assert.equal(imageGenerationJobImageUrl(job), 'https://cdn.example.com/done.png')
+  assert.equal(polls.length, 2)
+  assert.equal(polls[0].url, 'https://blog.example.com/api/admin/image-generation-jobs/11')
+  assert.deepEqual(sleeps, [1234, 1234])
+})
+
+test('waitForImageGenerationJob returns a poll_timeout job instead of throwing', async () => {
+  const job = await waitForImageGenerationJob({
+    blogApiBase: 'https://blog.example.com',
+    token: 'admin-token',
+    jobId: 12,
+    initialJob: { job_id: 12, status: 'running' },
+    intervalMs: 15,
+    timeoutMs: 20,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { job_id: 12, status: 'running' }
+      },
+    }),
+  })
+
+  // The frontend job store keys off this exact error_code; keep it stable.
+  assert.equal(job.error_code, 'poll_timeout')
+  assert.equal(job.status, 'running')
+  assert.equal(job.job_id, 12)
+  assert.match(job.error, /still running/)
+  assert.equal(imageGenerationJobSucceeded(job), false)
+})
+
+test('combined helpers keep submit and poll timeouts independent', async () => {
+  const timeouts = []
+  const originalTimeout = AbortSignal.timeout
+  AbortSignal.timeout = (ms) => {
+    timeouts.push(ms)
+    return originalTimeout.call(AbortSignal, ms)
+  }
+
+  try {
+    await generatePostCoverViaAdminJob({
+      blogApiBase: 'https://blog.example.com',
+      token: 'admin-token',
+      postId: 5,
+      submitTimeoutMs: 45000,
+      pollTimeoutMs: 180000,
+      pollIntervalMs: 1,
+      requestTimeoutMs: 11000,
+      sleepImpl: async () => {},
+      fetchImpl: async (url) => ({
+        ok: true,
+        status: 200,
+        async json() {
+          return String(url).includes('/image-generation-jobs/')
+            ? { job_id: 9, status: 'succeeded', result_image_url: 'https://cdn.example.com/x.png' }
+            : { job_id: 9, status: 'queued' }
+        },
+      }),
+    })
+  } finally {
+    AbortSignal.timeout = originalTimeout
+  }
+
+  // Submit uses submitTimeoutMs; the status GET uses requestTimeoutMs, never pollTimeoutMs.
+  assert.deepEqual(timeouts, [45000, 11000])
 })
 
 test('cover automation scripts never bypass the configured image channel', async () => {

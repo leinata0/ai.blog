@@ -2,22 +2,104 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  AUTO_BLOG_CLI_HELP,
+  buildClusterTopicKey,
   buildLLMMaxTokenAttempts,
+  buildPublishingMetadataBridgePayload,
   callLLM,
+  createSkippableTopicError,
+  ensureSectionHeading,
+  isProviderParameterRejection,
+  isRetryableHttpStatus,
+  isSkippableTopicError,
+  parseRetryAfterMs,
+  readSectionMarkdown,
+  runPublishingBridges,
+  spliceRepairedSections,
+  validateArticlePackagePayload,
+  validateOutlinePayload,
+  validateSectionPayload,
   loginAdminWithRetry,
   parseJsonFromLlm,
   assessResearchPackSourceSupport,
   buildTopicKey,
   clusterResearchItemsByTopic,
   createDailyBriefFormatProfile,
+  fillMissingIllustrations,
   filterItemsForCoverageWindow,
   normalizeOutlineHeadings,
   normalizeSectionBriefs,
   parseCliArgs,
   pickPostCountForRun,
+  prepareImagePlansForPublication,
   selectTopicsForPublishing,
   sendPublishRequest,
 } from '../auto-blog.mjs'
+
+// POST /api/admin/illustrations/generate used to run the model inline and answer with the
+// finished image; it now only enqueues a job. The old `result.generated && result.image_url`
+// check therefore saw false/"" on every call and dropped the illustration — while the backend
+// went on generating, billing and uploading it, leaving an orphan in R2. The enqueue-then-poll
+// shape is the contract, so it gets a test.
+test('illustration fallback polls the enqueued job instead of reading the submit response', async () => {
+  const requestedUrls = []
+  const enqueued = { job_id: 77, status: 'queued', generated: false, image_url: '' }
+
+  const plans = await fillMissingIllustrations({
+    desiredSections: ['## 模型进展'],
+    existingPlans: [],
+    outline: { topic: 'AI' },
+    config: { ai_illustration_enabled: true },
+    resolveToken: async () => 'test-token',
+    blogApiBase: 'https://api.example.com',
+    fetchImpl: async (url) => {
+      requestedUrls.push(String(url))
+      return { ok: true, status: 200, json: async () => enqueued }
+    },
+    waitForJob: async ({ jobId, initialJob }) => {
+      assert.equal(jobId, 77)
+      assert.equal(initialJob, enqueued)
+      return { job_id: jobId, status: 'succeeded', result_image_url: 'https://img.example.com/a.png' }
+    },
+  })
+
+  assert.equal(plans.length, 1)
+  assert.equal(plans[0].image_url, 'https://img.example.com/a.png')
+  assert.equal(plans[0].section_heading, '## 模型进展')
+  assert.equal(plans[0].reason, 'ai_fallback')
+  assert.deepEqual(requestedUrls, ['https://api.example.com/api/admin/illustrations/generate'])
+})
+
+test('an illustration job that never succeeds contributes no plan', async () => {
+  const plans = await fillMissingIllustrations({
+    desiredSections: ['## 模型进展'],
+    existingPlans: [],
+    outline: { topic: 'AI' },
+    config: { ai_illustration_enabled: true },
+    resolveToken: async () => 'test-token',
+    blogApiBase: 'https://api.example.com',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ job_id: 9, status: 'queued' }) }),
+    // A backgrounded job that outlives the poll budget must not be treated as an image.
+    waitForJob: async () => ({ job_id: 9, status: 'running', error_code: 'poll_timeout' }),
+  })
+
+  assert.deepEqual(plans, [])
+})
+
+test('dry-run image preparation keeps inspectable external candidates without localizing', async () => {
+  const plans = [{ section_heading: '## Test', image_url: 'https://cdn.example.com/image.png' }]
+  let localizationCalls = 0
+  const result = await prepareImagePlansForPublication(plans, {
+    imageUploadToken: '',
+    localize: async () => {
+      localizationCalls += 1
+      throw new Error('dry runs must not upload')
+    },
+  })
+
+  assert.deepEqual(result, plans)
+  assert.equal(localizationCalls, 0)
+})
 
 test('parseJsonFromLlm accepts fenced JSON with a closing fence', () => {
   assert.deepEqual(parseJsonFromLlm('```json\n{"topic":"AI agents","keywords":["agent"]}\n```'), {
@@ -275,6 +357,7 @@ test('parseCliArgs understands mode, max-posts and coverage date', () => {
     maxPosts: 3,
     coverageDate: '2026-04-14',
     force: true,
+    help: false,
   })
 })
 
@@ -505,4 +588,318 @@ test('normalizeSectionBriefs (fixed mode) still maps onto required_sections', ()
   )
 
   assert.deepEqual(briefs.map((brief) => brief.heading), ['## 一、发生了什么', '## 二、为什么值得关注'])
+})
+
+// --- P1-11: the token ladder must not react to network failures ---
+
+test('isProviderParameterRejection only fires on deterministic request-shape rejections', () => {
+  assert.equal(isProviderParameterRejection('Admin text generation failed: 400 max_tokens too high'), true)
+  assert.equal(isProviderParameterRejection('Admin text generation failed: 422 invalid body'), true)
+  assert.equal(isProviderParameterRejection('This model supports a maximum context of 8192 tokens'), true)
+  assert.equal(isProviderParameterRejection('The operation was aborted due to timeout'), false)
+  assert.equal(isProviderParameterRejection('fetch failed'), false)
+  assert.equal(isProviderParameterRejection('Admin text generation failed: 502 bad gateway'), false)
+})
+
+test('callLLM keeps the full token budget when the call times out', async () => {
+  const usedMaxTokens = []
+  const result = await callLLM('system', 'user', 16384, {
+    getToken: async () => 'token',
+    sleepImpl: async () => {},
+    logger: null,
+    generateText: async ({ maxTokens }) => {
+      usedMaxTokens.push(maxTokens)
+      // A 240s abort means the request never got a verdict. Shrinking max_tokens here made
+      // the next attempt more likely to truncate — the exact reverse of the stated intent.
+      if (usedMaxTokens.length <= 2) {
+        const error = new Error('The operation was aborted due to timeout')
+        error.name = 'TimeoutError'
+        throw error
+      }
+      return '{"topic":"AI agents"}'
+    },
+  })
+
+  assert.deepEqual(result, { topic: 'AI agents' })
+  assert.ok(usedMaxTokens.every((value) => value === 16384), `expected all 16384, got ${usedMaxTokens}`)
+})
+
+// --- P1-10: LLM output shape validation ---
+
+test('validateOutlinePayload rejects a free-mode outline whose outline field is not an array', () => {
+  assert.equal(validateOutlinePayload({ topic: 'x', outline: '## A\n## B' }, { isFreeStructure: true }).ok, false)
+  assert.equal(validateOutlinePayload({ topic: 'x', outline: [] }, { isFreeStructure: true }).ok, false)
+  assert.equal(validateOutlinePayload({ topic: '', outline: ['## A'] }, { isFreeStructure: true }).ok, false)
+  assert.equal(validateOutlinePayload({ topic: 'x', outline: ['## A'] }, { isFreeStructure: true }).ok, true)
+  // section_briefs headings are an acceptable substitute for outline.outline.
+  assert.equal(
+    validateOutlinePayload({ topic: 'x', section_briefs: [{ heading: '## A' }] }, { isFreeStructure: true }).ok,
+    true,
+  )
+})
+
+test('validateArticlePackagePayload and validateSectionPayload catch empty or renamed fields', () => {
+  assert.equal(validateArticlePackagePayload({ title: '', summary: 'x' }).ok, false)
+  assert.equal(validateArticlePackagePayload({ title: 'a judgment-led title' }).ok, true)
+
+  assert.equal(validateSectionPayload({ body: 'wrong key name, so the section would be empty' }).ok, false)
+  assert.equal(validateSectionPayload({ markdown: 'too short' }).ok, false)
+  assert.equal(validateSectionPayload({ section_md: 'x'.repeat(60) }).ok, true)
+  assert.equal(readSectionMarkdown({ content_md: 'body' }), 'body')
+})
+
+test('callLLM retries a structurally wrong payload instead of passing it downstream', async () => {
+  let attempts = 0
+  const result = await callLLM('system', 'user', 8192, {
+    getToken: async () => 'token',
+    sleepImpl: async () => {},
+    logger: null,
+    validate: (payload) => validateOutlinePayload(payload, { isFreeStructure: true }),
+    generateText: async () => {
+      attempts += 1
+      // First attempt returns valid JSON with the wrong shape (outline as a string). That
+      // used to flow through, produce content_md === '' and burn the whole repair budget.
+      if (attempts === 1) return '{"topic":"AI","outline":"## A\\n## B"}'
+      return '{"topic":"AI","outline":["## A","## B","## C"]}'
+    },
+  })
+
+  assert.deepEqual(result.outline, ['## A', '## B', '## C'])
+  assert.equal(attempts, 2)
+})
+
+// --- P1-12: 429 is retryable and Retry-After is honoured ---
+
+test('isRetryableHttpStatus includes 429 and 408 alongside 5xx', () => {
+  assert.equal(isRetryableHttpStatus(429), true)
+  assert.equal(isRetryableHttpStatus(408), true)
+  assert.equal(isRetryableHttpStatus(503), true)
+  assert.equal(isRetryableHttpStatus(422), false)
+  assert.equal(isRetryableHttpStatus(401), false)
+})
+
+test('parseRetryAfterMs handles delta-seconds, http-dates and junk', () => {
+  assert.equal(parseRetryAfterMs('30'), 30000)
+  assert.equal(parseRetryAfterMs(''), 0)
+  assert.equal(parseRetryAfterMs('not-a-date'), 0)
+  assert.equal(parseRetryAfterMs('99999'), 120000)
+  assert.ok(parseRetryAfterMs(new Date(Date.now() + 5000).toUTCString()) > 0)
+})
+
+test('sendPublishRequest retries admin rate limiting and waits at least Retry-After', async () => {
+  let calls = 0
+  const sleeps = []
+  const result = await sendPublishRequest({
+    url: 'https://blog.example.com/api/admin/posts',
+    method: 'POST',
+    requestBody: { title: 'x' },
+    token: 'token',
+    retryDelaysMs: [10, 20, 30],
+    sleepImpl: async (ms) => sleeps.push(ms),
+    logger: null,
+    fetchImpl: async () => {
+      calls += 1
+      // The admin surface is rate limited at 5/minute, so concurrent workflows hit 429
+      // routinely; it used to abort the whole run immediately.
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 429,
+          headers: { get: (name) => (name === 'retry-after' ? '2' : null) },
+          async text() { return 'rate limited' },
+        }
+      }
+      return { ok: true, status: 200, async json() { return { id: 7 } } }
+    },
+  })
+
+  assert.deepEqual(result, { ok: true, status: 200, json: { id: 7 } })
+  assert.equal(calls, 2)
+  assert.deepEqual(sleeps, [2000])
+})
+
+// --- P1-9 / P2-15: repair must not destroy the article ---
+
+test('ensureSectionHeading keeps a legitimate ### subheading further down the section', () => {
+  const markdown = 'The section opens with prose, no heading.\n\n### A legitimate subheading\n\nMore body text.'
+  const result = ensureSectionHeading(markdown, '## Chapter A')
+
+  assert.ok(result.startsWith('## Chapter A'))
+  assert.ok(result.includes('### A legitimate subheading'), 'a later ### must survive')
+  assert.ok(result.includes('The section opens with prose'))
+})
+
+test('ensureSectionHeading still replaces a wrong heading on the first line', () => {
+  const result = ensureSectionHeading('## Model-invented title\n\nBody.', '## Chapter A')
+  assert.equal(result, '## Chapter A\n\nBody.')
+})
+
+test('spliceRepairedSections preserves the lede and untouched chapters', () => {
+  const original = [
+    'An opening paragraph that appears before any heading.',
+    '',
+    '## Chapter A',
+    '',
+    'Original body of A.',
+    '',
+    '## A chapter the model invented',
+    '',
+    'Not in the heading list, and must not be deleted.',
+    '',
+    '## Chapter B',
+    '',
+    'Original body of B.',
+  ].join('\n')
+
+  const repaired = spliceRepairedSections(
+    original,
+    ['## Chapter A', '## Chapter B'],
+    new Map([['## Chapter A', '## Chapter A\n\nRepaired body of A, noticeably longer.']]),
+  )
+
+  assert.ok(repaired.includes('An opening paragraph'), 'the lede must survive repair')
+  assert.ok(repaired.includes('Repaired body of A'))
+  assert.ok(!repaired.includes('Original body of A'))
+  assert.ok(repaired.includes('Not in the heading list'), 'an unmatched chapter must survive')
+  assert.ok(repaired.includes('Original body of B'), 'an unrepaired chapter must survive')
+})
+
+test('spliceRepairedSections appends a chapter that is missing from the draft', () => {
+  const repaired = spliceRepairedSections(
+    '## Chapter A\n\nBody of A.',
+    ['## Chapter A', '## Chapter B'],
+    new Map([['## Chapter B', '## Chapter B\n\nNewly written body of B.']]),
+  )
+
+  assert.ok(repaired.includes('Body of A.'))
+  assert.ok(repaired.includes('Newly written body of B.'))
+})
+
+// --- P2-15: cluster topic keys must not depend on which item leads ---
+
+test('buildClusterTopicKey is stable when the leading item changes', () => {
+  const items = [
+    { title: 'OpenAI ships a developer agent', summary: 'agent workflow for coding teams', url: 'https://openai.com/a' },
+    { title: 'New OpenAI agent lands', summary: 'the agent targets developer teams', url: 'https://techcrunch.com/b?utm_source=rss' },
+  ]
+
+  const forward = buildClusterTopicKey(items)
+  const reversed = buildClusterTopicKey([...items].reverse())
+
+  assert.equal(forward, reversed)
+  assert.ok(forward.length > 0 && forward.length <= 80)
+  // A genuinely different member set is a genuinely different topic.
+  assert.notEqual(forward, buildClusterTopicKey([items[0]]))
+})
+
+// Deriving the key from the member set is exactly why exact-key matching cannot survive a
+// day boundary: tomorrow's cluster for the same story has a different member set, so a
+// different key. Cross-day reruns are caught on source-URL overlap instead — see
+// tests/topic-dedupe-cross-day.test.mjs. This pins the contract the report consumes.
+test('selectTopicsForPublishing reports cross-day skips alongside the same-day key guard', () => {
+  const result = selectTopicsForPublishing(
+    [
+      { topic_key: 'already-today', source_count: 3, score: 3, items: [{ url: 'https://x.com/1' }] },
+      {
+        topic_key: 'rerun-of-yesterday',
+        source_count: 3,
+        score: 3,
+        items: [{ url: 'https://a.com/1' }, { url: 'https://a.com/2' }, { url: 'https://n.com/1' }],
+      },
+      { topic_key: 'fresh', source_count: 3, score: 3, items: [{ url: 'https://q.com/1' }, { url: 'https://q.com/2' }] },
+    ],
+    {
+      maxPosts: 2,
+      minSourcesPerTopic: 2,
+      publishedTopicKeys: new Set(['already-today', 'published-but-not-a-candidate-today']),
+      publishedTopicFingerprints: [
+        {
+          slug: 'ai-brief-2026-04-15-y',
+          coverage_date: '2026-04-15',
+          topic_key: 'yesterday-key',
+          source_urls: new Set(['https://a.com/1', 'https://a.com/2', 'https://a.com/3']),
+        },
+      ],
+    },
+  )
+
+  assert.deepEqual(result.queue.map((topic) => topic.topic_key), ['fresh'])
+  assert.deepEqual(result.skipped_topics.map((entry) => entry.topic_key), ['already-today', 'rerun-of-yesterday'])
+  // Published keys this run never saw as candidates still ride along, so the
+  // publishing-status report stays complete.
+  assert.deepEqual(result.skipped_topic_keys, [
+    'already-today',
+    'published-but-not-a-candidate-today',
+    'rerun-of-yesterday',
+  ])
+})
+
+// --- P1-5: bridges degrade instead of stranding a published article ---
+
+test('runPublishingBridges records failures without throwing and fills failure_reason', async () => {
+  const metadataBridgePayload = buildPublishingMetadataBridgePayload({
+    postId: 42,
+    post: { slug: 'ai-brief-2026-04-16-x', title: 'T', summary: 'S', content_md: 'body' },
+    outline: { topic: 'topic', thesis: 'thesis' },
+    metadata: { content_type: 'daily_brief' },
+    gate: { metrics: {} },
+    config: {},
+    researchPack: { sources: [] },
+    imagePlans: [],
+    workflowKey: 'daily_auto',
+    coverageDate: '2026-04-16',
+  })
+
+  const calls = []
+  const failures = await runPublishingBridges('token', {
+    metadataBridgePayload,
+    qualitySnapshotPayload: { post_id: 42 },
+    topicMetadataPayload: { post_id: 42 },
+  }, {
+    bridgeMetadataImpl: async () => { calls.push('metadata') },
+    bridgeQualityImpl: async () => { calls.push('quality'); throw new Error('502 bad gateway') },
+    bridgeTopicImpl: async () => { calls.push('topic') },
+    logger: null,
+  })
+
+  // The quality bridge blew up, but the other two still ran and nothing was thrown, so the
+  // caller can still flip is_published to true.
+  assert.deepEqual(calls, ['metadata', 'quality', 'topic'])
+  assert.equal(failures.length, 1)
+  assert.match(failures[0], /^quality_snapshot:/)
+  assert.match(metadataBridgePayload.publishing_artifact.failure_reason, /quality_snapshot:.*502/)
+})
+
+test('buildPublishingMetadataBridgePayload leaves failure_reason empty on a clean run', () => {
+  const payload = buildPublishingMetadataBridgePayload({
+    postId: 1,
+    post: { slug: 's', title: 'T', summary: 'S', content_md: 'body' },
+    outline: {},
+    metadata: { content_type: 'daily_brief' },
+    gate: { metrics: {} },
+    config: {},
+    researchPack: { sources: [] },
+    imagePlans: [],
+    workflowKey: 'daily_auto',
+    coverageDate: '2026-04-16',
+  })
+
+  assert.equal(payload.publishing_artifact.failure_reason, '')
+})
+
+// --- P1-4: topic-scoped failures must be skippable ---
+
+test('isSkippableTopicError covers quality-gate failures and tagged topic errors', () => {
+  assert.equal(isSkippableTopicError(new Error('Quality gate failed after repair attempts: chars:10<4200')), true)
+  assert.equal(isSkippableTopicError(createSkippableTopicError('LLM output missing title or content_md')), true)
+  assert.equal(isSkippableTopicError(new Error('Publish failed: 500')), false)
+})
+
+// --- P1-6: the cost of a dry run must be documented on the CLI ---
+
+test('parseCliArgs exposes --help and the help text states the dry-run LLM cost', () => {
+  assert.equal(parseCliArgs(['--help']).help, true)
+  assert.equal(parseCliArgs([]).help, false)
+  assert.match(AUTO_BLOG_CLI_HELP, /COST WARNING/)
+  assert.match(AUTO_BLOG_CLI_HELP, /ai-text\/generate/)
 })

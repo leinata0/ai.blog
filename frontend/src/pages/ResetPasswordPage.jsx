@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout'
 import TurnstileWidget, { TURNSTILE_ENABLED } from '../components/TurnstileWidget'
@@ -18,21 +18,44 @@ export default function ResetPasswordPage() {
   const [confirmation, setConfirmation] = useState('')
   const [token, setToken] = useState('')
   const [cooldown, setCooldown] = useState(() => (params.get('challenge') ? 60 : 0))
+  const [cooldownUntil, setCooldownUntil] = useState(() => (params.get('challenge') ? Date.now() + 60000 : 0))
   const [turnstileResetKey, setTurnstileResetKey] = useState(0)
   const [message, setMessage] = useState(() => (params.get('challenge') ? '验证码已发送，请查收邮箱' : '请重新发送验证码'))
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const mountedRef = useRef(true)
+
+  useEffect(() => () => {
+    mountedRef.current = false
+  }, [])
 
   useEffect(() => {
     setEmail(params.get('email') || '')
     setChallengeId(params.get('challenge') || '')
   }, [params])
 
+  // 单个 interval + 时间戳推算剩余秒数，避免依赖 cooldown 导致的每秒重建与计时漂移。
   useEffect(() => {
-    if (cooldown <= 0) return undefined
-    const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000)
+    if (!cooldownUntil) return undefined
+
+    function tick() {
+      const remaining = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000))
+      setCooldown(remaining)
+      if (remaining === 0) setCooldownUntil(0)
+    }
+
+    tick()
+    const timer = window.setInterval(tick, 1000)
     return () => window.clearInterval(timer)
-  }, [cooldown])
+  }, [cooldownUntil])
+
+  const startCooldown = useCallback((seconds) => {
+    const parsed = Number(seconds)
+    const safeSeconds = Number.isFinite(parsed) && parsed > 0 ? Math.ceil(parsed) : 60
+    setCooldown(safeSeconds)
+    setCooldownUntil(Date.now() + safeSeconds * 1000)
+  }, [])
 
   async function resend() {
     setError('')
@@ -47,16 +70,17 @@ export default function ResetPasswordPage() {
     setLoading(true)
     try {
       const result = await requestPasswordReset({ email, turnstile_token: token })
+      if (!mountedRef.current) return
       setChallengeId(result.challenge_id)
       setParams({ email, challenge: result.challenge_id })
-      setCooldown(result.retry_after || 60)
+      startCooldown(result.retry_after)
       setToken('')
       setTurnstileResetKey((value) => value + 1)
       setMessage('新的验证码已发送')
     } catch (submitError) {
-      setError(String(submitError?.message || '发送失败，请稍后重试'))
+      if (mountedRef.current) setError(String(submitError?.message || '发送失败，请稍后重试'))
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -76,9 +100,9 @@ export default function ResetPasswordPage() {
       await resetPassword({ email, challenge_id: challengeId, code, new_password: password, turnstile_token: token })
       navigate('/account?tab=overview')
     } catch (submitError) {
-      setError(String(submitError?.message || '重置失败，请检查验证码'))
+      if (mountedRef.current) setError(String(submitError?.message || '重置失败，请检查验证码'))
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -108,7 +132,7 @@ export default function ResetPasswordPage() {
           <input id="reset-confirmation" name="password_confirmation" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={inputClass} style={inputStyle} placeholder="再次输入新密码" autoComplete="new-password" required />
         </div>
         <TurnstileWidget onVerify={setToken} resetKey={turnstileResetKey} />
-        {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: '#ef4444' }}>{error}</div> : null}
+        {error ? <div role="alert" className="rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--danger-soft)', border: '1px solid var(--danger-border)', color: 'var(--danger-text)' }}>{error}</div> : null}
         <button type="submit" disabled={loading} className="min-h-11 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--accent)' }}>
           {loading ? '保存中…' : '设置新密码并登录'}
         </button>

@@ -1,7 +1,7 @@
-import { lazy, useEffect, useLayoutEffect } from 'react'
+import { lazy, useEffect, useLayoutEffect, useMemo } from 'react'
 import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { MotionConfig } from 'framer-motion'
-import ErrorBoundary from './components/ErrorBoundary'
+import ErrorBoundary, { reloadOnceForStaleChunk } from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import UserProtectedRoute from './components/UserProtectedRoute'
 import CommandPalette from './components/CommandPalette'
@@ -64,12 +64,30 @@ export default function App() {
     }
   }), [location.pathname, navigate])
 
+  // The content pipeline redeploys the site daily, so an open tab's preloaded chunk
+  // URLs go 404. Vite reports that as `vite:preloadError` before React ever renders —
+  // pick up the fresh build instead of dropping the reader on an error screen.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onPreloadError = (event) => {
+      event.preventDefault?.()
+      reloadOnceForStaleChunk()
+    }
+    window.addEventListener('vite:preloadError', onPreloadError)
+    return () => window.removeEventListener('vite:preloadError', onPreloadError)
+  }, [])
+
+  // Route-scoped boundary: a lazy chunk that 404s after a redeploy must not leave the
+  // whole app pinned on the error screen for every subsequent navigation.
+  const routeResetKeys = useMemo(() => [location.pathname], [location.pathname])
+
   return (
     <ErrorBoundary>
       <MotionConfig reducedMotion="user">
         <a className="skip-link" href="#main-content">跳到主要内容</a>
         {surface === SURFACES.EDITORIAL ? <CommandPalette /> : null}
         <PageTransition key={location.pathname} fallback={<PageLoader />}>
+          <ErrorBoundary resetKeys={routeResetKeys}>
           <Routes location={location}>
               <Route path="/" element={<HomePage />} />
               <Route path="/posts/:slug" element={<PostDetailPage />} />
@@ -111,6 +129,7 @@ export default function App() {
               />
               <Route path="*" element={<NotFoundPage />} />
           </Routes>
+          </ErrorBoundary>
         </PageTransition>
       </MotionConfig>
     </ErrorBoundary>

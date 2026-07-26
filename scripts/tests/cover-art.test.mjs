@@ -4,10 +4,12 @@ import test from 'node:test'
 import {
   buildPostCoverBrief,
   buildPostCoverPrompt,
+  buildPromptContext,
   buildSeriesCoverPrompt,
   buildSiteHeroPrompt,
   buildTopicCoverPrompt,
   coverArtVersion,
+  extractHeadings,
   presetFramingHint,
 } from '../lib/cover-art.mjs'
 
@@ -17,6 +19,39 @@ test('cover art config exposes a stable version and preset framing hints', () =>
   assert.match(presetFramingHint('post_cover'), /wide landscape editorial banner/i)
   assert.match(presetFramingHint('series_cover'), /series cover image/i)
   assert.match(presetFramingHint('topic_cover'), /topic cover image/i)
+})
+
+test('cover prompt context strips the program-appended auto-blog-meta comment', () => {
+  // auto-blog.mjs appends `<!-- auto-blog-meta: {...} -->`. quality-gate.mjs strips it so it
+  // does not inflate char_count; cover-art must strip it so its JSON never leaks into an
+  // image prompt.
+  const metadata = JSON.stringify({ topic_key: 'agent-workflows', cited_source_ids: ['s1', 's2'] })
+  const context = buildPromptContext({
+    title: '短文',
+    summary: `一句摘要。<!-- auto-blog-meta: ${metadata} -->`,
+    content_md: `## 发生了什么\n\n很短的正文。\n\n<!-- auto-blog-meta: ${metadata} -->`,
+  })
+
+  assert.equal(context.summary.includes('auto-blog-meta'), false)
+  assert.equal(context.summary.includes('cited_source_ids'), false)
+  assert.equal(context.bodyPreview.includes('auto-blog-meta'), false)
+  assert.equal(context.bodyPreview.includes('cited_source_ids'), false)
+  assert.ok(context.bodyPreview.includes('很短的正文'))
+})
+
+test('extractHeadings ignores headings inside fenced code and HTML comments', () => {
+  const headings = extractHeadings(`## 真实小节
+
+\`\`\`bash
+## install deps
+npm ci
+\`\`\`
+
+<!-- ## 编辑备注，不是小节 -->
+
+## 另一个真实小节`)
+
+  assert.deepEqual(headings, ['真实小节', '另一个真实小节'])
 })
 
 test('article cover brief remains content-only while non-article presets retain brand grammar', () => {

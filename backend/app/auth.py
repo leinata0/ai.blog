@@ -69,8 +69,18 @@ if not is_production_env() and ADMIN_PASSWORD == DEFAULT_DEV_ADMIN_PASSWORD:
 security = HTTPBearer()
 
 
+def _constant_time_equals(candidate: str | None, expected: str) -> bool:
+    """Constant-time compare that tolerates non-ASCII input.
+
+    ``hmac.compare_digest`` raises TypeError when a str argument contains characters
+    outside latin-1, so a login body like {"username": "中文"} used to surface as a 500
+    instead of a plain 401. Compare the UTF-8 bytes instead.
+    """
+    return compare_digest(str(candidate or "").encode("utf-8"), expected.encode("utf-8"))
+
+
 def verify_admin(username: str, password: str) -> bool:
-    return compare_digest(username, ADMIN_USERNAME) and compare_digest(password, ADMIN_PASSWORD)
+    return _constant_time_equals(username, ADMIN_USERNAME) and _constant_time_equals(password, ADMIN_PASSWORD)
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None, audience: str | None = None) -> str:
@@ -96,7 +106,7 @@ def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(securi
             audience=TOKEN_AUDIENCE,
         )
         username: str | None = payload.get("sub")
-        if username is None or not compare_digest(username, ADMIN_USERNAME):
+        if username is None or not _constant_time_equals(username, ADMIN_USERNAME):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         return username
     except JWTError as exc:

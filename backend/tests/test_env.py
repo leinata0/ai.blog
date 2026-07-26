@@ -79,6 +79,46 @@ def test_get_allowed_origins_uses_dev_defaults_when_no_derived_origin(monkeypatc
     assert origins == ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
+def test_resolve_public_site_url_falls_back_to_canonical_host(db_session, monkeypatch):
+    """sitemap/RSS need an absolute origin: never resolve to "" or a relative value."""
+    from app.models import SiteSettings
+    from app.site_config import DEFAULT_CANONICAL_SITE_URL, resolve_public_site_url
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("PUBLIC_SITE_URL", raising=False)
+    monkeypatch.delenv("SITE_URL", raising=False)
+
+    settings = SiteSettings(id=1, site_url="")
+    db_session.add(settings)
+    db_session.commit()
+
+    assert resolve_public_site_url(db_session, settings=settings) == DEFAULT_CANONICAL_SITE_URL
+
+    # A stored value without a scheme is not a usable base URL either.
+    settings.site_url = "www.example.com/blog"
+    db_session.commit()
+    assert resolve_public_site_url(db_session, settings=settings) == DEFAULT_CANONICAL_SITE_URL
+
+    settings.site_url = "https://blog.example.com/"
+    db_session.commit()
+    assert resolve_public_site_url(db_session, settings=settings) == "https://blog.example.com"
+
+
+def test_resolve_public_site_url_tolerates_duplicate_settings_rows(db_session, monkeypatch):
+    from app.models import SiteSettings
+    from app.site_config import resolve_public_site_url
+
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://env.example.com")
+    db_session.add_all([
+        SiteSettings(id=1, site_url="https://first.example.com"),
+        SiteSettings(id=2, site_url="https://second.example.com"),
+    ])
+    db_session.commit()
+
+    # scalar_one_or_none() over two rows used to raise MultipleResultsFound -> 500.
+    assert resolve_public_site_url(db_session).startswith("https://")
+
+
 def test_auth_allows_dev_explicit_fallbacks(monkeypatch):
     import app.auth as auth_mod
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, RefreshCcw, Save, Search } from 'lucide-react'
 
 import {
@@ -42,31 +42,47 @@ export default function AdminQualityInbox() {
   const [data, setData] = useState({ summary: {}, items: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Kept apart from `error` (detail/save failures) so a failed list request is
+  // reported inside the list column instead of masquerading as "暂无质量记录".
+  const [inboxError, setInboxError] = useState('')
   const [activePostId, setActivePostId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [savingReview, setSavingReview] = useState(false)
   const [reviewForm, setReviewForm] = useState(defaultReviewForm)
+  // AdminDashboardPage lazy-mounts one panel per section, so switching sections
+  // unmounts this component while the request is still in flight. Every setState
+  // after an await has to be gated on the component still being mounted.
+  const activeRef = useRef(true)
 
   const loadInbox = useCallback(async (nextFilters = filters) => {
     setLoading(true)
-    setError('')
+    setInboxError('')
     try {
       const result = await fetchAdminQualityInbox(nextFilters)
+      if (!activeRef.current) return
       setData({
         summary: result?.summary || {},
         items: Array.isArray(result?.items) ? result.items : [],
       })
     } catch (err) {
-      setData({ summary: {}, items: [] })
-      setError(err.message || '加载质量收件箱失败')
+      if (!activeRef.current) return
+      // Keep whatever was already on screen; the banner below explains the failure.
+      setInboxError(err.message || '加载质量收件箱失败')
     } finally {
-      setLoading(false)
+      if (activeRef.current) setLoading(false)
     }
   }, [filters])
 
   useEffect(() => {
+    activeRef.current = true
     loadInbox(defaultFilters)
+    return () => {
+      activeRef.current = false
+    }
+    // Intentionally mount-only: `loadInbox` is recreated on every filter change,
+    // and filters are applied explicitly through the 应用筛选 / 重置 buttons.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const activeTitle = useMemo(() => {
@@ -79,6 +95,7 @@ export default function AdminQualityInbox() {
     setError('')
     try {
       const result = await fetchAdminPostQuality(postId)
+      if (!activeRef.current) return
       setDetail(result)
       const review = result?.quality_review
       setReviewForm({
@@ -88,10 +105,11 @@ export default function AdminQualityInbox() {
         followup_recommended: Boolean(review?.followup_recommended),
       })
     } catch (err) {
+      if (!activeRef.current) return
       setDetail(null)
       setError(err.message || '加载复盘详情失败')
     } finally {
-      setDetailLoading(false)
+      if (activeRef.current) setDetailLoading(false)
     }
   }
 
@@ -109,11 +127,13 @@ export default function AdminQualityInbox() {
         editor_note: reviewForm.editor_note,
         followup_recommended: reviewForm.followup_recommended,
       })
+      if (!activeRef.current) return
       await Promise.all([openDetail(activePostId), loadInbox()])
     } catch (err) {
+      if (!activeRef.current) return
       setError(err.message || '保存人工复盘失败')
     } finally {
-      setSavingReview(false)
+      if (activeRef.current) setSavingReview(false)
     }
   }
 
@@ -146,7 +166,7 @@ export default function AdminQualityInbox() {
       </div>
 
       {error ? (
-        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[#ef4444]">{error}</div>
+        <div role="alert" className="mb-4 rounded-lg bg-[var(--danger-soft)] px-4 py-2 text-sm text-[var(--danger-text)]">{error}</div>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -221,7 +241,23 @@ export default function AdminQualityInbox() {
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr,1fr]">
         <section className="space-y-4">
           {loading ? <div role="status" className="text-sm text-[var(--text-faint)]">加载中…</div> : null}
-          {!loading && data.items.length === 0 ? (
+          {!loading && inboxError ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] px-5 py-10 text-center text-sm text-[var(--danger-text)]"
+            >
+              <p>{inboxError}</p>
+              <button
+                type="button"
+                onClick={() => loadInbox()}
+                className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border-muted)] px-4 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-canvas)]"
+              >
+                <RefreshCcw size={14} />
+                重试
+              </button>
+            </div>
+          ) : null}
+          {!loading && !inboxError && data.items.length === 0 ? (
             <div className="rounded-xl border border-[var(--border-muted)] bg-[var(--bg-surface)] px-5 py-10 text-center text-sm text-[var(--text-faint)]">
               暂无质量记录。
             </div>

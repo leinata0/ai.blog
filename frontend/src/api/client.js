@@ -16,12 +16,33 @@ const SESSION_CACHE_MATCHERS = [
   /^public:\/api\/series(?:\/|\?|$)/,
 ]
 
+// Bounded LRU-ish caps: the maps used to grow without limit for the lifetime of the tab.
+const MAX_CACHED_RESPONSES = 120
+const MAX_TRACKED_GENERATIONS = 240
+
 const getCache = new Map()
 const inflightGet = new Map()
 const activeGetCounts = new Map()
 const cacheGenerations = new Map()
+const lastSeenTokenFingerprints = new Map()
 let generationCounter = 0
 let globalCacheGeneration = 0
+
+function enforceMapLimit(map, limit) {
+  while (map.size > limit) {
+    const oldestKey = map.keys().next().value
+    if (oldestKey === undefined) return
+    map.delete(oldestKey)
+  }
+}
+
+/** Re-insert so the Map's insertion order doubles as recency order. */
+function touchCacheKey(cacheKey) {
+  const entry = getCache.get(cacheKey)
+  if (entry === undefined) return
+  getCache.delete(cacheKey)
+  getCache.set(cacheKey, entry)
+}
 
 function notifyUserUnauthorized() {
   if (typeof window === 'undefined') return
@@ -144,6 +165,7 @@ function readCacheEntry(cacheKey, now) {
     entry = readSessionCacheEntry(cacheKey)
     if (entry) {
       getCache.set(cacheKey, entry)
+      enforceMapLimit(getCache, MAX_CACHED_RESPONSES)
     }
   }
   if (!entry) return null
@@ -154,6 +176,7 @@ function readCacheEntry(cacheKey, now) {
     return null
   }
 
+  touchCacheKey(cacheKey)
   return entry
 }
 
@@ -167,6 +190,7 @@ function isCurrentCacheGeneration(cacheKey, generation) {
 
 function invalidateCacheKey(cacheKey) {
   cacheGenerations.set(cacheKey, ++generationCounter)
+  enforceMapLimit(cacheGenerations, MAX_TRACKED_GENERATIONS)
   getCache.delete(cacheKey)
   inflightGet.delete(cacheKey)
   deleteSessionCacheEntry(cacheKey)
@@ -204,7 +228,9 @@ function writeCacheEntry(cacheKey, data, cacheTtl, staleTtl, generation) {
     expiresAt: now + cacheTtl,
     staleUntil: now + Math.max(staleTtl, cacheTtl),
   }
+  getCache.delete(cacheKey)
   getCache.set(cacheKey, entry)
+  enforceMapLimit(getCache, MAX_CACHED_RESPONSES)
   writeSessionCacheEntry(cacheKey, entry)
 }
 
@@ -224,10 +250,46 @@ function tokenForAuth(authMode) {
   return null
 }
 
+/**
+ * Short non-reversible fingerprint (djb2 + length) so cache keys still partition per
+ * identity without parking a full JWT in a long-lived Map key.
+ */
+function fingerprintToken(token) {
+  let hash = 5381
+  for (let index = 0; index < token.length; index += 1) {
+    hash = ((hash << 5) + hash + token.charCodeAt(index)) >>> 0
+  }
+  return `${hash.toString(36)}${token.length.toString(36)}`
+}
+
+/** Drop every cached/inflight entry scoped to one auth mode (login switch, logout). */
+export function clearAuthScopedApiCache(auth) {
+  const authMode = normalizeAuth(auth)
+  if (!authMode) return
+  const prefix = `${authMode}:`
+  const keys = new Set([
+    ...getCache.keys(),
+    ...inflightGet.keys(),
+    ...activeGetCounts.keys(),
+    ...cacheGenerations.keys(),
+  ])
+  for (const key of keys) {
+    if (key.startsWith(prefix)) invalidateCacheKey(key)
+  }
+}
+
 function requestGetKey(path, authMode) {
   if (!authMode) return `public:${path}`
-  const token = tokenForAuth(authMode) || 'anonymous'
-  return `${authMode}:${token}:${path}`
+  const token = tokenForAuth(authMode)
+  const fingerprint = token ? fingerprintToken(token) : 'anonymous'
+  // A changed (or cleared) token means the previous identity's cached responses are
+  // no longer reachable — drop them instead of leaving them pinned in memory.
+  const previous = lastSeenTokenFingerprints.get(authMode)
+  if (previous !== undefined && previous !== fingerprint) {
+    clearAuthScopedApiCache(authMode)
+  }
+  lastSeenTokenFingerprints.set(authMode, fingerprint)
+  return `${authMode}:${fingerprint}:${path}`
 }
 
 export function buildApiUrl(path = '') {
@@ -347,8 +409,12 @@ export function apiGet(path, opts = {}) {
     if (cached && staleWhileRevalidate) {
       if (!inflightGet.has(cacheKey)) {
         trackActiveGet(cacheKey)
-        let refreshPromise
-        refreshPromise = requestGetNetwork(path, { ...opts, signal: undefined }, cacheKey, cacheConfig, generation)
+        // Share the RAW promise: a dedupe caller must observe the real rejection.
+        // Previously the `.catch(() => null)` wrapper was what got shared, so a caller
+        // that asked for fresh data silently received `null` when the background
+        // refresh failed (e.g. settings got wiped to null site-wide).
+        const refreshPromise = requestGetNetwork(path, { ...opts, signal: undefined }, cacheKey, cacheConfig, generation)
+        refreshPromise
           .catch(() => null)
           .finally(() => {
             untrackActiveGet(cacheKey)
@@ -356,14 +422,17 @@ export function apiGet(path, opts = {}) {
               inflightGet.delete(cacheKey)
             }
           })
-        inflightGet.set(cacheKey, { generation, promise: refreshPromise })
+        inflightGet.set(cacheKey, { generation, promise: refreshPromise, forceRefresh: false })
       }
       return Promise.resolve(cached.data)
     }
   }
 
-  if (dedupeEnabled && inflightGet.has(cacheKey)) {
-    return inflightGet.get(cacheKey).promise
+  // forceRefresh callers explicitly asked for data newer than "now", so they must not
+  // be handed a background/stale-revalidate request that started before they called.
+  const inflight = dedupeEnabled ? inflightGet.get(cacheKey) : null
+  if (inflight && (!forceRefresh || inflight.forceRefresh)) {
+    return inflight.promise
   }
 
   // When the promise will be shared via dedupe, strip the caller's signal so one
@@ -380,7 +449,7 @@ export function apiGet(path, opts = {}) {
   })
 
   if (dedupeEnabled) {
-    inflightGet.set(cacheKey, { generation, promise: requestPromise })
+    inflightGet.set(cacheKey, { generation, promise: requestPromise, forceRefresh })
   }
 
   return requestPromise
@@ -401,6 +470,7 @@ export function clearApiGetCache(matchPath = null) {
     cacheGenerations.clear()
     getCache.clear()
     inflightGet.clear()
+    lastSeenTokenFingerprints.clear()
     if (canUseSessionStorage()) {
       for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
         const key = window.sessionStorage.key(index)
