@@ -7,9 +7,12 @@ import json
 import logging
 import secrets
 from datetime import datetime, timezone
+from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth import USER_TOKEN_AUDIENCE, create_access_token
@@ -60,6 +63,7 @@ logger = logging.getLogger("blog.users")
 
 MAX_READING_HISTORY = 100  # mirror frontend utils/topicRetention.js cap
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB
+ACCOUNT_LIBRARY_LIMIT = 100
 
 
 def _default_nickname(email: str) -> str:
@@ -538,6 +542,322 @@ def merge_history(
     return _list_history(db, current_user.id)
 
 
+def _account_library_entries(db: Session, user_id: int, kind: str = "all") -> list[dict]:
+    entries: list[dict] = []
+
+    if kind in {"all", "history"}:
+        history_rows = db.execute(
+            select(ReadingHistory, Post)
+            .outerjoin(Post, Post.slug == ReadingHistory.slug)
+            .where(ReadingHistory.user_id == user_id)
+            .order_by(ReadingHistory.visited_at.desc())
+            .limit(ACCOUNT_LIBRARY_LIMIT)
+        ).all()
+        for history, post in history_rows:
+            entries.append(
+                {
+                    "kind": "history",
+                    "id": history.slug,
+                    "slug": history.slug,
+                    "title": (post.title if post else history.title) or history.slug,
+                    "summary": post.summary if post else "",
+                    "cover_image": post.cover_image if post else "",
+                    "content_type": (post.content_type if post else history.content_type) or "post",
+                    "topic_key": (post.topic_key if post else history.topic_key) or "",
+                    "topic_display_title": history.topic_display_title or "",
+                    "coverage_date": (post.coverage_date if post else history.coverage_date) or "",
+                    "occurred_at": history.visited_at,
+                    "available": bool(post and post.is_published),
+                }
+            )
+
+    if kind in {"all", "likes"}:
+        like_rows = db.execute(
+            select(PostLike, Post)
+            .join(Post, PostLike.post_id == Post.id)
+            .where(PostLike.user_id == user_id)
+            .order_by(PostLike.created_at.desc())
+            .limit(ACCOUNT_LIBRARY_LIMIT)
+        ).all()
+        for like, post in like_rows:
+            entries.append(
+                {
+                    "kind": "likes",
+                    "id": str(like.id),
+                    "slug": post.slug,
+                    "title": post.title,
+                    "summary": post.summary,
+                    "cover_image": post.cover_image,
+                    "content_type": post.content_type or "post",
+                    "topic_key": post.topic_key or "",
+                    "topic_display_title": "",
+                    "coverage_date": post.coverage_date or "",
+                    "occurred_at": like.created_at,
+                    "available": bool(post.is_published),
+                }
+            )
+
+    if kind in {"all", "comments"}:
+        comment_rows = db.execute(
+            select(Comment, Post)
+            .join(Post, Comment.post_id == Post.id)
+            .where(Comment.user_id == user_id)
+            .order_by(Comment.created_at.desc())
+            .limit(ACCOUNT_LIBRARY_LIMIT)
+        ).all()
+        for comment, post in comment_rows:
+            entries.append(
+                {
+                    "kind": "comments",
+                    "id": str(comment.id),
+                    "slug": post.slug,
+                    "title": post.title,
+                    "summary": post.summary,
+                    "cover_image": post.cover_image,
+                    "content_type": post.content_type or "post",
+                    "topic_key": post.topic_key or "",
+                    "topic_display_title": "",
+                    "coverage_date": post.coverage_date or "",
+                    "occurred_at": comment.created_at,
+                    "available": bool(post.is_published),
+                    "comment_content": comment.content,
+                }
+            )
+
+    entries.sort(
+        key=lambda entry: _as_aware(entry["occurred_at"] or datetime.min),
+        reverse=True,
+    )
+    return entries
+
+
+@router.get("/me/dashboard")
+def account_dashboard(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    count_models = {
+        "following": FollowedTopic,
+        "history": ReadingHistory,
+        "comments": Comment,
+        "likes": PostLike,
+    }
+    counts = {
+        key: db.execute(
+            select(func.count(model.id)).where(model.user_id == current_user.id)
+        ).scalar_one()
+        for key, model in count_models.items()
+    }
+
+    recent_history = _account_library_entries(db, current_user.id, "history")[:6]
+    followed = db.execute(
+        select(FollowedTopic)
+        .where(FollowedTopic.user_id == current_user.id)
+        .order_by(FollowedTopic.followed_at.desc())
+    ).scalars().all()
+    followed_by_key = {item.topic_key: item for item in followed}
+
+    followed_updates: list[dict] = []
+    if followed_by_key:
+        ranked_posts = (
+            select(
+                Post.topic_key.label("topic_key"),
+                Post.slug.label("slug"),
+                Post.title.label("title"),
+                Post.summary.label("summary"),
+                Post.cover_image.label("cover_image"),
+                Post.content_type.label("content_type"),
+                Post.coverage_date.label("coverage_date"),
+                Post.created_at.label("created_at"),
+                func.row_number()
+                .over(partition_by=Post.topic_key, order_by=Post.created_at.desc())
+                .label("topic_position"),
+            )
+            .where(Post.is_published == True)
+            .where(Post.topic_key.in_(followed_by_key))
+            .subquery()
+        )
+        latest_rows = db.execute(
+            select(ranked_posts).where(ranked_posts.c.topic_position == 1)
+        ).mappings().all()
+        latest_by_key = {row["topic_key"]: row for row in latest_rows}
+
+        for topic in followed:
+            latest = latest_by_key.get(topic.topic_key)
+            followed_updates.append(
+                {
+                    "topic_key": topic.topic_key,
+                    "display_title": topic.display_title or topic.topic_key,
+                    "followed_at": topic.followed_at,
+                    "latest_post": (
+                        {
+                            "slug": latest["slug"],
+                            "title": latest["title"],
+                            "summary": latest["summary"],
+                            "cover_image": latest["cover_image"],
+                            "content_type": latest["content_type"],
+                            "coverage_date": latest["coverage_date"],
+                            "published_at": latest["created_at"],
+                        }
+                        if latest
+                        else None
+                    ),
+                }
+            )
+        followed_updates.sort(
+            key=lambda item: _as_aware(
+                (item["latest_post"] or {}).get("published_at") or item["followed_at"]
+            ),
+            reverse=True,
+        )
+
+    return {
+        "counts": counts,
+        "recent_history": recent_history,
+        "followed_updates": followed_updates[:8],
+        "security": {
+            "email_verified": bool(current_user.email_verified),
+            "password_set": bool(current_user.password_set),
+            "last_login_at": current_user.last_login_at,
+        },
+    }
+
+
+@router.get("/me/library")
+def account_library(
+    kind: Literal["all", "history", "likes", "comments"] = Query(default="all"),
+    q: str = Query(default="", max_length=120),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    entries = _account_library_entries(db, current_user.id, kind)
+    normalized_query = q.strip().casefold()
+    if normalized_query:
+        entries = [
+            entry
+            for entry in entries
+            if normalized_query
+            in " ".join(
+                str(entry.get(field) or "")
+                for field in ("title", "summary", "topic_display_title", "comment_content")
+            ).casefold()
+        ]
+
+    total = len(entries)
+    offset = (page - 1) * page_size
+    return {
+        "kind": kind,
+        "items": entries[offset : offset + page_size],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.delete("/me/history/{slug}")
+def remove_history_entry(
+    slug: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    result = db.execute(
+        delete(ReadingHistory).where(
+            ReadingHistory.user_id == current_user.id,
+            ReadingHistory.slug == slug.strip(),
+        )
+    )
+    db.commit()
+    return {"removed": bool(result.rowcount)}
+
+
+@router.delete("/me/history")
+def clear_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    result = db.execute(
+        delete(ReadingHistory).where(ReadingHistory.user_id == current_user.id)
+    )
+    db.commit()
+    return {"removed_count": result.rowcount or 0}
+
+
+@router.delete("/me/likes/{slug}")
+def remove_like(
+    slug: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    post = db.execute(select(Post).where(Post.slug == slug.strip())).scalar_one_or_none()
+    if post is None:
+        return {"removed": False, "like_count": 0}
+
+    removed_post_id = db.execute(
+        delete(PostLike)
+        .where(PostLike.user_id == current_user.id, PostLike.post_id == post.id)
+        .returning(PostLike.post_id)
+    ).scalar_one_or_none()
+    if removed_post_id is not None:
+        current_count = func.coalesce(Post.like_count, 0)
+        db.execute(
+            update(Post)
+            .where(Post.id == post.id)
+            .values(
+                like_count=case(
+                    (current_count > 0, current_count - 1),
+                    else_=0,
+                )
+            )
+        )
+    db.commit()
+    refreshed_count = db.execute(
+        select(Post.like_count).where(Post.id == post.id)
+    ).scalar_one()
+    return {"removed": removed_post_id is not None, "like_count": refreshed_count or 0}
+
+
+@router.delete("/me/comments/{comment_id}")
+def remove_own_comment(
+    comment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    result = db.execute(
+        delete(Comment).where(Comment.id == comment_id, Comment.user_id == current_user.id)
+    )
+    if not result.rowcount:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="评论不存在或无权删除")
+    db.commit()
+    return {"removed": True}
+
+
+@router.get("/me/export")
+def export_account_data(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    topics = list_followed_topics(current_user, db)
+    library = _account_library_entries(db, current_user.id, "all")
+    payload = {
+        "exported_at": datetime.now(timezone.utc),
+        "profile": UserOut.model_validate(current_user),
+        "followed_topics": topics,
+        "reading_history": [item for item in library if item["kind"] == "history"],
+        "likes": [item for item in library if item["kind"] == "likes"],
+        "comments": [item for item in library if item["kind"] == "comments"],
+    }
+    return JSONResponse(
+        content=jsonable_encoder(payload),
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'attachment; filename="signal-desk-data-{current_user.id}.json"',
+        },
+    )
+
+
 # ── Avatar upload ─────────────────────────────────
 
 @router.post("/me/avatar", response_model=UserOut)
@@ -557,6 +877,18 @@ def upload_avatar(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     stored = save_upload(file.filename, contents, detected)
     current_user.avatar_url = stored.url
+    current_user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.delete("/me/avatar", response_model=UserOut)
+def remove_avatar(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_user.avatar_url = ""
     current_user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(current_user)

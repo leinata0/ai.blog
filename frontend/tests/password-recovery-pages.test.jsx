@@ -75,7 +75,7 @@ describe('password recovery pages', () => {
       new_password: 'newsecret123',
       turnstile_token: '',
     }))
-    expect(mocks.navigate).toHaveBeenCalledWith('/account')
+    expect(mocks.navigate).toHaveBeenCalledWith('/account?tab=overview')
   })
 
   it('rejects mismatched passwords without consuming the reset challenge', async () => {

@@ -94,7 +94,7 @@ describe('auth pages with Turnstile disabled', () => {
       challenge_id: 'challenge-1',
       code: '123456',
     }))
-    expect(mocks.navigate).toHaveBeenCalledWith('/account')
+    expect(mocks.navigate).toHaveBeenCalledWith('/account?tab=overview')
     vi.useRealTimers()
   })
 

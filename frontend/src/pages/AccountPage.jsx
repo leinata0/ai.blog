@@ -1,253 +1,839 @@
-import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
   BadgeCheck,
   BookOpen,
+  CheckCircle2,
+  Clock3,
+  Cloud,
+  Download,
   Heart,
   History,
-  LogOut,
+  LoaderCircle,
   MessageSquare,
-  Settings,
+  RefreshCw,
+  Search,
   ShieldCheck,
+  Sparkles,
+  Trash2,
+  Upload,
   UserRound,
+  X,
 } from 'lucide-react'
 
-import Navbar from '../components/Navbar'
-import Footer from '../components/Footer'
-import BackToTop from '../components/BackToTop'
+import AccountCommandPalette from '../components/account/AccountCommandPalette'
+import AccountShell from '../components/account/AccountShell'
+import { ConfirmProvider, useConfirm } from '../components/ui/ConfirmDialog'
+import { Field, LiveNotice } from '../components/ui/Feedback'
 import { useUser } from '../contexts/UserContext'
 import {
-  updateMe,
   changePassword as changePasswordApi,
-  fetchCloudTopics,
-  fetchCloudHistory,
-  fetchMyComments,
-  fetchMyLikes,
-  uploadAvatar,
-  resendVerification,
+  clearCloudHistory,
   deleteAccount,
+  fetchAccountDashboard,
+  fetchAccountExport,
+  fetchAccountLibrary,
+  removeAccountComment,
+  removeAccountLike,
+  removeAvatar,
+  removeHistoryEntry,
+  resendVerification,
   revokeSessions as revokeSessionsApi,
+  unfollowTopicCloud,
+  updateMe,
+  uploadAvatar,
 } from '../api/user'
+import '../styles/account.css'
 
-const inputClass = 'auth-input w-full rounded-xl border px-4 py-3 text-sm outline-none transition-colors focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]'
-const inputStyle = { backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }
-const tabs = [
-  ['overview', '概览', UserRound],
-  ['profile', '个人资料', Settings],
-  ['security', '账号安全', ShieldCheck],
-  ['topics', '我的关注', BookOpen],
-  ['history', '阅读历史', History],
-  ['comments', '我的评论', MessageSquare],
-  ['likes', '我的点赞', Heart],
-]
+const VALID_TABS = new Set(['overview', 'library', 'following', 'profile', 'security'])
+const VALID_KINDS = new Set(['all', 'history', 'likes', 'comments'])
+const LIBRARY_PAGE_SIZE = 20
+const SCROLL_STORAGE_PREFIX = 'signal-account-scroll:v1:'
+const dateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' })
+const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+})
+const numberFormatter = new Intl.NumberFormat('zh-CN')
 
-function Empty({ children }) {
-  return <p className="py-8 text-center text-sm" style={{ color: 'var(--text-faint)' }}>{children}</p>
+function formatDate(value, withTime = false) {
+  if (!value) return '暂无记录'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '暂无记录'
+  return (withTime ? dateTimeFormatter : dateFormatter).format(date)
 }
 
-function Panel({ title, description, children }) {
+function contentTypeLabel(value) {
+  return {
+    daily_brief: '每日简报',
+    weekly_review: '每周复盘',
+    post: '文章',
+  }[value] || '文章'
+}
+
+function kindLabel(value) {
+  return { all: '全部资产', history: '阅读历史', likes: '点赞文章', comments: '我的评论' }[value] || '全部资产'
+}
+
+function EmptyState({ icon: Icon = Sparkles, title, description, action }) {
   return (
-    <section>
-      <h2 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h2>
-      {description ? <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-tertiary)' }}>{description}</p> : null}
-      <div className="mt-6">{children}</div>
-    </section>
+    <div className="account-empty">
+      <Icon size={24} aria-hidden="true" />
+      <h3>{title}</h3>
+      <p>{description}</p>
+      {action || null}
+    </div>
   )
 }
 
-export default function AccountPage() {
+function SectionHeading({ kicker, title, description, actions }) {
+  return (
+    <header className="account-section-heading">
+      <div>
+        <p className="account-kicker">{kicker}</p>
+        <h2>{title}</h2>
+        {description ? <p>{description}</p> : null}
+      </div>
+      {actions ? <div className="account-section-heading__actions">{actions}</div> : null}
+    </header>
+  )
+}
+
+function SectionSkeleton() {
+  return (
+    <div className="account-skeleton" role="status" aria-label="正在整理你的个人信号…">
+      <span />
+      <span />
+      <span />
+    </div>
+  )
+}
+
+function AccountPageContent() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const confirm = useConfirm()
   const userContext = useUser()
-  const { user, loading, logout, setUser } = userContext
-  const fileInputRef = useRef(null)
-  const [activeTab, setActiveTab] = useState('overview')
-  const [nickname, setNickname] = useState('')
-  const [bio, setBio] = useState('')
+  const { user, logout, setUser, syncState = 'idle', retrySync } = userContext
+
+  const requestedTab = searchParams.get('tab') || 'overview'
+  const activeTab = VALID_TABS.has(requestedTab) ? requestedTab : 'overview'
+  const requestedKind = searchParams.get('kind') || 'all'
+  const libraryKind = VALID_KINDS.has(requestedKind) ? requestedKind : 'all'
+  const libraryQuery = activeTab === 'library' ? (searchParams.get('q') || '').slice(0, 120) : ''
+  const rawPage = Number(searchParams.get('page') || 1)
+  const libraryPage = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1
+
+  const [dashboard, setDashboard] = useState({ data: null, loading: true, error: '' })
+  const dashboardControllerRef = useRef(null)
+  const libraryCacheRef = useRef(new Map())
+  const [libraryState, setLibraryState] = useState({ key: '', data: null, loading: false, error: '' })
+  const [searchDraft, setSearchDraft] = useState(libraryQuery)
+  const [notice, setNotice] = useState({ status: '', error: '' })
+  const [nickname, setNickname] = useState(user?.nickname || '')
+  const [bio, setBio] = useState(user?.bio || '')
+  const [avatarFile, setAvatarFile] = useState(null)
+  const [avatarPreview, setAvatarPreview] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
-  const [profileMsg, setProfileMsg] = useState('')
-  const [securityMsg, setSecurityMsg] = useState('')
-  const [verifyMsg, setVerifyMsg] = useState('')
-  const [topics, setTopics] = useState([])
-  const [history, setHistory] = useState([])
-  const [myComments, setMyComments] = useState([])
-  const [myLikes, setMyLikes] = useState([])
+  const [securitySaving, setSecuritySaving] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const fileInputRef = useRef(null)
 
-  useEffect(() => { document.title = '账号中心 - AI 资讯观察' }, [])
+  const profileDirty = nickname !== (user?.nickname || '') || bio !== (user?.bio || '') || Boolean(avatarFile)
+
   useEffect(() => {
-    if (!user) return
-    setNickname(user.nickname || '')
-    setBio(user.bio || '')
-    Promise.allSettled([fetchCloudTopics(), fetchCloudHistory(), fetchMyComments(), fetchMyLikes()]).then((results) => {
-      setTopics(results[0].status === 'fulfilled' ? results[0].value : [])
-      setHistory(results[1].status === 'fulfilled' ? results[1].value : [])
-      setMyComments(results[2].status === 'fulfilled' ? results[2].value : [])
-      setMyLikes(results[3].status === 'fulfilled' ? results[3].value : [])
-    })
-  }, [user])
+    document.title = '个人信号中心 - AI 资讯观察'
+  }, [])
 
-  async function handleProfile(event) {
-    event.preventDefault()
-    setProfileMsg('')
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', activeTab)
+    if (activeTab === 'library') {
+      next.set('kind', libraryKind)
+      if (libraryQuery) next.set('q', libraryQuery)
+      else next.delete('q')
+      if (libraryPage > 1) next.set('page', String(libraryPage))
+      else next.delete('page')
+    } else {
+      next.delete('kind')
+      next.delete('q')
+      next.delete('page')
+    }
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+  }, [activeTab, libraryKind, libraryPage, libraryQuery, searchParams, setSearchParams])
+
+  useEffect(() => {
+    setSearchDraft(libraryQuery)
+  }, [libraryQuery])
+
+  useEffect(() => {
+    setNickname(user?.nickname || '')
+    setBio(user?.bio || '')
+  }, [user?.bio, user?.nickname])
+
+  useEffect(() => () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+  }, [avatarPreview])
+
+  useEffect(() => {
+    if (!profileDirty) return undefined
+    function warnBeforeUnload(event) {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [profileDirty])
+
+  useEffect(() => {
+    if (!profileDirty) return undefined
+    async function interceptNavigation(event) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const anchor = event.target.closest?.('a[href]')
+      if (!anchor) return
+      const target = new URL(anchor.href, window.location.href)
+      if (target.origin !== window.location.origin || `${target.pathname}${target.search}` === `${location.pathname}${location.search}`) return
+      event.preventDefault()
+      event.stopPropagation()
+      const approved = await confirm({
+        title: '离开未保存的资料？',
+        description: '昵称、简介或待上传头像尚未保存。离开后这些修改会丢失。',
+        confirmLabel: '放弃修改',
+      })
+      if (approved) {
+        setAvatarFile(null)
+        setNickname(user?.nickname || '')
+        setBio(user?.bio || '')
+        navigate(`${target.pathname}${target.search}${target.hash}`)
+      }
+    }
+    document.addEventListener('click', interceptNavigation, true)
+    return () => document.removeEventListener('click', interceptNavigation, true)
+  }, [confirm, location.pathname, location.search, navigate, profileDirty, user?.bio, user?.nickname])
+
+  useEffect(() => {
+    const storageKey = `${SCROLL_STORAGE_PREFIX}${location.pathname}${location.search}`
     try {
-      const updated = await updateMe({ nickname, bio })
-      setUser(updated)
-      setProfileMsg('资料已更新')
+      const saved = Number(window.sessionStorage.getItem(storageKey) || 0)
+      const frame = window.requestAnimationFrame(() => {
+        if (saved > 0) window.scrollTo({ top: saved, behavior: 'auto' })
+      })
+      return () => {
+        window.cancelAnimationFrame(frame)
+        window.sessionStorage.setItem(storageKey, String(window.scrollY || 0))
+      }
+    } catch {
+      return undefined
+    }
+  }, [location.pathname, location.search])
+
+  const loadDashboard = useCallback(async ({ quiet = false } = {}) => {
+    dashboardControllerRef.current?.abort()
+    const controller = new AbortController()
+    dashboardControllerRef.current = controller
+    setDashboard((current) => ({ ...current, loading: quiet ? current.loading : true, error: '' }))
+    try {
+      const data = await fetchAccountDashboard({ signal: controller.signal })
+      setDashboard({ data, loading: false, error: '' })
     } catch (error) {
-      setProfileMsg(String(error?.message || '更新失败'))
+      if (error?.name !== 'AbortError') {
+        setDashboard((current) => ({ ...current, loading: false, error: String(error?.message || '个人信号暂时无法加载') }))
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    loadDashboard()
+    return () => dashboardControllerRef.current?.abort()
+  }, [loadDashboard])
+
+  useEffect(() => {
+    if (syncState === 'synced') loadDashboard({ quiet: true })
+  }, [loadDashboard, syncState])
+
+  const libraryKey = `${libraryKind}|${libraryQuery}|${libraryPage}`
+  useEffect(() => {
+    if (activeTab !== 'library') return undefined
+    const cached = libraryCacheRef.current.get(libraryKey)
+    if (cached) {
+      setLibraryState({ key: libraryKey, data: cached, loading: false, error: '' })
+      return undefined
+    }
+    const controller = new AbortController()
+    setLibraryState({ key: libraryKey, data: null, loading: true, error: '' })
+    fetchAccountLibrary({
+      kind: libraryKind,
+      q: libraryQuery,
+      page: libraryPage,
+      pageSize: LIBRARY_PAGE_SIZE,
+      signal: controller.signal,
+    }).then((data) => {
+      libraryCacheRef.current.set(libraryKey, data)
+      setLibraryState({ key: libraryKey, data, loading: false, error: '' })
+    }).catch((error) => {
+      if (error?.name !== 'AbortError') {
+        setLibraryState({ key: libraryKey, data: null, loading: false, error: String(error?.message || '资料库加载失败') })
+      }
+    })
+    return () => controller.abort()
+  }, [activeTab, libraryKey, libraryKind, libraryPage, libraryQuery])
+
+  const tabHref = useCallback((tab) => `/account?tab=${tab}`, [])
+  const counts = dashboard.data?.counts || { following: 0, history: 0, comments: 0, likes: 0 }
+
+  function libraryHref({ kind = libraryKind, q = libraryQuery, page = 1 } = {}) {
+    const params = new URLSearchParams({ tab: 'library', kind })
+    if (q) params.set('q', q)
+    if (page > 1) params.set('page', String(page))
+    return `/account?${params}`
+  }
+
+  function submitLibrarySearch(event) {
+    event.preventDefault()
+    navigate(libraryHref({ q: searchDraft.trim(), page: 1 }))
+  }
+
+  async function removeLibraryItem(item) {
+    const labels = { history: '移除阅读记录', likes: '取消点赞', comments: '删除评论' }
+    const approved = await confirm({
+      title: labels[item.kind],
+      description: `将“${item.title}”从${kindLabel(item.kind)}中移除。`,
+      confirmLabel: labels[item.kind],
+    })
+    if (!approved) return
+    const previous = libraryState.data
+    const previousDashboard = dashboard.data
+    const next = {
+      ...previous,
+      total: Math.max(0, previous.total - 1),
+      items: previous.items.filter((entry) => !(entry.kind === item.kind && entry.id === item.id)),
+    }
+    libraryCacheRef.current.clear()
+    libraryCacheRef.current.set(libraryKey, next)
+    setLibraryState((current) => ({ ...current, data: next }))
+    setDashboard((current) => {
+      if (!current.data) return current
+      const countKey = item.kind
+      return {
+        ...current,
+        data: {
+          ...current.data,
+          counts: { ...current.data.counts, [countKey]: Math.max(0, current.data.counts[countKey] - 1) },
+          recent_history: item.kind === 'history'
+            ? current.data.recent_history.filter((entry) => entry.slug !== item.slug)
+            : current.data.recent_history,
+        },
+      }
+    })
+    try {
+      if (item.kind === 'history') await removeHistoryEntry(item.slug)
+      else if (item.kind === 'likes') await removeAccountLike(item.slug)
+      else await removeAccountComment(item.id)
+      setNotice({ status: `${labels[item.kind]}成功`, error: '' })
+      if (next.items.length === 0 && libraryPage > 1) {
+        navigate(libraryHref({ page: libraryPage - 1 }), { replace: true })
+      }
+    } catch (error) {
+      libraryCacheRef.current.set(libraryKey, previous)
+      setLibraryState((current) => ({ ...current, data: previous }))
+      setDashboard({ data: previousDashboard, loading: false, error: '' })
+      setNotice({ status: '', error: `${String(error?.message || labels[item.kind])}。列表已恢复，请重试。` })
     }
   }
 
-  async function handleAvatar(event) {
+  async function clearHistory() {
+    const approved = await confirm({
+      title: '清空阅读历史',
+      description: '这会移除全部跨设备阅读记录，且无法恢复。点赞和评论不会受影响。',
+      confirmLabel: '清空历史',
+    })
+    if (!approved) return
+    try {
+      await clearCloudHistory()
+      libraryCacheRef.current.clear()
+      setDashboard((current) => current.data ? ({
+        ...current,
+        data: {
+          ...current.data,
+          counts: { ...current.data.counts, history: 0 },
+          recent_history: [],
+        },
+      }) : current)
+      try {
+        const refreshed = await fetchAccountLibrary({
+          kind: libraryKind,
+          q: libraryQuery,
+          page: libraryPage,
+          pageSize: LIBRARY_PAGE_SIZE,
+        })
+        const lastPage = Math.max(1, Math.ceil(refreshed.total / LIBRARY_PAGE_SIZE))
+        if (libraryPage > lastPage) {
+          navigate(libraryHref({ page: lastPage }), { replace: true })
+        } else {
+          libraryCacheRef.current.set(libraryKey, refreshed)
+          setLibraryState({ key: libraryKey, data: refreshed, loading: false, error: '' })
+        }
+        setNotice({ status: '阅读历史已清空', error: '' })
+      } catch (refreshError) {
+        setLibraryState({
+          key: libraryKey,
+          data: null,
+          loading: false,
+          error: String(refreshError?.message || '阅读历史已清空，但资料库刷新失败'),
+        })
+        setNotice({ status: '阅读历史已清空，资料库需要重新加载', error: '' })
+      }
+    } catch (error) {
+      setNotice({ status: '', error: String(error?.message || '清空失败，请重试') })
+    }
+  }
+
+  async function handleUnfollow(topic) {
+    const approved = await confirm({
+      title: '取消关注主题',
+      description: `停止追踪“${topic.display_title || topic.topic_key}”。已产生的阅读记录不会删除。`,
+      confirmLabel: '取消关注',
+    })
+    if (!approved) return
+    const previous = dashboard.data
+    setDashboard((current) => current.data ? ({
+      ...current,
+      data: {
+        ...current.data,
+        counts: { ...current.data.counts, following: Math.max(0, current.data.counts.following - 1) },
+        followed_updates: current.data.followed_updates.filter((item) => item.topic_key !== topic.topic_key),
+      },
+    }) : current)
+    try {
+      await unfollowTopicCloud(topic.topic_key)
+      setNotice({ status: '已取消关注', error: '' })
+    } catch (error) {
+      setDashboard({ data: previous, loading: false, error: '' })
+      setNotice({ status: '', error: `${String(error?.message || '取消关注失败')}。主题已恢复。` })
+    }
+  }
+
+  function chooseAvatar(event) {
     const file = event.target.files?.[0]
     if (!file) return
-    setProfileMsg('')
+    if (!file.type.startsWith('image/')) {
+      setNotice({ status: '', error: '请选择 PNG、JPEG、GIF 或 WebP 图片。' })
+      event.target.value = ''
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setNotice({ status: '', error: '头像不能超过 2 MB，请压缩后重试。' })
+      event.target.value = ''
+      return
+    }
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+    setAvatarFile(file)
+    setAvatarPreview(URL.createObjectURL(file))
+    setNotice({ status: '头像已预览，保存后上传', error: '' })
+  }
+
+  async function saveProfile(event) {
+    event.preventDefault()
+    setProfileSaving(true)
+    setNotice({ status: '', error: '' })
     try {
-      const updated = await uploadAvatar(file)
+      let updated = await updateMe({ nickname, bio })
+      if (avatarFile) updated = await uploadAvatar(avatarFile)
       setUser(updated)
-      setProfileMsg('头像已更新')
-    } catch (error) {
-      setProfileMsg(String(error?.message || '头像上传失败'))
-    } finally {
+      setAvatarFile(null)
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+      setAvatarPreview('')
       if (fileInputRef.current) fileInputRef.current.value = ''
+      setNotice({ status: '身份资料已保存', error: '' })
+    } catch (error) {
+      setNotice({ status: '', error: String(error?.message || '资料保存失败，请重试') })
+    } finally {
+      setProfileSaving(false)
     }
   }
 
-  async function handlePassword(event) {
+  async function handleRemoveAvatar() {
+    const approved = await confirm({
+      title: '移除头像',
+      description: '评论中的头像也会恢复为默认身份标记。',
+      confirmLabel: '移除头像',
+    })
+    if (!approved) return
+    try {
+      const updated = await removeAvatar()
+      setUser(updated)
+      setAvatarFile(null)
+      setAvatarPreview('')
+      setNotice({ status: '头像已移除', error: '' })
+    } catch (error) {
+      setNotice({ status: '', error: String(error?.message || '头像移除失败') })
+    }
+  }
+
+  async function updatePassword(event) {
     event.preventDefault()
-    setSecurityMsg('')
+    setSecuritySaving(true)
+    setNotice({ status: '', error: '' })
     try {
       const updater = userContext.updatePassword || changePasswordApi
       const updated = await updater({ old_password: user?.password_set ? oldPassword : undefined, new_password: newPassword })
       if (updated?.email) setUser(updated)
       setOldPassword('')
       setNewPassword('')
-      setSecurityMsg(user?.password_set ? '密码已更新，其他旧会话已失效' : '密码已设置')
+      setNotice({ status: user?.password_set ? '密码已更新，旧会话已失效' : '密码已设置', error: '' })
     } catch (error) {
-      setSecurityMsg(String(error?.message || '密码更新失败'))
+      setNotice({ status: '', error: String(error?.message || '密码更新失败，请检查后重试') })
+    } finally {
+      setSecuritySaving(false)
     }
   }
 
-  async function handleResend() {
-    setVerifyMsg('')
+  async function resendEmailVerification() {
     try {
       await resendVerification()
-      setVerifyMsg('验证邮件已发送，请查收')
+      setNotice({ status: '验证邮件已发送，请检查收件箱', error: '' })
     } catch (error) {
-      setVerifyMsg(String(error?.message || '发送失败'))
+      setNotice({ status: '', error: String(error?.message || '发送失败，请稍后重试') })
     }
   }
 
-  async function handleRevokeSessions() {
-    if (!window.confirm('确定退出所有设备吗？当前设备也需要重新登录。')) return
+  const exportData = useCallback(async () => {
+    setExporting(true)
+    setNotice({ status: '', error: '' })
+    try {
+      const payload = await fetchAccountExport()
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `signal-desk-data-${new Date().toISOString().slice(0, 10)}.json`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setNotice({ status: '个人数据导出已开始下载', error: '' })
+    } catch (error) {
+      setNotice({ status: '', error: String(error?.message || '导出失败，请重试') })
+    } finally {
+      setExporting(false)
+    }
+  }, [])
+
+  async function revokeAllSessions() {
+    const approved = await confirm({
+      title: '退出全部设备',
+      description: '所有现有登录令牌都会失效，包括当前设备。',
+      confirmLabel: '退出全部设备',
+    })
+    if (!approved) return
     try {
       if (userContext.revokeAllSessions) await userContext.revokeAllSessions()
       else {
         await revokeSessionsApi()
         logout()
       }
-      navigate('/login')
+      navigate('/login?reason=sessions-revoked', { replace: true })
     } catch (error) {
-      setSecurityMsg(String(error?.message || '操作失败，请稍后重试'))
+      setNotice({ status: '', error: String(error?.message || '操作失败，请稍后重试') })
     }
   }
 
-  async function handleDeleteAccount() {
-    if (!window.confirm('确定要注销账号吗？此操作不可恢复，你的关注、点赞、阅读历史将被删除。')) return
+  async function removeAccount() {
+    const approved = await confirm({
+      title: '永久注销账号',
+      description: '关注、点赞和阅读历史将永久删除；评论会匿名保留。此操作不可恢复。',
+      confirmLabel: '永久注销',
+      verificationText: '注销账号',
+    })
+    if (!approved) return
     try {
       await deleteAccount()
       logout()
-      navigate('/')
+      navigate('/', { replace: true })
     } catch (error) {
-      window.alert(String(error?.message || '注销失败，请稍后重试'))
+      setNotice({ status: '', error: String(error?.message || '注销失败，请稍后重试') })
     }
   }
 
-  if (loading) {
-    return <main data-ui="account-page" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}><Navbar /><div role="status" className="mx-auto max-w-6xl px-6 py-16 text-sm" style={{ color: 'var(--text-tertiary)' }}>正在加载账号…</div></main>
+  function logoutCurrentDevice() {
+    logout()
+    navigate('/', { replace: true })
   }
 
-  const summary = [
-    ['关注主题', topics.length],
-    ['阅读记录', history.length],
-    ['我的评论', myComments.length],
-    ['点赞文章', myLikes.length],
-  ]
+  function renderOverview() {
+    if (dashboard.loading && !dashboard.data) return <SectionSkeleton />
+    if (dashboard.error && !dashboard.data) {
+      return <EmptyState icon={Cloud} title="个人信号暂时离线" description={`${dashboard.error}。请检查网络后重试。`} action={<button type="button" className="account-button" onClick={() => loadDashboard()}><RefreshCw size={16} aria-hidden="true" />重新加载</button>} />
+    }
+    const recent = dashboard.data?.recent_history || []
+    const followed = dashboard.data?.followed_updates || []
+    return (
+      <div className="account-section-stack">
+        <SectionHeading kicker="Today / Resume" title="从最近的信号继续" description="阅读轨迹不是统计终点，而是下一次探索的起点。" />
+        {syncState === 'error' ? (
+          <div className="account-sync-warning">
+            <AlertTriangle size={18} aria-hidden="true" />
+            <span>部分本地阅读数据尚未同步到云端。</span>
+            <button type="button" onClick={retrySync}>重新同步</button>
+          </div>
+        ) : null}
+        <div className="account-overview-grid">
+          <section className="account-resume-panel">
+            <div className="account-panel-label"><History size={16} aria-hidden="true" />最近阅读</div>
+            {recent.length ? (
+              <div className="account-resume-list">
+                {recent.slice(0, 4).map((item, index) => (
+                  <article key={item.slug}>
+                    <span className="account-index">{String(index + 1).padStart(2, '0')}</span>
+                    <div className="min-w-0">
+                      <div className="account-meta"><span>{contentTypeLabel(item.content_type)}</span><time>{formatDate(item.occurred_at)}</time></div>
+                      {item.available ? <Link to={`/posts/${item.slug}`} className="line-clamp-2">{item.title}</Link> : <strong className="line-clamp-2">{item.title}</strong>}
+                    </div>
+                    {item.available ? <Link to={`/posts/${item.slug}`} aria-label={`继续阅读：${item.title}`}><ArrowRight size={18} aria-hidden="true" /></Link> : <span className="account-unavailable">已下线</span>}
+                  </article>
+                ))}
+              </div>
+            ) : <EmptyState icon={BookOpen} title="还没有阅读轨迹" description="打开一篇文章，个人信号中心会从这里开始生长。" action={<Link className="account-text-link" to="/discover">探索最新内容</Link>} />}
+            {recent.length ? <Link className="account-panel-footer-link" to={libraryHref({ kind: 'history' })}>查看全部阅读历史 <ArrowRight size={15} aria-hidden="true" /></Link> : null}
+          </section>
+
+          <aside className="account-ledger" aria-label="个人内容资产摘要">
+            <p className="account-panel-label">Content Ledger</p>
+            {[
+              ['history', '阅读记录', counts.history],
+              ['likes', '点赞文章', counts.likes],
+              ['comments', '我的评论', counts.comments],
+              ['following', '关注主题', counts.following],
+            ].map(([kind, label, value]) => (
+              <Link key={kind} to={kind === 'following' ? tabHref('following') : libraryHref({ kind })}>
+                <span>{label}</span>
+                <strong>{numberFormatter.format(value)}</strong>
+              </Link>
+            ))}
+          </aside>
+        </div>
+
+        <section className="account-follow-pulse">
+          <div className="account-follow-pulse__heading">
+            <div><p className="account-panel-label">Following Pulse</p><h3>关注主题的最新文章</h3></div>
+            <Link to={tabHref('following')}>管理关注</Link>
+          </div>
+          {followed.length ? (
+            <div className="account-topic-pulse-grid">
+              {followed.slice(0, 4).map((topic) => (
+                <article key={topic.topic_key}>
+                  <Link className="account-topic-chip" to={`/topics/${topic.topic_key}`}>{topic.display_title || topic.topic_key}</Link>
+                  {topic.latest_post ? (
+                    <>
+                      <Link className="line-clamp-2" to={`/posts/${topic.latest_post.slug}`}>{topic.latest_post.title}</Link>
+                      <time>{formatDate(topic.latest_post.published_at)}</time>
+                    </>
+                  ) : <p>这个主题暂时没有新文章。</p>}
+                </article>
+              ))}
+            </div>
+          ) : <EmptyState icon={Sparkles} title="还没有关注主题" description="关注主题后，最新文章会在这里形成持续更新的信号流。" action={<Link className="account-text-link" to="/topics">浏览主题</Link>} />}
+        </section>
+
+        {!user?.email_verified ? (
+          <section className="account-security-callout">
+            <AlertTriangle size={21} aria-hidden="true" />
+            <div><strong>完成邮箱验证</strong><p>验证后可确保账号恢复和评论身份稳定。</p></div>
+            <button type="button" onClick={resendEmailVerification}>发送验证邮件</button>
+          </section>
+        ) : null}
+      </div>
+    )
+  }
+
+  function renderLibrary() {
+    const data = libraryState.data
+    const totalPages = data ? Math.max(1, Math.ceil(data.total / LIBRARY_PAGE_SIZE)) : 1
+    return (
+      <div className="account-section-stack">
+        <SectionHeading
+          kicker="Library / Personal Knowledge"
+          title="我的资料库"
+          description="搜索、回看并整理你在 Signal Desk 留下的阅读与互动资产。"
+          actions={(libraryKind === 'history' || libraryKind === 'all') && counts.history ? <button type="button" className="account-subtle-button account-subtle-button--danger" onClick={clearHistory}><Trash2 size={15} aria-hidden="true" />清空历史</button> : null}
+        />
+        <form className="account-library-search" onSubmit={submitLibrarySearch} role="search">
+          <Search size={18} aria-hidden="true" />
+          <label className="sr-only" htmlFor="account-library-query">搜索个人资料库</label>
+          <input id="account-library-query" name="account_library_query" type="search" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value.slice(0, 120))} placeholder="搜索标题、摘要或评论内容…" autoComplete="off" />
+          {searchDraft ? <button type="button" onClick={() => { setSearchDraft(''); navigate(libraryHref({ q: '', page: 1 })) }} aria-label="清除资料库搜索"><X size={17} aria-hidden="true" /></button> : null}
+          <button type="submit">搜索</button>
+        </form>
+        <nav className="account-library-kinds" aria-label="资料库类型">
+          {['all', 'history', 'likes', 'comments'].map((kind) => (
+            <Link key={kind} to={libraryHref({ kind, page: 1 })} aria-current={libraryKind === kind ? 'page' : undefined}>
+              {kindLabel(kind)}
+            </Link>
+          ))}
+        </nav>
+        {libraryState.loading ? <SectionSkeleton /> : null}
+        {libraryState.error ? <EmptyState icon={Cloud} title="资料库暂时不可用" description={`${libraryState.error}。切换分区或刷新页面后重试。`} /> : null}
+        {!libraryState.loading && !libraryState.error && data ? (
+          <>
+            <div className="account-library-summary">
+              <span>{kindLabel(libraryKind)}</span>
+              <strong>{numberFormatter.format(data.total)} 条记录</strong>
+            </div>
+            {data.items.length ? (
+              <div className="account-library-list">
+                {data.items.map((item) => (
+                  <article key={`${item.kind}-${item.id}`}>
+                    <div className="account-library-cover">
+                      {item.cover_image ? <img src={item.cover_image} alt="" width="112" height="84" loading="lazy" /> : <span>{item.kind === 'history' ? <Clock3 size={22} aria-hidden="true" /> : item.kind === 'likes' ? <Heart size={22} aria-hidden="true" /> : <MessageSquare size={22} aria-hidden="true" />}</span>}
+                    </div>
+                    <div className="account-library-copy min-w-0">
+                      <div className="account-meta"><span>{kindLabel(item.kind)}</span><span>{contentTypeLabel(item.content_type)}</span><time>{formatDate(item.occurred_at, true)}</time></div>
+                      {item.available ? <Link className="line-clamp-2" to={`/posts/${item.slug}`}>{item.title}</Link> : <strong className="line-clamp-2">{item.title}</strong>}
+                      {item.kind === 'comments' ? <blockquote className="line-clamp-2">{item.comment_content}</blockquote> : item.summary ? <p className="line-clamp-2">{item.summary}</p> : null}
+                    </div>
+                    <div className="account-library-actions">
+                      {item.available ? <Link to={`/posts/${item.slug}`}>阅读全文</Link> : <span>内容不可用</span>}
+                      <button type="button" onClick={() => removeLibraryItem(item)} aria-label={`${item.kind === 'likes' ? '取消点赞' : item.kind === 'comments' ? '删除评论' : '移除阅读记录'}：${item.title}`}><Trash2 size={16} aria-hidden="true" /></button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : <EmptyState icon={Search} title="没有匹配的内容" description={libraryQuery ? '调整关键词或切换资料类型后重试。' : '你的阅读与互动记录会出现在这里。'} action={libraryQuery ? <Link className="account-text-link" to={libraryHref({ q: '' })}>清除搜索条件</Link> : <Link className="account-text-link" to="/discover">开始探索</Link>} />}
+            {totalPages > 1 ? (
+              <nav className="account-pagination" aria-label="资料库分页">
+                {libraryPage > 1 ? <Link to={libraryHref({ page: libraryPage - 1 })}><ArrowLeft size={16} aria-hidden="true" />上一页</Link> : <span />}
+                <span>第 {libraryPage} / {totalPages} 页</span>
+                {libraryPage < totalPages ? <Link to={libraryHref({ page: libraryPage + 1 })}>下一页<ArrowRight size={16} aria-hidden="true" /></Link> : <span />}
+              </nav>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    )
+  }
+
+  function renderFollowing() {
+    const topics = dashboard.data?.followed_updates || []
+    return (
+      <div className="account-section-stack">
+        <SectionHeading kicker="Following / Topic Radar" title="关注主题" description="查看每个主题的最新公开文章，并随时调整你的追踪范围。" actions={<Link className="account-subtle-button" to="/topics">发现更多主题</Link>} />
+        {dashboard.loading && !dashboard.data ? <SectionSkeleton /> : null}
+        {topics.length ? (
+          <div className="account-following-list">
+            {topics.map((topic) => (
+              <article key={topic.topic_key}>
+                <div className="account-following-orbit" aria-hidden="true"><span /><span /></div>
+                <div className="min-w-0">
+                  <div className="account-meta"><span>Following</span><time>关注于 {formatDate(topic.followed_at)}</time></div>
+                  <Link className="account-following-title" to={`/topics/${topic.topic_key}`}>{topic.display_title || topic.topic_key}</Link>
+                  {topic.latest_post ? <Link className="account-following-latest line-clamp-2" to={`/posts/${topic.latest_post.slug}`}>最新：{topic.latest_post.title}</Link> : <p>暂时没有已发布文章。</p>}
+                </div>
+                <button type="button" onClick={() => handleUnfollow(topic)}>取消关注</button>
+              </article>
+            ))}
+          </div>
+        ) : !dashboard.loading ? <EmptyState icon={Sparkles} title="还没有关注主题" description="选择你持续关心的 AI 方向，个人信号中心会自动整理最新文章。" action={<Link className="account-text-link" to="/topics">浏览全部主题</Link>} /> : null}
+      </div>
+    )
+  }
+
+  function renderProfile() {
+    const avatarSource = avatarPreview || user?.avatar_url
+    return (
+      <div className="account-section-stack">
+        <SectionHeading kicker="Identity / Profile" title="身份资料" description="昵称和头像会出现在你的公开评论中；邮箱和简介默认保持私有。" />
+        <form className="account-profile-form" onSubmit={saveProfile}>
+          <section className="account-avatar-editor">
+            <div className="account-avatar-editor__preview">
+              {avatarSource ? <img src={avatarSource} alt="头像预览" width="112" height="112" /> : <UserRound size={38} aria-hidden="true" />}
+            </div>
+            <div>
+              <h3>个人头像</h3>
+              <p>支持 PNG、JPEG、GIF 和 WebP，最大 2 MB。</p>
+              <div className="account-avatar-editor__actions">
+                <label htmlFor="account-avatar-file"><Upload size={16} aria-hidden="true" />选择图片</label>
+                <input ref={fileInputRef} id="account-avatar-file" name="avatar" type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={chooseAvatar} />
+                {(user?.avatar_url || avatarFile) ? <button type="button" onClick={avatarFile ? () => { setAvatarFile(null); setAvatarPreview(''); if (fileInputRef.current) fileInputRef.current.value = '' } : handleRemoveAvatar}>移除</button> : null}
+              </div>
+            </div>
+          </section>
+          <div className="account-form-grid">
+            <Field htmlFor="account-nickname" label="昵称" hint={`${nickname.length}/50，将显示在公开评论中`}>
+              <input id="account-nickname" name="nickname" value={nickname} onChange={(event) => setNickname(event.target.value.slice(0, 50))} maxLength={50} autoComplete="nickname" required />
+            </Field>
+            <Field htmlFor="account-email" label="登录邮箱" hint="邮箱仅用于登录、验证与账号恢复">
+              <input id="account-email" name="email" type="email" value={user?.email || ''} readOnly autoComplete="email" spellCheck={false} />
+            </Field>
+            <Field className="account-form-grid__wide" htmlFor="account-bio" label="个人简介" hint={`${bio.length}/300，仅保存在你的账户资料中`}>
+              <textarea id="account-bio" name="bio" value={bio} onChange={(event) => setBio(event.target.value.slice(0, 300))} rows={5} maxLength={300} autoComplete="off" placeholder="记录你关注的 AI 方向或阅读目标…" />
+            </Field>
+          </div>
+          <div className="account-form-actions">
+            <span>{profileDirty ? '有未保存修改' : '所有修改均已保存'}</span>
+            <button type="submit" className="account-button" disabled={!profileDirty || profileSaving}>{profileSaving ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}{profileSaving ? '正在保存…' : '保存身份资料'}</button>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
+  function renderSecurity() {
+    return (
+      <div className="account-section-stack">
+        <SectionHeading kicker="Security / Data Control" title="账号安全" description="管理验证、密码、跨设备登录和你的个人数据副本。" />
+        <div className="account-security-status">
+          <article><span className={user?.email_verified ? 'is-ready' : 'is-warning'}>{user?.email_verified ? <BadgeCheck size={20} aria-hidden="true" /> : <AlertTriangle size={20} aria-hidden="true" />}</span><div><strong>邮箱验证</strong><p>{user?.email_verified ? '邮箱已验证，可用于安全恢复。' : '尚未验证，请尽快完成。'}</p></div>{!user?.email_verified ? <button type="button" onClick={resendEmailVerification}>发送验证邮件</button> : null}</article>
+          <article><span className="is-ready"><ShieldCheck size={20} aria-hidden="true" /></span><div><strong>登录密码</strong><p>{user?.password_set ? '已设置密码。更新后旧会话会失效。' : '验证码账号尚未设置密码。'}</p></div></article>
+          <article><span><Clock3 size={20} aria-hidden="true" /></span><div><strong>最近登录</strong><p>{formatDate(user?.last_login_at, true)}</p></div></article>
+        </div>
+
+        <section className="account-security-panel">
+          <div><p className="account-panel-label">Password</p><h3>{user?.password_set ? '更新登录密码' : '设置登录密码'}</h3><p>密码至少 8 位。保存后当前令牌会自动替换。</p></div>
+          <form onSubmit={updatePassword}>
+            {user?.password_set ? <Field htmlFor="account-old-password" label="当前密码"><input id="account-old-password" name="current_password" type="password" value={oldPassword} onChange={(event) => setOldPassword(event.target.value)} autoComplete="current-password" required /></Field> : null}
+            <Field htmlFor="account-new-password" label="新密码"><input id="account-new-password" name="new_password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} autoComplete="new-password" required /></Field>
+            <button type="submit" className="account-button" disabled={securitySaving}>{securitySaving ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}{securitySaving ? '正在更新…' : user?.password_set ? '更新密码' : '设置密码'}</button>
+          </form>
+        </section>
+
+        <section className="account-data-control">
+          <div><p className="account-panel-label">Data Portability</p><h3>下载个人数据副本</h3><p>导出资料、关注主题、阅读历史、点赞和评论为 JSON 文件。</p></div>
+          <button type="button" className="account-subtle-button" onClick={exportData} disabled={exporting}>{exporting ? <LoaderCircle className="animate-spin" size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}{exporting ? '正在准备…' : '导出我的数据'}</button>
+        </section>
+
+        <section className="account-session-control">
+          <div><h3>退出全部设备</h3><p>立即撤销所有现有登录令牌，包括当前设备。</p></div>
+          <button type="button" className="account-subtle-button" onClick={revokeAllSessions}>退出全部设备</button>
+        </section>
+
+        <section className="account-danger-zone">
+          <div><p className="account-panel-label">Danger Zone</p><h3>永久注销账号</h3><p>关注、点赞和阅读历史会删除；评论匿名保留。操作不可恢复。</p></div>
+          <button type="button" onClick={removeAccount}><Trash2 size={16} aria-hidden="true" />永久注销账号</button>
+        </section>
+      </div>
+    )
+  }
 
   return (
-    <main data-ui="account-page" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
-      <Navbar />
-      <div className="mx-auto max-w-7xl px-6 py-10 sm:px-10 lg:px-20">
-        <header className="flex flex-col gap-5 border-b pb-8 sm:flex-row sm:items-end sm:justify-between" style={{ borderColor: 'var(--border-muted)' }}>
-          <div>
-            <div className="section-kicker">Signal Desk Identity</div>
-            <h1 className="mt-3 text-3xl font-semibold" style={{ color: 'var(--text-primary)' }}>{user?.nickname || '我的账号'}</h1>
-            <p className="mt-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>{user?.email}</p>
-          </div>
-          <button type="button" onClick={() => { logout(); navigate('/') }} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}><LogOut size={16} /> 退出登录</button>
-        </header>
-
-        <div className="mt-8 grid gap-8 lg:grid-cols-[14rem_minmax(0,1fr)]">
-          <nav aria-label="账号中心导航" className="grid grid-cols-2 gap-2 pb-2 sm:grid-cols-3 lg:flex lg:flex-col">
-            {tabs.map(([value, label, Icon]) => (
-              <button key={value} type="button" onClick={() => setActiveTab(value)} aria-current={activeTab === value ? 'page' : undefined} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-semibold transition-colors" style={{ backgroundColor: activeTab === value ? 'var(--accent-soft)' : 'transparent', color: activeTab === value ? 'var(--accent)' : 'var(--text-secondary)' }}><Icon size={16} /> {label}</button>
-            ))}
-          </nav>
-
-          <div className="auth-card min-w-0 rounded-[1.4rem] border p-6 sm:p-8">
-            {activeTab === 'overview' ? (
-              <Panel title="账号概览" description="查看账号安全状态和已同步的数据。">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  {summary.map(([label, value]) => <div key={label} className="rounded-lg border p-4" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-canvas)' }}><strong className="block text-2xl" style={{ color: 'var(--text-primary)' }}>{value}</strong><span className="mt-1 block text-xs" style={{ color: 'var(--text-faint)' }}>{label}</span></div>)}
-                </div>
-                <div className="mt-6 flex flex-wrap gap-3 text-sm">
-                  <span className="inline-flex items-center gap-1.5" style={{ color: user?.email_verified ? '#16a34a' : '#ef4444' }}>{user?.email_verified ? <BadgeCheck size={15} /> : <AlertTriangle size={15} />}{user?.email_verified ? '邮箱已验证' : '邮箱尚未验证'}</span>
-                  <span style={{ color: 'var(--text-tertiary)' }}>·</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{user?.password_set ? '已设置密码' : '验证码账号，尚未设置密码'}</span>
-                  {user?.last_login_at ? <><span style={{ color: 'var(--text-tertiary)' }}>·</span><span style={{ color: 'var(--text-secondary)' }}>最近登录 {new Date(user.last_login_at).toLocaleString('zh-CN')}</span></> : null}
-                </div>
-              </Panel>
-            ) : null}
-
-            {activeTab === 'profile' ? (
-              <Panel title="个人资料" description="昵称会显示在公开评论中，邮箱不会公开。">
-                <div className="flex items-center gap-4">
-                  <div className="h-20 w-20 overflow-hidden rounded-full border" style={{ borderColor: 'var(--border-muted)', backgroundColor: 'var(--bg-canvas)' }}>{user?.avatar_url ? <img src={user.avatar_url} alt="头像" width="80" height="80" className="h-full w-full object-cover" /> : null}</div>
-                  <input ref={fileInputRef} aria-label="上传头像" type="file" accept="image/*" onChange={handleAvatar} className="max-w-[15rem] text-sm" style={{ color: 'var(--text-secondary)' }} />
-                </div>
-                <form onSubmit={handleProfile} className="mt-6 space-y-4">
-                  <input aria-label="昵称" value={nickname} onChange={(event) => setNickname(event.target.value)} className={inputClass} style={inputStyle} maxLength={50} />
-                  <textarea aria-label="个人简介" value={bio} onChange={(event) => setBio(event.target.value.slice(0, 300))} className={`${inputClass} resize-none`} style={inputStyle} rows={4} maxLength={300} placeholder="介绍一下你自己（可选）" />
-                  {profileMsg ? <p role="status" className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{profileMsg}</p> : null}
-                  <button type="submit" className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: 'var(--accent)' }}>保存资料</button>
-                </form>
-              </Panel>
-            ) : null}
-
-            {activeTab === 'security' ? (
-              <Panel title="账号安全" description="管理邮箱验证、密码和所有设备上的登录状态。">
-                {!user?.email_verified ? <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: 'var(--danger-border)', backgroundColor: 'var(--danger-soft)' }}><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>邮箱尚未验证。{verifyMsg ? ` ${verifyMsg}` : ''}</p><button type="button" onClick={handleResend} className="text-sm font-semibold" style={{ color: 'var(--accent)' }}>重发验证邮件</button></div> : <p className="inline-flex items-center gap-2 text-sm" style={{ color: '#16a34a' }}><BadgeCheck size={16} /> 邮箱已验证</p>}
-                <form onSubmit={handlePassword} className="mt-6 max-w-xl space-y-4">
-                  {user?.password_set ? <input aria-label="原密码" type="password" value={oldPassword} onChange={(event) => setOldPassword(event.target.value)} className={inputClass} style={inputStyle} placeholder="原密码" required /> : null}
-                  <input aria-label="新密码" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className={inputClass} style={inputStyle} placeholder={user?.password_set ? '新密码（至少 8 位）' : '设置密码（至少 8 位）'} minLength={8} required />
-                  {securityMsg ? <p role="status" className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{securityMsg}</p> : null}
-                  <button type="submit" className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: 'var(--accent)' }}>{user?.password_set ? '更新密码' : '设置密码'}</button>
-                </form>
-                <div className="mt-8 border-t pt-6" style={{ borderColor: 'var(--border-muted)' }}><h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>会话管理</h3><p className="mt-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>退出全部设备会立即撤销所有现有登录令牌。</p><button type="button" onClick={handleRevokeSessions} className="mt-3 rounded-lg border px-4 py-2 text-sm font-semibold" style={{ borderColor: 'var(--border-muted)', color: 'var(--text-secondary)' }}>退出全部设备</button></div>
-                <div className="mt-8 border-t pt-6" style={{ borderColor: 'var(--danger-border)' }}><h3 className="font-semibold" style={{ color: '#ef4444' }}>注销账号</h3><p className="mt-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>关注、点赞和阅读历史会被删除，评论将匿名保留。</p><button type="button" onClick={handleDeleteAccount} className="mt-3 rounded-lg border px-4 py-2 text-sm font-semibold" style={{ borderColor: 'var(--danger-border)', color: '#ef4444', backgroundColor: 'var(--danger-soft)' }}>注销账号</button></div>
-              </Panel>
-            ) : null}
-
-            {activeTab === 'topics' ? <Panel title="我的关注">{topics.length ? <div className="grid gap-3 sm:grid-cols-2">{topics.map((item) => <Link key={item.topic_key} to={`/topics/${item.topic_key}`} className="rounded-lg border p-4 text-sm font-semibold" style={{ borderColor: 'var(--border-muted)', color: 'var(--text-primary)' }}>{item.display_title || item.topic_key}</Link>)}</div> : <Empty>还没有关注的主题。</Empty>}</Panel> : null}
-            {activeTab === 'history' ? <Panel title="阅读历史">{history.length ? <div className="space-y-2">{history.map((item) => <Link key={item.slug} to={`/posts/${item.slug}`} className="block rounded-lg px-3 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{item.title || item.slug}</Link>)}</div> : <Empty>还没有阅读记录。</Empty>}</Panel> : null}
-            {activeTab === 'comments' ? <Panel title="我的评论">{myComments.length ? <div className="space-y-3">{myComments.map((item) => <article key={item.id} className="rounded-lg border p-4" style={{ borderColor: 'var(--border-muted)' }}><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{item.content}</p><Link to={`/posts/${item.post_slug}`} className="mt-2 inline-block text-xs" style={{ color: 'var(--accent)' }}>{item.post_title}</Link></article>)}</div> : <Empty>还没有发表过评论。</Empty>}</Panel> : null}
-            {activeTab === 'likes' ? <Panel title="我的点赞">{myLikes.length ? <div className="space-y-2">{myLikes.map((item) => <Link key={item.post_slug} to={`/posts/${item.post_slug}`} className="block rounded-lg px-3 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{item.post_title}</Link>)}</div> : <Empty>还没有点赞过文章。</Empty>}</Panel> : null}
-          </div>
-        </div>
+    <AccountShell user={user} activeTab={activeTab} tabHref={tabHref} counts={counts} syncState={syncState} onLogout={logoutCurrentDevice}>
+      <div className="account-content-toolbar">
+        <LiveNotice status={notice.status} error={notice.error} />
+        <AccountCommandPalette tabHref={tabHref} onExport={exportData} />
       </div>
-      <Footer />
-      <BackToTop />
-    </main>
+      <div className="account-section-motion" key={activeTab}>
+        {activeTab === 'overview' ? renderOverview() : null}
+        {activeTab === 'library' ? renderLibrary() : null}
+        {activeTab === 'following' ? renderFollowing() : null}
+        {activeTab === 'profile' ? renderProfile() : null}
+        {activeTab === 'security' ? renderSecurity() : null}
+      </div>
+    </AccountShell>
   )
+}
+
+export default function AccountPage() {
+  return <ConfirmProvider><AccountPageContent /></ConfirmProvider>
 }

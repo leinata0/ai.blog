@@ -42,7 +42,7 @@ export default function RegisterPage() {
     setLoading(true)
     try {
       await register({ email, password, nickname: nickname || undefined, turnstile_token: turnstileToken })
-      navigate('/account')
+      navigate('/account?tab=overview')
     } catch (submitError) {
       setError(String(submitError?.message || '注册失败，请稍后重试'))
     } finally {

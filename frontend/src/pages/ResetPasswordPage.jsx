@@ -74,7 +74,7 @@ export default function ResetPasswordPage() {
     setLoading(true)
     try {
       await resetPassword({ email, challenge_id: challengeId, code, new_password: password, turnstile_token: token })
-      navigate('/account')
+      navigate('/account?tab=overview')
     } catch (submitError) {
       setError(String(submitError?.message || '重置失败，请检查验证码'))
     } finally {
