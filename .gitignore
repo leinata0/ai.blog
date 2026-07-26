@@ -19,6 +19,8 @@ frontend/node_modules/
 scripts/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/test-results/
+frontend/output/playwright-report/
 .codex-skill-build/
 .npm-cache/
 .playwright-cli/

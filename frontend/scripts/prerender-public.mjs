@@ -657,7 +657,7 @@ export async function main() {
     ['/forgot-password', '找回密码', '通过邮箱验证码安全恢复账号。', 'auth'],
     ['/reset-password', '重置密码', '验证邮箱后设置新的登录密码。', 'auth'],
     ['/verify-email', '邮箱验证', '确认邮箱归属并完善账号安全状态。', 'auth'],
-    ['/account', '账号中心', '管理个人资料、同步内容与账号安全。', 'auth'],
+    ['/account', '个人信号中心', '继续阅读、管理个人资料库、关注主题与账号安全。', 'auth'],
     ['/admin/login', '管理员登录', '进入 Signal Desk 运营驾驶舱。', 'operations'],
     ['/admin/dashboard', '管理控制台', 'Signal Desk 受保护的运营工作区。', 'operations'],
   ]

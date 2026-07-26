@@ -38,6 +38,8 @@ const defaultUserContextValue = {
   register: notReady,
   logout: noop,
   refresh: async () => null,
+  syncState: 'idle',
+  retrySync: async () => false,
   setUser: noop,
 }
 
@@ -47,31 +49,33 @@ const UserContext = createContext(defaultUserContextValue)
 // localStorage state) up to the cloud so the account starts with the
 // visitor's existing data. Best-effort: failures never block auth.
 async function mergeLocalDataToCloud() {
-  try {
-    const topics = getFollowedTopics().map((t) => ({
-      topic_key: t.topic_key,
-      display_title: t.display_title,
-    }))
-    if (topics.length) await mergeTopicsCloud(topics)
-
-    const items = getReadingHistory().map((h) => ({
-      slug: h.slug,
-      title: h.title,
-      topic_key: h.topic_key,
-      topic_display_title: h.topic_display_title,
-      content_type: h.content_type,
-      coverage_date: h.coverage_date,
-      visited_at: h.visited_at,
-    }))
-    if (items.length) await mergeHistoryCloud(items)
-  } catch {
-    // Non-fatal: the user is still logged in; sync can happen later.
+  const topics = getFollowedTopics().map((t) => ({
+    topic_key: t.topic_key,
+    display_title: t.display_title,
+  }))
+  const items = getReadingHistory().map((h) => ({
+    slug: h.slug,
+    title: h.title,
+    topic_key: h.topic_key,
+    topic_display_title: h.topic_display_title,
+    content_type: h.content_type,
+    coverage_date: h.coverage_date,
+    visited_at: h.visited_at,
+  }))
+  const pending = []
+  if (topics.length) pending.push(mergeTopicsCloud(topics))
+  if (items.length) pending.push(mergeHistoryCloud(items))
+  const results = await Promise.allSettled(pending)
+  if (results.some((result) => result.status === 'rejected')) {
+    throw new Error('部分本地阅读数据暂未同步')
   }
+  return true
 }
 
 export function UserProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [syncState, setSyncState] = useState('idle')
 
   const refresh = useCallback(async () => {
     if (!getUserToken() || isUserTokenExpired()) {
@@ -98,19 +102,32 @@ export function UserProvider({ children }) {
   useEffect(() => subscribeToUserUnauthorized(() => {
     setUser(null)
     setLoading(false)
+    setSyncState('idle')
   }), [])
 
   useEffect(() => {
     refresh()
   }, [refresh])
 
+  const syncLocalData = useCallback(async () => {
+    setSyncState('syncing')
+    try {
+      await mergeLocalDataToCloud()
+      setSyncState('synced')
+      return true
+    } catch {
+      setSyncState('error')
+      return false
+    }
+  }, [])
+
   const login = useCallback(async (credentials) => {
     const data = await loginUser(credentials)
     setUserToken(data.access_token)
     setUser(data.user)
-    await mergeLocalDataToCloud()
+    void syncLocalData()
     return data.user
-  }, [])
+  }, [syncLocalData])
 
   const loginWithPassword = login
 
@@ -118,24 +135,24 @@ export function UserProvider({ children }) {
     const data = await verifyLoginCode(credentials)
     setUserToken(data.access_token)
     setUser(data.user)
-    await mergeLocalDataToCloud()
+    void syncLocalData()
     return data.user
-  }, [])
+  }, [syncLocalData])
 
   const register = useCallback(async (payload) => {
     const data = await registerUser(payload)
     setUserToken(data.access_token)
     setUser(data.user)
-    await mergeLocalDataToCloud()
+    void syncLocalData()
     return data.user
-  }, [])
+  }, [syncLocalData])
 
   const finishAuthResponse = useCallback(async (data, { merge = false } = {}) => {
     setUserToken(data.access_token)
     setUser(data.user)
-    if (merge) await mergeLocalDataToCloud()
+    if (merge) void syncLocalData()
     return data.user
-  }, [])
+  }, [syncLocalData])
 
   const resetPassword = useCallback(async (payload) => {
     return finishAuthResponse(await confirmPasswordReset(payload), { merge: true })
@@ -152,11 +169,13 @@ export function UserProvider({ children }) {
     await revokeSessions()
     clearUserToken()
     setUser(null)
+    setSyncState('idle')
   }, [])
 
   const logout = useCallback(() => {
     clearUserToken()
     setUser(null)
+    setSyncState('idle')
   }, [])
 
   const value = useMemo(
@@ -174,9 +193,11 @@ export function UserProvider({ children }) {
       register,
       logout,
       refresh,
+      syncState,
+      retrySync: syncLocalData,
       setUser,
     }),
-    [user, loading, login, loginWithPassword, loginWithCode, sendLoginCode, sendPasswordReset, resetPassword, updatePassword, revokeAllSessions, register, logout, refresh],
+    [user, loading, login, loginWithPassword, loginWithCode, sendLoginCode, sendPasswordReset, resetPassword, updatePassword, revokeAllSessions, register, logout, refresh, syncState, syncLocalData],
   )
 
   return (

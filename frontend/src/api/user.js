@@ -63,6 +63,10 @@ export function uploadAvatar(file) {
   return apiPost('/api/users/me/avatar', formData, { auth: 'user' })
 }
 
+export function removeAvatar() {
+  return apiDelete('/api/users/me/avatar', { auth: 'user' })
+}
+
 export function fetchMyComments() {
   return apiGet('/api/users/me/comments', { auth: 'user', cache: false })
 }
@@ -76,8 +80,8 @@ export function deleteAccount() {
 }
 
 // ── Followed topics (cloud) ──
-export function fetchCloudTopics() {
-  return apiGet('/api/users/me/topics', { auth: 'user', cache: false })
+export function fetchCloudTopics(options = {}) {
+  return apiGet('/api/users/me/topics', { ...options, auth: 'user', cache: false, dedupe: false })
 }
 
 export function followTopicCloud({ topic_key, display_title }) {
@@ -103,4 +107,49 @@ export function recordHistoryCloud(entry) {
 
 export function mergeHistoryCloud(items) {
   return apiPost('/api/users/me/history/merge', { items }, { auth: 'user' })
+}
+
+// ── Personal signal hub ──
+export function fetchAccountDashboard(options = {}) {
+  return apiGet('/api/users/me/dashboard', {
+    ...options,
+    auth: 'user',
+    cache: false,
+    dedupe: false,
+  })
+}
+
+export function fetchAccountLibrary({ kind = 'all', q = '', page = 1, pageSize = 20, signal } = {}) {
+  const params = new URLSearchParams({
+    kind,
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  if (q.trim()) params.set('q', q.trim())
+  return apiGet(`/api/users/me/library?${params}`, {
+    auth: 'user',
+    cache: false,
+    dedupe: false,
+    signal,
+  })
+}
+
+export function removeHistoryEntry(slug) {
+  return apiDelete(`/api/users/me/history/${encodeURIComponent(slug)}`, { auth: 'user' })
+}
+
+export function clearCloudHistory() {
+  return apiDelete('/api/users/me/history', { auth: 'user' })
+}
+
+export function removeAccountLike(slug) {
+  return apiDelete(`/api/users/me/likes/${encodeURIComponent(slug)}`, { auth: 'user' })
+}
+
+export function removeAccountComment(commentId) {
+  return apiDelete(`/api/users/me/comments/${encodeURIComponent(commentId)}`, { auth: 'user' })
+}
+
+export function fetchAccountExport() {
+  return apiGet('/api/users/me/export', { auth: 'user', cache: false, dedupe: false })
 }

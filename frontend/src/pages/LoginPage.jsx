@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, Mail, ShieldCheck } from 'lucide-react'
 
 import AuthLayout from '../components/AuthLayout'
@@ -18,6 +18,7 @@ function maskEmail(value) {
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const userAuth = useUser()
   const passwordLogin = userAuth.loginWithPassword || userAuth.login
   const codeLogin = userAuth.loginWithCode
@@ -34,6 +35,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState('')
   const [turnstileResetKey, setTurnstileResetKey] = useState(0)
+  const sessionNotice = searchParams.get('reason') === 'sessions-revoked'
+    ? '所有设备均已安全退出，请重新登录。'
+    : ''
 
   const handleVerify = useCallback((token) => setTurnstileToken(token), [])
 
@@ -91,7 +95,7 @@ export default function LoginPage() {
       } else {
         await codeLogin({ email, challenge_id: challengeId, code })
       }
-      navigate('/account')
+      navigate('/account?tab=overview')
     } catch (submitError) {
       setError(String(submitError?.message || '登录失败，请稍后重试'))
     } finally {
@@ -108,6 +112,7 @@ export default function LoginPage() {
       <div className="section-kicker"><ShieldCheck size={14} /> 安全登录</div>
       <h2 className="mt-3 text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>欢迎回来</h2>
       <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-tertiary)' }}>仅支持邮箱登录，不收集用户名。</p>
+      {sessionNotice ? <div role="status" className="mt-4 rounded-lg px-4 py-3 text-sm" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>{sessionNotice}</div> : null}
 
       <div className="mt-6 grid grid-cols-2 gap-1 rounded-lg p-1" style={{ backgroundColor: 'var(--bg-canvas)' }}>
         {[

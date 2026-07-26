@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { configDefaults } from 'vitest/config'
 
 export default defineConfig({
   plugins: [react()],
@@ -35,6 +36,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: './tests/setup.js',
+    exclude: [...configDefaults.exclude, 'e2e/**'],
     environmentMatchGlobs: [
       ['tests/prerender-public.test.js', 'node'],
     ],
