@@ -4,9 +4,13 @@ on:
   push:
     branches:
       - master
+    # 只在"这篇文章的内容本身"变更时重新发布。
+    # scripts/publish-content-file.mjs 是通用发布工具（文章路径由 ARTICLE_FILE 决定），
+    # 改它并不代表这篇文章的内容变了；把它留在 paths 里会让任何一次工具重构都对生产后端
+    # 发一次真实写请求，并把无关的 CI 状态挂在共享脚本的改动上。
+    # 本文件自身同理：改发布流程的超时/重试策略不等于文章内容变了，留着会让每次流程调整
+    # 都触发一次生产写入（并可能触发一次付费封面生成）。要重新发布请用 workflow_dispatch。
     paths:
-      - '.github/workflows/publish-migration-article.yml'
-      - 'scripts/publish-content-file.mjs'
       - 'scripts/content/blog-migration-neon-r2.mjs'
   workflow_dispatch:
     inputs:
@@ -21,7 +25,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 后端跑在会休眠的 Render 实例上：冷启动唤醒最多 3 分钟，登录退避最多约 3.5 分钟，
+    # 封面生成任务轮询预算 7 分钟（lib/admin-image-generation.mjs）。10 分钟不够覆盖
+    # "冷启动 + 生成封面"这条最慢路径。
+    timeout-minutes: 25
     steps:
       # 拉取仓库代码
       - name: 拉取仓库代码

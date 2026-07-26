@@ -60,7 +60,10 @@ it('renders series list page', async () => {
   expect(container.querySelector('[data-ui="series-stack-tabs"]')).toBeTruthy()
 })
 
-it('renders series detail onboarding blocks and discover page', async () => {
+// Kept as two separate tests: mounting the series detail and discover trees side
+// by side in one test made every `screen` query ambiguous across two live pages,
+// and left the first tree resolving requests while the second was asserted on.
+it('renders series detail onboarding blocks', async () => {
   render(
     <MemoryRouter initialEntries={['/series/ai-daily-brief']}>
       <ThemeProvider>
@@ -76,7 +79,9 @@ it('renders series detail onboarding blocks and discover page', async () => {
   expect(await screen.findByText('从哪一篇开始最合适')).toBeInTheDocument()
   expect(await screen.findByText('先用最新一篇恢复系列上下文')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /订阅这个系列/i })).toHaveAttribute('href', '/feeds?series_slug=ai-daily-brief')
+})
 
+it('renders the discover page', async () => {
   render(
     <MemoryRouter initialEntries={['/discover']}>
       <ThemeProvider>

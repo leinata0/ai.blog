@@ -224,6 +224,10 @@ describe('Account signal hub', () => {
     const dialog = screen.getByRole('dialog', { name: '退出全部设备' })
     await userEvent.click(within(dialog).getByRole('button', { name: '退出全部设备' }))
     await waitFor(() => expect(mocks.revokeAllSessions).toHaveBeenCalledTimes(1))
-    expect(screen.getByTestId('location')).toHaveTextContent('/login?reason=sessions-revoked')
+    // react-router v7 dispatches location updates inside `React.startTransition`,
+    // so the redirect commits on a Scheduler task rather than in the microtask
+    // that calls `navigate()`. Waiting on the mock only proves the request fired;
+    // the URL has to be awaited separately or the assertion races the commit.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/login?reason=sessions-revoked'))
   })
 })
