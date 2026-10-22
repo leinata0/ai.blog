@@ -16,7 +16,11 @@ vi.mock('three', async (original) => {
         this.setPixelRatio = vi.fn()
         this.setSize = vi.fn()
         this.rotations = []
-        this.render = vi.fn((scene) => this.rotations.push(scene.children[0].rotation.y))
+        this.render = vi.fn((scene, camera) => {
+          this.scene = scene
+          this.camera = camera
+          this.rotations.push(scene.getObjectByName('signal-observatory').rotation.y)
+        })
         this.dispose = vi.fn()
         this.forceContextLoss = vi.fn()
         gpu.renderers.push(this)
@@ -79,9 +83,32 @@ function frame(time) {
 }
 
 it('prerenders an accessible static decoration without constructing a WebGL renderer', () => {
-  expect(renderToString(<IntelligenceSculpture />)).toContain('floating-ribbon.png')
+  expect(renderToString(<IntelligenceSculpture />)).toContain('data-fallback="signal-observatory"')
   expect(renderToString(<IntelligenceSculpture />)).toContain('aria-hidden="true"')
   expect(gpu.renderers).toHaveLength(0)
+})
+
+it('builds a concave physical antenna and flies through the star field into a signal array', async () => {
+  const { renderer, sceneRef } = await mount()
+  sceneRef.current.style.setProperty('--scene-progress', '0')
+  visible(true)
+  frame(0)
+  const dish = renderer.scene.getObjectByName('parabolic-dish')
+  expect(dish.getObjectByName('three-feed-supports').children).toHaveLength(3)
+  expect(dish.getObjectByName('blue-signal-receiver')).toBeDefined()
+  const surface = dish.getObjectByName('perforated-reflector-panel')
+  surface.geometry.computeBoundingBox()
+  expect(surface.geometry.boundingBox.max.z - surface.geometry.boundingBox.min.z).toBeGreaterThan(0.9)
+  expect(surface.material.alphaMap).toBeDefined()
+  const layers = renderer.scene.children.filter((object) => object.name.startsWith('signal-stars-'))
+  expect(layers).toHaveLength(3)
+  expect(layers.reduce((sum, layer) => sum + layer.geometry.getAttribute('position').count, 0)).toBe(2040)
+  expect(renderer.camera.position.z).toBeGreaterThan(10)
+  sceneRef.current.style.setProperty('--scene-progress', '0.97')
+  for (let time = 50; time <= 1500; time += 50) frame(time)
+  expect(renderer.camera.position.z).toBeLessThan(-28)
+  expect(renderer.scene.getObjectByName('signal-observatory').visible).toBe(false)
+  expect(layers[0].geometry.getAttribute('position').getZ(0)).toBe(-53)
 })
 
 it('rotates only while visible and active, and disposes the GPU plus observers on unmount', async () => {
@@ -154,7 +181,7 @@ it('keeps the static decoration for unavailable or lost WebGL contexts', async (
   const failed = render(<IntelligenceSculpture />)
   await act(async () => { await import('three') })
   expect(failed.container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
-  expect(failed.container.querySelector('img')).toHaveAttribute('src', expect.stringContaining('floating-ribbon.png'))
+  expect(failed.container.querySelector('[data-fallback="signal-observatory"]')).toBeInTheDocument()
   failed.unmount()
   gpu.fail = false
   const { renderer, container } = await mount()

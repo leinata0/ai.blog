@@ -219,7 +219,7 @@ export default function HomePage() {
       <SeoMeta title={SITE_SEO.homeTitle} description={SITE_SEO.homeDescription} path="/" image={heroImage}
         jsonLd={homeJsonLd} rssUrl={buildPublicApiUrl('/feed.xml')} />
       <Navbar immersive={immersiveHome} />
-      {immersiveHome ? <EditionHero total={total} latestDate={latestDate} loading={loading} hasError={Boolean(error)} /> : null}
+      {immersiveHome ? <EditionHero total={total} latestDate={latestDate} loading={loading || newsPending} hasError={Boolean(error)} leadPost={posts[0]} /> : null}
       <div className="news-home__paper">
         {immersiveHome ? null : newsStyle === 'tech' ? <TechNewsIntro total={total} latestDate={latestDate} loading={loading} hasError={Boolean(error)} compact={!defaultView} /> : <header className="news-edition">
           <div>

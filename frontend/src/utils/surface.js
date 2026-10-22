@@ -32,7 +32,7 @@ export function getSurfaceForPath(pathname) {
 }
 
 export function getThemeColor(surface, dark, newsStyle = 'paper') {
-  if (surface === SURFACES.EDITORIAL && newsStyle === 'tech') return '#eee9df'
+  if (surface === SURFACES.EDITORIAL && newsStyle === 'tech') return '#f1f5fa'
   const palette = THEME_COLORS[surface] || THEME_COLORS[SURFACES.EDITORIAL]
   return dark ? palette.dark : palette.light
 }

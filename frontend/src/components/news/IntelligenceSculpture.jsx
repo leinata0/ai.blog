@@ -1,104 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import buildSignalObservatory from './buildSignalObservatory'
 import '../../styles/intelligence-sculpture.css'
-
-const FALLBACK = '/images/intelligence-edition/floating-ribbon.png'
-
-// Kept outside React's render path: animation changes Three objects, never page state.
-function buildSculpture(THREE, renderer) {
-  const scene = new THREE.Scene()
-  const resources = []
-  const own = (resource) => { resources.push(resource); return resource }
-  const dispose = () => {
-    scene.environment = null
-    resources.forEach((resource) => resource.dispose())
-    scene.clear()
-  }
-  try {
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 40)
-    camera.position.set(0, 0, 6.4)
-    const object = new THREE.Group()
-    scene.add(object)
-
-    const glassGeometry = own(new THREE.IcosahedronGeometry(1.48, 0))
-    const glassMaterial = own(new THREE.MeshPhysicalMaterial({
-      color: '#d6ef9c', metalness: 0, roughness: 0.065,
-      transmission: 0.97, thickness: 1.2, ior: 1.38,
-      clearcoat: 0.8, clearcoatRoughness: 0.06, envMapIntensity: 1.15,
-      attenuationColor: '#98b64c', attenuationDistance: 3,
-      flatShading: true,
-    }))
-    const glass = new THREE.Mesh(glassGeometry, glassMaterial)
-    object.add(glass)
-
-    const coreGeometry = own(new THREE.IcosahedronGeometry(0.26, 1))
-    const metalMaterial = own(new THREE.MeshStandardMaterial({
-      color: '#aab59c', metalness: 0.88, roughness: 0.27,
-      envMapIntensity: 1.2,
-    }))
-    const core = new THREE.Mesh(coreGeometry, metalMaterial)
-    object.add(core)
-
-    const edgesGeometry = own(new THREE.EdgesGeometry(glassGeometry))
-    const edgesMaterial = own(new THREE.LineBasicMaterial({ color: '#e0ff9e', transparent: true, opacity: 0.23 }))
-    object.add(new THREE.LineSegments(edgesGeometry, edgesMaterial))
-
-    const orbitGroup = new THREE.Group()
-    const orbitGeometry = own(new THREE.TorusGeometry(0.91, 0.009, 6, 90))
-    const orbitMaterial = own(new THREE.MeshStandardMaterial({ color: '#bec8a1', metalness: 0.85, roughness: 0.25, envMapIntensity: 1.1 }))
-    for (let index = 0; index < 3; index += 1) {
-      const orbit = new THREE.Mesh(orbitGeometry, orbitMaterial)
-      orbit.rotation.set(index * 0.8 + 0.3, index * 1.1 + 0.5, index * 0.6)
-      orbitGroup.add(orbit)
-    }
-    object.add(orbitGroup)
-
-    scene.add(new THREE.HemisphereLight('#fff8dd', '#344224', 1.4))
-    const key = new THREE.DirectionalLight('#fff9e9', 2.4)
-    key.position.set(-3, 5, 4)
-    scene.add(key)
-    const rim = new THREE.DirectionalLight('#dcff98', 2.8)
-    rim.position.set(4, 1, -2)
-    scene.add(rim)
-
-    // A small procedural studio gives glass and metal real reflections without a
-    // downloaded HDRI. It is used only as an environment, never as the canvas background.
-    const studio = new THREE.Scene()
-    studio.background = new THREE.Color('#3d4c32')
-    const panelGeometry = new THREE.PlaneGeometry(1, 1)
-    const panels = [
-      { color: '#fff8e8', intensity: 4.2, position: [-4, 3, 3], scale: [1.2, 4] },
-      { color: '#edffc5', intensity: 3, position: [4, 1, 1], scale: [0.8, 4] },
-      { color: '#ffffff', intensity: 3, position: [0, 5, -3], scale: [3, 1] },
-    ].map(({ color, intensity, position, scale }) => {
-      const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide })
-      const panel = new THREE.Mesh(panelGeometry, material)
-      panel.position.set(...position)
-      panel.scale.set(scale[0], scale[1], 1)
-      panel.lookAt(0, 0, 0)
-      studio.add(panel)
-      return material
-    })
-    let pmrem
-    try {
-      pmrem = new THREE.PMREMGenerator(renderer)
-      const environment = own(pmrem.fromScene(studio, 0.035, 0.1, 30, { size: 128 }))
-      scene.environment = environment.texture
-    } finally {
-      pmrem?.dispose()
-      panelGeometry.dispose()
-      panels.forEach((material) => material.dispose())
-      studio.clear()
-    }
-
-    return {
-      scene, camera, object, core, orbitGroup,
-      dispose,
-    }
-  } catch (error) {
-    dispose()
-    throw error
-  }
-}
 
 export default function IntelligenceSculpture({ sceneRef, paused = false }) {
   const hostRef = useRef(null)
@@ -119,6 +21,7 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
     let frame = null
     let lastTime = null
     let elapsed = 0
+    let delta = 0
     let width = 0
     let height = 0
     let staticNeeded = true
@@ -141,11 +44,7 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
       const pointerX = reduced ? 0 : read('--pointer-x', -1, 1)
       const pointerY = reduced ? 0 : read('--pointer-y', -1, 1)
       const time = reduced ? 0 : elapsed
-      sculpture.object.rotation.set(0.2 + time * 0.11 + pointerY * 0.16 + progress * 0.55, time * 0.25 + pointerX * 0.22 + progress * 1.1, -0.18 + time * 0.055 - progress * 0.3)
-      sculpture.object.position.y = Math.sin(time * 0.65) * 0.075 + progress * 0.3
-      sculpture.object.scale.set(1 + progress * 0.12, 1 - progress * 0.14, 1 + progress * 0.08)
-      sculpture.core.rotation.set(-time * 0.35, time * 0.48, 0.5)
-      sculpture.orbitGroup.rotation.set(time * 0.1, -time * 0.2, time * 0.14)
+      sculpture.update({ elapsed: time, delta: reduced || pausedRef.current ? 0 : delta, progress, pointerX, pointerY, reduced })
       renderer.render(sculpture.scene, sculpture.camera)
       staticNeeded = false
     }
@@ -153,7 +52,8 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
     const tick = (time) => {
       frame = null
       if (!canRender() || reduced || pausedRef.current) { lastTime = null; return }
-      if (lastTime !== null) elapsed += Math.min((time - lastTime) / 1000, 0.05)
+      delta = lastTime === null ? 0 : Math.min((time - lastTime) / 1000, 0.05)
+      elapsed += delta
       lastTime = time
       try { render() } catch { fail(); return }
       frame = requestAnimationFrame(tick)
@@ -173,12 +73,10 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
       width = Math.max(0, bounds.width)
       height = Math.max(0, bounds.height)
       if (!width || !height) { stop(); return }
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+      renderer.setPixelRatio(dpr)
       renderer.setSize(width, height, false)
-      sculpture.camera.aspect = width / height
-      // Keep the full object inside narrow portrait slots as well as wide ones.
-      sculpture.camera.position.z = 6.4 / Math.min(1, sculpture.camera.aspect)
-      sculpture.camera.updateProjectionMatrix()
+      sculpture.resize(width, height, dpr)
       staticNeeded = true
       sync()
     }
@@ -229,11 +127,10 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
         renderer.setClearColor(0x000000, 0)
         renderer.outputColorSpace = THREE.SRGBColorSpace
         renderer.toneMapping = THREE.ACESFilmicToneMapping
-        renderer.toneMappingExposure = 0.95
-        renderer.transmissionResolutionScale = 0.65
+        renderer.toneMappingExposure = 1.05
         renderer.domElement.setAttribute('aria-hidden', 'true')
         renderer.domElement.addEventListener('webglcontextlost', contextLost)
-        sculpture = buildSculpture(THREE, renderer)
+        sculpture = buildSignalObservatory(THREE, renderer)
         host.appendChild(renderer.domElement)
         resize()
         if (!failed) setReady(true)
@@ -261,6 +158,17 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
   }, [paused])
 
   return <div ref={hostRef} className={`intelligence-sculpture${ready ? ' intelligence-sculpture--ready' : ''}`} aria-hidden="true">
-    <img className="intelligence-sculpture__fallback" src={FALLBACK} alt="" width="1536" height="1024" loading="lazy" decoding="async" />
+    <svg className="intelligence-sculpture__fallback" data-fallback="signal-observatory" viewBox="0 0 1000 800" focusable="false">
+      {Array.from({ length: 40 }, (_, index) => <circle key={index} cx={(index * 197 + 53) % 1000} cy={(index * 137 + 29) % 800} r={index % 3 === 0 ? 1.8 : 0.9} fill="#90bdff" opacity=".5" />)}
+      <g transform="translate(650 350) rotate(-18)">
+        <path d="M-24 100L-24 260H-100V280H100V260H24V100" fill="#344d6b" stroke="#8da9c4" strokeWidth="3" />
+        <path d="M-230 0Q0 310 230 0Q0 155-230 0" fill="#3b5571" stroke="#a0bad3" strokeWidth="4" />
+        <ellipse rx="230" ry="140" fill="#bacddd" stroke="#e1ecf6" strokeWidth="6" />
+        {[-170, -110, -55, 0, 55, 110, 170].map((x) => <ellipse key={x} cx={x / 3} rx={Math.sqrt(230 ** 2 - x ** 2)} ry={Math.max(15, 140 - Math.abs(x) / 2)} fill="none" stroke="#718ea8" strokeWidth="1" opacity=".6" />)}
+        <path d="M-215-45L0-120L180 85M0-120L-25 138" fill="none" stroke="#e0edfa" strokeWidth="5" />
+        <path d="M-20-144H20V-99H-20Z" fill="#237dc6" stroke="#9be6ff" strokeWidth="3" />
+        <ellipse cy="-144" rx="20" ry="7" fill="#79dfff" />
+      </g>
+    </svg>
   </div>
 }

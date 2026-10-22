@@ -5,9 +5,9 @@
   bottom: 24px;
   width: 110px;
   padding: 14px 9px 7px;
-  border: 1px solid rgba(27, 36, 29, .22);
-  background: rgba(238, 233, 223, .9);
-  color: #1b241d;
+  border: 1px solid rgba(16, 29, 53, .22);
+  background: rgba(241, 245, 250, .9);
+  color: #101d35;
   backdrop-filter: blur(10px);
 }
 
@@ -16,7 +16,7 @@
   padding: 0 7px 11px;
   font-size: 10px;
   letter-spacing: .08em;
-  color: #596451;
+  color: #60728a;
 }
 
 [data-news-style="tech"] body.public-news-shell .edition-chapter-nav ol {
@@ -31,26 +31,26 @@
   align-items: center;
   gap: 5px;
   min-height: 39px;
-  border-top: 1px solid rgba(27, 36, 29, .14);
+  border-top: 1px solid rgba(16, 29, 53, .14);
   padding: 8px 5px;
   font-size: 11px;
   line-height: 1.4;
-  color: #35422e;
+  color: #344c6d;
 }
 
 [data-news-style="tech"] body.public-news-shell .edition-chapter-nav a[aria-current="location"] {
-  background: #c6f268;
-  color: #1b241d;
+  background: #3269f5;
+  color: #fff;
   font-weight: 650;
 }
 
 [data-news-style="tech"] body.public-news-shell .edition-chapter-nav__numeral {
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 
-[data-news-style="tech"] body.public-news-shell .edition-chapter-nav a:hover { color: #1b241d; background: rgba(198, 242, 104, .3); }
-[data-news-style="tech"] body.public-news-shell .edition-chapter-nav a:focus-visible { outline: 2px solid #354d26; outline-offset: -2px; }
+[data-news-style="tech"] body.public-news-shell .edition-chapter-nav a:hover { color: #101d35; background: rgba(50, 105, 245, .3); }
+[data-news-style="tech"] body.public-news-shell .edition-chapter-nav a:focus-visible { outline: 2px solid #3269f5; outline-offset: -2px; }
 [data-news-style="tech"] body.public-news-shell .edition-chapter-nav--cover { visibility: hidden; pointer-events: none; }
 [data-news-style="tech"] body.public-news-shell :is(#edition-focus, #edition-news, #edition-topics, #edition-reading) { scroll-margin-top: 24px; }
 
@@ -75,5 +75,5 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  [data-news-style="tech"] body.public-news-shell .edition-chapter-nav { background: #eee9df; backdrop-filter: none; }
+  [data-news-style="tech"] body.public-news-shell .edition-chapter-nav { background: #f1f5fa; backdrop-filter: none; }
 }

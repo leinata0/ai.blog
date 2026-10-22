@@ -65,24 +65,24 @@ const PRERENDER_STYLE = `
       .prerender-shell h1{font-size:30px}
       .prerender-shell h2{font-size:22px}
     }
-    [data-news-style="tech"] body:has(.prerender-shell:not(.prerender-private-shell)){background:#eee9df;color:#1b241d}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell){color:#1b241d;background:#eee9df;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;overflow-wrap:anywhere}
+    [data-news-style="tech"] body:has(.prerender-shell:not(.prerender-private-shell)){background:#f1f5fa;color:#101d35}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell){color:#101d35;background:#f1f5fa;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;overflow-wrap:anywhere}
     [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) *{box-sizing:border-box}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(h1,h2,h3){color:#1b241d;font-family:"Iowan Old Style","Palatino Linotype",Georgia,"Noto Serif SC","Songti SC",SimSun,serif;font-weight:500;letter-spacing:-.035em;line-height:1.4}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero{padding:40px;border:0;border-radius:2px;background:#1b241d;color:#eee9df}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-kicker{border:0;border-radius:0;background:#e0e2cf;color:#38542c}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-lead,.prerender-summary){color:#4d574a}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-card,.prerender-panel){color:#1b241d;background:#f7f3ea;border-color:rgba(27,36,29,.2);border-radius:2px;box-shadow:none}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-card img,.prerender-cover){border:0;border-radius:2px;background:#dedbcd}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-meta,.prerender-caption){color:#646d5e}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero :is(h1,h2,h3){color:#eee9df}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(h1,h2,h3){color:#101d35;font-family:Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;font-weight:750;letter-spacing:-.035em;line-height:1.4}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero{padding:40px;border:1px solid #cbd9ef;border-radius:8px;background:#e7efff;color:#101d35}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-kicker{border:0;border-radius:0;background:#e3edff;color:#3269f5}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-lead,.prerender-summary){color:#52647b}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-card,.prerender-panel){color:#101d35;background:#ffffff;border-color:rgba(16, 29, 53,.2);border-radius:2px;box-shadow:none}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-card img,.prerender-cover){border:0;border-radius:2px;background:#dce5f2}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-meta,.prerender-caption){color:#60728a}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero :is(h1,h2,h3){color:#101d35}
     [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero h1{font-size:clamp(34px,4.6vw,58px);line-height:1.25}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-kicker{background:transparent;color:#c6f268;padding:0}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-lead{color:#ccd2c0}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-meta{color:#b4c0a6}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-list-item{border:0;border-top:1px solid rgba(27,36,29,.2);border-radius:0;background:transparent;color:#1b241d}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-chip{border:1px solid rgba(56,84,44,.3);border-radius:0;background:#e0e2cf;color:#38542c}
-    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) a:focus-visible{outline:2px solid #6b8e44;outline-offset:4px}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-kicker{background:transparent;color:#2454cf;padding:0}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-lead{color:#52647b}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-meta{color:#60728a}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-list-item{border:0;border-top:1px solid rgba(16, 29, 53,.2);border-radius:0;background:transparent;color:#101d35}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-chip{border:1px solid rgba(50, 105, 245,.3);border-radius:0;background:#e3edff;color:#3269f5}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) a:focus-visible{outline:2px solid #3269f5;outline-offset:4px}
     @media (max-width:640px){[data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero{padding:22px 20px}}
   </style>
 `
@@ -499,35 +499,35 @@ export function renderHomePage(template, payload, siteUrl) {
         .prerender-news-front aside{border-left:1px solid #d7d2c8;padding-left:30px}.prerender-news-front aside>h2{font-size:18px}.prerender-news-front ol{margin:0;padding-left:22px}.prerender-news-front li{padding:18px 0;border-bottom:1px solid #d7d2c8}.prerender-news-front li h3{font-size:17px;line-height:1.6}
         .prerender-news-feed{max-width:950px;padding:30px 0}.prerender-news-feed>h2{font-size:26px}.prerender-news-feed form{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:13px;border-bottom:1px solid;padding-bottom:20px}.prerender-news-feed input{background:transparent;border:1px solid #aaa296;padding:10px}.prerender-news-feed button{padding:10px 18px;border:0;background:#191919;color:#fff}.prerender-news-feed article{padding:23px 0;border-bottom:1px solid #d7d2c8}.prerender-news-feed article h3{font-size:22px;line-height:1.5}.prerender-news-feed article p{font-size:13px;line-height:1.8}
         @media(max-width:760px){.prerender-news{padding:20px 18px}.prerender-news-masthead>a{font-size:32px}.prerender-news-front{display:block}.prerender-news-front article>h2{font-size:30px}.prerender-news-front aside{border:0;padding:25px 0 0}.prerender-news-nav{gap:20px}.prerender-news-feed input{max-width:100%}}
-        [data-news-style="tech"] .prerender-news{background:#eee9df;color:#1b241d}
+        [data-news-style="tech"] .prerender-news{background:#f1f5fa;color:#101d35}
         [data-news-style="tech"] .prerender-news-masthead{text-align:left;padding:16px 0 24px}
-        [data-news-style="tech"] .prerender-news-masthead>a{font:500 40px/1.3 "Iowan Old Style",Georgia,"Songti SC",SimSun,serif;letter-spacing:-.04em;color:#1b241d}
-        [data-news-style="tech"] .prerender-news-masthead>span{margin-top:8px;color:#466137;letter-spacing:.24em}
-        [data-news-style="tech"] .prerender-news-nav{border-width:1px 0;border-style:solid;border-color:rgba(27,36,29,.24);color:#4d574a}
+        [data-news-style="tech"] .prerender-news-masthead>a{font:750 34px/1.3 Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;letter-spacing:-.04em;color:#101d35}
+        [data-news-style="tech"] .prerender-news-masthead>span{margin-top:8px;color:#3269f5;letter-spacing:.24em}
+        [data-news-style="tech"] .prerender-news-nav{border-width:1px 0;border-style:solid;border-color:rgba(16, 29, 53,.24);color:#52647b}
         [data-news-style="tech"] .prerender-news-intro{margin:24px 0 0;padding:12px 0 0;border:0}
-        [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-intro h1{color:#1b241d;font-size:clamp(42px,5.6vw,76px);font-weight:500;line-height:1.15}
-        [data-news-style="tech"] .prerender-news-intro p{color:#4d574a}
-        [data-news-style="tech"] .prerender-news-front{grid-template-columns:minmax(0,1fr);border-color:rgba(27,36,29,.22);border-bottom-width:1px;gap:0;padding:32px 0}
-        [data-news-style="tech"] .prerender-news-front>article{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto 1fr auto;column-gap:38px;row-gap:16px;padding:36px;border:0;border-radius:2px;background:#1b241d;color:#eee9df}
+        [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-intro h1{color:#101d35;font-size:clamp(38px,5vw,68px);font-weight:750;line-height:1.15}
+        [data-news-style="tech"] .prerender-news-intro p{color:#52647b}
+        [data-news-style="tech"] .prerender-news-front{grid-template-columns:minmax(0,1fr);border-color:rgba(16, 29, 53,.22);border-bottom-width:1px;gap:0;padding:32px 0}
+        [data-news-style="tech"] .prerender-news-front>article{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto 1fr auto;column-gap:38px;row-gap:16px;padding:36px;border:1px solid #d0ddef;border-radius:8px;background:#fff;color:#101d35}
         [data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr) minmax(0,1.05fr)}
         [data-news-style="tech"] .prerender-news-front>article>:not(a){grid-column:1}
-        [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h2{margin:0;font:500 44px/1.35 "Iowan Old Style",Georgia,"Songti SC",SimSun,serif;color:#eee9df}
-        [data-news-style="tech"] .prerender-news-front article>p{margin:0;color:#ccd2c0;font-size:15px;line-height:1.85}
+        [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h2{margin:0;font:750 40px/1.4 Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;color:#101d35}
+        [data-news-style="tech"] .prerender-news-front article>p{margin:0;color:#52647b;font-size:15px;line-height:1.85}
         [data-news-style="tech"] .prerender-news-front>article>a:has(img){grid-column:2;grid-row:1/span 4;display:block;align-self:stretch;min-width:0;min-height:320px}
         [data-news-style="tech"] .prerender-news-front img{display:block;width:100%;height:100%;max-height:520px;margin:0;object-fit:cover;border:0;border-radius:2px}
-        [data-news-style="tech"] .prerender-news-kicker{color:#c6f268;letter-spacing:.08em}
-        [data-news-style="tech"] .prerender-news-meta{color:#646d5e}
-        [data-news-style="tech"] .prerender-news-front>article .prerender-news-meta{color:#b4c0a6}
+        [data-news-style="tech"] .prerender-news-kicker{color:#2454cf;letter-spacing:.08em}
+        [data-news-style="tech"] .prerender-news-meta{color:#60728a}
+        [data-news-style="tech"] .prerender-news-front>article .prerender-news-meta{color:#60728a}
         [data-news-style="tech"] .prerender-news-front aside{padding:30px 0 0;border:0;background:transparent}
-        [data-news-style="tech"] .prerender-news-front aside>h2{color:#1b241d;font-size:28px}
-        [data-news-style="tech"] .prerender-news-front aside>a{color:#38542c;font-size:12px}
+        [data-news-style="tech"] .prerender-news-front aside>h2{color:#101d35;font-size:28px}
+        [data-news-style="tech"] .prerender-news-front aside>a{color:#3269f5;font-size:12px}
         [data-news-style="tech"] .prerender-news-front ol{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 28px;padding:0;margin:8px 0 18px;list-style:none}
-        [data-news-style="tech"] .prerender-news-front li{padding:18px 0;border-color:rgba(27,36,29,.22)}
-        [data-news-style="tech"] .prerender-news-feed :is(form,article){border-color:rgba(27,36,29,.22)}
-        [data-news-style="tech"] .prerender-news-feed input{min-width:0;max-width:100%;border-color:rgba(27,36,29,.3);border-radius:0;background:#f7f3ea;color:#1b241d}
-        [data-news-style="tech"] .prerender-news-feed input::placeholder{color:#646d5e}
-        [data-news-style="tech"] .prerender-news-feed button{border:0;border-radius:0;background:#1b241d;color:#c6f268}
-        [data-news-style="tech"] .prerender-news-feed article p{color:#4d574a}
+        [data-news-style="tech"] .prerender-news-front li{padding:18px 0;border-color:rgba(16, 29, 53,.22)}
+        [data-news-style="tech"] .prerender-news-feed :is(form,article){border-color:rgba(16, 29, 53,.22)}
+        [data-news-style="tech"] .prerender-news-feed input{min-width:0;max-width:100%;border-color:rgba(16, 29, 53,.3);border-radius:0;background:#ffffff;color:#101d35}
+        [data-news-style="tech"] .prerender-news-feed input::placeholder{color:#60728a}
+        [data-news-style="tech"] .prerender-news-feed button{border:0;border-radius:5px;background:#3269f5;color:#fff}
+        [data-news-style="tech"] .prerender-news-feed article p{color:#52647b}
         @media(max-width:760px){[data-news-style="tech"] .prerender-news-masthead>a{font-size:32px}[data-news-style="tech"] .prerender-news-front>article,[data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr);grid-template-rows:auto;gap:18px;padding:26px 22px}[data-news-style="tech"] .prerender-news-front>article>a:has(img){grid-column:1;grid-row:auto;min-height:0;margin-top:8px}[data-news-style="tech"] .prerender-news-front img{height:auto;max-height:none}[data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h2{font-size:34px}[data-news-style="tech"] .prerender-news-front ol{grid-template-columns:minmax(0,1fr);gap:0}[data-news-style="tech"] .prerender-news-intro{padding:12px 0 0}}
       </style>`,
       extraScript: bootstrapScript(payload),
