@@ -14,6 +14,7 @@ import {
 } from '../utils/structuredData'
 import { SITE_COPY, START_HERE_COPY } from '../utils/contentPresentation'
 import '../styles/news-guide.css'
+import '../styles/news-tech-reading.css'
 
 const READING_ROUTES = [
   {

@@ -14,10 +14,13 @@ import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import ArticleQuickPreview from '../components/ArticleQuickPreview'
 import NewsArticle from '../components/news/NewsArticle'
 import NewsFrontPage from '../components/news/NewsFrontPage'
+import TechNewsIntro from '../components/news/TechNewsIntro'
+import { useNewsStyle } from '../hooks/useNewsStyle'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildCollectionPageJsonLd, buildWebSiteJsonLd } from '../utils/structuredData'
 import { SITE_COPY, SITE_SEO } from '../utils/contentPresentation'
 import '../styles/news-home.css'
+import '../styles/news-tech-home.css'
 
 const NEWS_BEATS = [
   ['模型与产品', '模型'], ['开源与工具', '开源'], ['研究前沿', '研究'],
@@ -25,6 +28,7 @@ const NEWS_BEATS = [
 ]
 
 export default function HomePage() {
+  const { newsStyle } = useNewsStyle()
   const { settings, bootstrap, bootstrapLoading, loading: siteLoading } = useSite()
   const [searchParams, setSearchParams] = useSearchParams()
   const tag = searchParams.get('tag') || ''
@@ -204,7 +208,7 @@ export default function HomePage() {
         jsonLd={homeJsonLd} rssUrl={buildPublicApiUrl('/feed.xml')} />
       <Navbar />
       <div className="news-home__paper">
-        <header className="news-edition">
+        {newsStyle === 'tech' ? <TechNewsIntro total={total} latestDate={latestDate} loading={loading} hasError={Boolean(error)} compact={!defaultView} /> : <header className="news-edition">
           <div>
             <div className="news-kicker">THE AI OBSERVER <span>人工智能 · 产品 · 研究 · 产业</span></div>
             <h1>{SITE_COPY.homeTitle}</h1>
@@ -213,7 +217,7 @@ export default function HomePage() {
             <span>阅读重要变化，连接新闻背景。</span>
             {latestDate ? <span>本页最新发布 <time dateTime={latestDate.toISOString()}>{formatDate(latestDate.toISOString())}</time></span> : <span>按发布日期浏览资讯</span>}
           </div>
-        </header>
+        </header>}
 
         <nav className="news-beats" aria-label="新闻领域">
           <span>关注领域</span>

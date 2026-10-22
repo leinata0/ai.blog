@@ -25,6 +25,7 @@ import { SITE_COPY } from '../utils/contentPresentation'
 import { openCommandPalette } from '../utils/uiEvents'
 import { formatDate } from '../utils/date'
 import { getSurfaceForPath, SURFACES } from '../utils/surface'
+import { useNewsStyle } from '../hooks/useNewsStyle'
 
 const NAV_ITEMS = [
   { label: '首页', to: '/' },
@@ -237,6 +238,7 @@ export default function Navbar() {
   const trackingCloseTimerRef = useRef(null)
   const { dark, toggleTheme } = useTheme()
   const { user } = useUser()
+  const { newsStyle, setNewsStyle } = useNewsStyle()
   const isEditorialSurface = getSurfaceForPath(location.pathname) === SURFACES.EDITORIAL
 
   useEffect(() => {
@@ -422,9 +424,23 @@ export default function Navbar() {
   return (
     <header ref={navRef} className="news-navbar" data-surface="editorial" data-ui="news-header">
       <div className="news-shell-container">
+        {isEditorialSurface && newsStyle === 'tech' ? (
+          <div className="news-tech-status-strip" aria-label="资讯台阅读说明">
+            <span className="news-tech-status-name"><i aria-hidden="true" /> AI OBSERVER / NEWS INDEX</span>
+            <span className="news-tech-status-archive">公开资讯档案</span>
+            <span>按发布日期索引</span>
+            <span className="news-tech-status-method" translate="no">READ · TRACE · VERIFY</span>
+          </div>
+        ) : null}
         <div className="news-utility-strip">
           <p>中文 AI 新闻与观察</p>
           <div className="news-utility-actions">
+            {isEditorialSurface ? (
+              <div className="news-style-switch" role="group" aria-label="新闻页面风格">
+                <button type="button" aria-pressed={newsStyle === 'tech'} onClick={() => setNewsStyle('tech')}>科技版</button>
+                <button type="button" aria-pressed={newsStyle === 'paper'} onClick={() => setNewsStyle('paper')}>报刊版</button>
+              </div>
+            ) : null}
             <Link to="/search" className="news-tool news-desktop-tool" aria-label="搜索" title="搜索新闻">
               <Search size={15} aria-hidden="true" /><span>搜索</span>
             </Link>
@@ -434,9 +450,9 @@ export default function Navbar() {
             <Link to={user ? '/account' : '/login'} className="news-tool news-account-tool" aria-label={user ? '个人中心' : '登录'}>
               <UserIcon size={14} aria-hidden="true" /><span>{user ? (user.nickname || '个人中心') : '登录'}</span>
             </Link>
-            <button type="button" onClick={toggleTheme} className="news-tool" aria-label="切换主题" aria-pressed={dark} title={dark ? '切换到浅色主题' : '切换到深色主题'}>
+            {!isEditorialSurface || newsStyle === 'paper' ? <button type="button" onClick={toggleTheme} className="news-tool" aria-label="切换主题" aria-pressed={dark} title={dark ? '切换到浅色主题' : '切换到深色主题'}>
               {dark ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}
-            </button>
+            </button> : null}
             <button ref={mobileMenuButtonRef} type="button" onClick={() => setMobileOpen((open) => !open)} className="news-tool news-mobile-menu-button" aria-label="菜单" title={toggleLabel(mobileOpen, '导航菜单')} aria-expanded={mobileOpen} aria-haspopup="true" aria-controls={MOBILE_NAV_PANEL_ID}>
               {mobileOpen ? <X size={21} aria-hidden="true" /> : <Menu size={21} aria-hidden="true" />}
             </button>
@@ -446,6 +462,7 @@ export default function Navbar() {
         <div className="news-masthead">
           <p className="news-masthead-note">模型 · 产品 · 研究<br /><span>把变化放回上下文</span></p>
           <Link to="/" className="news-brand" aria-label={`${SITE_COPY.brand}首页`}>
+            <span className="news-brand-symbol" aria-hidden="true"><i /><i /></span>
             <span className="news-brand-title">{SITE_COPY.brand}</span>
             <span className="news-brand-english" translate="no">AI OBSERVER</span>
           </Link>

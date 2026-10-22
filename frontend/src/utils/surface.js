@@ -31,7 +31,8 @@ export function getSurfaceForPath(pathname) {
   return SURFACES.EDITORIAL
 }
 
-export function getThemeColor(surface, dark) {
+export function getThemeColor(surface, dark, newsStyle = 'paper') {
+  if (surface === SURFACES.EDITORIAL && newsStyle === 'tech') return '#080c14'
   const palette = THEME_COLORS[surface] || THEME_COLORS[SURFACES.EDITORIAL]
   return dark ? palette.dark : palette.light
 }
@@ -45,7 +46,7 @@ export function applyDocumentSurface(pathname, documentRef = globalThis.document
 
   const dark = root.dataset.theme === 'dark'
   const themeMeta = documentRef.querySelector('meta[name="theme-color"]')
-  if (themeMeta) themeMeta.setAttribute('content', getThemeColor(surface, dark))
+  if (themeMeta) themeMeta.setAttribute('content', getThemeColor(surface, dark, root.dataset.newsStyle))
 
   const isPrivateSurface = surface !== SURFACES.EDITORIAL
   let robotsMeta = documentRef.querySelector('meta[name="robots"][data-surface-managed]')
@@ -70,5 +71,11 @@ export function applyDocumentTheme(dark, documentRef = globalThis.document) {
   root.dataset.theme = dark ? 'dark' : 'light'
   const surface = root.dataset.surface || SURFACES.EDITORIAL
   const themeMeta = documentRef.querySelector('meta[name="theme-color"]')
-  if (themeMeta) themeMeta.setAttribute('content', getThemeColor(surface, dark))
+  if (themeMeta) themeMeta.setAttribute('content', getThemeColor(surface, dark, root.dataset.newsStyle))
+}
+
+export function applyDocumentNewsStyle(style, documentRef = globalThis.document) {
+  if (!documentRef?.documentElement) return
+  documentRef.documentElement.dataset.newsStyle = style === 'paper' ? 'paper' : 'tech'
+  applyDocumentTheme(documentRef.documentElement.dataset.theme === 'dark', documentRef)
 }

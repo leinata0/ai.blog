@@ -268,3 +268,19 @@ it('shows actual publication dates and source counts without claiming historical
   expect(screen.queryByText(/2026\/10\/22|LIVE SIGNAL|今日 AI|人工核实/)).not.toBeInTheDocument()
   expect(screen.getByRole('link', { name: '选择订阅方式' })).toHaveAttribute('href', '/feeds')
 })
+
+it('distinguishes unavailable news metrics from a successfully loaded empty result', async () => {
+  fetchPosts.mockReset().mockRejectedValue(new Error('Unavailable'))
+  render(<MemoryRouter initialEntries={['/?q=missing']}><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>)
+  await screen.findByText('暂时无法加载文章列表，请稍后再试。')
+  const status = screen.getByRole('group', { name: '新闻档案状态' })
+  expect(within(status).getByText('—')).toBeInTheDocument()
+  expect(within(status).getByText('暂不可用')).toBeInTheDocument()
+  expect(within(status).queryByText('0')).not.toBeInTheDocument()
+
+  fetchPosts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10 })
+  await userEvent.click(screen.getByRole('button', { name: /重试加载/ }))
+  await screen.findByRole('heading', { name: '暂时没有匹配的资讯' })
+  expect(within(status).getByText('0')).toBeInTheDocument()
+  expect(within(status).getByText('暂无日期')).toBeInTheDocument()
+})

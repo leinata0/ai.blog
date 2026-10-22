@@ -21,6 +21,7 @@ import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import { proxyImageUrl } from '../utils/proxyImage'
 import '../styles/news-reading.css'
+import '../styles/news-tech-reading.css'
 import {
   buildArticleJsonLd,
   buildBreadcrumbJsonLd,
