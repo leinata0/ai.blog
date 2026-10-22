@@ -215,7 +215,7 @@ function TrackingPreview({
   )
 }
 
-export default function Navbar() {
+export default function Navbar({ immersive = false }) {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [mobileBrowseOpen, setMobileBrowseOpen] = useState(false)
@@ -240,6 +240,7 @@ export default function Navbar() {
   const { user } = useUser()
   const { newsStyle, setNewsStyle } = useNewsStyle()
   const isEditorialSurface = getSurfaceForPath(location.pathname) === SURFACES.EDITORIAL
+  const isImmersive = immersive && isEditorialSurface && newsStyle === 'tech'
 
   useEffect(() => {
     if (!isEditorialSurface) return undefined
@@ -422,7 +423,7 @@ export default function Navbar() {
   }
 
   return (
-    <header ref={navRef} className="news-navbar" data-surface="editorial" data-ui="news-header">
+    <header ref={navRef} className={`news-navbar${isImmersive ? ' news-navbar--immersive' : ''}`} data-surface="editorial" data-ui="news-header">
       <div className="news-shell-container">
         <div className="news-utility-strip">
           <p>中文 AI 新闻与观察</p>

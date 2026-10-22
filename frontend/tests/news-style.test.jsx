@@ -12,8 +12,8 @@ vi.mock('../src/utils/topicRetention', () => ({
   getContinueReadingItems: () => [], getFollowedTopics: () => [], getRecentTopics: () => [],
 }))
 
-function renderNav(path = '/') {
-  return render(<MemoryRouter initialEntries={[path]}><ThemeProvider><Navbar /></ThemeProvider></MemoryRouter>)
+function renderNav(path = '/', navbarProps = {}) {
+  return render(<MemoryRouter initialEntries={[path]}><ThemeProvider><Navbar {...navbarProps} /></ThemeProvider></MemoryRouter>)
 }
 
 beforeEach(() => {
@@ -68,10 +68,19 @@ it('preserves the paper theme preference when switching through tech', async () 
 })
 
 it('keeps the visual comparison out of private account surfaces', () => {
-  renderNav('/account')
+  renderNav('/account', { immersive: true })
   expect(document.body).not.toHaveClass('public-news-shell')
   expect(screen.queryByRole('group', { name: '新闻页面风格' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '切换主题' })).toBeInTheDocument()
+  expect(screen.getByRole('banner')).not.toHaveClass('news-navbar--immersive')
+})
+
+it('uses an immersive header only for the public edition and restores paper navigation on comparison', async () => {
+  renderNav('/', { immersive: true })
+  expect(screen.getByRole('banner')).toHaveClass('news-navbar--immersive')
+  await userEvent.click(screen.getByRole('button', { name: '报刊版' }))
+  expect(screen.getByRole('banner')).not.toHaveClass('news-navbar--immersive')
+  expect(window.localStorage.getItem('theme')).toBe('light')
 })
 
 it('synchronizes a style change from another tab', async () => {

@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowRight, ArrowUpRight, Rss, Search } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Search } from 'lucide-react'
 import { fetchPosts, prefetchPostDetail } from '../api/posts'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate, parseDate } from '../utils/date'
@@ -17,12 +17,16 @@ import NewsFrontPage from '../components/news/NewsFrontPage'
 import TechNewsIntro from '../components/news/TechNewsIntro'
 import TechNewsDesk from '../components/news/TechNewsDesk'
 import TechTopicExplorer from '../components/news/TechTopicExplorer'
+import EditionHero from '../components/news/EditionHero'
+import EditionChapterNav from '../components/news/EditionChapterNav'
+import NewsReadingRail from '../components/news/NewsReadingRail'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildCollectionPageJsonLd, buildWebSiteJsonLd } from '../utils/structuredData'
 import { SITE_COPY, SITE_SEO } from '../utils/contentPresentation'
 import '../styles/news-home.css'
 import '../styles/news-tech-home.css'
+import '../styles/news-edition.css'
 
 const NEWS_BEATS = [
   ['模型与产品', '模型'], ['开源与工具', '开源'], ['研究前沿', '研究'],
@@ -198,6 +202,7 @@ export default function HomePage() {
   const closePreview = useCallback(() => setPreviewPost(null), [])
 
   const defaultView = !tag && !searchQuery && page === 1
+  const immersiveHome = newsStyle === 'tech' && defaultView
   const feedPosts = defaultView ? posts.slice(3) : posts
   const latestDate = posts.reduce((latest, post) => {
     const date = parseDate(post.created_at)
@@ -205,12 +210,13 @@ export default function HomePage() {
   }, null)
 
   return (
-    <main data-ui="home-shell" className="news-home">
+    <main data-ui="home-shell" className={`news-home${immersiveHome ? ' edition-home' : ''}`}>
       <SeoMeta title={SITE_SEO.homeTitle} description={SITE_SEO.homeDescription} path="/" image={heroImage}
         jsonLd={homeJsonLd} rssUrl={buildPublicApiUrl('/feed.xml')} />
-      <Navbar />
+      <Navbar immersive={immersiveHome} />
+      {immersiveHome ? <EditionHero total={total} latestDate={latestDate} loading={loading} hasError={Boolean(error)} /> : null}
       <div className="news-home__paper">
-        {newsStyle === 'tech' ? <TechNewsIntro total={total} latestDate={latestDate} loading={loading} hasError={Boolean(error)} compact={!defaultView} /> : <header className="news-edition">
+        {immersiveHome ? null : newsStyle === 'tech' ? <TechNewsIntro total={total} latestDate={latestDate} loading={loading} hasError={Boolean(error)} compact={!defaultView} /> : <header className="news-edition">
           <div>
             <div className="news-kicker">THE AI OBSERVER <span>人工智能 · 产品 · 研究 · 产业</span></div>
             <h1>{SITE_COPY.homeTitle}</h1>
@@ -221,18 +227,21 @@ export default function HomePage() {
           </div>
         </header>}
 
-        <nav className="news-beats" aria-label="新闻领域">
+        {!immersiveHome ? <nav className="news-beats" aria-label="新闻领域">
           <span>关注领域</span>
           {NEWS_BEATS.map(([name, query]) => <Link key={query} to={'/search?q=' + encodeURIComponent(query)}>{name}<ArrowUpRight size={12} aria-hidden="true" /></Link>)}
           <Link to="/topics" className="news-beats__all">全部主题 <ArrowRight size={13} aria-hidden="true" /></Link>
-        </nav>
+        </nav> : null}
 
-        {defaultView && !error && posts.length > 0 ? (newsStyle === 'tech' ? <TechNewsDesk posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : <NewsFrontPage posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} />) : null}
+        {immersiveHome ? <section className="edition-focus" id="edition-focus" data-edition-chapter aria-labelledby="edition-focus-title">
+          <header className="edition-section-heading"><span>I / IN FOCUS</span><h2 id="edition-focus-title">变化发生的地方。<br /><em>A closer look.</em></h2><p>从一条具体的报道出发，看见模型、产品与产业正在发生的变化。</p></header>
+          {!error && posts.length > 0 ? <TechNewsDesk posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : <a className="news-text-link" href="#edition-news">{loading ? '新闻正在载入' : '查看新闻档案'} <ArrowRight size={15} aria-hidden="true" /></a>}
+        </section> : defaultView && !error && posts.length > 0 ? <NewsFrontPage posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : null}
 
-        <div className="news-feed-layout">
+        <div className="news-feed-layout" id={immersiveHome ? 'edition-news' : undefined} data-edition-chapter={immersiveHome ? '' : undefined}>
           <section className="news-feed" aria-labelledby="news-feed-title">
             <header className="news-feed__heading">
-              <div><span className="news-kicker">THE NEWSROOM</span><h2 id="news-feed-title">{searchQuery ? '搜索结果' : tag ? '主题资讯' : '新闻一览'}</h2></div>
+              <div><span className="news-kicker">{immersiveHome ? 'II / THE NEWS ARCHIVE' : 'THE NEWSROOM'}</span><h2 id="news-feed-title">{searchQuery ? '搜索结果' : tag ? '主题资讯' : '新闻一览'}</h2></div>
               <span className="news-feed__count">{loading ? '正在载入…' : error ? '数量暂不可用' : '共 ' + total + ' 篇'}</span>
             </header>
             <form className="news-search" onSubmit={handleSearch} role="search" aria-label="站内新闻搜索">
@@ -260,25 +269,18 @@ export default function HomePage() {
             <Pagination page={page} total={total} pageSize={pageSize} onPageChange={handlePageChange} />
           </section>
 
-          <aside className="news-reading-rail" aria-label="栏目与订阅">
-            <section className="news-newsletter">
-              <Rss size={24} strokeWidth={1.5} aria-hidden="true" /><span>THE READING LIST</span>
-              <h2>重要的变化，<br />值得再读一次。</h2><p>通过 RSS、邮件或浏览器提醒，接收后续发布的内容。</p>
-              <Link to="/feeds">选择订阅方式 <ArrowUpRight size={16} aria-hidden="true" /></Link>
-            </section>
-            <section className="news-channel-index">
-              <div className="news-section-label"><h2>按你的节奏阅读</h2><span>SECTIONS</span></div>
-              <Link to="/daily"><span><b>AI 日报</b><small>按覆盖日期梳理重要事件</small></span><ArrowUpRight size={18} aria-hidden="true" /></Link>
-              <Link to="/weekly"><span><b>AI 周报</b><small>从一周变化回看产业脉络</small></span><ArrowUpRight size={18} aria-hidden="true" /></Link>
-              <Link to="/series"><span><b>专题与系列</b><small>围绕同一条线索继续深入</small></span><ArrowUpRight size={18} aria-hidden="true" /></Link>
-              <Link to="/archive"><span><b>历史归档</b><small>沿时间线查找过往报道</small></span><ArrowUpRight size={18} aria-hidden="true" /></Link>
-            </section>
-            <section className="news-editor-note"><span className="news-kicker">阅读提示</span><p>新闻有它的时间。查看发布日期与原始来源，区分当时的事实和后续的变化。</p><Link to="/start-here">了解这份阅读指南 <ArrowRight size={13} aria-hidden="true" /></Link></section>
-          </aside>
+          {!immersiveHome ? <NewsReadingRail /> : null}
         </div>
-        {newsStyle === 'tech' && defaultView ? <TechTopicExplorer /> : null}
+        {immersiveHome ? <>
+          <div className="edition-topics" id="edition-topics" data-edition-chapter><TechTopicExplorer /></div>
+          <section className="edition-reading" id="edition-reading" data-edition-chapter aria-labelledby="edition-reading-title">
+            <header className="edition-section-heading"><span>IV / KEEP YOUR CURIOSITY</span><h2 id="edition-reading-title">让好奇，继续。<br /><em>Stay in the loop.</em></h2><p>按天梳理，按周回看，或者跟随一个长期主题。找到属于你的阅读节奏。</p></header>
+            <NewsReadingRail />
+          </section>
+        </> : null}
         <div className="news-bottom-note"><span>从一条新闻，读到更完整的背景。</span><Link to="/topics">探索主题 <ArrowRight size={15} aria-hidden="true" /></Link></div>
       </div>
+      {immersiveHome ? <EditionChapterNav /> : null}
       <Footer /><BackToTop /><ArticleQuickPreview post={previewPost} onClose={closePreview} />
     </main>
   )

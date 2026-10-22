@@ -175,6 +175,44 @@ it('renders a news front page with topic filtering and quick preview', async () 
   expect((await screen.findAllByText(/Python automation with Selenium and Pandas/i)).length).toBeGreaterThan(0)
 })
 
+it('renders one page title and four native chapter links to mounted sections', async () => {
+  const { container } = render(
+    <MemoryRouter><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>,
+  )
+  await screen.findByRole('region', { name: '本期头条' })
+
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(screen.getByRole('heading', { level: 1, name: 'AI 新闻与观察' })).toBeInTheDocument()
+  const chapterIds = ['edition-focus', 'edition-news', 'edition-topics', 'edition-reading']
+  for (const label of ['本期阅读目录', '本期展览目录']) {
+    const directory = screen.getByRole('navigation', { name: label })
+    const links = within(directory).getAllByRole('link')
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(chapterIds.map((id) => `#${id}`))
+  }
+  for (const id of chapterIds) {
+    const targets = container.querySelectorAll(`[id="${id}"]`)
+    expect(targets).toHaveLength(1)
+    expect(targets[0]).toBeVisible()
+  }
+})
+
+it('replaces the exhibition hero and chapter directory with the paper front page on style switch', async () => {
+  render(<MemoryRouter><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>)
+  await screen.findByRole('region', { name: '本期头条' })
+  expect(screen.getByRole('region', { name: '智能新纪元视觉专刊' })).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: '本期展览目录' })).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: '报刊版', exact: true }))
+
+  expect(screen.queryByRole('region', { name: '智能新纪元视觉专刊' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('navigation', { name: '本期阅读目录' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('navigation', { name: '本期展览目录' })).not.toBeInTheDocument()
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  const frontPage = screen.getByRole('region', { name: '本期头条' })
+  expect(within(frontPage).getByRole('heading', { name: 'Python automation with Selenium and Pandas' })).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: '搜索文章' })).toBeInTheDocument()
+})
+
 it('does not let a stale filtered request overwrite the restored latest-post view', async () => {
   let resolveFilteredRequest
   fetchPosts
