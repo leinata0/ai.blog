@@ -132,7 +132,7 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
-it('renders the homepage as an AI signal desk with quick preview', async () => {
+it('renders a news front page with topic filtering and quick preview', async () => {
   const { container } = render(
     <MemoryRouter>
       <ThemeProvider>
@@ -143,16 +143,18 @@ it('renders the homepage as an AI signal desk with quick preview', async () => {
     </MemoryRouter>,
   )
 
-  expect(await screen.findByRole('heading', { name: '从 AI 线索，走向可复现的实践' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'AI 新闻与观察' })).toBeInTheDocument()
+  expect(await screen.findByRole('region', { name: '本期头条' })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="home-shell"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="home-hero-focus"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="today-signal-board"]')).toBeTruthy()
-  expect(screen.getByRole('heading', { name: 'AI 阅读信号台' })).toBeInTheDocument()
+  expect(container.querySelector('[data-ui="news-frontpage"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="today-signal-board"]')).toBeNull()
+  expect(screen.getByRole('heading', { name: '新闻速览' })).toBeInTheDocument()
   expect(screen.getByRole('textbox', { name: '搜索文章' })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '按发布日期，回看文章与观察' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '新闻一览' })).toBeInTheDocument()
   expect(container.querySelector('[data-ui="filter-bar"]')).toBeTruthy()
-  expect(screen.getByRole('complementary', { name: 'AI 阅读信号台' })).toBeInTheDocument()
-  expect(screen.getByText('作者与站点')).toBeInTheDocument()
+  expect(screen.getByRole('complementary', { name: '新闻速览' })).toBeInTheDocument()
+  expect(screen.getByRole('complementary', { name: '栏目与订阅' })).toBeInTheDocument()
+  expect(screen.queryByText('作者与站点')).not.toBeInTheDocument()
   expect(container.querySelector('[data-ui="home-weekly-spotlight"]')).toBeNull()
   expect(container.querySelector('[data-ui="home-daily-rail"]')).toBeNull()
   expect(container.querySelector('[data-ui="home-series-showcase"]')).toBeNull()
@@ -206,7 +208,7 @@ it('does not let a stale filtered request overwrite the restored latest-post vie
     expect(screen.queryAllByText(/Python automation with Selenium and Pandas/i)).not.toHaveLength(0)
   }, { timeout: 5000 })
   await userEvent.type(screen.getByRole('textbox', { name: '搜索文章' }), 'Python')
-  await userEvent.click(screen.getByRole('button', { name: '校准信号' }))
+  await userEvent.click(screen.getByRole('button', { name: '搜索新闻' }))
   await waitFor(() => expect(fetchPosts).toHaveBeenCalledTimes(1))
 
   await userEvent.click(screen.getByRole('button', { name: '清空' }))
@@ -247,4 +249,22 @@ it('hydrates tag and pagination state from the URL', async () => {
     expect.any(Object),
   ))
   expect(screen.getByTestId('location')).toHaveTextContent('tag=python&page=2')
+})
+
+it('shows actual publication dates and source counts without claiming historical news is live', async () => {
+  fetchHomeBootstrap.mockResolvedValueOnce({
+    settings: { site_url: 'https://www.563118077.xyz' },
+    posts: { items: [{
+      slug: 'dated-headline', title: '一条有日期的头条', summary: '有真实来源的历史报道。',
+      created_at: '2026-07-26T08:00:00Z', updated_at: '2026-10-22T08:00:00Z',
+      source_count: 3, content_type: 'daily_brief', tags: [],
+    }], total: 1, page: 1, page_size: 10 },
+  })
+  render(<MemoryRouter><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>)
+
+  const frontPage = await screen.findByRole('region', { name: '本期头条' })
+  expect(within(frontPage).getByText('3 个来源')).toBeInTheDocument()
+  expect(within(frontPage).getByText('2026/07/26')).toHaveAttribute('dateTime', '2026-07-26T08:00:00.000Z')
+  expect(screen.queryByText(/2026\/10\/22|LIVE SIGNAL|今日 AI|人工核实/)).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '选择订阅方式' })).toHaveAttribute('href', '/feeds')
 })

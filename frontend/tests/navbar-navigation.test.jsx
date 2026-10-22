@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import Navbar from '../src/components/Navbar'
+import Footer from '../src/components/Footer'
+import { openCommandPalette } from '../src/utils/uiEvents'
+
+vi.mock('../src/utils/uiEvents', () => ({ openCommandPalette: vi.fn() }))
 
 vi.mock('../src/contexts/ThemeContext', () => ({
   useTheme: () => ({ dark: false, toggleTheme: vi.fn() }),
@@ -30,9 +34,9 @@ const BROWSE_LINKS = [
   ['友链', '/friends'],
 ]
 
-function renderNavbar() {
+function renderNavbar(entry = '/') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <Navbar />
     </MemoryRouter>,
   )
@@ -41,6 +45,47 @@ function renderNavbar() {
 afterEach(cleanup)
 
 describe('Navbar navigation', () => {
+  it('exposes the newspaper masthead, primary sections, and subscription entry', () => {
+    renderNavbar()
+
+    const header = screen.getByRole('banner')
+    expect(header).toHaveAttribute('data-surface', 'editorial')
+    expect(within(header).getByText('AI OBSERVER')).toBeInTheDocument()
+    expect(within(header).getByRole('link', { name: 'AI 资讯观察首页' })).toHaveAttribute('href', '/')
+    const navigation = within(header).getByRole('navigation', { name: '主导航' })
+    for (const [name, href] of BROWSE_LINKS.slice(0, 4)) {
+      expect(within(navigation).getByRole('link', { name })).toHaveAttribute('href', href)
+    }
+    expect(within(header).getByRole('link', { name: '订阅更新' })).toHaveAttribute('href', '/feeds')
+    expect(within(navigation).getByRole('link', { name: '首页' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('removes the public paper surface on unmount while preserving the chosen theme', () => {
+    const previousTheme = document.documentElement.getAttribute('data-theme')
+    document.documentElement.setAttribute('data-theme', 'dark')
+    const { unmount } = renderNavbar()
+
+    expect(document.body).toHaveClass('public-news-shell')
+    unmount()
+    expect(document.body).not.toHaveClass('public-news-shell')
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+
+    if (previousTheme === null) document.documentElement.removeAttribute('data-theme')
+    else document.documentElement.setAttribute('data-theme', previousTheme)
+  })
+
+  it('keeps the parent news section active while reading a topic detail', () => {
+    renderNavbar('/topics/model-updates')
+    const navigation = screen.getByRole('navigation', { name: '主导航' })
+    expect(within(navigation).getByRole('link', { name: '主题' })).toHaveAttribute('aria-current', 'page')
+    expect(within(navigation).getByRole('link', { name: '首页' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('keeps account surfaces outside the public newspaper token scope', () => {
+    renderNavbar('/account')
+    expect(document.body).not.toHaveClass('public-news-shell')
+  })
+
   it('shows the desktop browse menu with every secondary destination', async () => {
     renderNavbar()
     const trigger = document.querySelector('[data-ui="desktop-browse-trigger"]')
@@ -104,5 +149,22 @@ describe('Navbar navigation', () => {
     expect(document.querySelector('[data-ui="mobile-browse-trigger"]')).toBeNull()
     expect(screen.getByRole('button', { name: '菜单' })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByRole('button', { name: '菜单' })).toHaveFocus()
+  })
+})
+
+describe('Newspaper footer', () => {
+  it('links to the news archive, subscriptions and RSS without claiming live updates', async () => {
+    render(<MemoryRouter><Footer /></MemoryRouter>)
+
+    const footer = screen.getByRole('contentinfo')
+    expect(within(footer).getByRole('navigation', { name: '页脚导航' })).toBeInTheDocument()
+    expect(within(footer).getByRole('link', { name: '全部归档' })).toHaveAttribute('href', '/archive')
+    expect(within(footer).getByRole('link', { name: '订阅中心' })).toHaveAttribute('href', '/feeds')
+    expect(within(footer).getByRole('link', { name: 'RSS' })).toHaveAttribute('href', '/feed.xml')
+    expect(footer).not.toHaveTextContent(/Signal online|LIVE SIGNAL/)
+
+    const callsBefore = vi.mocked(openCommandPalette).mock.calls.length
+    await userEvent.click(within(footer).getByRole('button', { name: '搜索文章与主题' }))
+    expect(openCommandPalette).toHaveBeenCalledTimes(callsBefore + 1)
   })
 })

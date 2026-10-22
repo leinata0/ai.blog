@@ -14,7 +14,7 @@ const AUTH_ROUTES = new Set([
 ])
 
 const THEME_COLORS = Object.freeze({
-  [SURFACES.EDITORIAL]: { light: '#f3f3ef', dark: '#071016' },
+  [SURFACES.EDITORIAL]: { light: '#f8f6f1', dark: '#1c1b18' },
   [SURFACES.AUTH]: { light: '#eeefe9', dark: '#080f13' },
   [SURFACES.OPERATIONS]: { light: '#e9edef', dark: '#05090d' },
 })

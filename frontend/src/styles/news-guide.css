@@ -1,0 +1,52 @@
+.news-guide {
+  --bg-canvas: #f7f5ee;
+  --bg-surface: #fffdf8;
+  --text-primary: #24231f;
+  --text-secondary: #5e5b53;
+  --text-faint: #726d62;
+  --accent: #c94326;
+  --accent-soft: #f7e7df;
+  --border-muted: #d9d4c7;
+  min-height: 100vh;
+  color: var(--text-primary);
+  background: var(--bg-canvas);
+}
+.news-guide__body { width: min(1120px, calc(100% - 64px)); margin: 0 auto; padding: 42px 0 80px; }
+.news-guide__header { padding-bottom: 30px; border-bottom: 3px solid #292720; }
+.news-guide__edition { display: flex; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 1px solid #bdb6a7; color: #a6361e; font-size: 11px; font-weight: 800; letter-spacing: .13em; }
+.news-guide__header h1 { max-width: 900px; margin: 24px 0 18px; color: #24231f; font-family: Georgia, 'Noto Serif SC', 'Songti SC', SimSun, serif; font-size: clamp(34px, 5vw, 60px); font-weight: 800; letter-spacing: -.04em; line-height: 1.2; text-wrap: balance; }
+.news-guide__intro { max-width: 790px; margin: 0; color: #5e5b53; font-size: 16px; line-height: 1.95; }
+.news-guide__header-links { display: flex; flex-wrap: wrap; gap: 12px 28px; margin-top: 18px; }
+.news-guide__header-links a, .news-guide__route-links a, .news-guide__return { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: #ab361e; font-size: 13px; font-weight: 800; text-decoration: none; }
+.news-guide__header-links a:hover, .news-guide__route-links a:hover, .news-guide__return:hover { color: #792614; text-decoration: underline; text-underline-offset: 4px; }
+.news-guide__header-links a:focus-visible, .news-guide__route-links a:focus-visible, .news-guide__return:focus-visible { outline: 2px solid #ab361e; outline-offset: 4px; }
+.news-guide__layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 42px; margin-top: 28px; }
+.news-guide__section-title { margin: 0; padding-bottom: 14px; border-bottom: 1px solid #a7a091; color: #292720; font-size: 15px; font-weight: 800; line-height: 1.6; }
+.news-guide__route { display: grid; grid-template-columns: 35px minmax(0, 1fr); gap: 20px; padding: 24px 0 17px; border-bottom: 1px solid #d9d4c7; }
+.news-guide__number { padding-top: 2px; color: #b74429; font-family: Georgia, serif; font-size: 27px; line-height: 1.3; }
+.news-guide__route-type { color: #81796b; font-size: 10px; font-weight: 800; letter-spacing: .09em; }
+.news-guide__route h3 { margin: 5px 0 8px; color: #24231f; font-family: Georgia, 'Noto Serif SC', 'Songti SC', SimSun, serif; font-size: 25px; font-weight: 800; line-height: 1.3; }
+.news-guide__route p, .news-guide__notes dd, .news-guide__notice p { margin: 0; color: #666054; font-size: 13px; line-height: 1.95; }
+.news-guide__route-links { display: flex; flex-wrap: wrap; gap: 6px 24px; margin-top: 6px; }
+.news-guide__notes { padding-left: 26px; border-left: 1px solid #d9d4c7; }
+.news-guide__notes dl { margin: 3px 0 24px; }
+.news-guide__notes dl > div { padding: 18px 0; border-bottom: 1px solid #d9d4c7; }
+.news-guide__notes dt { margin-bottom: 6px; color: #343129; font-size: 13px; font-weight: 800; }
+.news-guide__notice { padding: 18px 0; border-top: 3px solid #c94326; }
+.news-guide__notice h3 { margin: 0 0 8px; color: #a6361e; font-size: 14px; font-weight: 800; }
+.news-guide__return { margin-top: 12px; }
+@media (max-width: 800px) {
+  .news-guide__body { width: calc(100% - 40px); padding-top: 28px; }
+  .news-guide__layout { grid-template-columns: 1fr; gap: 32px; }
+  .news-guide__notes { padding-left: 0; border-left: 0; }
+  .news-guide__notes dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+}
+@media (max-width: 520px) {
+  .news-guide__body { width: calc(100% - 32px); padding-bottom: 48px; }
+  .news-guide__edition { font-size: 10px; letter-spacing: .08em; }
+  .news-guide__header h1 { margin-top: 20px; }
+  .news-guide__intro { font-size: 14px; }
+  .news-guide__route { grid-template-columns: 28px minmax(0, 1fr); gap: 13px; }
+  .news-guide__route h3 { font-size: 23px; }
+  .news-guide__notes dl { display: block; }
+}

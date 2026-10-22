@@ -6,24 +6,24 @@ export const SITE_CANONICAL_ORIGIN = 'https://www.563118077.xyz'
 
 export const SITE_COPY = {
   brand: 'AI 资讯观察',
-  homeBadge: 'AI NOTES & PRACTICE · 项目与观察',
-  homeTitle: '从 AI 线索，走向可复现的实践',
+  homeBadge: 'THE AI OBSERVER · 中文 AI 资讯',
+  homeTitle: 'AI 新闻与观察',
   homeSubtitle:
-    '这里正在从 AI 资讯整理转向实践记录。先看开源项目和历史观察，再用可复现的案例检验想法。',
+    '追踪模型、产品、研究与产业的重要变化。先读新闻，再沿来源与主题理解背景。',
   homeFocusLines: [
-    '从这座开源博客开始了解项目实现',
-    '记录工具选择、实现步骤与失败边界',
-    '沿主题回看模型、产品与研究线索',
-    '让每一次实践留下可检查的材料',
+    '追踪模型与产品的重要变化',
+    '从原始来源理解事件背景',
+    '沿主题阅读研究与产业线索',
+    '用日报与周报串起新闻脉络',
   ],
-  homeSignalLabels: ['开源项目', '实践记录', '主题阅读', '历史归档'],
+  homeSignalLabels: ['模型与产品', '研究前沿', '算力与产业', '历史归档'],
   homePosterAlt: '站点 Hero 主海报',
   homeSearchPlaceholder: '输入模型、公司、产品或主题…',
-  homeSearchAction: '校准信号',
+  homeSearchAction: '搜索新闻',
   homeClearAction: '清空',
 }
 
-const HOME_TAGLINE = 'AI 实践记录与资讯档案'
+const HOME_TAGLINE = '人工智能新闻、产品与产业观察'
 
 // SEO copy shared by index.html, the build-time prerender (frontend/scripts/prerender-public.mjs)
 // and runtime <SeoMeta>. Three hand-written variants used to disagree, so the crawler
@@ -35,12 +35,12 @@ export const SITE_SEO = {
   homeTagline: HOME_TAGLINE,
   homeTitle: `${SITE_COPY.brand} | ${HOME_TAGLINE}`,
   homeDescription:
-    '从 AI 资讯档案出发，探索项目实现、工具选择与可复用的实践方法。',
+    '聚焦人工智能新闻、模型与产品更新、研究进展和产业变化，通过头条、日报、周报与主题阅读连接事件背景。',
 }
 
 export const START_HERE_COPY = {
-  title: '从一个真实项目，认识这里的 AI 实践',
-  description: '这里正在从 AI 资讯整理转向可复现的 AI 实践记录：先看开源项目，再按主题探索，最后查阅历史资讯。',
+  title: '从头条开始，读懂 AI 的重要变化',
+  description: '先看头条与最新资讯，再用日报、周报和主题追踪补齐背景。阅读时核对发布日期、覆盖日期与原始来源，也可以通过 RSS 订阅后续发布。',
 }
 
 const SERIES_TITLES = {

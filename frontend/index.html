@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Keep the SEO copy below identical to SITE_SEO in src/utils/contentPresentation.js.
          The build-time prerender rewrites these tags per route and asserts they exist. -->
-    <meta name="description" content="从 AI 资讯档案出发，探索项目实现、工具选择与可复用的实践方法。">
-    <meta name="theme-color" content="#f3f3ef">
-    <meta property="og:title" content="AI 资讯观察 | AI 实践记录与资讯档案">
-    <meta property="og:description" content="从 AI 资讯档案出发，探索项目实现、工具选择与可复用的实践方法。">
+    <meta name="description" content="聚焦人工智能新闻、模型与产品更新、研究进展和产业变化，通过头条、日报、周报与主题阅读连接事件背景。">
+    <meta name="theme-color" content="#f8f6f1">
+    <meta property="og:title" content="AI 资讯观察 | 人工智能新闻、产品与产业观察">
+    <meta property="og:description" content="聚焦人工智能新闻、模型与产品更新、研究进展和产业变化，通过头条、日报、周报与主题阅读连接事件背景。">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://www.563118077.xyz">
     <link rel="alternate" type="application/rss+xml" title="AI 资讯观察 RSS" href="/feed.xml">
@@ -27,7 +27,7 @@
             ? 'auth'
             : 'editorial'
         const themeColors = {
-          editorial: { light: '#f3f3ef', dark: '#071016' },
+          editorial: { light: '#f8f6f1', dark: '#1c1b18' },
           auth: { light: '#eeefe9', dark: '#080f13' },
           operations: { light: '#e9edef', dark: '#05090d' },
         }
@@ -36,7 +36,7 @@
         document.querySelector('meta[name="theme-color"]').content = themeColors[surface][dark ? 'dark' : 'light']
       })()
     </script>
-    <title>AI 资讯观察 | AI 实践记录与资讯档案</title>
+    <title>AI 资讯观察 | 人工智能新闻、产品与产业观察</title>
   </head>
   <body>
     <div id="root"></div>

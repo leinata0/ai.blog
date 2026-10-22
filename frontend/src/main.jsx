@@ -6,6 +6,7 @@ import { SiteProvider } from './contexts/SiteContext'
 import { UserProvider } from './contexts/UserContext'
 import App from './App'
 import './index.css'
+import './styles/news-shell.css'
 
 const tree = (
   <React.StrictMode>

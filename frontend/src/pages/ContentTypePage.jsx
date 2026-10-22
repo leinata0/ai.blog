@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { ArrowRight, Rss } from 'lucide-react'
 
 import { fetchDiscover, fetchPosts } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
-import CoverCard from '../components/CoverCard'
-import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
@@ -16,62 +13,67 @@ import { useSite } from '../contexts/SiteContext'
 import { formatDate, parseDate } from '../utils/date'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
+import { proxyImageUrl } from '../utils/proxyImage'
+import '../styles/news-reading.css'
 import {
   buildBreadcrumbJsonLd,
   buildCollectionPageJsonLd,
 } from '../utils/structuredData'
-import {
-  CONTENT_TYPE_META,
-  motionContainerVariants,
-  motionItemVariants,
-} from '../utils/contentPresentation'
+import { CONTENT_TYPE_META } from '../utils/contentPresentation'
 
 function sortByCreatedTime(posts) {
   return [...posts].sort((a, b) => (parseDate(b.created_at)?.getTime() ?? 0) - (parseDate(a.created_at)?.getTime() ?? 0))
 }
 
-function HeroCard({ post, meta }) {
-  if (!post) return null
-
+function NewsCover({ post, eager = false }) {
+  const [unavailable, setUnavailable] = useState(false)
+  if (!post.cover_image) return null
   return (
-    <motion.div variants={motionItemVariants}>
-      <CoverCard
-        to={`/posts/${post.slug}`}
-        image={post.cover_image}
-        imageAlt={post.title}
-        overlay
-        eyebrow={meta.kicker}
-        badge={(
-          <span
-            className="rounded-full px-3 py-1 text-xs font-semibold"
-            style={{ backgroundColor: meta.background, color: meta.accent }}
-          >
-            最新一篇
-          </span>
-        )}
-        title={post.title}
-        description={post.summary}
-        meta={[post.coverage_date || formatDate(post.created_at), meta.label]}
-        footer={<span className="inline-flex items-center gap-2 font-semibold">阅读全文 <ArrowRight size={14} /></span>}
-      />
-    </motion.div>
+    <div className="news-section__image">
+      {unavailable ? <span>配图暂不可用</span> : <img src={proxyImageUrl(post.cover_image)} alt="" width="800" height="500" loading={eager ? 'eager' : 'lazy'} onError={() => setUnavailable(true)} />}
+    </div>
   )
 }
 
-function ListCard({ post, meta }) {
+function NewsMetadata({ post }) {
+  return <div className="news-section__post-meta">
+    {post.created_at ? <time dateTime={post.created_at}>发布 {formatDate(post.created_at)}</time> : null}
+    {post.coverage_date ? <span>覆盖 {post.coverage_date}</span> : null}
+    {post.source_count ? <span>{post.source_count} 个来源</span> : null}
+  </div>
+}
+
+function HeroCard({ post, meta }) {
+  if (!post) return null
   return (
-    <motion.article variants={motionItemVariants}>
-      <CoverCard
-        to={`/posts/${post.slug}`}
-        image={post.cover_image}
-        imageAlt={post.title}
-        eyebrow={meta.label}
-        title={post.title}
-        description={post.summary}
-        meta={[post.coverage_date || formatDate(post.created_at)]}
-        className="h-full"
-      />
-    </motion.article>
+    <article className="news-section__lead">
+      <Link to={`/posts/${post.slug}`} className={`news-section__lead-link${post.cover_image ? '' : ' news-section__lead-link--text'}`}>
+        <div>
+          <p className="news-section__kicker">最新一篇 · {meta.label}</p>
+          <h2>{post.title}</h2>
+          {post.summary ? <p className="news-section__summary">{post.summary}</p> : null}
+          <NewsMetadata post={post} />
+          <span className="news-section__read">阅读全文 <ArrowRight size={15} aria-hidden="true" /></span>
+        </div>
+        <NewsCover key={post.cover_image} post={post} eager />
+      </Link>
+    </article>
+  )
+}
+
+function ListCard({ post, index }) {
+  return (
+    <article className="news-section__story">
+      <span className="news-section__number" aria-hidden="true">{String(index + 2).padStart(2, '0')}</span>
+      <Link to={`/posts/${post.slug}`} className="news-section__story-link">
+        <div>
+          <h3>{post.title}</h3>
+          {post.summary ? <p>{post.summary}</p> : null}
+          <NewsMetadata post={post} />
+        </div>
+        <NewsCover key={post.cover_image} post={post} />
+      </Link>
+    </article>
   )
 }
 
@@ -153,7 +155,7 @@ export default function ContentTypePage({ contentType }) {
   const restPosts = orderedPosts.slice(1)
 
   return (
-    <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+    <main className="news-section min-h-screen">
       <SeoMeta
         title={`${copy.title} - AI 资讯观察`}
         description={copy.description}
@@ -163,44 +165,47 @@ export default function ContentTypePage({ contentType }) {
         rssUrl={feedUrl}
       />
       <Navbar />
-      <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
-        <motion.div initial="hidden" animate="visible" variants={motionContainerVariants}>
-          <motion.section variants={motionItemVariants} className="editorial-panel rounded-[2rem] px-8 py-8">
-            <EditorialSectionHeader
-              eyebrow={copy.englishTitle}
-              title={copy.title}
-              description={`${copy.description} 这里会优先展示最新一篇，并把其余内容整理成更适合连续浏览的栏目列表。`}
-            />
-            <div className="mt-5 flex flex-wrap gap-3">
+      <div className="news-section__wrap">
+          <header className="news-section__masthead">
+            <p className="news-section__kicker">{copy.englishTitle}</p>
+            <h1>{copy.title}</h1>
+            <p className="news-section__intro">{copy.description}</p>
+            {heroPost?.created_at ? <p className="news-section__latest">最近发布 <time dateTime={heroPost.created_at}>{formatDate(heroPost.created_at)}</time></p> : null}
+          </header>
+          <div className="news-section__toolbar">
+            <nav aria-label="新闻栏目" className="news-section__tabs">
+              <Link to="/daily" aria-current={contentType === 'daily_brief' ? 'page' : undefined}>日报</Link>
+              <Link to="/weekly" aria-current={contentType === 'weekly_review' ? 'page' : undefined}>周报</Link>
+              <Link to="/archive">全部归档</Link>
+            </nav>
+            <div className="news-section__subscriptions">
               <a
                 href={feedUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
-                style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+                className="news-section__subscription"
               >
                 <Rss size={15} />
                 订阅 {copy.title} RSS
               </a>
               <Link
                 to={buildSubscriptionCenterHref({ contentType })}
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
-                style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)' }}
+                className="news-section__subscription"
               >
                 订阅这个栏目
                 <ArrowRight size={14} />
               </Link>
             </div>
-          </motion.section>
+          </div>
 
-          <div className="mt-8 space-y-6">
+          <div className="news-section__contents">
             {loading ? (
               <>
-                <LoadingSkeletonSet count={1} minHeight="22rem" />
-                <LoadingSkeletonSet count={3} className="grid gap-5 lg:grid-cols-2" minHeight="16rem" />
+                <LoadingSkeletonSet count={1} minHeight="16rem" />
+                <LoadingSkeletonSet count={3} className="grid gap-4" minHeight="6rem" />
               </>
             ) : error ? (
-              <div role="alert" className="editorial-panel rounded-[2rem] px-8 py-6">
+              <div role="alert" className="news-section__message">
                 <p style={{ color: 'var(--danger-text)' }}>{error}</p>
                 <button
                   type="button"
@@ -216,24 +221,18 @@ export default function ContentTypePage({ contentType }) {
                 description="新的栏目文章发布后，会优先展示在这里。"
               />
             ) : (
-              <motion.div initial="hidden" animate="visible" variants={motionContainerVariants} className="space-y-6">
+              <div>
                 <HeroCard post={heroPost} meta={copy} />
 
-                <EditorialSectionHeader
-                  eyebrow="更多内容"
-                  title={`继续浏览${copy.title}`}
-                  description="向下浏览同栏目内容，保持同一阅读节奏与主题密度。"
-                />
-
-                <div className="grid gap-5 lg:grid-cols-2">
-                  {restPosts.map((post) => (
-                    <ListCard key={post.slug} post={post} meta={copy} />
+                {restPosts.length > 0 ? <h2 className="news-section__list-title">往期{copy.title} <span>{restPosts.length} 篇</span></h2> : null}
+                <div className="news-section__list">
+                  {restPosts.map((post, index) => (
+                    <ListCard key={post.slug} post={post} index={index} />
                   ))}
                 </div>
-              </motion.div>
+              </div>
             )}
           </div>
-        </motion.div>
       </div>
       <Footer />
       <BackToTop />

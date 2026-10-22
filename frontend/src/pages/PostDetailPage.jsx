@@ -12,8 +12,6 @@ import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import ArticleSkeleton from '../components/ArticleSkeleton'
 import FollowTopicButton from '../components/FollowTopicButton'
-import CoverCard from '../components/CoverCard'
-import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
@@ -21,6 +19,8 @@ import { recordHistory as recordHistorySync } from '../utils/topicSync'
 import { useUser } from '../contexts/UserContext'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
+import { proxyImageUrl } from '../utils/proxyImage'
+import '../styles/news-reading.css'
 import {
   buildArticleJsonLd,
   buildBreadcrumbJsonLd,
@@ -38,20 +38,55 @@ function calcReadingTime(text) {
   return Math.max(1, Math.ceil(charCount / 500))
 }
 
+function ArticleCover({ post, contentLabel }) {
+  const [unavailable, setUnavailable] = useState(false)
+  return <figure className="news-article__cover">
+    {unavailable ? <div className="news-article__image-unavailable">报道配图暂不可用</div> : <img
+      src={proxyImageUrl(post.cover_image)} alt={post.title} width="1200" height="675" loading="eager"
+      onError={() => setUnavailable(true)}
+    />}
+    <figcaption>报道配图 · {contentLabel || '新闻观察'}</figcaption>
+  </figure>
+}
+
+function readableSourceSummary(value) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return ''
+  try {
+    // Older artifacts sometimes expose the complete planning JSON here.
+    const parsed = JSON.parse(text)
+    const summary = typeof parsed?.summary === 'string' && !parsed.summary.includes('[object Object]')
+      ? parsed.summary : (typeof parsed?.description === 'string' ? parsed.description : '')
+    return summary.includes('[object Object]') ? '' : summary
+  } catch {
+    return text.includes('[object Object]') ? '' : text
+  }
+}
+
+function sourceHref(value) {
+  if (typeof value !== 'string') return ''
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : ''
+  } catch {
+    return ''
+  }
+}
+
 function DetailRailSection({ title, items, toPostLabel = false, onPrefetch }) {
   if (!items || items.length === 0) return null
 
   return (
-    <section className="editorial-panel rounded-[1.8rem] p-5">
-      <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
-      <div className="mt-4 space-y-3">
+    <section className="news-article__rail-section">
+      <h3>{title}</h3>
+      <div>
         {items.map((item) => (
           <Link
             key={item.slug}
             to={`/posts/${item.slug}`}
             onMouseEnter={() => onPrefetch?.(item.slug)}
             onFocus={() => onPrefetch?.(item.slug)}
-            className="block rounded-[1.2rem] border border-transparent px-4 py-3 transition-[transform,border-color,background-color] duration-200 hover:-translate-y-0.5 hover:border-[var(--accent-border)] hover:bg-[var(--bg-canvas)]"
+            className="news-article__rail-link"
           >
             {toPostLabel && item.content_type ? (
               <div className="mb-2 text-[11px]" style={{ color: 'var(--text-faint)' }}>
@@ -69,64 +104,53 @@ function DetailRailSection({ title, items, toPostLabel = false, onPrefetch }) {
 
 function SourceSummarySection({ post }) {
   const sources = Array.isArray(post?.sources) ? post.sources : []
-  const summary = post?.source_summary || ''
+  const summary = readableSourceSummary(post?.source_summary)
   if (!summary && sources.length === 0) return null
   const primarySource = sources.find((item) => item.is_primary) || sources[0] || null
 
   return (
-    <section className="mt-8 editorial-panel rounded-[1.8rem] p-6 sm:p-8">
-      <EditorialSectionHeader
-        eyebrow="来源证据"
-        title="这篇内容的主要来源与上下文"
-        titleClassName="!text-[1.55rem]"
-        description={summary || '这里会展示来源摘要、主要引用入口，以及这篇文章归属到哪条主题或系列。'}
-      />
+    <section className="news-article__evidence" aria-labelledby="article-sources-title">
+      <p className="news-article__kicker">来源证据</p>
+      <h2 id="article-sources-title">参考来源与报道背景</h2>
+      {summary ? <p className="news-article__section-copy">{summary}</p> : null}
 
       <div className="mt-5 flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-faint)' }}>
         {primarySource?.source_name ? <span>主要来源：{primarySource.source_name}</span> : null}
         {post?.coverage_date ? <span>覆盖日期：{post.coverage_date}</span> : null}
-        {post?.topic_key ? <span>相关主题：{post.topic_key}</span> : null}
+        {post?.topic_key ? <Link to={`/topics/${post.topic_key}`}>查看相关主题 ↗</Link> : null}
         {post?.series_slug ? <span>所属系列：{getSeriesTitle({ slug: post.series_slug })}</span> : null}
       </div>
 
       {sources.length > 0 ? (
-        <div className="mt-5 flex flex-wrap gap-2">
-          {sources.slice(0, 6).map((source, index) => (
-            <a
-              key={`${source.source_url || source.source_name || 'source'}-${index}`}
-              href={source.source_url || '#'}
+        <ol className="news-article__sources">
+          {sources.map((source, index) => (
+            <li key={`${source.source_url || source.source_name || 'source'}-${index}`}>
+            {sourceHref(source.source_url) ? <a
+              href={sourceHref(source.source_url)}
               target="_blank"
               rel="noreferrer"
-              className="rounded-full px-3 py-1 text-xs font-semibold"
-              style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
             >
-              {source.source_name || source.source_type || '来源'}
-            </a>
+              <span>{source.source_name || source.source_type || '来源'}</span>
+              <span aria-hidden="true">↗</span>
+            </a> : <span>{source.source_name || source.source_type || '来源'} <small>原始链接暂不可用</small></span>}
+            {source.title ? <p>{source.title}</p> : null}
+            </li>
           ))}
-        </div>
+        </ol>
       ) : null}
     </section>
   )
 }
 
 function InsightMetric({ label, score, summary }) {
-  const numeric = Number(score)
-  // 底色是半透明色块，会与当前主题画布合成：原先的固定文字色在暗色下只有 2.8~3.2:1。
-  // 改用主题令牌后明暗两套画布都满足 AA 正文对比度。
-  const tone =
-    Number.isFinite(numeric) && numeric >= 85
-      ? { bg: 'var(--success-soft)', text: 'var(--success-text)' }
-      : Number.isFinite(numeric) && numeric >= 70
-        ? { bg: 'var(--accent-soft)', text: 'var(--accent)' }
-        : { bg: 'var(--warning-soft)', text: 'var(--warning-text)' }
-
+  const numeric = score === null || score === undefined || score === '' ? NaN : Number(score)
   return (
-    <div className="rounded-[1.4rem] border px-4 py-4" style={{ backgroundColor: 'var(--bg-canvas)', borderColor: 'var(--border-muted)' }}>
-      <div className="text-xs font-semibold" style={{ color: 'var(--text-faint)' }}>{label}</div>
-      <div className="mt-2 inline-flex rounded-full px-3 py-1 text-sm font-semibold" style={{ backgroundColor: tone.bg, color: tone.text }}>
+    <div className="news-article__metric">
+      <div>{label}</div>
+      <strong>
         {Number.isFinite(numeric) ? `${numeric} / 100` : '待补齐'}
-      </div>
-      <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>{summary}</p>
+      </strong>
+      <p>{summary}</p>
     </div>
   )
 }
@@ -136,25 +160,21 @@ function QualityInsightsSection({ post }) {
   if (!insight) return null
 
   return (
-    <section className="mt-8 editorial-panel rounded-[1.8rem] p-6 sm:p-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="max-w-3xl">
-          <EditorialSectionHeader
-            eyebrow="质量洞察"
-            title="这篇文章的结构和完成度"
-            titleClassName="!text-[1.55rem]"
-            description={insight.followup_summary}
-          />
+    <details className="news-article__quality">
+      <summary>质量洞察 · 自动结构检查 <span>{insight.overall_score ?? '-'} / 100</span><small>非事实审校</small></summary>
+      <p className="news-article__quality-note">分数来自自动结构检查，不代表事实审校。请结合原始来源核对报道中的事实与判断。</p>
+      <div className="news-article__quality-heading">
+        <div>
+          <h2>这篇文章的结构和完成度</h2>
+          {insight.followup_summary ? <p className="news-article__section-copy">{insight.followup_summary}</p> : null}
           {!insight.has_snapshot ? (
             <p className="mt-2 text-xs" style={{ color: 'var(--text-faint)' }}>
               当前为基于公开元数据生成的只读摘要，不会改动正文内容。
             </p>
           ) : null}
         </div>
-        <div className="rounded-[1.4rem] px-4 py-3" style={{ backgroundColor: 'var(--accent-soft)' }}>
-          <div className="text-xs font-medium" style={{ color: 'var(--text-faint)' }}>综合质量</div>
-          <div className="mt-1 text-2xl font-semibold" style={{ color: 'var(--accent)' }}>{insight.overall_score ?? '-'}</div>
-          <div className="mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
+        <div>
+          <div className="text-xs" style={{ color: 'var(--text-faint)' }}>
             {insight.followup_recommended ? '值得继续追踪' : '继续观察'}
           </div>
         </div>
@@ -166,18 +186,18 @@ function QualityInsightsSection({ post }) {
         {post?.series_slug ? <span>系列：{post.series_slug}</span> : null}
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+      <div className="news-article__metrics">
         <InsightMetric label="结构维度" score={insight.structure_score} summary={insight.structure_summary} />
         <InsightMetric label="来源维度" score={insight.source_score} summary={insight.source_summary} />
         <InsightMetric label="分析维度" score={insight.analysis_score} summary={insight.analysis_summary} />
       </div>
 
       {insight.snapshot_notes ? (
-        <div className="mt-5 rounded-[1.4rem] border px-4 py-3 text-sm" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)', borderColor: 'var(--border-muted)' }}>
+        <div className="news-article__section-copy">
           {insight.snapshot_notes}
         </div>
       ) : null}
-    </section>
+    </details>
   )
 }
 
@@ -188,15 +208,11 @@ function TopicTrackingSection({ post }) {
   if (!topicKey && !seriesSlug) return null
 
   return (
-    <section className="mt-8 editorial-panel rounded-[1.8rem] p-6 sm:p-8">
-      <EditorialSectionHeader
-        eyebrow="读完之后"
-        title="把这篇文章变成持续追踪的入口"
-        titleClassName="!text-[1.55rem]"
-        description="如果这篇文章正好命中了你关心的方向，可以继续追踪对应主题、保存订阅偏好，或者回到所属系列沿阅读路径继续往下看。"
-      />
+    <section className="news-article__tracking">
+      <p className="news-article__kicker">跟进报道</p>
+      <h2>继续追踪这条新闻</h2>
 
-      <div className="mt-5 flex flex-wrap gap-3">
+      <div className="news-article__tracking-actions">
         {topicKey ? (
           <FollowTopicButton
             topic={{
@@ -209,8 +225,7 @@ function TopicTrackingSection({ post }) {
         {topicKey ? (
           <Link
             to={`/topics/${topicKey}`}
-            className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
-            style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+            className="news-article__text-link"
           >
             进入主题页
           </Link>
@@ -218,8 +233,7 @@ function TopicTrackingSection({ post }) {
         {topicKey ? (
           <Link
             to={buildSubscriptionCenterHref({ topicKey, contentType: post?.content_type })}
-            className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
-            style={{ backgroundColor: 'var(--highlight-soft)', color: 'var(--highlight-text)' }}
+            className="news-article__text-link"
           >
             订阅相关更新
           </Link>
@@ -227,8 +241,7 @@ function TopicTrackingSection({ post }) {
         {seriesSlug ? (
           <Link
             to={`/series/${seriesSlug}`}
-            className="inline-flex items-center rounded-full px-4 py-3 text-sm font-semibold"
-            style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-secondary)' }}
+            className="news-article__text-link"
           >
             回到系列：{seriesTitle}
           </Link>
@@ -484,7 +497,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
   if (loading) {
     return (
-      <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+      <main data-ui="detail-shell" className="news-article min-h-screen">
         <Navbar />
         <div className="mx-auto max-w-7xl px-6 py-10 sm:px-10 lg:px-20">
           <div className="flex flex-col gap-8 lg:flex-row">
@@ -498,7 +511,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
 
   if (error) {
     return (
-      <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)', color: 'var(--text-primary)' }}>
+      <main data-ui="detail-shell" className="news-article min-h-screen">
         <Navbar />
         <div className="mx-auto max-w-7xl px-6 py-10 sm:px-10 lg:px-20">
           <div data-ui="detail-error">
@@ -512,7 +525,7 @@ export default function PostDetailPage({ slug: overrideSlug }) {
   const contentMeta = getContentTypeMeta(post?.content_type)
 
   return (
-    <main data-ui="detail-shell" className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+    <main data-ui="detail-shell" className="news-article min-h-screen">
       {post ? (
         <SeoMeta
           title={`${post.title} - AI 资讯观察`}
@@ -533,48 +546,35 @@ export default function PostDetailPage({ slug: overrideSlug }) {
       </div>
       <Navbar />
 
-      <div className="mx-auto max-w-7xl px-6 py-12 sm:px-10 lg:px-20">
-        <Link to="/" className="inline-flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-faint)' }}>
+      <div className="news-article__wrap">
+        <Link to="/" className="news-article__back">
           <ArrowLeft size={14} />
           返回首页
         </Link>
 
-        <motion.section
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45 }}
-          className="mt-6"
-        >
-          <CoverCard
-            image={post.cover_image}
-            imageAlt={post.title}
-            overlay
-            eyebrow={contentMeta?.label || '文章'}
-            badge={post.is_pinned ? (
-              <span
-                className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
-                // 保留固定色：底色是不透明的琥珀渐变，不随主题变化，#78350F 在渐变两端为 8.15:1 / 5.43:1。
-                // 换成 --warning-text 反而会在暗色主题下把深棕文字压到浅色渐变上失衡。
-                style={{ background: 'linear-gradient(135deg, #FEF3C7 0%, #FBBF24 100%)', color: '#78350F' }}
-              >
-                <Pin size={12} />
-                编辑推荐
-              </span>
-            ) : null}
-            title={post.title}
-            description={post.summary}
-            meta={[
-              formatDate(post.created_at),
-              post.coverage_date ? `覆盖日期 ${post.coverage_date}` : '',
-              `阅读时长 ${readingTime} 分钟`,
-              `${post.view_count || 0} 次浏览`,
-            ].filter(Boolean)}
-          />
-        </motion.section>
+        <header className="news-article__headline">
+          <div className="news-article__edition">
+            <span>{contentMeta?.label || '新闻观察'}</span>
+            {post.is_pinned ? <span><Pin size={12} aria-hidden="true" />编辑推荐</span> : null}
+          </div>
+          <h1>{post.title}</h1>
+          {post.summary ? <p className="news-article__standfirst">{post.summary}</p> : null}
+          <div className="news-article__byline">
+            <span>AI 资讯观察</span>
+            {post.created_at ? <span>发布 <time dateTime={post.created_at}>{formatDate(post.created_at)}</time></span> : null}
+            {post.coverage_date ? <span>覆盖 <time dateTime={post.coverage_date}>{post.coverage_date}</time></span> : null}
+            <span>{readingTime} 分钟阅读</span>
+            <span>{post.view_count || 0} 次浏览</span>
+            {post.sources?.length || post.source_count ? post.sources?.length || post.source_summary
+              ? <a href="#article-sources-title">{post.sources?.length || post.source_count} 个来源 ↗</a>
+              : <span>{post.source_count} 个来源</span> : null}
+          </div>
+        </header>
 
-        <div className="mt-10 flex flex-col gap-10 lg:flex-row">
-          <article data-ui="detail-article" className="min-w-0 flex-1">
-            <div className="editorial-panel rounded-[1.8rem] p-6 sm:p-10">
+        <div className="news-article__layout">
+          <article data-ui="detail-article" className="news-article__main">
+            {post.cover_image ? <ArticleCover key={post.cover_image} post={post} contentLabel={contentMeta?.label} /> : null}
+            <div className="news-article__body">
               <Suspense fallback={<ArticleSkeleton size="content" />}>
                 <ArticleMarkdownRenderer
                   markdown={post.content_md}
@@ -588,17 +588,16 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             <QualityInsightsSection post={post} />
             <TopicTrackingSection post={post} />
 
-            <div className="mt-8 flex items-center justify-center">
+            <div className="news-article__interaction">
               <motion.button
                 whileTap={{ scale: 0.95 }}
                 onClick={handleLike}
                 disabled={liked && !user}
-                className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition-[transform,background-color,color,border-color,box-shadow] duration-200 disabled:cursor-default"
+                className="news-article__like inline-flex items-center gap-2 disabled:cursor-default"
                 style={{
                   backgroundColor: liked ? 'var(--danger-soft)' : 'var(--bg-surface)',
                   color: liked ? 'var(--danger-text)' : 'var(--text-secondary)',
                   border: `1px solid ${liked ? 'var(--danger-border)' : 'var(--border-muted)'}`,
-                  boxShadow: 'var(--card-shadow-soft)',
                 }}
               >
                 {/* fill 是 SVG 呈现属性，var() 在部分浏览器里不生效；currentColor 会继承上面的 --danger-text */}
@@ -609,13 +608,12 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             <div className="sr-only" role="status" aria-live="polite">{interactionMessage}</div>
 
             {post.tags?.length > 0 ? (
-              <div className="mt-6 flex flex-wrap gap-2">
+              <div className="news-article__tags">
                 {post.tags.map((t) => (
                   <Link
                     key={t.slug}
                     to={`/?tag=${t.slug}`}
-                    className="rounded-full px-3 py-1.5 text-xs font-semibold transition-colors duration-200"
-                    style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+                    className="news-article__text-link"
                   >
                     # {t.name}
                   </Link>
@@ -630,43 +628,33 @@ export default function PostDetailPage({ slug: overrideSlug }) {
             />
 
             {relatedPosts.length > 0 ? (
-              <div className="mt-10">
-                <EditorialSectionHeader
-                  eyebrow="相关阅读"
-                  title="从这里继续扩展"
-                  titleClassName="!text-[1.55rem]"
-                  description="如果你想继续沿着相近方向阅读，可以先从这些文章接着看。"
-                />
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <section className="news-article__related">
+                <p className="news-article__kicker">相关阅读</p>
+                <h2>继续阅读</h2>
+                <div>
                   {relatedPosts.map((rp) => (
-                    <div key={rp.slug} onMouseEnter={() => prefetchPost(rp.slug)} onFocus={() => prefetchPost(rp.slug)}>
-                      <CoverCard
-                        to={`/posts/${rp.slug}`}
-                        image={rp.cover_image}
-                        imageAlt={rp.title}
-                        title={rp.title}
-                        description={rp.summary}
-                        meta={[formatDate(rp.created_at)]}
-                      />
-                    </div>
+                    <Link key={rp.slug} to={`/posts/${rp.slug}`} className="news-article__related-row" onMouseEnter={() => prefetchPost(rp.slug)} onFocus={() => prefetchPost(rp.slug)}>
+                      <div><h3>{rp.title}</h3>{rp.summary ? <p>{rp.summary}</p> : null}<time dateTime={rp.created_at}>{formatDate(rp.created_at)}</time></div>
+                      {rp.cover_image ? <img src={proxyImageUrl(rp.cover_image)} alt="" width="160" height="100" loading="lazy" /> : null}
+                    </Link>
                   ))}
                 </div>
-              </div>
+              </section>
             ) : null}
 
-            <div className="mt-8 editorial-panel rounded-[1.8rem] p-6 sm:p-10">
+            <section className="news-article__comments">
               <CommentSection slug={slug} />
-            </div>
+            </section>
           </article>
 
-          <div className="hidden flex-shrink-0 lg:block lg:w-[300px]">
-            <div className="sticky top-24 space-y-6">
+          <aside className="news-article__rail hidden lg:block" aria-label="阅读目录与延伸报道">
+            <div className="news-article__rail-sticky">
               <TableOfContents markdown={post.content_md} />
               <DetailRailSection title="同系列继续阅读" items={sameSeriesPosts} onPrefetch={prefetchPost} />
               <DetailRailSection title="同主题相关文章" items={sameTopicPosts} onPrefetch={prefetchPost} />
               <DetailRailSection title="同周上下文" items={sameWeekPosts} toPostLabel onPrefetch={prefetchPost} />
             </div>
-          </div>
+          </aside>
         </div>
       </div>
 

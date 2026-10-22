@@ -112,7 +112,7 @@ describe('fetchWithRetry', () => {
 })
 
 describe('renderHomePage', () => {
-  it('renders the hero and latest posts without topic or series sections', async () => {
+  it('renders a dated news lead, sections and a no-JS search form', async () => {
     const template = `<!doctype html>
       <html><head>
         <title>Template</title>
@@ -139,7 +139,11 @@ describe('renderHomePage', () => {
     const { renderHomePage } = await import('../scripts/prerender-public.mjs')
     const html = renderHomePage(template, payload, 'https://www.example.com')
 
-    expect(html).toContain('最新文章')
+    expect(html).toContain('本期头条')
+    expect(html).toContain('新闻一览')
+    expect(html).toContain('method="get"')
+    expect(html).toContain('2026-07-17')
+    expect(html).not.toContain('Public First')
     expect(html).toContain('最新模型发布')
     expect(html).not.toContain('<h2>推荐主题</h2>')
     expect(html).not.toContain('<h2>内容系列</h2>')
@@ -163,6 +167,19 @@ describe('renderStaticPage', () => {
     expect(html).toContain('https://www.example.com/discover')
     expect(html).toContain('发现值得追踪的 AI 内容。')
   })
+})
+
+it('keeps internal HTML comments out of the no-JS article excerpt', async () => {
+  const template = '<html><head><title>Template</title><meta name="description" content=""><meta property="og:title" content=""><meta property="og:description" content=""><meta property="og:url" content=""></head><body><div id="root"></div></body></html>'
+  const { renderPostDetailPage } = await import('../scripts/prerender-public.mjs')
+  const html = renderPostDetailPage(template, {
+    slug: 'comment-free', title: '公开新闻', created_at: '2026-07-26T08:00:00Z',
+    content_md: '<!-- auto-blog-meta: {"cover_prompt":"internal planning"} -->\n\n# 已发布报道\n\n这段正文应正常展示。',
+  }, 'https://www.example.com')
+
+  expect(html).toContain('这段正文应正常展示')
+  expect(html).not.toContain('auto-blog-meta')
+  expect(html).not.toContain('internal planning')
 })
 
 describe('renderPrivateShell', () => {

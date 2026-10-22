@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider } from '../src/contexts/ThemeContext'
 import StartHerePage from '../src/pages/StartHerePage'
 
-it('renders onboarding path for first-time readers', async () => {
+it('guides news readers to headlines, daily and weekly coverage, topics and subscriptions', async () => {
   render(
     <MemoryRouter>
       <ThemeProvider>
@@ -14,9 +14,16 @@ it('renders onboarding path for first-time readers', async () => {
     </MemoryRouter>,
   )
 
-  expect(await screen.findByRole('heading', { name: '从一个真实项目，认识这里的 AI 实践' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /查看博客源码/i })).toHaveAttribute('href', 'https://github.com/leinata0/ai.blog')
-  expect(screen.getByRole('link', { name: /浏览已有文章/i })).toHaveAttribute('href', '/archive')
-  expect(screen.getByRole('link', { name: /浏览主题/i })).toHaveAttribute('href', '/topics')
-  expect(screen.getByText(/如果你已经知道自己想怎么读/i)).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '从头条开始，读懂 AI 的重要变化' })).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: /查看最新资讯/ }).every((link) => link.getAttribute('href') === '/')).toBe(true)
+  expect(screen.getByRole('link', { name: /阅读日报/ })).toHaveAttribute('href', '/daily')
+  expect(screen.getByRole('link', { name: /阅读周报/ })).toHaveAttribute('href', '/weekly')
+  expect(screen.getByRole('link', { name: /浏览主题/ })).toHaveAttribute('href', '/topics')
+  expect(screen.getByRole('link', { name: /打开归档/ })).toHaveAttribute('href', '/archive')
+  expect(screen.getByRole('link', { name: /前往订阅中心/ })).toHaveAttribute('href', '/feeds')
+  expect(screen.getByText('发布日期')).toBeInTheDocument()
+  expect(screen.getByText('覆盖日期')).toBeInTheDocument()
+  expect(screen.getByText('原始来源')).toBeInTheDocument()
+  expect(screen.getByText(/实际更新以公开发布日期为准/)).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: /查看博客源码/ })).not.toBeInTheDocument()
 })
