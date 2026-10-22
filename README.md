@@ -2,6 +2,12 @@
 
 面向公开访客的**中文 AI 资讯与专题博客**，采用前后端分离 + 自动化内容流水线的架构。它不是一个通用博客模板，而是一个偏「内容系统化运营」的资讯站：内容由自动化流水线采集、清洗、生成、配图并发布，公开页面在构建期预渲染以保证首屏可见与 SEO，访客可注册账号参与评论、点赞与个性化关注。
 
+**2026-10 重启方向**：以个人品牌和作品展示为目标，逐步转向 AI 实践记录与资讯档案。每周预算 2–4 小时，建议双周完成一个可复现案例；历史资讯保留原 URL。当前代码具备的自动发文能力不代表持续日产出的运营承诺。
+
+- [恢复审查与运行清单](docs/blog-revival-audit-2026-10-22.md)
+- [转型选项与四周计划](docs/blog-positioning-options-2026-10-22.md)
+- [首篇恢复案例草稿](docs/drafts/blog-relaunch-case-study.md)
+
 - **线上地址**：`https://www.563118077.xyz`（canonical host）
 - `PUBLIC_SITE_URL`、SEO canonical、RSS、sitemap、前端路由输出都必须与该域名保持一致。
 
@@ -13,7 +19,7 @@
 
 | 目录 | 职责 | 技术栈 | 部署目标 |
 |------|------|--------|----------|
-| `frontend/` | 公开站点 + 管理后台 + 构建期预渲染 | React 18 · Vite 5 · React Router 6 · Tailwind | Vercel（静态资源 + 预渲染 HTML） |
+| `frontend/` | 公开站点 + 管理后台 + 构建期预渲染 | React 18 · Vite 6 · React Router 7 · Tailwind | Vercel（静态资源 + 预渲染 HTML） |
 | `backend/` | 公开/管理 API、认证、订阅、存储、通知 | FastAPI · SQLAlchemy 2 · Pydantic 2 · Python 3.11 | Render（Docker） |
 | `scripts/` | 自动化内容流水线与运维脚本 | Node.js ESM | CI / 本地按需运行 |
 

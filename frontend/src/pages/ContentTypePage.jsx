@@ -13,7 +13,7 @@ import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
-import { formatDate } from '../utils/date'
+import { formatDate, parseDate } from '../utils/date'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import {
@@ -27,7 +27,7 @@ import {
 } from '../utils/contentPresentation'
 
 function sortByCreatedTime(posts) {
-  return [...posts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  return [...posts].sort((a, b) => (parseDate(b.created_at)?.getTime() ?? 0) - (parseDate(a.created_at)?.getTime() ?? 0))
 }
 
 function HeroCard({ post, meta }) {
@@ -79,6 +79,8 @@ export default function ContentTypePage({ contentType }) {
   const { settings } = useSite()
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [retryKey, setRetryKey] = useState(0)
   const copy = CONTENT_TYPE_META[contentType] || CONTENT_TYPE_META.daily_brief
   const feedUrl = buildPublicApiUrl(
     contentType === 'weekly_review' ? '/api/feeds/weekly.xml' : '/api/feeds/daily.xml'
@@ -112,6 +114,7 @@ export default function ContentTypePage({ contentType }) {
     document.title = `${copy.title} - AI 资讯观察`
     setPosts([])
     setLoading(true)
+    setError('')
 
     async function loadPosts() {
       try {
@@ -134,6 +137,7 @@ export default function ContentTypePage({ contentType }) {
         } catch (fallbackErr) {
           if (controller.signal.aborted || fallbackErr?.name === 'AbortError') return
           setPosts([])
+          setError('栏目暂时无法加载，请稍后重试。')
         }
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -142,7 +146,7 @@ export default function ContentTypePage({ contentType }) {
 
     loadPosts()
     return () => controller.abort()
-  }, [contentType, copy.title])
+  }, [contentType, copy.title, retryKey])
 
   const orderedPosts = useMemo(() => sortByCreatedTime(posts), [posts])
   const heroPost = orderedPosts[0] || null
@@ -195,6 +199,17 @@ export default function ContentTypePage({ contentType }) {
                 <LoadingSkeletonSet count={1} minHeight="22rem" />
                 <LoadingSkeletonSet count={3} className="grid gap-5 lg:grid-cols-2" minHeight="16rem" />
               </>
+            ) : error ? (
+              <div role="alert" className="editorial-panel rounded-[2rem] px-8 py-6">
+                <p style={{ color: 'var(--danger-text)' }}>{error}</p>
+                <button
+                  type="button"
+                  onClick={() => setRetryKey((value) => value + 1)}
+                  className="signal-button signal-button--primary mt-4"
+                >
+                  重新加载栏目
+                </button>
+              </div>
             ) : orderedPosts.length === 0 ? (
               <EmptyStatePanel
                 title={`${copy.title} 暂时还没有内容`}

@@ -33,7 +33,8 @@ def purge_user(db: Session, user: User) -> None:
                 like_count=case(
                     (current_count >= removed_count, current_count - removed_count),
                     else_=0,
-                )
+                ),
+                updated_at=Post.updated_at,
             )
         )
     db.execute(delete(FollowedTopic).where(FollowedTopic.user_id == user.id))

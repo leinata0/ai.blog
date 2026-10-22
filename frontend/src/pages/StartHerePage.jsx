@@ -5,7 +5,7 @@ import {
   ArrowRight,
   BellRing,
   Compass,
-  Newspaper,
+  Code2,
   Route,
   Rows3,
   Rss,
@@ -24,6 +24,7 @@ import {
 } from '../utils/structuredData'
 import {
   SITE_COPY,
+  START_HERE_COPY,
   motionContainerVariants,
   motionItemVariants,
 } from '../utils/contentPresentation'
@@ -31,26 +32,26 @@ import {
 const START_STEPS = [
   {
     eyebrow: '第一步',
-    title: '先读 AI 周报',
-    description: '如果你是第一次来，这里最适合先建立全局视角。周报会把一周里最关键的变化串成完整脉络。',
-    to: '/weekly',
-    label: '先看周报',
-    icon: Newspaper,
+    title: '先看一个真实项目',
+    description: '这座博客本身就是一个开源项目。查看源码、架构说明和提交记录，了解采集、生成、发布与部署如何连接起来。',
+    href: 'https://github.com/leinata0/ai.blog',
+    label: '查看博客源码',
+    icon: Code2,
   },
   {
     eyebrow: '第二步',
-    title: '再看 AI 日报',
-    description: '当你想跟进每天的变化节奏时，再进入日报流。它更适合高频更新、快速建立当天上下文。',
-    to: '/daily',
-    label: '进入日报',
+    title: '按主题寻找线索',
+    description: '从主题页寻找你关心的模型、工具或研究。历史文章用于了解背景，具体功能和结论请结合发布日期与原始来源判断。',
+    to: '/topics',
+    label: '浏览主题',
     icon: Rows3,
   },
   {
     eyebrow: '第三步',
-    title: '按主题持续追踪',
-    description: '当你确认自己关心某家公司、模型或产品方向后，主题页会比普通文章列表更适合长期回看。',
-    to: '/topics',
-    label: '浏览主题',
+    title: '回看资讯档案',
+    description: '过去的日报和周报按日期保留在归档里。它们记录当时的观察，阅读时请留意时效；后续更新以实际发布为准。',
+    to: '/archive',
+    label: '打开历史归档',
     icon: Compass,
   },
 ]
@@ -58,13 +59,13 @@ const START_STEPS = [
 const SUPPORT_LINKS = [
   {
     title: '系列阅读路径',
-    description: '想按栏目节奏继续阅读，可以沿系列页进入更明确的阅读路径。',
+    description: '沿已有系列查找相关内容，逐步建立自己的阅读路径。',
     to: '/series',
     icon: Route,
   },
   {
     title: '订阅中心',
-    description: 'RSS、邮件、浏览器提醒都集中在这里，适合把更新变成稳定回访入口。',
+    description: '通过 RSS 接收实际发布的内容，也可以在订阅中心选择其他提醒方式。',
     to: '/feeds',
     icon: Rss,
   },
@@ -76,7 +77,8 @@ const SUPPORT_LINKS = [
   },
 ]
 
-function StartStepCard({ eyebrow, title, description, to, label, icon: Icon }) {
+function StartStepCard({ eyebrow, title, description, to, href, label, icon: Icon }) {
+  const Action = href ? 'a' : Link
   return (
     <motion.article
       variants={motionItemVariants}
@@ -93,14 +95,14 @@ function StartStepCard({ eyebrow, title, description, to, label, icon: Icon }) {
       <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
         {description}
       </p>
-      <Link
-        to={to}
+      <Action
+        {...(href ? { href, target: '_blank', rel: 'noopener noreferrer' } : { to })}
         className="mt-6 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
         style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
       >
         {label}
         <ArrowRight size={14} />
-      </Link>
+      </Action>
     </motion.article>
   )
 }
@@ -151,7 +153,7 @@ export default function StartHerePage() {
     buildCollectionPageJsonLd({
       siteUrl,
       name: '开始阅读',
-      description: '第一次来到这座 AI 资讯博客时，先读周报、再看日报、再按主题持续追踪。',
+      description: START_HERE_COPY.description,
       path: '/start-here',
     }),
     buildBreadcrumbJsonLd({
@@ -167,7 +169,7 @@ export default function StartHerePage() {
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <SeoMeta
         title="开始阅读 - AI 资讯观察"
-        description="第一次来到这座 AI 资讯博客时，先读周报、再看日报、再按主题持续追踪。"
+        description={START_HERE_COPY.description}
         path="/start-here"
         jsonLd={jsonLd}
       />
@@ -184,18 +186,18 @@ export default function StartHerePage() {
             开始阅读
           </motion.div>
           <motion.h1 variants={motionItemVariants} className="section-title max-w-4xl">
-            第一次来到这里，先按这条路径进入会更轻松
+            {START_HERE_COPY.title}
           </motion.h1>
           <motion.p variants={motionItemVariants} className="section-description max-w-3xl">
-            这座站点更像一份持续更新的 AI 资讯杂志。最顺的进入方式不是直接扎进文章流，而是先看周报建立全局，再看日报跟进变化，最后按主题做长期追踪。
+            {START_HERE_COPY.description}
           </motion.p>
           <motion.div variants={motionItemVariants} className="mt-6 flex flex-wrap gap-3">
             <Link
-              to="/weekly"
+              to="/archive"
               className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-transform duration-200 hover:-translate-y-0.5"
               style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
             >
-              从 AI 周报开始
+              浏览已有文章
               <ArrowRight size={14} />
             </Link>
             <Link
@@ -207,6 +209,19 @@ export default function StartHerePage() {
             </Link>
           </motion.div>
         </motion.section>
+
+        <section className="editorial-panel mt-8 rounded-[2rem] px-8 py-8" aria-labelledby="practice-direction">
+          <div className="section-kicker">接下来记录什么</div>
+          <h2 id="practice-direction" className="mt-3 font-display text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+            一次实验，留下可检查的过程
+          </h2>
+          <p className="section-description max-w-3xl">
+            新的实践记录将围绕一个具体问题展开，交代输入、操作步骤、结果、耗时和失败边界，并尽量附上代码或可复用材料。没有亲手验证的内容会说明来源与限制。
+          </p>
+          <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>
+            这是一项正在推进的调整。现有资讯仍可查阅，实践案例会在完成后加入，不预设每日更新。
+          </p>
+        </section>
 
         <motion.section
           initial="hidden"

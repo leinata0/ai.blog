@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+import { Profiler } from 'react'
 
 const mocks = vi.hoisted(() => ({
   fetchAccountDashboard: vi.fn(),
@@ -90,9 +91,10 @@ vi.mock('react-router-dom', async () => {
 
 let AccountPage
 
-async function renderPage(entry = '/account') {
+async function renderPage(entry = '/account', onRender) {
   AccountPage = (await import('../src/pages/AccountPage')).default
-  return render(<MemoryRouter initialEntries={[entry]}><AccountPage /></MemoryRouter>)
+  const page = <MemoryRouter initialEntries={[entry]}><AccountPage /></MemoryRouter>
+  return render(onRender ? <Profiler id="account" onRender={onRender}>{page}</Profiler> : page)
 }
 
 beforeEach(() => {
@@ -144,6 +146,23 @@ describe('account media goes through the image policy', () => {
     expect(cover.getAttribute('src')).toBe(proxied('https://third-party.example.com/cover.png'))
 
     fireEvent.error(cover)
+    await waitFor(() => expect(document.querySelector('.account-library-cover img')).toBeNull())
+    expect(document.querySelector('.account-library-cover svg')).not.toBeNull()
+  })
+
+  it('keeps the fallback when a cached cover fails before passive effects run', async () => {
+    let dispatched = false
+    await renderPage('/account?tab=library&kind=all', () => {
+      const cover = document.querySelector('.account-library-cover img')
+      if (cover && !dispatched) {
+        dispatched = true
+        // Profiler runs after the DOM commit and before passive effects. A cached
+        // image error can arrive in this interval in a real browser as well.
+        cover.dispatchEvent(new Event('error'))
+      }
+    })
+
+    await waitFor(() => expect(dispatched).toBe(true))
     await waitFor(() => expect(document.querySelector('.account-library-cover img')).toBeNull())
     expect(document.querySelector('.account-library-cover svg')).not.toBeNull()
   })

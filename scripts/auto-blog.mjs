@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { appendFile, readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -51,6 +51,7 @@ import {
   tokenizeTopicText,
 } from './lib/topic-tokens.mjs'
 import { isPublicHttpUrl } from './lib/url-guard.mjs'
+import { linkSourceCitations } from './lib/source-citations.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -3542,15 +3543,6 @@ function buildSourceMap(researchPack = {}) {
     .map((item) => [item.source_id, item]))
 }
 
-function linkSourceCitations(contentMd, researchPack = {}) {
-  const sourceMap = buildSourceMap(researchPack)
-  return String(contentMd || '').replace(/\[(S\d+)\](?!\()/g, (full, id) => {
-    const source = sourceMap.get(id)
-    if (!source?.url) return full
-    return `[${id}](${source.url})`
-  })
-}
-
 function buildReferencesSection(researchPack, citedSourceIds = new Set()) {
   const lines = ['## 参考来源']
   const sourceMap = buildSourceMap(researchPack)
@@ -4731,6 +4723,70 @@ async function buildPublishablePost({
   }
 }
 
+// A scheduled run that rejected every candidate used to exit 0, hiding months of
+// missing output behind green Actions checks. Duplicates are a normal no-op; source,
+// quality, model and publication failures are actionable even when caught per topic.
+export function summarizeDailyRunOutcome({
+  selection = {},
+  results = [],
+  skippedTopics = [],
+  runFailure = null,
+  dryRun = false,
+} = {}) {
+  const reasonCounts = {}
+  let blockedCount = 0
+  for (const topic of skippedTopics) {
+    const reason = String(topic.reason || '')
+    const category = reason === 'slug already exists' ? 'already_published' : (reason.split(':')[0] || 'unknown')
+    reasonCounts[category] = (reasonCounts[category] || 0) + 1
+    if (category !== 'already_published') blockedCount += 1
+  }
+  const failed = Boolean(runFailure) || (results.length === 0 && blockedCount > 0)
+  const status = results.length > 0 ? 'success' : (failed ? 'failed' : 'skipped')
+  const reasons = Object.entries(reasonCounts).map(([reason, count]) => `${reason}=${count}`).join(', ')
+  const message = results.length > 0
+    ? `${dryRun ? 'Drafted' : 'Published'} ${results.length} post(s), skipped ${skippedTopics.length} topic(s).`
+    : failed
+      ? `No posts were produced: ${blockedCount} candidate(s) blocked${reasons ? ` (${reasons})` : ''}.`
+      : 'No eligible topics to publish; candidates were already published or the queue was empty.'
+  const failureMessage = runFailure && String(runFailure.message || runFailure) !== message
+    ? ` Run aborted: ${String(runFailure.message || runFailure).slice(0, 300)}.`
+    : ''
+  return {
+    status,
+    message: `${message}${failureMessage}`,
+    candidate_count: (selection.queue || []).length,
+    generated_count: results.length,
+    published_count: dryRun ? 0 : results.length,
+    blocked_count: blockedCount,
+    reason_counts: reasonCounts,
+  }
+}
+
+async function writeDailyRunSummary(outcome, { coverageDate, dryRun }) {
+  console.log(`Daily outcome: ${JSON.stringify({ coverage_date: coverageDate, dry_run: Boolean(dryRun), ...outcome })}`)
+  if (!process.env.GITHUB_STEP_SUMMARY) return
+  const lines = [
+    `## AI daily pipeline${dryRun ? ' (dry run; LLM calls are billed)' : ''}`,
+    '',
+    `Coverage: ${coverageDate}. Status: **${outcome.status}**.`,
+    '',
+    '| Candidates | Generated posts | Published posts | Blocked candidates |',
+    '| --- | --- | --- | --- |',
+    `| ${outcome.candidate_count} | ${outcome.generated_count} | ${outcome.published_count} | ${outcome.blocked_count} |`,
+    '',
+    ...Object.entries(outcome.reason_counts).map(([reason, count]) => `- ${reason}: ${count}`),
+    '',
+    dryRun ? 'Dry runs generate drafts without publishing posts, images, metadata or a deploy hook.' : '',
+    '',
+  ]
+  try {
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, lines.join('\n'))
+  } catch (error) {
+    console.warn(`Could not write Actions summary: ${error?.message || error}`)
+  }
+}
+
 // Extracted so it can run from `finally`: reporting the run and refreshing the frontend
 // must happen whether the loop completed, was cut short by a topic-level failure, or threw.
 // Both calls are individually failure-tolerant so nothing here can mask the original error.
@@ -4778,21 +4834,15 @@ async function reportDailyRunOutcome({
         }
       ))
 
-    const failureMessage = runFailure ? ` Run aborted: ${String(runFailure.message || runFailure).slice(0, 300)}.` : ''
-    const emptyQueue = (selection?.queue || []).length === 0
-    const message = emptyQueue && results.length === 0
-      ? `No eligible topics to publish for this coverage date.${failureMessage}`
-      : results.length > 0
-        ? `Published ${results.length} post(s), skipped ${preSkippedTopics.length + skippedTopics.length} topic(s).${failureMessage}`
-        : `No posts were published in this run.${failureMessage}`
+    const outcome = summarizeDailyRunOutcome({ selection, results, skippedTopics, runFailure, dryRun: runtime.dryRun })
 
     await reportPublishingRun(token, {
       workflow_key: runtime.mode.replace('-', '_'),
       external_run_id: process.env.GITHUB_RUN_ID || '',
       run_mode: runtime.mode === 'daily-manual' ? 'manual' : 'auto',
-      status: runFailure && results.length === 0 ? 'failed' : (results.length > 0 ? 'success' : 'skipped'),
+      status: outcome.status,
       coverage_date: coverageDate,
-      message,
+      message: outcome.message,
       candidate_topics: candidateTopics,
       published_topics: publishedTopics,
       skipped_topics: [...preSkippedTopics, ...skippedTopics],
@@ -5054,10 +5104,16 @@ async function runDailyMode(config, cliOptions) {
         }))
       }
     }
+    const outcome = summarizeDailyRunOutcome({ selection, results, skippedTopics, dryRun: runtime.dryRun })
+    if (outcome.status === 'failed') throw new Error(outcome.message)
   } catch (error) {
     runFailure = error
     throw error
   } finally {
+    await writeDailyRunSummary(
+      summarizeDailyRunOutcome({ selection, results, skippedTopics, runFailure, dryRun: runtime.dryRun }),
+      { coverageDate, dryRun: runtime.dryRun },
+    )
     if (!runtime.dryRun) {
       await reportDailyRunOutcome({
         token,

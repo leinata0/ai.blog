@@ -14,9 +14,9 @@ it('renders onboarding path for first-time readers', async () => {
     </MemoryRouter>,
   )
 
-  expect(await screen.findByRole('heading', { name: '第一次来到这里，先按这条路径进入会更轻松' })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /从 AI 周报开始/i })).toHaveAttribute('href', '/weekly')
-  expect(screen.getByRole('link', { name: /进入日报/i })).toHaveAttribute('href', '/daily')
+  expect(await screen.findByRole('heading', { name: '从一个真实项目，认识这里的 AI 实践' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /查看博客源码/i })).toHaveAttribute('href', 'https://github.com/leinata0/ai.blog')
+  expect(screen.getByRole('link', { name: /浏览已有文章/i })).toHaveAttribute('href', '/archive')
   expect(screen.getByRole('link', { name: /浏览主题/i })).toHaveAttribute('href', '/topics')
   expect(screen.getByText(/如果你已经知道自己想怎么读/i)).toBeInTheDocument()
 })

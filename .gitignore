@@ -41,3 +41,4 @@ frontend/output/
 ci-backend-logs/
 *.log
 ref_article.json
+.firecrawl/

@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { SITE_SEO } from '../src/utils/contentPresentation.js'
+import { SITE_SEO, START_HERE_COPY } from '../src/utils/contentPresentation.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -797,7 +797,7 @@ export async function main({
     ['/discover', '发现', '按内容类型、系列和关键词发现值得持续追踪的 AI 内容。'],
     ['/search', '搜索', '搜索文章、主题、系列与关键变化。'],
     ['/following', '追踪', '继续阅读并查看你关注的主题。'],
-    ['/start-here', '开始阅读', '从今日信号、主题与系列开始建立 AI 阅读路径。'],
+    ['/start-here', '开始阅读', START_HERE_COPY.description],
     ['/feeds', '订阅中心', '订阅主题、系列和内容更新。'],
     ['/tags', '标签', '按标签浏览 AI 文章与观察。'],
     ['/friends', '友链', '发现值得关注的技术与 AI 站点。'],

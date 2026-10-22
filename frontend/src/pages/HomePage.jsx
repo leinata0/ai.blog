@@ -463,7 +463,7 @@ export default function HomePage() {
           <div className="min-w-0 flex-1">
             <EditorialSectionHeader
               eyebrow="最新文章"
-              title="继续阅读今天与本周的更新"
+              title="按发布日期，回看文章与观察"
               description="这里保留完整文章流，你可以按标签、搜索和分页继续向下浏览。"
               className="mb-6"
             />
