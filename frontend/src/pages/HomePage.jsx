@@ -280,7 +280,7 @@ export default function HomePage() {
         </> : null}
         <div className="news-bottom-note"><span>从一条新闻，读到更完整的背景。</span><Link to="/topics">探索主题 <ArrowRight size={15} aria-hidden="true" /></Link></div>
       </div>
-      {immersiveHome ? <EditionChapterNav /> : null}
+      {immersiveHome ? <EditionChapterNav ready={!loading} /> : null}
       <Footer /><BackToTop /><ArticleQuickPreview post={previewPost} onClose={closePreview} />
     </main>
   )

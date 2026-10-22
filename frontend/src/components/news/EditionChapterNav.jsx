@@ -8,9 +8,21 @@ const CHAPTERS = [
   { id: 'edition-reading', numeral: 'IV', title: '阅读与订阅' },
 ]
 
-export default function EditionChapterNav() {
+export default function EditionChapterNav({ ready = true }) {
   const [activeId, setActiveId] = useState(CHAPTERS[0].id)
   const [coverVisible, setCoverVisible] = useState(false)
+
+  useEffect(() => {
+    if (!ready) return undefined
+    const id = window.location.hash.slice(1)
+    if (!CHAPTERS.some((chapter) => chapter.id === id)) return undefined
+    // A fresh SPA document has no anchor targets until React and news data
+    // mount. Restore the shared chapter URL after the final layout is ready.
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView?.({ behavior: 'instant', block: 'start' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [ready])
 
   useEffect(() => {
     const cover = document.querySelector('.edition-hero')

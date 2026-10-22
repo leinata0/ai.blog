@@ -5,7 +5,7 @@ import EditionChapterNav from '../src/components/news/EditionChapterNav'
 
 const IDS = ['edition-focus', 'edition-news', 'edition-topics', 'edition-reading']
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState({}, '', '/') })
 
 it('follows visible sections and disconnects its observer on unmount', () => {
   let onIntersection
@@ -48,4 +48,18 @@ it('keeps the floating directory off the cover and reveals it in the newsroom', 
   expect(screen.getByRole('navigation', { name: '本期展览目录' })).toBeInTheDocument()
   unmount()
   expect(disconnects.every((disconnect) => disconnect.mock.calls.length > 0)).toBe(true)
+})
+
+it('restores a shared chapter URL after asynchronously loaded news has settled', () => {
+  window.history.replaceState({}, '', '/#edition-reading')
+  const frames = []
+  vi.stubGlobal('requestAnimationFrame', (callback) => { frames.push(callback); return frames.length })
+  vi.stubGlobal('cancelAnimationFrame', vi.fn())
+  const scrollToChapter = vi.fn()
+  const chapter = <section id="edition-reading" ref={(node) => { if (node) node.scrollIntoView = scrollToChapter }} />
+  const { rerender } = render(<>{chapter}<EditionChapterNav ready={false} /></>)
+  expect(frames).toHaveLength(0)
+  rerender(<>{chapter}<EditionChapterNav ready /></>)
+  act(() => frames[0]())
+  expect(scrollToChapter).toHaveBeenCalledWith({ behavior: 'instant', block: 'start' })
 })
