@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowRight, ArrowUpRight, Search } from 'lucide-react'
 import { fetchPosts, prefetchPostDetail } from '../api/posts'
@@ -21,12 +21,14 @@ import EditionHero from '../components/news/EditionHero'
 import EditionChapterNav from '../components/news/EditionChapterNav'
 import NewsReadingRail from '../components/news/NewsReadingRail'
 import { useNewsStyle } from '../hooks/useNewsStyle'
+import useEditionChoreography from '../hooks/useEditionChoreography'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildCollectionPageJsonLd, buildWebSiteJsonLd } from '../utils/structuredData'
 import { SITE_COPY, SITE_SEO } from '../utils/contentPresentation'
 import '../styles/news-home.css'
 import '../styles/news-tech-home.css'
 import '../styles/news-edition.css'
+import '../styles/news-edition-choreography.css'
 
 const NEWS_BEATS = [
   ['模型与产品', '模型'], ['开源与工具', '开源'], ['研究前沿', '研究'],
@@ -48,10 +50,12 @@ export default function HomePage() {
   const [error, setError] = useState('')
   const [total, setTotal] = useState(() => bootstrap?.posts?.total ?? 0)
   const [previewPost, setPreviewPost] = useState(null)
+  const [newsPending, startNewsTransition] = useTransition()
   const [pageSize] = useState(10)
   const postsRequestRef = useRef(0)
   const postsAbortRef = useRef(null)
   const hasInteractedRef = useRef(false)
+  const choreographyRef = useRef(null)
 
   const heroImage = settings?.hero_image || settings?.avatar_url || ''
   const siteUrl = useMemo(() => {
@@ -93,7 +97,7 @@ export default function HomePage() {
     postsAbortRef.current = null
     postsRequestRef.current += 1
 
-    startTransition(() => {
+    startNewsTransition(() => {
       setPosts(Array.isArray(payload.posts.items) ? payload.posts.items : [])
       setTotal(payload.posts.total ?? 0)
     })
@@ -101,7 +105,7 @@ export default function HomePage() {
     setSlowLoading(false)
     setError('')
     return true
-  }, [])
+  }, [startNewsTransition])
 
   const loadPosts = useCallback(() => {
     const isDefaultView = !tag && !searchQuery && page === 1
@@ -132,7 +136,7 @@ export default function HomePage() {
       .then((result) => {
         if (controller.signal.aborted || requestId !== postsRequestRef.current) return
         clearTimeout(timer)
-        startTransition(() => {
+        startNewsTransition(() => {
           setPosts(result.items)
           setTotal(result.total)
         })
@@ -149,7 +153,7 @@ export default function HomePage() {
         setLoading(false)
         setSlowLoading(false)
       })
-  }, [applyBootstrapPayload, bootstrap, bootstrapLoading, page, pageSize, searchQuery, siteLoading, tag])
+  }, [applyBootstrapPayload, bootstrap, bootstrapLoading, page, pageSize, searchQuery, siteLoading, startNewsTransition, tag])
 
   useEffect(() => {
     loadPosts()
@@ -203,6 +207,7 @@ export default function HomePage() {
 
   const defaultView = !tag && !searchQuery && page === 1
   const immersiveHome = newsStyle === 'tech' && defaultView
+  useEditionChoreography(choreographyRef, immersiveHome)
   const feedPosts = defaultView ? posts.slice(3) : posts
   const latestDate = posts.reduce((latest, post) => {
     const date = parseDate(post.created_at)
@@ -210,7 +215,7 @@ export default function HomePage() {
   }, null)
 
   return (
-    <main data-ui="home-shell" className={`news-home${immersiveHome ? ' edition-home' : ''}`}>
+    <main ref={choreographyRef} data-ui="home-shell" className={`news-home${immersiveHome ? ' edition-home' : ''}`}>
       <SeoMeta title={SITE_SEO.homeTitle} description={SITE_SEO.homeDescription} path="/" image={heroImage}
         jsonLd={homeJsonLd} rssUrl={buildPublicApiUrl('/feed.xml')} />
       <Navbar immersive={immersiveHome} />
@@ -234,7 +239,7 @@ export default function HomePage() {
         </nav> : null}
 
         {immersiveHome ? <section className="edition-focus" id="edition-focus" data-edition-chapter aria-labelledby="edition-focus-title">
-          <header className="edition-section-heading"><span>I / IN FOCUS</span><h2 id="edition-focus-title">变化发生的地方。<br /><em>A closer look.</em></h2><p>从一条具体的报道出发，看见模型、产品与产业正在发生的变化。</p></header>
+          <header className="edition-section-heading"><span>I / IN FOCUS</span><h2 id="edition-focus-title"><span className="edition-title-line"><span>变化发生的地方。</span></span><span className="edition-title-line"><span><em>A closer look.</em></span></span></h2><p>从一条具体的报道出发，看见模型、产品与产业正在发生的变化。</p></header>
           {!error && posts.length > 0 ? <TechNewsDesk posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : <a className="news-text-link" href="#edition-news">{loading ? '新闻正在载入' : '查看新闻档案'} <ArrowRight size={15} aria-hidden="true" /></a>}
         </section> : defaultView && !error && posts.length > 0 ? <NewsFrontPage posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : null}
 
@@ -274,13 +279,13 @@ export default function HomePage() {
         {immersiveHome ? <>
           <div className="edition-topics" id="edition-topics" data-edition-chapter><TechTopicExplorer /></div>
           <section className="edition-reading" id="edition-reading" data-edition-chapter aria-labelledby="edition-reading-title">
-            <header className="edition-section-heading"><span>IV / KEEP YOUR CURIOSITY</span><h2 id="edition-reading-title">让好奇，继续。<br /><em>Stay in the loop.</em></h2><p>按天梳理，按周回看，或者跟随一个长期主题。找到属于你的阅读节奏。</p></header>
+            <header className="edition-section-heading"><span>IV / KEEP YOUR CURIOSITY</span><h2 id="edition-reading-title"><span className="edition-title-line"><span>让好奇，继续。</span></span><span className="edition-title-line"><span><em>Stay in the loop.</em></span></span></h2><p>按天梳理，按周回看，或者跟随一个长期主题。找到属于你的阅读节奏。</p></header>
             <NewsReadingRail />
           </section>
         </> : null}
         <div className="news-bottom-note"><span>从一条新闻，读到更完整的背景。</span><Link to="/topics">探索主题 <ArrowRight size={15} aria-hidden="true" /></Link></div>
       </div>
-      {immersiveHome ? <EditionChapterNav ready={!loading} /> : null}
+      {immersiveHome ? <EditionChapterNav ready={!loading && !newsPending} /> : null}
       <Footer /><BackToTop /><ArticleQuickPreview post={previewPost} onClose={closePreview} />
     </main>
   )

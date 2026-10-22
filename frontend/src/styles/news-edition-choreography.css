@@ -1,0 +1,68 @@
+/* Base titles stay visible. Only the mounted, motion-capable edition gets enhanced. */
+[data-news-style='tech'] .edition-home .edition-title-line { display: block; overflow: hidden; padding-bottom: .08em; margin-bottom: -.08em; }
+[data-news-style='tech'] .edition-home .edition-title-line > span { display: block; }
+
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-title { clip-path: inset(0); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-title:not(.edition-is-revealed) { clip-path: inset(0 0 100% 0); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-title.edition-is-revealed { transition: clip-path 1.05s cubic-bezier(.2,.7,.2,1); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-title:has(.edition-title-line) { clip-path: none; }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-title .edition-title-line > span { transform: translateY(0); transition: transform 1.05s cubic-bezier(.16,1,.3,1); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-title:not(.edition-is-revealed) .edition-title-line > span { transform: translateY(115%); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-title .edition-title-line:nth-child(2) > span { transition-delay: .14s; }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-title .edition-title-line:nth-child(3) > span { transition-delay: .28s; }
+
+/* The photograph opens out of a narrow portrait crop; copy and controls remain still. */
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-feature {
+  --entry-progress: 0;
+  clip-path: inset(calc((1 - var(--entry-progress)) * 12%) calc((1 - var(--entry-progress)) * 24%) round 2px);
+}
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-feature > .news-cover img {
+  transform: translate3d(0, calc((1 - var(--entry-progress)) * 35px), 0) scale(calc(1.28 - var(--entry-progress) * .28));
+}
+
+/* Pictures travel further than the text, creating a staggered editorial rhythm. */
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-story { --entry-progress: 0; }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-story .news-list-story__body {
+  transform: translate3d(0, calc((1 - var(--entry-progress)) * 40px), 0);
+}
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-story > .news-cover {
+  transform: translate3d(0, calc((1 - var(--entry-progress)) * 120px), 0) rotate(calc((1 - var(--entry-progress)) * -3deg));
+  clip-path: inset(calc((1 - var(--entry-progress)) * 15%) 0 0 0);
+}
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-story:nth-child(even) > .news-cover {
+  transform: translate3d(0, calc((1 - var(--entry-progress)) * 85px), 0) rotate(calc((1 - var(--entry-progress)) * 3deg));
+}
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-story:focus-within :is(.news-list-story__body, .news-cover) { transform: none; clip-path: none; }
+
+/* The ribbon is a separate image plane. Native SVG drawings open at distinct rates. */
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topics { --chapter-progress: 0; }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topics .tech-topics__sculpture {
+  transform: translate3d(calc(var(--chapter-progress) * -100px), calc(var(--chapter-progress) * 180px), 0) rotate(calc(-30deg + var(--chapter-progress) * 90deg));
+}
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic { --entry-progress: 0; }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic .tech-topic__body { transform: translate3d(0, calc((1 - var(--entry-progress)) * 65px), 0); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic:nth-child(2) .tech-topic__body { transform: translate3d(0, calc((1 - var(--entry-progress)) * 105px), 0); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic:nth-child(3) .tech-topic__body { transform: translate3d(0, calc((1 - var(--entry-progress)) * 145px), 0); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic .tech-topic__art { clip-path: inset(0 calc((1 - var(--entry-progress)) * 100%) 0 0); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic:nth-child(2) .tech-topic__art { clip-path: inset(calc((1 - var(--entry-progress)) * 100%) 0 0 0); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic:nth-child(3) .tech-topic__art { clip-path: circle(calc(5% + var(--entry-progress) * 70%) at 50% 55%); }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic:focus-within .tech-topic__body { transform: none; }
+[data-news-style='tech'] .edition-home.edition-choreography .tech-topic__motion-art { animation: edition-orbit 18s linear infinite; animation-play-state: paused; transform-origin: 50% 55%; }
+[data-news-style='tech'] .edition-home.edition-choreography .tech-topic--tools .tech-topic__motion-art { animation: edition-code-drift 5s ease-in-out infinite alternate; animation-play-state: paused; }
+[data-news-style='tech'] .edition-home.edition-choreography .tech-topic--compute .tech-topic__motion-art { animation: edition-stack-float 4s ease-in-out infinite alternate; animation-play-state: paused; }
+[data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topic.edition-is-inview .tech-topic__motion-art { animation-play-state: running; }
+[data-news-style='tech'] .edition-home.edition-choreography.edition-motion-paused .tech-topic__motion-art { animation-play-state: paused; }
+@keyframes edition-orbit { from { transform: rotateY(0deg) rotateZ(-6deg); } to { transform: rotateY(360deg) rotateZ(-6deg); } }
+@keyframes edition-code-drift { from { transform: translate3d(-10px, 0, 0) skewY(-4deg); } to { transform: translate3d(12px, 0, 0) skewY(4deg); } }
+@keyframes edition-stack-float { from { transform: translate3d(0, 6px, 0) scale(.96); } to { transform: translate3d(0, -9px, 0) scale(1.04); } }
+
+@media (max-width: 700px) {
+  [data-news-style='tech'] .edition-home.edition-choreography .edition-motion-feature { clip-path: inset(calc((1 - var(--entry-progress)) * 8%) calc((1 - var(--entry-progress)) * 18%)); }
+  [data-news-style='tech'] .edition-home.edition-choreography .edition-motion-topics .tech-topics__sculpture { transform: translate3d(calc(var(--chapter-progress) * -60px), calc(var(--chapter-progress) * 100px), 0) rotate(calc(-30deg + var(--chapter-progress) * 110deg)); }
+  [data-news-style='tech'] .edition-home.edition-choreography .edition-motion-story > .news-cover { transform: translate3d(0, calc((1 - var(--entry-progress)) * 45px), 0); }
+  [data-news-style='tech'] .edition-home.edition-choreography .edition-motion-story:nth-child(even) > .news-cover { transform: translate3d(0, calc((1 - var(--entry-progress)) * 60px), 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-news-style='tech'] .edition-home.edition-choreography :is(.edition-motion-title, .edition-motion-title .edition-title-line > span, .edition-motion-feature, .edition-motion-feature > .news-cover img, .edition-motion-story .news-list-story__body, .edition-motion-story > .news-cover, .edition-motion-topic .tech-topic__body, .edition-motion-topic .tech-topic__art, .tech-topics__sculpture) { clip-path: none !important; transform: none !important; transition: none !important; }
+  [data-news-style='tech'] .edition-home.edition-choreography .tech-topic__motion-art { animation: none !important; }
+}

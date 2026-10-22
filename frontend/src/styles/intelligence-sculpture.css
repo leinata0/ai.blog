@@ -1,0 +1,6 @@
+.intelligence-sculpture { position: relative; width: 100%; height: 100%; min-height: 1px; pointer-events: none; isolation: isolate; }
+.intelligence-sculpture > canvas, .intelligence-sculpture__fallback { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; }
+.intelligence-sculpture__fallback { object-fit: contain; opacity: 1; }
+.intelligence-sculpture > canvas { opacity: 0; }
+.intelligence-sculpture--ready > canvas { opacity: 1; }
+.intelligence-sculpture--ready .intelligence-sculpture__fallback { visibility: hidden; }

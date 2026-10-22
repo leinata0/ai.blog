@@ -25,13 +25,13 @@ export default function EditionChapterNav({ ready = true }) {
   }, [ready])
 
   useEffect(() => {
-    const cover = document.querySelector('.edition-hero')
+    const cover = document.querySelector('.edition-navigation-sentinel') || document.querySelector('.edition-hero')
     if (!cover || typeof window.IntersectionObserver !== 'function') return undefined
     // The cover has its own directory. Show the floating one only after the
     // artwork leaves the viewport, so it never obscures short-screen controls.
     setCoverVisible(cover.getBoundingClientRect().bottom > 0)
     const coverObserver = new window.IntersectionObserver(([entry]) => {
-      setCoverVisible(entry.isIntersecting)
+      setCoverVisible(entry.isIntersecting || entry.boundingClientRect?.top > 0)
     })
     coverObserver.observe(cover)
     return () => coverObserver.disconnect()

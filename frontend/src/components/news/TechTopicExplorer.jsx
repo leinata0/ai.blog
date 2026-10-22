@@ -16,9 +16,10 @@ function TopicArt({ type }) {
 
 export default function TechTopicExplorer() {
   return <section className="tech-topics" aria-labelledby="tech-topics-title">
-    <header><div><span>III / EXPLORE THE POSSIBILITIES</span><h2 id="tech-topics-title">沿着一个领域，<br />继续看下去。<em>Ideas in motion.</em></h2></div><Link to="/topics">全部主题 <ArrowUpRight size={17} aria-hidden="true" /></Link></header>
+    <div className="tech-topics__sculpture" aria-hidden="true"><img src="/images/intelligence-edition/floating-ribbon.png" alt="" width="1536" height="1024" loading="lazy" /></div>
+    <header><div><span>III / EXPLORE THE POSSIBILITIES</span><h2 id="tech-topics-title"><span className="edition-title-line"><span>沿着一个领域，</span></span><span className="edition-title-line"><span>继续看下去。</span></span><span className="edition-title-line"><span><em>Ideas in motion.</em></span></span></h2></div><Link to="/topics">全部主题 <ArrowUpRight size={17} aria-hidden="true" /></Link></header>
     <div className="tech-topics__grid">{BEATS.map((beat) => <Link key={beat.art} className={`tech-topic tech-topic--${beat.art}`} to={`/search?q=${encodeURIComponent(beat.query)}`}>
-      <div className="tech-topic__art"><TopicArt type={beat.art} /><small>{beat.label}</small></div>
+      <div className="tech-topic__art"><div className="tech-topic__motion-art"><TopicArt type={beat.art} /></div><small>{beat.label}</small></div>
       <div className="tech-topic__body"><h3>{beat.title}<ArrowUpRight size={20} aria-hidden="true" /></h3><p>{beat.description}</p><span>按关键词浏览已发布内容</span></div>
     </Link>)}</div>
   </section>
