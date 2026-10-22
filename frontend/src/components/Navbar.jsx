@@ -424,14 +424,6 @@ export default function Navbar() {
   return (
     <header ref={navRef} className="news-navbar" data-surface="editorial" data-ui="news-header">
       <div className="news-shell-container">
-        {isEditorialSurface && newsStyle === 'tech' ? (
-          <div className="news-tech-status-strip" aria-label="资讯台阅读说明">
-            <span className="news-tech-status-name"><i aria-hidden="true" /> AI OBSERVER / NEWS INDEX</span>
-            <span className="news-tech-status-archive">公开资讯档案</span>
-            <span>按发布日期索引</span>
-            <span className="news-tech-status-method" translate="no">READ · TRACE · VERIFY</span>
-          </div>
-        ) : null}
         <div className="news-utility-strip">
           <p>中文 AI 新闻与观察</p>
           <div className="news-utility-actions">

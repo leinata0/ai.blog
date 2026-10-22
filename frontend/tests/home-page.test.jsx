@@ -263,8 +263,9 @@ it('shows actual publication dates and source counts without claiming historical
   render(<MemoryRouter><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>)
 
   const frontPage = await screen.findByRole('region', { name: '本期头条' })
-  expect(within(frontPage).getByText('3 个来源')).toBeInTheDocument()
-  expect(within(frontPage).getByText('2026/07/26')).toHaveAttribute('dateTime', '2026-07-26T08:00:00.000Z')
+  const headline = within(frontPage).getByRole('article')
+  expect(within(headline).getByText('3 个来源')).toBeInTheDocument()
+  expect(within(headline).getByText('2026/07/26')).toHaveAttribute('dateTime', '2026-07-26T08:00:00.000Z')
   expect(screen.queryByText(/2026\/10\/22|LIVE SIGNAL|今日 AI|人工核实/)).not.toBeInTheDocument()
   expect(screen.getByRole('link', { name: '选择订阅方式' })).toHaveAttribute('href', '/feeds')
 })
@@ -275,7 +276,7 @@ it('distinguishes unavailable news metrics from a successfully loaded empty resu
   await screen.findByText('暂时无法加载文章列表，请稍后再试。')
   const status = screen.getByRole('group', { name: '新闻档案状态' })
   expect(within(status).getByText('—')).toBeInTheDocument()
-  expect(within(status).getByText('暂不可用')).toBeInTheDocument()
+  expect(await within(status).findByText('暂不可用')).toBeInTheDocument()
   expect(within(status).queryByText('0')).not.toBeInTheDocument()
 
   fetchPosts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10 })

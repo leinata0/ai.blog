@@ -40,8 +40,7 @@ it('defaults to tech without changing the global light theme or showing an ineff
   expect(screen.getByRole('button', { name: '科技版' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.queryByRole('button', { name: '切换主题' })).not.toBeInTheDocument()
   expect(window.localStorage.getItem('theme')).toBe('light')
-  expect(screen.getByLabelText('资讯台阅读说明')).toHaveTextContent('公开资讯档案')
-  expect(screen.getByLabelText('资讯台阅读说明')).not.toHaveTextContent(/LIVE|实时更新/)
+  expect(screen.getByRole('banner')).not.toHaveTextContent(/LIVE|实时更新/)
 })
 
 it('persists the comparison choice across navigation and remounts', async () => {
@@ -49,7 +48,6 @@ it('persists the comparison choice across navigation and remounts', async () => 
   await userEvent.click(screen.getByRole('button', { name: '报刊版' }))
   expect(window.localStorage.getItem('news-style')).toBe('paper')
   expect(document.documentElement).toHaveAttribute('data-news-style', 'paper')
-  expect(screen.queryByLabelText('资讯台阅读说明')).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('link', { name: '主题', exact: true }))
   expect(screen.getByRole('button', { name: '报刊版' })).toHaveAttribute('aria-pressed', 'true')
   unmount()
@@ -73,7 +71,6 @@ it('keeps the visual comparison out of private account surfaces', () => {
   renderNav('/account')
   expect(document.body).not.toHaveClass('public-news-shell')
   expect(screen.queryByRole('group', { name: '新闻页面风格' })).not.toBeInTheDocument()
-  expect(screen.queryByLabelText('资讯台阅读说明')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '切换主题' })).toBeInTheDocument()
 })
 

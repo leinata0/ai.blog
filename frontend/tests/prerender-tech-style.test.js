@@ -15,6 +15,9 @@ describe('no-JS prerender presentation', () => {
     const tech = new JSDOM(renderPostDetailPage(template('tech'), post, 'https://example.com'))
     const paper = new JSDOM(renderPostDetailPage(template('paper'), post, 'https://example.com'))
     expect(styles(tech, '.prerender-shell').color).toBe('rgb(238, 244, 255)')
+    expect(styles(tech, '.prerender-hero').backgroundColor).toBe('rgb(237, 243, 255)')
+    expect(styles(tech, '.prerender-hero h1').color).toBe('rgb(16, 24, 42)')
+    expect(styles(tech, '.prerender-lead').color).toBe('rgb(82, 97, 118)')
     expect(styles(tech, '.prerender-panel').backgroundColor).toBe('rgb(16, 23, 35)')
     expect(styles(tech, '.prerender-summary').color).toBe('rgb(166, 183, 203)')
     expect(styles(paper, '.prerender-shell').color).toBe('rgb(17, 24, 39)')
@@ -25,13 +28,17 @@ describe('no-JS prerender presentation', () => {
   })
 
   it('gives the no-JS news masthead a sans face and keeps the real links and GET search', () => {
-    const payload = { posts: { items: [post], total: 1 }, settings: {} }
+    const payload = { posts: { items: [{ ...post, cover_image: 'https://example.com/report.jpg' }], total: 1 }, settings: {} }
     const tech = new JSDOM(renderHomePage(template('tech'), payload, 'https://example.com'))
     const paper = new JSDOM(renderHomePage(template('paper'), payload, 'https://example.com'))
     expect(styles(tech, '.prerender-news-masthead>a').fontFamily).toContain('Inter')
     expect(styles(paper, '.prerender-news-masthead>a').fontFamily).toContain('Georgia')
-    expect(styles(tech, '.prerender-news-kicker').color).toBe('rgb(109, 227, 255)')
-    expect(styles(tech, '.prerender-news-meta').color).toBe('rgb(156, 174, 197)')
+    expect(styles(tech, '.prerender-news-front>article').backgroundColor).toBe('rgb(237, 243, 255)')
+    expect(styles(tech, '.prerender-news-front h2').color).toBe('rgb(16, 24, 42)')
+    expect(styles(tech, '.prerender-news-kicker').color).toBe('rgb(69, 89, 223)')
+    expect(styles(tech, '.prerender-news-meta').color).toBe('rgb(83, 99, 122)')
+    expect(styles(tech, '.prerender-news-front').gridTemplateColumns).toBe('minmax(0,1fr)')
+    expect(styles(tech, '.prerender-news-front>article>a').gridColumn).toBe('2')
     expect(tech.window.document.querySelector('.prerender-news-front h2 a').getAttribute('href')).toBe('/posts/actual-news')
     expect(tech.window.document.querySelector('form').getAttribute('method')).toBe('get')
     expect(tech.window.document.querySelector('#root').innerHTML).toBe(paper.window.document.querySelector('#root').innerHTML)

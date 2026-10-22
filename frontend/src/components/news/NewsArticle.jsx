@@ -17,10 +17,10 @@ export function NewsMeta({ post, showSources = true }) {
   )
 }
 
-export function NewsCover({ post, className = '', priority = false, onPrefetch }) {
+export function NewsCover({ post, className = '', priority = false, onPrefetch, fallback = null }) {
   const src = proxyImageUrl(post.cover_image)
   const [failedSrc, setFailedSrc] = useState(null)
-  if (!src || failedSrc === src) return null
+  if (!src || failedSrc === src) return fallback
   return (
     <Link to={`/posts/${post.slug}`} className={`news-cover ${className}`} aria-label={`阅读：${post.title}`}
       onMouseEnter={() => onPrefetch?.(post.slug)} onFocus={() => onPrefetch?.(post.slug)}>
@@ -48,7 +48,7 @@ export function PinnedLabel({ post }) {
   ) : null
 }
 
-export default function NewsArticle({ post, onPrefetch, onPreview, onTagSelect }) {
+export default function NewsArticle({ post, onPrefetch, onPreview, onTagSelect, withCoverFallback = false }) {
   return (
     <article className="news-list-story" data-ui="post-card">
       <div className="news-list-story__body">
@@ -64,7 +64,11 @@ export default function NewsArticle({ post, onPrefetch, onPreview, onTagSelect }
           <button type="button" className="news-preview" onClick={() => onPreview(post)}>快速预览 <ArrowUpRight size={13} aria-hidden="true" /></button>
         </div>
       </div>
-      <NewsCover post={post} onPrefetch={onPrefetch} />
+      <NewsCover post={post} onPrefetch={onPrefetch} fallback={withCoverFallback ? (
+        <Link to={`/posts/${post.slug}`} className="news-cover news-cover--placeholder" aria-label={`阅读：${post.title}`} onMouseEnter={() => onPrefetch?.(post.slug)} onFocus={() => onPrefetch?.(post.slug)}>
+          <span aria-hidden="true"><small>{getContentTypeLabel(post.content_type)} / 暂无配图</small><b>AI<br />OBSERVER</b><i>新闻速读 ↗</i></span>
+        </Link>
+      ) : null} />
     </article>
   )
 }

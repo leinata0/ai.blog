@@ -15,6 +15,8 @@ import ArticleQuickPreview from '../components/ArticleQuickPreview'
 import NewsArticle from '../components/news/NewsArticle'
 import NewsFrontPage from '../components/news/NewsFrontPage'
 import TechNewsIntro from '../components/news/TechNewsIntro'
+import TechNewsDesk from '../components/news/TechNewsDesk'
+import TechTopicExplorer from '../components/news/TechTopicExplorer'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildCollectionPageJsonLd, buildWebSiteJsonLd } from '../utils/structuredData'
@@ -225,13 +227,13 @@ export default function HomePage() {
           <Link to="/topics" className="news-beats__all">全部主题 <ArrowRight size={13} aria-hidden="true" /></Link>
         </nav>
 
-        {defaultView && !error && posts.length > 0 ? <NewsFrontPage posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : null}
+        {defaultView && !error && posts.length > 0 ? (newsStyle === 'tech' ? <TechNewsDesk posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : <NewsFrontPage posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} />) : null}
 
         <div className="news-feed-layout">
           <section className="news-feed" aria-labelledby="news-feed-title">
             <header className="news-feed__heading">
               <div><span className="news-kicker">THE NEWSROOM</span><h2 id="news-feed-title">{searchQuery ? '搜索结果' : tag ? '主题资讯' : '新闻一览'}</h2></div>
-              <span className="news-feed__count">{loading ? '正在载入…' : '共 ' + total + ' 篇'}</span>
+              <span className="news-feed__count">{loading ? '正在载入…' : error ? '数量暂不可用' : '共 ' + total + ' 篇'}</span>
             </header>
             <form className="news-search" onSubmit={handleSearch} role="search" aria-label="站内新闻搜索">
               <Search size={17} aria-hidden="true" />
@@ -251,7 +253,7 @@ export default function HomePage() {
                 <div className="news-error" role="alert"><p>{error}</p><button type="button" onClick={loadPosts}>重试加载 <ArrowRight size={14} aria-hidden="true" /></button></div>
               ) : posts.length === 0 ? (
                 <EmptyStatePanel title="暂时没有匹配的资讯" description="试试其他关键词，或回到新闻首页浏览。"><button type="button" className="news-text-link" onClick={clearSearch}>查看全部资讯 <ArrowRight size={14} aria-hidden="true" /></button></EmptyStatePanel>
-              ) : feedPosts.length > 0 ? feedPosts.map((post) => <NewsArticle key={post.slug} post={post} onPrefetch={prefetchPost} onPreview={setPreviewPost} onTagSelect={handleTagSelect} />) : (
+              ) : feedPosts.length > 0 ? feedPosts.map((post) => <NewsArticle key={post.slug} post={post} onPrefetch={prefetchPost} onPreview={setPreviewPost} onTagSelect={handleTagSelect} withCoverFallback={newsStyle === 'tech'} />) : (
                 <p className="news-status">本页资讯已呈现在头条区。<Link to="/archive">继续浏览历史归档 <ArrowRight size={13} aria-hidden="true" /></Link></p>
               )}
             </div>
@@ -274,6 +276,7 @@ export default function HomePage() {
             <section className="news-editor-note"><span className="news-kicker">阅读提示</span><p>新闻有它的时间。查看发布日期与原始来源，区分当时的事实和后续的变化。</p><Link to="/start-here">了解这份阅读指南 <ArrowRight size={13} aria-hidden="true" /></Link></section>
           </aside>
         </div>
+        {newsStyle === 'tech' && defaultView ? <TechTopicExplorer /> : null}
         <div className="news-bottom-note"><span>从一条新闻，读到更完整的背景。</span><Link to="/topics">探索主题 <ArrowRight size={15} aria-hidden="true" /></Link></div>
       </div>
       <Footer /><BackToTop /><ArticleQuickPreview post={previewPost} onClose={closePreview} />
