@@ -24,11 +24,13 @@ vi.mock('../src/api/client', () => ({
 }))
 
 vi.mock('../src/api/posts', () => ({
+  fetchTopics: vi.fn(() => Promise.resolve({ items: [] })),
   fetchPosts: vi.fn(() => Promise.resolve({ items: [], total: 0, page: 1, page_size: 10 })),
   prefetchPostDetail: vi.fn(),
 }))
 
 vi.mock('../src/api/home', () => ({
+  fetchHomeModules: vi.fn(() => Promise.resolve({ latest_weekly: [], featured_series: [] })),
   fetchHomeBootstrap: vi.fn(() => Promise.resolve({
     settings: {
       author_name: 'Bootstrap Test', bio: '', avatar_url: '', hero_image: '', github_link: '',

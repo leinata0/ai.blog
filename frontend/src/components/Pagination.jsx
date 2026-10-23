@@ -10,7 +10,7 @@ export default function Pagination({ page, total, pageSize, onPageChange }) {
   for (let i = start; i <= end; i++) pages.push(i)
 
   return (
-    <div className="flex items-center justify-center gap-2 mt-10">
+    <div className="flex flex-wrap items-center justify-center gap-2 mt-10">
       <button
         className="pagination-btn"
         disabled={page <= 1}

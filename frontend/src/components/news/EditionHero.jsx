@@ -1,15 +1,11 @@
 import { useRef, useState } from 'react'
 import { ArrowDown, ArrowUpRight, Pause, Play } from 'lucide-react'
 import { formatDate } from '../../utils/date'
+import { EDITION_CHAPTERS } from '../../utils/editionChapters'
 import useEditionScene from '../../hooks/useEditionScene'
 import IntelligenceSculpture from './IntelligenceSculpture'
 import '../../styles/news-edition.css'
 import '../../styles/news-renaissance-hero.css'
-
-const CHAPTERS = [
-  ['edition-focus', '本期焦点', 'I'], ['edition-news', '新闻档案', 'II'],
-  ['edition-topics', '领域探索', 'III'], ['edition-reading', '阅读与订阅', 'IV'],
-]
 
 export default function EditionHero({ total, latestDate, loading, hasError }) {
   const scene = useRef(null)
@@ -27,7 +23,7 @@ export default function EditionHero({ total, latestDate, loading, hasError }) {
         <p className="edition-cover__english" aria-hidden="true">The Intelligence<br /><em>Edition.</em></p>
         <div className="edition-cover__bottom">
           <p className="edition-cover__introduction">记录人工智能，<br />与世界交汇的每一刻。</p>
-          <nav aria-label="本期阅读目录">{CHAPTERS.map(([id, title, number]) => <a href={`#${id}`} key={id}><span>{title}</span><i>{number}</i></a>)}</nav>
+          <nav aria-label="本期阅读目录">{EDITION_CHAPTERS.map(({ id, title, numeral }) => <a href={`#${id}`} key={id}><span>{title}</span><i>{numeral}</i></a>)}</nav>
           <div className="edition-cover__facts" role="group" aria-label="新闻档案状态">
             <span><b>{loading || hasError ? '—' : total.toLocaleString()}</b> 篇已发布</span>
             <span>本页最新发布 {!hasError && latestDate ? <time dateTime={latestDate.toISOString()}>{formatDate(latestDate.toISOString())}</time> : <b>{hasError ? '暂不可用' : loading ? '等待载入' : '暂无日期'}</b>}</span>

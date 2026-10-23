@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { SITE_COPY, SITE_SEO, START_HERE_COPY } from '../src/utils/contentPresentation.js'
+import { buildNewsroomSections } from '../src/utils/newsroom.js'
 import { createRequestScheduler, fetchWithRetry } from './prerender-fetch.mjs'
 export { fetchWithRetry } from './prerender-fetch.mjs'
 
@@ -424,11 +425,28 @@ function renderListLinks(items, toHref, metaBuilder = () => []) {
   `
 }
 
+function selectHomeCollections(items, key, limit) {
+  const seen = new Set()
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const value = String(item?.[key] || '').trim()
+    if (!value || seen.has(value) || !(Number(item.post_count) > 0)) return false
+    if (!String(item.display_title || item.title || '').trim()) return false
+    seen.add(value)
+    return true
+  }).slice(0, limit)
+}
+
 export function renderHomePage(template, payload, siteUrl) {
-  const posts = payload?.posts?.items || []
-  const lead = posts[0]
+  const { focus, stream, deepReads } = buildNewsroomSections(payload?.posts?.items, payload?.home_modules)
+  const homeTopics = selectHomeCollections(payload?.home_topics, 'topic_key', 4)
+  const featuredSeries = selectHomeCollections(payload?.home_modules?.featured_series, 'slug', 2)
   const label = (post) => post.content_type === 'daily_brief' ? '日报' : post.content_type === 'weekly_review' ? '周报' : '文章'
-  const newsDate = (post) => `${label(post)} · ${post.created_at ? formatDate(post.created_at) : '日期待补充'}${Number(post.source_count) > 0 ? ` · ${post.source_count} 个来源` : ''}`
+  const newsDate = (post) => `${label(post)} · ${post.created_at ? formatDate(post.created_at) : '日期待补充'}${Number(post.source_count) > 0 ? ` · ${post.source_count} 个来源` : ''}${Number(post.reading_time) > 0 ? ` · ${post.reading_time} 分钟阅读` : ''}`
+  const renderStory = (post, { lead = false, compact = false } = {}) => {
+    const href = `/posts/${encodeURIComponent(post.slug)}`
+    return `<article data-story-slug="${escapeHtml(post.slug)}">${lead ? '<span class="prerender-news-kicker">本期头条 / THE BIG STORY</span>' : ''}<h3><a href="${escapeHtml(href)}">${escapeHtml(post.title)}</a></h3>${!compact && post.summary ? `<p>${escapeHtml(post.summary)}</p>` : ''}<div class="prerender-news-meta">${escapeHtml(newsDate(post))}</div>${post.cover_image ? `<a href="${escapeHtml(href)}"><img src="${escapeHtml(post.cover_image)}" alt="${escapeHtml(post.title)}" width="1200" height="630" ${lead ? 'fetchpriority="high"' : 'loading="lazy"'}></a>` : ''}</article>`
+  }
+  const collectionMeta = (item) => `<div class="prerender-news-meta"><span>${escapeHtml(item.post_count)} 篇文章</span>${item.latest_post_at ? `<span>最近发布 <time datetime="${escapeHtml(item.latest_post_at)}">${escapeHtml(formatDate(item.latest_post_at))}</time></span>` : ''}</div>`
   const title = `${SITE_TITLE} | ${HOME_TITLE}`
   const description = HOME_DESCRIPTION
   const rootHtml = `
@@ -436,12 +454,17 @@ export function renderHomePage(template, payload, siteUrl) {
       <header class="prerender-news-masthead"><a href="/">${escapeHtml(SITE_TITLE)}</a><span>THE AI OBSERVER</span></header>
       <nav class="prerender-news-nav" aria-label="新闻栏目"><a href="/">首页</a><a href="/daily">日报</a><a href="/weekly">周报</a><a href="/topics">主题</a><a href="/series">系列</a><a href="/archive">归档</a><a href="/feeds">订阅更新</a></nav>
       <header class="prerender-news-intro"><h1>${escapeHtml(SITE_COPY.homeTitle)}</h1><p>${escapeHtml(description)}</p></header>
-      ${lead ? `<section class="prerender-news-front" aria-label="本期头条">
-        <article><span class="prerender-news-kicker">本期头条 / THE BIG STORY</span><h2><a href="/posts/${escapeHtml(lead.slug)}">${escapeHtml(lead.title)}</a></h2><p>${escapeHtml(lead.summary || '')}</p><div class="prerender-news-meta">${escapeHtml(newsDate(lead))}</div>${lead.cover_image ? `<a href="/posts/${escapeHtml(lead.slug)}"><img src="${escapeHtml(lead.cover_image)}" alt="${escapeHtml(lead.title)}" width="1200" height="630" fetchpriority="high"></a>` : ''}</article>
-        <aside><h2>新闻速览</h2><ol>${posts.slice(1, 6).map((post) => `<li><h3><a href="/posts/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h3><div class="prerender-news-meta">${escapeHtml(newsDate(post))}</div></li>`).join('')}</ol><a href="/archive">浏览历史归档 →</a></aside>
-      </section>` : '<p>新闻正在整理中。你可以先查看历史归档或主题。</p>'}
-      <section class="prerender-news-feed"><h2>新闻一览</h2><form action="/search" method="get"><label for="prerender-news-search">搜索新闻</label><input id="prerender-news-search" type="search" name="q" placeholder="公司、模型或新闻关键词"><button type="submit">搜索</button></form>${posts.slice(1).map((post) => `<article><div class="prerender-news-meta">${escapeHtml(newsDate(post))}</div><h3><a href="/posts/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h3><p>${escapeHtml(post.summary || '')}</p></article>`).join('')}</section>
-      <footer class="prerender-news-nav"><a href="/start-here">阅读指南</a><a href="/feed.xml">RSS 订阅</a><a href="/topics">探索主题</a></footer>
+      <nav class="prerender-news-chapters" aria-label="本期阅读目录"><a href="#edition-focus">焦点报道</a><a href="#edition-news">新闻一览</a><a href="#edition-topics">主题档案</a><a href="#edition-reading">阅读与订阅</a></nav>
+      <section id="edition-focus" class="prerender-news-front" data-edition-chapter aria-label="本期头条">
+        <header class="prerender-news-section-head"><span class="prerender-news-kicker">01 / IN FOCUS</span><h2>焦点报道</h2></header>
+        ${focus.length ? `${renderStory(focus[0], { lead: true })}${focus.length > 1 ? `<div class="prerender-news-support">${focus.slice(1).map((post) => renderStory(post)).join('')}</div>` : ''}` : '<p>新的报道发布后，会在这里呈现。<a href="/archive">浏览历史归档 →</a></p>'}
+      </section>
+      <div id="edition-news" class="prerender-news-reading-grid" data-edition-chapter>
+        <section class="prerender-news-feed" aria-labelledby="prerender-news-feed-title"><h2 id="prerender-news-feed-title">新闻一览</h2><form action="/search" method="get"><label for="prerender-news-search">搜索新闻</label><input id="prerender-news-search" type="search" name="q" placeholder="公司、模型或新闻关键词"><button type="submit">搜索</button></form>${stream.length ? stream.map((post) => renderStory(post)).join('') : '<p>本页资讯已呈现在焦点与深读区域。<a href="/archive">浏览历史归档 →</a></p>'}</section>
+        <aside class="prerender-news-deepreads" aria-label="周报深读"><span class="prerender-news-kicker">THE LONG VIEW</span><h2>换个尺度，看清变化。</h2><p>用一份周报，把分散的消息连成脉络。</p>${deepReads.map((post) => renderStory(post, { compact: true })).join('')}<a href="/weekly">浏览全部周报 →</a><p>先看日期，再看来源。历史报道保留当时的背景。</p><a href="/start-here">阅读指南 →</a></aside>
+      </div>
+      <section id="edition-topics" class="prerender-news-collections" data-edition-chapter aria-labelledby="prerender-news-topics-title"><header><span class="prerender-news-kicker">III / TOPICS & SERIES</span><h2 id="prerender-news-topics-title">主题档案</h2><p>沿一条线索，读得更深。</p><a href="/topics">全部主题 →</a></header>${homeTopics.length ? `<div class="prerender-news-topic-grid">${homeTopics.map((topic) => `<a href="/topics/${escapeHtml(encodeURIComponent(topic.topic_key))}"><h3>${escapeHtml(topic.display_title || topic.title)}</h3>${topic.description ? `<p>${escapeHtml(topic.description)}</p>` : ''}${collectionMeta(topic)}</a>`).join('')}</div>` : `<p>${featuredSeries.length ? '暂时没有可展示的主题，先沿已有系列继续阅读。' : '暂时没有可展示的主题与系列，可从完整主题档案继续查找。'}</p>`}${featuredSeries.length ? `<div class="prerender-news-series-grid" aria-label="内容系列">${featuredSeries.map((series) => `<a href="/series/${escapeHtml(encodeURIComponent(series.slug))}">${series.cover_image ? `<img src="${escapeHtml(series.cover_image)}" alt="" loading="lazy" width="480" height="360">` : ''}<div><span class="prerender-news-kicker">内容系列 / SERIES</span><h3>${escapeHtml(series.title)}</h3>${series.description ? `<p>${escapeHtml(series.description)}</p>` : ''}${collectionMeta(series)}</div></a>`).join('')}</div>` : ''}</section>
+      <section id="edition-reading" class="prerender-news-subscribe" data-edition-chapter aria-labelledby="prerender-news-reading-title"><div><span>IV / KEEP READING</span><h2 id="prerender-news-reading-title">让阅读继续。</h2><p>订阅后续发布，或者用日报与周报回看重要变化。</p></div><nav aria-label="继续阅读"><a href="/feeds">打开订阅中心 →</a><a href="/feed.xml">RSS 订阅</a><a href="/daily">AI 日报</a><a href="/weekly">AI 周报</a><a href="/archive">历史归档</a></nav></section>
     </main>
   `
   const html = injectTemplate(
@@ -459,10 +482,10 @@ export function renderHomePage(template, payload, siteUrl) {
         .prerender-news-masthead{text-align:center;padding:10px 0 26px}.prerender-news-masthead>a{font:900 44px/1.3 Georgia,"Songti SC",serif}.prerender-news-masthead>span{display:block;font-size:10px;letter-spacing:.4em}
         .prerender-news-nav{display:flex;flex-wrap:wrap;gap:28px;border-top:3px double;border-bottom:1px solid;padding:16px 0;font-size:13px}
         .prerender-news-intro{padding:24px 0;border-bottom:1px solid #d7d2c8}.prerender-news-intro h1{font-size:27px}.prerender-news-intro p{font-size:13px;line-height:1.8}
-        .prerender-news-front{display:grid;grid-template-columns:2fr 1fr;gap:40px;padding:30px 0;border-bottom:3px solid}.prerender-news-front article>h2{font:800 38px/1.4 Georgia,"Songti SC",serif;margin:14px 0}.prerender-news-front p{font-size:14px;line-height:1.9}.prerender-news-front img{width:100%;height:auto;margin-top:18px}.prerender-news-kicker{font-size:11px;color:#b7351e}.prerender-news-meta{font-size:11px;line-height:1.8;color:var(--text-faint,#716b63)}
+        .prerender-news-front{display:grid;grid-template-columns:2fr 1fr;gap:40px;padding:30px 0;border-bottom:3px solid}.prerender-news-front>article>h3{font:800 38px/1.4 Georgia,"Songti SC",serif;margin:14px 0}.prerender-news-front p{font-size:14px;line-height:1.9}.prerender-news-front img{width:100%;height:auto;margin-top:18px}.prerender-news-kicker{font-size:11px;color:#b7351e}.prerender-news-meta{font-size:11px;line-height:1.8;color:var(--text-faint,#716b63)}
         .prerender-news-front aside{border-left:1px solid #d7d2c8;padding-left:30px}.prerender-news-front aside>h2{font-size:18px}.prerender-news-front ol{margin:0;padding-left:22px}.prerender-news-front li{padding:18px 0;border-bottom:1px solid #d7d2c8}.prerender-news-front li h3{font-size:17px;line-height:1.6}
         .prerender-news-feed{max-width:950px;padding:30px 0}.prerender-news-feed>h2{font-size:26px}.prerender-news-feed form{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:13px;border-bottom:1px solid;padding-bottom:20px}.prerender-news-feed input{background:transparent;border:1px solid #aaa296;padding:10px}.prerender-news-feed button{padding:10px 18px;border:0;background:#191919;color:#fff}.prerender-news-feed article{padding:23px 0;border-bottom:1px solid #d7d2c8}.prerender-news-feed article h3{font-size:22px;line-height:1.5}.prerender-news-feed article p{font-size:13px;line-height:1.8}
-        @media(max-width:760px){.prerender-news{padding:20px 18px}.prerender-news-masthead>a{font-size:32px}.prerender-news-front{display:block}.prerender-news-front article>h2{font-size:30px}.prerender-news-front aside{border:0;padding:25px 0 0}.prerender-news-nav{gap:20px}.prerender-news-feed input{max-width:100%}}
+        @media(max-width:760px){.prerender-news{padding:20px 18px}.prerender-news-masthead>a{font-size:32px}.prerender-news-front{display:block}.prerender-news-front>article>h3{font-size:30px}.prerender-news-front aside{border:0;padding:25px 0 0}.prerender-news-nav{gap:20px}.prerender-news-feed input{max-width:100%}}
         [data-news-style="tech"] .prerender-news{background:#f1f5fa;color:#101d35}
         [data-news-style="tech"] .prerender-news-masthead{text-align:left;padding:16px 0 24px}
         [data-news-style="tech"] .prerender-news-masthead>a{font:750 34px/1.3 Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;letter-spacing:-.04em;color:#101d35}
@@ -475,7 +498,7 @@ export function renderHomePage(template, payload, siteUrl) {
         [data-news-style="tech"] .prerender-news-front>article{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto 1fr auto;column-gap:38px;row-gap:16px;padding:36px;border:1px solid #d0ddef;border-radius:8px;background:#fff;color:#101d35}
         [data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr) minmax(0,1.05fr)}
         [data-news-style="tech"] .prerender-news-front>article>:not(a){grid-column:1}
-        [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h2{margin:0;font:750 40px/1.4 Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;color:#101d35}
+        [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h3{margin:0;font:750 40px/1.4 Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;color:#101d35}
         [data-news-style="tech"] .prerender-news-front article>p{margin:0;color:#52647b;font-size:15px;line-height:1.85}
         [data-news-style="tech"] .prerender-news-front>article>a:has(img){grid-column:2;grid-row:1/span 4;display:block;align-self:stretch;min-width:0;min-height:320px}
         [data-news-style="tech"] .prerender-news-front img{display:block;width:100%;height:100%;max-height:520px;margin:0;object-fit:cover;border:0;border-radius:2px}
@@ -492,7 +515,11 @@ export function renderHomePage(template, payload, siteUrl) {
         [data-news-style="tech"] .prerender-news-feed input::placeholder{color:#60728a}
         [data-news-style="tech"] .prerender-news-feed button{border:0;border-radius:5px;background:#3269f5;color:#fff}
         [data-news-style="tech"] .prerender-news-feed article p{color:#52647b}
-        @media(max-width:760px){[data-news-style="tech"] .prerender-news-masthead>a{font-size:32px}[data-news-style="tech"] .prerender-news-front>article,[data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr);grid-template-rows:auto;gap:18px;padding:26px 22px}[data-news-style="tech"] .prerender-news-front>article>a:has(img){grid-column:1;grid-row:auto;min-height:0;margin-top:8px}[data-news-style="tech"] .prerender-news-front img{height:auto;max-height:none}[data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h2{font-size:34px}[data-news-style="tech"] .prerender-news-front ol{grid-template-columns:minmax(0,1fr);gap:0}[data-news-style="tech"] .prerender-news-intro{padding:12px 0 0}}
+        .prerender-news-chapters{display:flex;flex-wrap:wrap;gap:14px 25px;padding:18px 0;font-size:12px}.prerender-news-section-head{grid-column:1/-1}.prerender-news-section-head>h2{margin:12px 0 8px}.prerender-news-support{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:24px}.prerender-news-support article{min-width:0;padding:20px 0;border-top:1px solid #b8beb2}.prerender-news-support img{max-height:210px;object-fit:cover}.prerender-news-support h3{font-size:22px}
+        .prerender-news-reading-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:38px;scroll-margin-top:24px}.prerender-news-reading-grid .prerender-news-feed{max-width:none;min-width:0}.prerender-news-feed article img{display:block;width:100%;height:auto;max-height:210px;object-fit:cover;margin-top:14px}.prerender-news-deepreads{min-width:0;margin:30px 0;padding:24px;background:#dfe4d5;border-top:2px solid #253329}.prerender-news-deepreads>h2{font-size:27px}.prerender-news-deepreads p{font-size:13px;line-height:1.8}.prerender-news-deepreads article{padding:20px 0;border-bottom:1px solid #aab5a4;margin-bottom:20px}.prerender-news-deepreads img{display:block;width:100%;height:auto;max-height:180px;object-fit:cover;margin-top:14px}
+        .prerender-news-collections{border-top:1px solid #b8beb2;padding:32px 0;scroll-margin-top:24px}.prerender-news-collections p{font-size:13px;line-height:1.8}.prerender-news-collections header{margin-bottom:24px}.prerender-news-collections h2{margin:14px 0}.prerender-news-topic-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 34px}.prerender-news-topic-grid>a{min-width:0;padding:20px 0;border-top:1px solid #b8beb2}.prerender-news-meta>span+span{margin-left:12px}.prerender-news-series-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:20px;margin-top:24px}.prerender-news-series-grid>a{display:flex;min-width:0;gap:24px;align-items:center;border:1px solid #aab5a4;background:#e0e4d8;padding:22px}.prerender-news-series-grid>a>div{min-width:0}.prerender-news-series-grid img{width:30%;max-width:200px;aspect-ratio:4/3;object-fit:cover}.prerender-news-series-grid h3{margin-top:10px}
+        .prerender-news-subscribe{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:center;padding:28px 32px;background:#253329;color:#edf1e6;scroll-margin-top:24px}.prerender-news-subscribe>div>span{font-size:10px;letter-spacing:.12em}.prerender-shell.prerender-news .prerender-news-subscribe h2{margin:12px 0;color:#edf1e6}.prerender-news-subscribe p{font-size:13px;line-height:1.8;color:#bfcbb9}.prerender-news-subscribe nav{display:flex;flex-wrap:wrap;gap:16px 24px;font-size:13px}.prerender-news-subscribe nav>a:first-child{background:#d7ed94;color:#253329;padding:12px 16px}.prerender-news-subscribe nav>a{display:inline-flex;align-items:center;min-height:40px}
+        @media(max-width:760px){[data-news-style="tech"] .prerender-news-masthead>a{font-size:32px}[data-news-style="tech"] .prerender-news-front>article,[data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr);grid-template-rows:auto;gap:18px;padding:26px 22px}[data-news-style="tech"] .prerender-news-front>article>a:has(img){grid-column:1;grid-row:auto;min-height:0;margin-top:8px}[data-news-style="tech"] .prerender-news-front img{height:auto;max-height:none}[data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h3{font-size:34px}[data-news-style="tech"] .prerender-news-intro{padding:12px 0 0}.prerender-news-support,.prerender-news-reading-grid,.prerender-news-topic-grid,.prerender-news-subscribe{grid-template-columns:minmax(0,1fr)}.prerender-news-series-grid>a{display:block}.prerender-news-series-grid img{width:100%;max-width:none;max-height:180px;margin-bottom:18px}.prerender-news-subscribe{padding:25px 22px}}
       </style>`,
       extraScript: bootstrapScript(payload),
     },
@@ -797,7 +824,6 @@ export async function main({
   console.log(`[prerender] global fetch concurrency ${PRERENDER_FETCH_CONCURRENCY}, minimum start interval 250ms`)
 
   const homeBootstrap = await loadHomeBootstrap(apiBase)
-  await writeRoute('/', renderHomePage(template, homeBootstrap, siteUrl))
 
   const [archiveGroups, topicsPayload, seriesList, dailyDiscover, weeklyDiscover] = await Promise.all([
     fetchJson(apiBase, '/api/archive'),
@@ -806,6 +832,42 @@ export async function main({
     fetchJson(apiBase, '/api/discover?content_type=daily_brief&limit=24'),
     fetchJson(apiBase, '/api/discover?content_type=weekly_review&limit=24'),
   ])
+
+  // Reuse collection data already required by the full-site build. The homepage
+  // still fetches its lightweight bootstrap once; no extra modules request is made.
+  const homePayload = {
+    ...homeBootstrap,
+    home_topics: selectHomeCollections(topicsPayload?.items, 'topic_key', 4).map((topic) => ({
+      topic_key: topic.topic_key,
+      title: topic.title,
+      display_title: topic.display_title || topic.title,
+      description: topic.description || '',
+      cover_image: topic.cover_image || '',
+      post_count: topic.post_count,
+      latest_post_at: topic.latest_post_at || null,
+    })),
+    home_modules: {
+      ...homeBootstrap?.home_modules,
+      latest_weekly: (Array.isArray(weeklyDiscover?.latest_weekly)
+        ? weeklyDiscover.latest_weekly
+        : Array.isArray(weeklyDiscover?.items) ? weeklyDiscover.items : [])
+        .filter((post) => post?.content_type === 'weekly_review').slice(0, 3),
+      featured_series: selectHomeCollections(
+        (Array.isArray(seriesList) ? seriesList : []).filter((series) => series?.is_featured === true),
+        'slug',
+        2,
+      ).map((series) => ({
+        slug: series.slug,
+        title: series.title,
+        description: series.description || '',
+        cover_image: series.cover_image || '',
+        post_count: series.post_count,
+        latest_post_at: series.latest_post_at || null,
+        is_featured: true,
+      })),
+    },
+  }
+  await writeRoute('/', renderHomePage(template, homePayload, siteUrl))
 
   await writeRoute('/archive', renderArchivePage(template, archiveGroups, siteUrl))
   await writeRoute('/topics', renderTopicsListPage(template, topicsPayload?.items || [], siteUrl))

@@ -50,7 +50,7 @@ export function PinnedLabel({ post }) {
 
 export default function NewsArticle({ post, onPrefetch, onPreview, onTagSelect, withCoverFallback = false }) {
   return (
-    <article className="news-list-story" data-ui="post-card">
+    <article className="news-list-story" data-ui="post-card" data-story-slug={post.slug}>
       <div className="news-list-story__body">
         <NewsMeta post={post} />
         <NewsTitle post={post} onPrefetch={onPrefetch} />

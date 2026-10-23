@@ -1,7 +1,11 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import EditionChapterNav from '../src/components/news/EditionChapterNav'
+import EditionHero from '../src/components/news/EditionHero'
+
+vi.mock('../src/hooks/useEditionScene', () => ({ default: vi.fn() }))
+vi.mock('../src/components/news/IntelligenceSculpture', () => ({ default: () => null }))
 
 const IDS = ['edition-focus', 'edition-news', 'edition-topics', 'edition-reading']
 
@@ -19,8 +23,8 @@ it('follows visible sections and disconnects its observer on unmount', () => {
   const { unmount } = render(<>{IDS.map((id) => <section key={id} id={id} />)}<EditionChapterNav /></>)
   expect(observe).toHaveBeenCalledTimes(4)
   act(() => onIntersection([{ target: document.getElementById('edition-news'), isIntersecting: true }]))
-  expect(screen.getByRole('link', { name: '新闻档案' })).toHaveAttribute('aria-current', 'location')
-  expect(screen.getByRole('link', { name: '本期焦点' })).not.toHaveAttribute('aria-current')
+  expect(screen.getByRole('link', { name: '新闻一览' })).toHaveAttribute('aria-current', 'location')
+  expect(screen.getByRole('link', { name: '焦点报道' })).not.toHaveAttribute('aria-current')
   unmount()
   expect(disconnect).toHaveBeenCalledTimes(1)
 })
@@ -30,8 +34,25 @@ it('keeps all four native anchor links usable without IntersectionObserver', asy
   render(<EditionChapterNav />)
   const links = screen.getAllByRole('link')
   expect(links.map((link) => link.getAttribute('href'))).toEqual(IDS.map((id) => `#${id}`))
-  await userEvent.click(screen.getByRole('link', { name: '领域探索' }))
-  expect(screen.getByRole('link', { name: '领域探索' })).toHaveAttribute('aria-current', 'location')
+  expect(links.map((link) => link.getAttribute('aria-label'))).toEqual(['焦点报道', '新闻一览', '主题档案', '阅读与订阅'])
+  await userEvent.click(screen.getByRole('link', { name: '主题档案' }))
+  expect(screen.getByRole('link', { name: '主题档案' })).toHaveAttribute('aria-current', 'location')
+})
+
+it('uses the same newsroom chapter order, labels and stable URLs in the cover and floating directory', () => {
+  vi.stubGlobal('IntersectionObserver', undefined)
+  render(<><EditionHero total={141} latestDate={new Date('2026-07-26T14:14:07Z')} /><EditionChapterNav /></>)
+  const titles = ['焦点报道', '新闻一览', '主题档案', '阅读与订阅']
+  const numerals = ['I', 'II', 'III', 'IV']
+  for (const label of ['本期阅读目录', '本期展览目录']) {
+    const links = within(screen.getByRole('navigation', { name: label })).getAllByRole('link')
+    expect(links).toHaveLength(4)
+    links.forEach((link, index) => {
+      expect(link).toHaveAttribute('href', `#${IDS[index]}`)
+      expect(within(link).getByText(titles[index])).toBeInTheDocument()
+      expect(within(link).getByText(numerals[index])).toBeInTheDocument()
+    })
+  }
 })
 
 it('keeps the floating directory off the cover and reveals it in the newsroom', () => {

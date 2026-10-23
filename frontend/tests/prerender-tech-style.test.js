@@ -61,7 +61,7 @@ describe('no-JS prerender presentation', () => {
     expect(styles(tech, '.prerender-news-meta').color).toBe('rgb(96, 114, 138)')
     expect(styles(tech, '.prerender-news-front').gridTemplateColumns).toBe('minmax(0,1fr)')
     expect(styles(tech, '.prerender-news-front>article>a').gridColumn).toBe('2')
-    expect(tech.window.document.querySelector('.prerender-news-front h2 a').getAttribute('href')).toBe('/posts/actual-news')
+    expect(tech.window.document.querySelector('.prerender-news-front>article h3 a').getAttribute('href')).toBe('/posts/actual-news')
     expect(tech.window.document.querySelector('form').getAttribute('method')).toBe('get')
     expect(tech.window.document.querySelector('#root').innerHTML).toBe(paper.window.document.querySelector('#root').innerHTML)
     tech.window.close()
