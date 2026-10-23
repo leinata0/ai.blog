@@ -1,0 +1,81 @@
+.tech-page-frame {
+  --tech-ink: #111b28; --tech-muted: #53616a; --tech-line: #bcc7c9; --tech-blue: #244df3; --tech-lime: #d5ff64;
+  position: relative; isolation: isolate; padding-bottom: 76px;
+  background: #eff2ee; color: var(--tech-ink); font-family: var(--font-body);
+}
+.tech-page-frame *, .tech-page-frame *::before, .tech-page-frame *::after { box-sizing: border-box; }
+.tech-page-frame :is(article, section, aside, header, div, a) { min-width: 0; }
+.tech-page-frame :is(h1,h2,h3,p) { overflow-wrap: anywhere; }
+.tech-page-frame a { color: inherit; }
+.tech-page-frame :is(a,button,input):focus-visible { outline: 2px solid var(--tech-blue); outline-offset: 5px; }
+.tech-page-hero {
+  position: relative; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.05fr); align-items: center;
+  gap: 7%; width: min(1320px,calc(100% - 104px)); min-height: 660px; margin-inline: auto; padding-block: 84px 92px;
+}
+.tech-page-atmosphere { position: absolute; top: 0; left: 0; right: 0; height: 680px; overflow: clip; z-index: -1; pointer-events: none; }
+.tech-page-atmosphere::before {
+  content: ''; position: absolute; z-index: -1; width: 800px; height: 800px; right: -180px; top: -200px; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%,#b9d8ff85,transparent 58%),radial-gradient(ellipse at 70% 65%,#d5ff6480,transparent 55%);
+}
+.tech-page-atmosphere::after { content: ''; position: absolute; inset: 0; z-index: -2; pointer-events: none; background: linear-gradient(#111b2805 1px,transparent 1px),linear-gradient(90deg,#111b2805 1px,transparent 1px); background-size: 64px 64px; mask-image: linear-gradient(#000,transparent 92%); }
+.tech-page-hero__word { position: absolute; left: max(45px,calc((100% - 1330px)/2)); bottom: 6px; z-index: -1; color: #111b2808; font: 750 clamp(110px,17vw,250px)/.8 var(--font-display); letter-spacing: -.075em; pointer-events: none; white-space: nowrap; }
+.tech-page-eyebrow { display: flex; align-items: center; gap: 10px; color: #46575b; font: 10px/1.5 var(--font-mono); letter-spacing: .1em; }
+.tech-page-beacon { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--tech-blue); box-shadow: 0 0 0 5px #244df30b; }
+.tech-page-eyebrow__line { width: 45px; height: 1px; margin-left: 8px; background: #aab6b8; }
+.tech-page-hero h1 { margin: 31px 0 0; color: var(--tech-ink); font: 650 clamp(50px,6.5vw,96px)/1.13 var(--font-display); letter-spacing: -.075em; }
+.tech-page-hero__accent { margin: 20px 0 0; font: 450 clamp(25px,3vw,40px)/1.4 var(--font-display); letter-spacing: -.06em; color: var(--tech-blue); }
+.tech-page-hero__description { max-width: 450px; margin: 25px 0 0; color: var(--tech-muted); font-size: 14px; line-height: 1.95; }
+.tech-page-hero__meta { display: flex; flex-wrap: wrap; gap: 9px 20px; margin-top: 28px; color: #526164; font: 10px/1.7 var(--font-mono); }
+.tech-page-hero__meta > span { display: inline-flex; align-items: center; gap: 6px; }
+.tech-page-hero__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; margin-top: 30px; }
+.tech-page-hero__actions :is(a,button) { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 43px; padding: 10px 17px; border: 1px solid #a9b4b7; border-radius: 4px; font-size: 11px; transition: background-color .2s,transform .2s; }
+.tech-page-hero__actions > :first-child { color: #fff; background: var(--tech-ink); border-color: var(--tech-ink); }
+.tech-page-hero__actions :is(a,button):hover { transform: translateY(-2px); }
+.tech-page-hero__visual { position: relative; perspective: 1300px; padding: 24px 8px 40px; }
+.tech-page-visual__plane { position: relative; transform: rotateX(var(--scene-rx,0deg)) rotateY(var(--scene-ry,0deg)); transition: transform .35s cubic-bezier(.2,.7,.2,1); transform-style: preserve-3d; animation: tech-plane-arrive .85s cubic-bezier(.2,.7,.2,1) both; }
+.tech-page-visual__coordinate { position: absolute; right: 0; bottom: 0; display: flex; align-items: center; gap: 10px; color: #78868a; font: 8px/1.5 var(--font-mono); letter-spacing: .12em; }
+.tech-page-content { position: relative; width: min(1320px,calc(100% - 104px)); margin-inline: auto; }
+.tech-page-frame [data-tech-reveal] { transition: opacity .65s ease,transform .8s cubic-bezier(.2,.7,.2,1); }
+.tech-page-frame [data-tech-pending] { opacity: 0; transform: translate3d(0,12px,0); }
+.tech-page-frame [data-tech-pending]:focus-within { opacity: 1; transform: none; }
+.tech-page-hero--text { grid-template-columns: 1fr; min-height: 440px; }
+.tech-page-frame--weekly { background: #eeeef2; --tech-blue: #5b3bde; }
+.tech-page-frame--topics { background: #edf3ee; }
+.tech-page-frame--reading .tech-page-hero h1 { font-size: clamp(40px,4.5vw,66px); line-height: 1.3; }
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion:no-preference) {
+    .tech-page-hero__word { animation: tech-page-word-drift linear both; animation-timeline: view(); animation-range: entry 0% exit 100%; }
+  }
+}
+@keyframes tech-page-word-drift { from { transform: translate3d(0,20px,0); } to { transform: translate3d(-50px,-25px,0); } }
+@keyframes tech-plane-arrive { from { opacity: 0; translate: 0 20px; scale: .96; } to { opacity: 1; translate: 0 0; scale: 1; } }
+@media(max-width:1050px) {
+  .tech-page-hero,.tech-page-content { width: calc(100% - 64px); }
+  .tech-page-hero { gap: 5%; min-height: 610px; padding-block: 60px 80px; }
+  .tech-page-hero h1 { font-size: 64px; }
+}
+@media(max-width:760px) {
+  .tech-page-frame { padding-bottom: 44px; }
+  .tech-page-hero,.tech-page-content { width: calc(100% - 40px); }
+  .tech-page-hero { grid-template-columns: minmax(0,1fr); gap: 26px; padding-block: 48px 50px; min-height: 0; }
+  .tech-page-hero h1 { font-size: clamp(48px,10vw,72px); margin-top: 24px; }
+  .tech-page-hero__description { margin-top: 20px; max-width: 540px; font-size: 13px; }
+  .tech-page-hero__accent { font-size: 30px; margin-top: 15px; }
+  .tech-page-hero__visual { width: min(100%,530px); margin-inline: auto; padding: 15px 12px 34px; }
+  .tech-page-atmosphere { height: 950px; }
+  .tech-page-hero__word { bottom: 10px; left: 16px; font-size: 24vw; }
+  .tech-page-atmosphere::before { width: 600px; height: 600px; right: -240px; top: 150px; }
+  .tech-page-hero--text { padding-bottom: 55px; }
+  .tech-page-frame--reading .tech-page-hero h1 { font-size: 40px; }
+}
+@media(max-width:380px) {
+  .tech-page-hero,.tech-page-content { width: calc(100% - 32px); }
+  .tech-page-hero__accent { font-size: 26px; }
+  .tech-page-eyebrow { font-size: 9px; }
+  .tech-page-hero__visual { padding-inline: 4px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .tech-page-frame [data-tech-reveal],.tech-page-visual__plane,.tech-page-hero__actions :is(a,button) { transition: none; transform: none; animation: none; }
+  .tech-page-frame [data-tech-pending] { opacity: 1; transform: none; }
+  .tech-page-hero__word { animation: none; }
+}

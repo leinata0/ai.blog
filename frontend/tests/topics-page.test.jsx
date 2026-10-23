@@ -24,6 +24,7 @@ vi.mock('../src/api/posts', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.localStorage.clear()
 })
 
 it('renders chinese topic titles and summaries', async () => {
@@ -35,7 +36,7 @@ it('renders chinese topic titles and summaries', async () => {
     </MemoryRouter>
   )
 
-  expect(await screen.findByText('OpenAI 模型动态')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'OpenAI 模型动态' })).toBeInTheDocument()
   expect(await screen.findByText('主题总览')).toBeInTheDocument()
   expect(await screen.findByText('围绕 OpenAI 模型更新、能力边界与产品变化的持续追踪。')).toBeInTheDocument()
 })

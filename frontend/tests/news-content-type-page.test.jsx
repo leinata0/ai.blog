@@ -11,6 +11,7 @@ import ContentTypePage from '../src/pages/ContentTypePage'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.localStorage.setItem('news-style', 'paper')
   api.fetchPosts.mockResolvedValue({ items: [] })
   api.fetchDiscover.mockResolvedValue({ items: [
     { slug: 'older', title: '早期报道', summary: '早期报道摘要', created_at: '2026-07-20T08:00:00Z', content_type: 'daily_brief' },
@@ -18,7 +19,7 @@ beforeEach(() => {
     { slug: 'middle', title: '中间日期报道', summary: '补充背景', created_at: '2026-07-23T08:00:00Z', content_type: 'daily_brief' },
   ] })
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); window.localStorage.removeItem('news-style') })
 
 it('presents a dated lead and chronological news rows without implying a current-day update', async () => {
   const { container } = render(<MemoryRouter><ContentTypePage contentType="daily_brief" /></MemoryRouter>)

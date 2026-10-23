@@ -11,6 +11,8 @@ import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
+import TechTopics from '../components/collections/TechTopics'
+import { useNewsStyle } from '../hooks/useNewsStyle'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
 import {
@@ -28,8 +30,11 @@ import {
 
 export default function TopicsPage() {
   const { settings } = useSite()
+  const { newsStyle } = useNewsStyle()
   const [topics, setTopics] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
@@ -53,9 +58,9 @@ export default function TopicsPage() {
   ]), [siteUrl])
 
   useEffect(() => {
-    document.title = '主题追踪 - AI 资讯观察'
-
     const controller = new AbortController()
+    setLoading(true)
+    setError('')
     fetchTopics(
       { limit: 24 },
       { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
@@ -66,7 +71,7 @@ export default function TopicsPage() {
       })
       .catch((err) => {
         if (controller.signal.aborted || err?.name === 'AbortError') return
-        setTopics([])
+        setError(err?.message || '主题暂时无法加载，请稍后重试。')
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -75,7 +80,7 @@ export default function TopicsPage() {
       })
 
     return () => controller.abort()
-  }, [])
+  }, [attempt])
 
   function prefetchTopic(topicKey) {
     prefetchTopicDetail(topicKey, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
@@ -90,7 +95,7 @@ export default function TopicsPage() {
         jsonLd={jsonLd}
       />
       <Navbar />
-      <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
+      {newsStyle === 'tech' ? <TechTopics topics={topics} loading={loading} error={error} onRetry={() => setAttempt((value) => value + 1)} onPrefetch={prefetchTopic} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-topic-index">
         <motion.section
           initial="hidden"
           animate="visible"
@@ -113,6 +118,10 @@ export default function TopicsPage() {
         >
           {loading ? (
             <LoadingSkeletonSet count={6} className="contents" itemClassName="rounded-[1.8rem]" minHeight="20rem" />
+          ) : error ? (
+            <div role="alert" className="md:col-span-2 xl:col-span-3 editorial-panel rounded-[1.8rem] p-6">
+              <p>{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)} className="mt-4 min-h-11 px-4" style={{ color: 'var(--accent)' }}>重新加载主题</button>
+            </div>
           ) : topics.length > 0 ? (
             topics.map((topic) => (
               <motion.div
@@ -123,7 +132,7 @@ export default function TopicsPage() {
                 onFocus={() => prefetchTopic(topic.topic_key)}
               >
                 <CoverCard
-                  to={`/topics/${topic.topic_key}`}
+                  to={`/topics/${encodeURIComponent(topic.topic_key)}`}
                   image={topic.cover_image}
                   imageAlt={getTopicTitle(topic)}
                   eyebrow={topic.is_featured ? '推荐主题' : '主题主线'}
@@ -159,7 +168,7 @@ export default function TopicsPage() {
             </div>
           )}
         </motion.section>
-      </div>
+      </div>}
       <Footer />
       <BackToTop />
     </main>

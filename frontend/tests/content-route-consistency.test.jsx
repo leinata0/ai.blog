@@ -74,7 +74,7 @@ it('keeps content-type data aligned with the latest prop and resets while loadin
     })
     await currentWeekly.promise
   })
-  expect(await screen.findByText('Current weekly response')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { level: 2, name: 'Current weekly response' })).toBeInTheDocument()
 
   rerender(
     <MemoryRouter>

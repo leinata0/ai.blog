@@ -27,6 +27,7 @@ import { formatDate } from '../utils/date'
 import { getSurfaceForPath, SURFACES } from '../utils/surface'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import '../styles/news-immersive-nav.css'
+import '../styles/tech-navigation.css'
 
 const NAV_ITEMS = [
   { label: '首页', to: '/' },
@@ -423,6 +424,31 @@ export default function Navbar({ immersive = false }) {
     setTrackingPinned(true)
   }
 
+  const secondaryNavigation = (
+    <div className="news-secondary-navigation">
+      <div ref={browsePanelRef} className="news-disclosure" onMouseEnter={openBrowsePreview} onMouseLeave={() => { if (!browsePinned) scheduleBrowseClose() }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) closeBrowse() }}>
+        <button ref={browseTriggerRef} type="button" data-ui="desktop-browse-trigger" onClick={handleBrowseButtonClick} onFocus={openBrowsePreview} className="news-nav-button" aria-label={toggleLabel(browseOpen, '浏览菜单')} aria-expanded={browseOpen} aria-haspopup="true" aria-controls={BROWSE_PANEL_ID}>
+          更多栏目 <ChevronDown size={13} aria-hidden="true" className={browseOpen ? 'is-open' : ''} />
+        </button>
+        {browseOpen ? (
+          <div className="news-popover-anchor" onMouseEnter={openBrowsePreview} onMouseLeave={() => { if (!browsePinned) scheduleBrowseClose() }}>
+            <BrowsePreview id={BROWSE_PANEL_ID} pathname={location.pathname} onNavigate={closeBrowse} />
+          </div>
+        ) : null}
+      </div>
+      <div ref={trackingPanelRef} className="news-disclosure" onMouseEnter={openTrackingPreview} onMouseLeave={() => { if (!trackingPinned) scheduleTrackingClose() }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) closeTracking() }}>
+        <button ref={trackingTriggerRef} type="button" data-ui="desktop-tracking-trigger" onClick={handleTrackingButtonClick} onFocus={openTrackingPreview} className="news-nav-button" aria-label={toggleLabel(trackingOpen, '追踪面板')} aria-expanded={trackingOpen} aria-haspopup="true" aria-controls={TRACKING_PANEL_ID}>
+          <BookOpen size={14} aria-hidden="true" /> 我的阅读 <ChevronDown size={13} aria-hidden="true" className={trackingOpen ? 'is-open' : ''} />
+        </button>
+        {trackingOpen ? (
+          <div className="news-popover-anchor news-popover-anchor--right" onMouseEnter={openTrackingPreview} onMouseLeave={() => { if (!trackingPinned) scheduleTrackingClose() }}>
+            <TrackingPreview id={TRACKING_PANEL_ID} continueReading={continueReading} followedTopics={followedTopics} recentTopics={recentTopics} onNavigate={closeTracking} />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+
   const menuPanel = mobileOpen ? (
     <div id={MOBILE_NAV_PANEL_ID} ref={mobilePanelRef} className={`news-mobile-panel${isImmersive ? ' news-edition-menu' : ''}`}>
       <nav aria-label={isImmersive ? '主导航' : '菜单导航'} className="news-mobile-primary">
@@ -478,6 +504,32 @@ export default function Navbar({ immersive = false }) {
     </header>
   )
 
+  if (isEditorialSurface && newsStyle === 'tech') return (
+    <header ref={navRef} className="news-navbar tech-navigation" data-surface="editorial" data-ui="news-header">
+      <div className="tech-navigation__bar">
+        <Link to="/" className="tech-navigation__brand" aria-label={`${SITE_COPY.brand}首页`}>
+          <span className="tech-navigation__mark" aria-hidden="true"><i /><i /><i /></span>
+          <span>AI <b>OBSERVER</b></span>
+        </Link>
+        <nav className="tech-navigation__primary" aria-label="主导航">
+          {NAV_ITEMS.map((item, index) => <Link key={item.to} to={item.to} className={`tech-navigation__link${isNavActive(location.pathname, item.to) ? ' is-active' : ''}`} aria-current={isNavActive(location.pathname, item.to) ? 'page' : undefined}><small aria-hidden="true">{String(index).padStart(2, '0')}</small>{item.label}</Link>)}
+        </nav>
+        <div className="tech-navigation__actions">
+          <div className="news-style-switch" role="group" aria-label="新闻页面风格">
+            <button type="button" aria-pressed="true" onClick={() => setNewsStyle('tech')}>科技版</button>
+            <button type="button" aria-pressed="false" onClick={() => setNewsStyle('paper')}>报刊版</button>
+          </div>
+          <Link to="/search" className="tech-navigation__search" aria-label="搜索"><Search size={16} aria-hidden="true" /><span>搜索</span></Link>
+          <button type="button" className="tech-navigation__command" data-ui="command-palette-trigger" onClick={openCommandPalette} aria-label="打开智能命令搜索"><Command size={15} aria-hidden="true" /></button>
+          <Link to={user ? '/account' : '/login'} className="tech-navigation__account" aria-label={user ? '个人中心' : '登录'}><UserIcon size={16} aria-hidden="true" /></Link>
+          <button ref={mobileMenuButtonRef} type="button" className="tech-navigation__menu" onClick={() => setMobileOpen((open) => !open)} aria-label="菜单" title={toggleLabel(mobileOpen, '导航菜单')} aria-expanded={mobileOpen} aria-haspopup="true" aria-controls={MOBILE_NAV_PANEL_ID}>{mobileOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}</button>
+        </div>
+      </div>
+      <div className="tech-navigation__context"><span className="tech-navigation__location">AI OBSERVER / <b>{NAV_ITEMS.find((item) => isNavActive(location.pathname, item.to))?.label || '阅读档案'}</b></span><div className="tech-navigation__utilities">{secondaryNavigation}<Link to="/feeds" className="tech-navigation__subscribe">订阅更新 <span aria-hidden="true">↗</span></Link></div></div>
+      {menuPanel}
+    </header>
+  )
+
   return (
     <header ref={navRef} className={`news-navbar${isImmersive ? ' news-navbar--immersive' : ''}`} data-surface="editorial" data-ui="news-header">
       <div className="news-shell-container">
@@ -527,28 +579,7 @@ export default function Navbar({ immersive = false }) {
               <NavLink key={item.to} to={item.to} active={isNavActive(location.pathname, item.to)}>{item.label}</NavLink>
             ))}
           </div>
-          <div className="news-secondary-navigation">
-            <div ref={browsePanelRef} className="news-disclosure" onMouseEnter={openBrowsePreview} onMouseLeave={() => { if (!browsePinned) scheduleBrowseClose() }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) closeBrowse() }}>
-              <button ref={browseTriggerRef} type="button" data-ui="desktop-browse-trigger" onClick={handleBrowseButtonClick} onFocus={openBrowsePreview} className="news-nav-button" aria-label={toggleLabel(browseOpen, '浏览菜单')} aria-expanded={browseOpen} aria-haspopup="true" aria-controls={BROWSE_PANEL_ID}>
-                更多栏目 <ChevronDown size={13} aria-hidden="true" className={browseOpen ? 'is-open' : ''} />
-              </button>
-              {browseOpen ? (
-                <div className="news-popover-anchor" onMouseEnter={openBrowsePreview} onMouseLeave={() => { if (!browsePinned) scheduleBrowseClose() }}>
-                  <BrowsePreview id={BROWSE_PANEL_ID} pathname={location.pathname} onNavigate={closeBrowse} />
-                </div>
-              ) : null}
-            </div>
-            <div ref={trackingPanelRef} className="news-disclosure" onMouseEnter={openTrackingPreview} onMouseLeave={() => { if (!trackingPinned) scheduleTrackingClose() }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) closeTracking() }}>
-              <button ref={trackingTriggerRef} type="button" data-ui="desktop-tracking-trigger" onClick={handleTrackingButtonClick} onFocus={openTrackingPreview} className="news-nav-button" aria-label={toggleLabel(trackingOpen, '追踪面板')} aria-expanded={trackingOpen} aria-haspopup="true" aria-controls={TRACKING_PANEL_ID}>
-                <BookOpen size={14} aria-hidden="true" /> 我的阅读 <ChevronDown size={13} aria-hidden="true" className={trackingOpen ? 'is-open' : ''} />
-              </button>
-              {trackingOpen ? (
-                <div className="news-popover-anchor news-popover-anchor--right" onMouseEnter={openTrackingPreview} onMouseLeave={() => { if (!trackingPinned) scheduleTrackingClose() }}>
-                  <TrackingPreview id={TRACKING_PANEL_ID} continueReading={continueReading} followedTopics={followedTopics} recentTopics={recentTopics} onNavigate={closeTracking} />
-                </div>
-              ) : null}
-            </div>
-          </div>
+          {secondaryNavigation}
         </nav>
 
         {menuPanel}
