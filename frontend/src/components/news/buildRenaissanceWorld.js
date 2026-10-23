@@ -8,6 +8,50 @@ const smooth = (from, to, value) => {
   return t * t * (3 - 2 * t)
 }
 
+// Keep the original UV grid: these triangles are wholly inside the cloud
+// shader's zero-alpha mask, even while the sampled texture drifts horizontally.
+export function createCloudGeometry(THREE) {
+  const geometry = new THREE.PlaneGeometry(1, 1, 64, 36)
+  const uv = geometry.getAttribute('uv')
+  const original = geometry.getIndex()
+  const indices = []
+  for (let index = 0; index < original.count; index += 3) {
+    const a = original.getX(index), b = original.getX(index + 1), c = original.getX(index + 2)
+    const maxV = Math.max(uv.getY(a), uv.getY(b), uv.getY(c))
+    const minU = Math.min(uv.getX(a), uv.getX(b), uv.getX(c))
+    const maxU = Math.max(uv.getX(a), uv.getX(b), uv.getX(c))
+    if (maxV > 0.46 && (minU < 0.38 || maxU > 0.62)) indices.push(a, b, c)
+  }
+  geometry.setIndex(indices)
+  return geometry
+}
+
+// Upper bound of the fragment alpha (grain and texture alpha cannot exceed 1).
+// Hide a draw only once every fragment would hit the shader's discard anyway.
+export function maximumPlaneAlpha(dissolve, sourceAlpha = 1) {
+  if (dissolve <= 0.001) return sourceAlpha
+  return sourceAlpha * smooth(dissolve - 0.045, dissolve + 0.045, 1) * (1 - smooth(0.5, 1.08, dissolve))
+}
+
+export function sampleRibbonSurface(u, v, time = 0) {
+  const width = 0.48 * (1 + 0.07 * Math.sin(u * 2 - time * 0.42))
+  const widthU = 0.0672 * Math.cos(u * 2 - time * 0.42)
+  const twist = u * 0.5 + 0.11 * Math.sin(u - time * 0.28)
+  const twistU = 0.5 + 0.11 * Math.cos(u - time * 0.28)
+  const cosU = Math.cos(u), sinU = Math.sin(u), cosV = Math.cos(v), sinV = Math.sin(v)
+  const cosTwist = Math.cos(twist), sinTwist = Math.sin(twist)
+  const a = width * cosV, b = 0.085 * sinV, aU = widthU * cosV
+  const aV = -width * sinV, bV = 0.085 * cosV
+  const r = 1.42 + 0.035 * Math.sin(u * 3 - time * 0.5) + a * cosTwist - b * sinTwist
+  const rU = 0.105 * Math.cos(u * 3 - time * 0.5) + aU * cosTwist - twistU * (a * sinTwist + b * cosTwist)
+  const rV = aV * cosTwist - bV * sinTwist
+  return {
+    position: [r * cosU, r * sinU, a * sinTwist + b * cosTwist + 0.12 * Math.sin(u * 2 + time * 0.15)],
+    du: [rU * cosU - r * sinU, rU * sinU + r * cosU, aU * sinTwist + twistU * (a * cosTwist - b * sinTwist) + 0.24 * Math.cos(u * 2 + time * 0.15)],
+    dv: [rV * cosU, rV * sinU, aV * sinTwist + bV * cosTwist],
+  }
+}
+
 const planeVertex = `uniform float uTime; uniform float uFigure; varying vec2 vUv;
   void main(){ vUv=uv; vec3 p=position;
     float cloth=(1.0-smoothstep(0.42,0.65,uv.y))*smoothstep(0.12,0.43,abs(uv.x-0.5));
@@ -43,14 +87,16 @@ const planeFragment = `uniform sampler2D uMap; uniform float uFigure; uniform fl
     #include <colorspace_fragment>
   }`
 
-function createRibbonGeometry(THREE) {
+export function createRibbonGeometry(THREE) {
   const rows = 192, columns = 24
-  const positions = [], parameters = [], indices = []
+  const positions = [], normals = [], parameters = [], indices = []
+  const normal = new THREE.Vector3(), tangent = new THREE.Vector3()
   for (let row = 0; row < rows; row += 1) for (let col = 0; col < columns; col += 1) {
     const u = row / rows * Math.PI * 2, v = col / columns * Math.PI * 2
-    const a = 0.48 * Math.cos(v), b = 0.085 * Math.sin(v)
-    const r = 1.42 + a * Math.cos(u * 0.5) - b * Math.sin(u * 0.5)
-    positions.push(r * Math.cos(u), r * Math.sin(u), a * Math.sin(u * 0.5) + b * Math.cos(u * 0.5) + Math.sin(u * 2) * 0.12)
+    const sample = sampleRibbonSurface(u, v)
+    positions.push(...sample.position)
+    normal.fromArray(sample.du).cross(tangent.fromArray(sample.dv)).normalize()
+    normals.push(normal.x, normal.y, normal.z)
     parameters.push(u, v)
     const nextRow = (row + 1) % rows
     const shift = row === rows - 1 ? columns / 2 : 0
@@ -61,20 +107,29 @@ function createRibbonGeometry(THREE) {
   }
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
   geometry.setAttribute('aRibbon', new THREE.Float32BufferAttribute(parameters, 2))
   geometry.setIndex(indices)
-  geometry.computeVertexNormals()
+  // Enclose the animated surface too; the GPU deforms beyond its t=0 bounds.
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2.1)
   return geometry
 }
 
 const ribbonSurface = `uniform float uRibbonTime; attribute vec2 aRibbon; varying vec2 vRibbonUV;
-  vec3 liquidRibbon(float u,float v){
+  void liquidRibbon(float u,float v,out vec3 p,out vec3 du,out vec3 dv){
     float t=uRibbonTime;
     float width=0.48*(1.0+0.07*sin(u*2.0-t*0.42));
+    float widthU=0.0672*cos(u*2.0-t*0.42);
     float twist=u*0.5+0.11*sin(u-t*0.28);
-    float a=width*cos(v), b=0.085*sin(v);
-    float r=1.42+0.035*sin(u*3.0-t*0.5)+a*cos(twist)-b*sin(twist);
-    return vec3(r*cos(u),r*sin(u),a*sin(twist)+b*cos(twist)+0.12*sin(u*2.0+t*0.15));
+    float twistU=0.5+0.11*cos(u-t*0.28);
+    float cu=cos(u),su=sin(u),cv=cos(v),sv=sin(v),ct=cos(twist),st=sin(twist);
+    float a=width*cv,b=0.085*sv,aU=widthU*cv,aV=-width*sv,bV=0.085*cv;
+    float r=1.42+0.035*sin(u*3.0-t*0.5)+a*ct-b*st;
+    float rU=0.105*cos(u*3.0-t*0.5)+aU*ct-twistU*(a*st+b*ct);
+    float rV=aV*ct-bV*st;
+    p=vec3(r*cu,r*su,a*st+b*ct+0.12*sin(u*2.0+t*0.15));
+    du=vec3(rU*cu-r*su,rU*su+r*cu,aU*st+twistU*(a*ct-b*st)+0.24*cos(u*2.0+t*0.15));
+    dv=vec3(rV*cu,rV*su,aV*st+bV*ct);
   }`
 
 export default function buildRenaissanceWorld(THREE, renderer) {
@@ -84,10 +139,13 @@ export default function buildRenaissanceWorld(THREE, renderer) {
   const own = (resource) => { resources.add(resource); return resource }
   let disposed = false
   let loaded = false
-  let snapNext = true
   let aspect = 1
   const look = new THREE.Vector3()
-  const destination = new THREE.Vector3()
+  const frustum = new THREE.Frustum()
+  const projectionView = new THREE.Matrix4()
+  // Include the vertex shader's maximum cloth displacement before world scale.
+  const figureBounds = new THREE.Box3(new THREE.Vector3(-0.53, -0.5, -0.04), new THREE.Vector3(0.53, 0.5, 0.04))
+  const worldBounds = new THREE.Box3()
   const planes = []
   const dispose = () => {
     if (disposed) return
@@ -112,7 +170,9 @@ export default function buildRenaissanceWorld(THREE, renderer) {
     const makePlane = (name, figure = false, half = 0, cloud = 0) => {
       const uniforms = { uMap: { value: null }, uFigure: { value: figure ? 1 : 0 }, uHalf: { value: half }, uTime: { value: 0 }, uDissolve: { value: 0 }, uCloud: { value: cloud } }
       const material = own(new THREE.ShaderMaterial({ vertexShader: planeVertex, fragmentShader: planeFragment, uniforms, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }))
-      const geometry = own(new THREE.PlaneGeometry(1, 1, figure ? 28 : 64, figure ? 40 : 36))
+      // These alpha-composited sheets deliberately need only one transparent pass.
+      material.forceSinglePass = true
+      const geometry = own(cloud ? createCloudGeometry(THREE) : new THREE.PlaneGeometry(1, 1, figure ? 28 : 64, figure ? 40 : 36))
       const plane = new THREE.Mesh(geometry, material)
       plane.name = name
       plane.renderOrder = figure ? 10 + half : cloud ? -5 + cloud : -10
@@ -127,21 +187,22 @@ export default function buildRenaissanceWorld(THREE, renderer) {
     clouds[1].position.z = -5
     const left = makePlane('renaissance-woman', true, 0)
     const right = makePlane('renaissance-man', true, 0.5)
+    const figures = [left, right]
     const ribbonTime = { value: 0 }
     const chrome = own(new THREE.MeshPhysicalMaterial({ color: '#d6ff55', metalness: 1, roughness: 0.15, clearcoat: 0.8, clearcoatRoughness: 0.1, envMapIntensity: 1.3, transparent: true, depthWrite: false }))
     chrome.onBeforeCompile = (shader) => {
       shader.uniforms.uRibbonTime = ribbonTime
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>\n${ribbonSurface}`)
-        .replace('#include <beginnormal_vertex>', `vec3 dU=liquidRibbon(aRibbon.x+0.001,aRibbon.y)-liquidRibbon(aRibbon.x-0.001,aRibbon.y);
-          vec3 dV=liquidRibbon(aRibbon.x,aRibbon.y+0.001)-liquidRibbon(aRibbon.x,aRibbon.y-0.001);
-          vec3 objectNormal=normalize(cross(dU,dV));`)
-        .replace('#include <begin_vertex>', 'vRibbonUV=aRibbon; vec3 transformed=liquidRibbon(aRibbon.x,aRibbon.y);')
+        .replace('#include <beginnormal_vertex>', `vec3 ribbonPosition,ribbonDU,ribbonDV;
+          liquidRibbon(aRibbon.x,aRibbon.y,ribbonPosition,ribbonDU,ribbonDV);
+          vec3 objectNormal=normalize(cross(ribbonDU,ribbonDV));`)
+        .replace('#include <begin_vertex>', 'vRibbonUV=aRibbon; vec3 transformed=ribbonPosition;')
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying vec2 vRibbonUV;')
         .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb=mix(vec3(0.82,0.88,0.94),vec3(0.67,1.0,0.09),smoothstep(-0.3,0.3,sin(vRibbonUV.y+0.2)));')
     }
-    chrome.customProgramCacheKey = () => 'renaissance-liquid-ribbon-v1'
+    chrome.customProgramCacheKey = () => 'renaissance-liquid-ribbon-v2'
     const ribbon = new THREE.Mesh(own(createRibbonGeometry(THREE)), chrome)
     ribbon.name = 'renaissance-liquid-chrome'
     ribbon.renderOrder = 20
@@ -166,7 +227,7 @@ export default function buildRenaissanceWorld(THREE, renderer) {
       left.scale.set(figureHeight * pairAspect * 0.5, figureHeight, 1)
       right.scale.copy(left.scale)
       world.scale.set(Math.max(18 * worldAspect, 18 * aspect * 1.1), 18, 1)
-      clouds.forEach((cloud, index) => {
+      clouds.forEach((cloud) => {
         const height = 2 * (10.5 - cloud.position.z) * Math.tan(38 * Math.PI / 360) * 1.22
         cloud.scale.set(height * Math.max(worldAspect, aspect * 1.1), height, 1)
       })
@@ -202,14 +263,14 @@ export default function buildRenaissanceWorld(THREE, renderer) {
 
     return {
       scene, camera, ready, dispose,
+      get hasVisibleContent() { return loaded && !disposed && (ribbon.visible || planes.some((plane) => plane.visible)) },
       resize(width, height) {
         aspect = width / height
         camera.aspect = aspect
         camera.updateProjectionMatrix()
         setSizes()
-        snapNext = true
       },
-      update({ elapsed, delta, progress, pointerX, pointerY, reduced }) {
+      update({ elapsed, progress, pointerX, pointerY, reduced }) {
         if (!loaded || disposed) return
         const time = reduced ? 0 : elapsed
         const peel = smooth(0.22, 0.65, progress)
@@ -218,20 +279,15 @@ export default function buildRenaissanceWorld(THREE, renderer) {
         const viewHeight = 2 * 10.5 * Math.tan(38 * Math.PI / 360)
         const halfWidth = viewHeight * aspect * 0.5
         const gap = halfWidth * 0.63
-        const snap = snapNext || reduced
-        const damp = (current, x, y, z) => {
-          destination.set(x, y, z)
-          if (snap) current.copy(destination)
-          else current.lerp(destination, 1 - Math.exp(-12 * delta))
-        }
-        damp(camera.position, Math.sin(peel * Math.PI) * 0.48 + pointerX * 0.28, 0.1 + pointerY * 0.24, 10.5 - peel * 2.1 - dissolve * 3.5)
-        damp(look, -peel * 0.08 + pointerX * 0.22, -peel * 0.12 + pointerY * 0.18, -peel * 1.2)
+        // The scene hook already smooths progress and pointer values once.
+        camera.position.set(Math.sin(peel * Math.PI) * 0.48 + pointerX * 0.28, 0.1 + pointerY * 0.24, 10.5 - peel * 2.1 - dissolve * 3.5)
+        look.set(-peel * 0.08 + pointerX * 0.22, -peel * 0.12 + pointerY * 0.18, -peel * 1.2)
         camera.lookAt(look)
-        damp(left.position, -gap - halfWidth * (0.14 + compact * 0.24) - peel * 3.3 - pointerX * 0.14, 0.02 + compact * 0.12 + Math.sin(time * 0.55) * 0.025 + peel * 0.55 - pointerY * 0.08, 0.12 + peel * 1.6)
-        damp(right.position, gap + halfWidth * (0.14 + compact * 0.35) + peel * 3.8 - pointerX * 0.09, -0.02 - compact * 0.2 + Math.sin(time * 0.49 + 1.3) * 0.025 - peel * 0.3 - pointerY * 0.05, -0.15 - peel * 0.8)
+        left.position.set(-gap - halfWidth * (0.14 + compact * 0.24) - peel * 3.3 - pointerX * 0.14, 0.02 + compact * 0.12 + Math.sin(time * 0.55) * 0.025 + peel * 0.55 - pointerY * 0.08, 0.12 + peel * 1.6)
+        right.position.set(gap + halfWidth * (0.14 + compact * 0.35) + peel * 3.8 - pointerX * 0.09, -0.02 - compact * 0.2 + Math.sin(time * 0.49 + 1.3) * 0.025 - peel * 0.3 - pointerY * 0.05, -0.15 - peel * 0.8)
         left.rotation.set(0, -peel * 0.06, -peel * 0.045)
         right.rotation.set(0, peel * 0.04, peel * 0.035)
-        damp(ribbon.position, (1.7 - compact * 0.65) * (1 - peel) - pointerX * 0.08, -2.05 + peel * 1.85 - pointerY * 0.04, 1.15 + peel * 2.6)
+        ribbon.position.set((1.7 - compact * 0.65) * (1 - peel) - pointerX * 0.08, -2.05 + peel * 1.85 - pointerY * 0.04, 1.15 + peel * 2.6)
         ribbon.rotation.set(0.75 + peel * 2.6 + Math.sin(time * 0.22) * 0.06, -0.45 + peel * 0.85 + time * 0.1 + pointerX * 0.06, -0.55 - peel * 0.8 + Math.sin(time * 0.28) * 0.1)
         ribbon.scale.setScalar((0.74 - compact * 0.12) * (1 + peel * 0.18))
         ribbonTime.value = time
@@ -240,10 +296,18 @@ export default function buildRenaissanceWorld(THREE, renderer) {
         planes.forEach((plane) => {
           plane.material.uniforms.uTime.value = time
           plane.material.uniforms.uDissolve.value = dissolve * 1.08
+          plane.visible = maximumPlaneAlpha(dissolve * 1.08, plane.material.uniforms.uCloud.value ? 0.17 : 1) >= 0.012
         })
         clouds[0].position.x = Math.sin(time * 0.12) * 0.12 - peel * 0.15
         clouds[1].position.x = Math.sin(time * 0.09 + 1.5) * 0.2 + peel * 0.3
-        snapNext = false
+        camera.updateMatrixWorld(true)
+        frustum.setFromProjectionMatrix(projectionView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
+        for (const figure of figures) {
+          if (!figure.visible) continue
+          figure.updateMatrixWorld(true)
+          worldBounds.copy(figureBounds).applyMatrix4(figure.matrixWorld)
+          figure.visible = frustum.intersectsBox(worldBounds)
+        }
       },
     }
   } catch (error) {

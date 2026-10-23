@@ -2,6 +2,7 @@ import { act, render, waitFor } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import IntelligenceSculpture from '../src/components/news/IntelligenceSculpture'
+import { ensureEditionSceneState } from '../src/utils/editionSceneState'
 
 const gpu = vi.hoisted(() => ({ renderers: [], environments: [], loads: [], autoLoad: true, fail: false }))
 vi.mock('three', async (original) => {
@@ -15,6 +16,7 @@ vi.mock('three', async (original) => {
         this.setClearColor = vi.fn()
         this.setPixelRatio = vi.fn()
         this.setSize = vi.fn()
+        this.clear = vi.fn()
         this.rotations = []
         this.render = vi.fn((scene, camera) => {
           this.scene = scene
@@ -79,8 +81,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); delete document.h
 
 async function mount(props = {}) {
   const scene = document.createElement('section')
-  scene.style.setProperty('--scene-progress', '0.5')
-  scene.style.setProperty('--pointer-x', '1')
+  Object.assign(ensureEditionSceneState(scene), { progress: 0.5, pointerX: 1 })
   const sceneRef = { current: scene }
   const view = render(<IntelligenceSculpture sceneRef={sceneRef} {...props} />)
   await waitFor(() => expect(gpu.environments).toHaveLength(1))
@@ -158,7 +159,7 @@ it('rotates only while visible and active, and disposes the GPU plus observers o
 
 it('keeps a clearly changing foreground pose during eight seconds of idle time', async () => {
   const { renderer, sceneRef } = await mount()
-  sceneRef.current.style.setProperty('--scene-progress', '0')
+  ensureEditionSceneState(sceneRef.current).progress = 0
   visible(true)
   frame(0)
   const initial = renderer.rotations.at(-1)
@@ -195,9 +196,55 @@ it('renders one still frame with reduced motion and updates size with a capped p
   expect(frames.size).toBe(0)
   act(() => { bounds = { width: 320, height: 400 }; resizes[0].callback() })
   expect(renderer.setSize).toHaveBeenLastCalledWith(320, 400, false)
-  expect(renderer.setPixelRatio).toHaveBeenLastCalledWith(1.25)
+  expect(renderer.setPixelRatio).toHaveBeenLastCalledWith(1)
   expect(renderer.render).toHaveBeenCalledTimes(2)
   expect(frames.size).toBe(0)
+})
+
+it('clears a dissolved scene once and resumes drawing when reverse scrolling restores it', async () => {
+  const { renderer, sceneRef } = await mount()
+  visible(true)
+  frame(0)
+  const drawn = renderer.render.mock.calls.length
+  ensureEditionSceneState(sceneRef.current).progress = 1
+  frame(16)
+  frame(32)
+  expect(renderer.render).toHaveBeenCalledTimes(drawn)
+  expect(renderer.clear).toHaveBeenCalledOnce()
+  ensureEditionSceneState(sceneRef.current).progress = 0
+  frame(48)
+  expect(renderer.render).toHaveBeenCalledTimes(drawn + 1)
+  expect(renderer.scene.getObjectByName('renaissance-woman').visible).toBe(true)
+})
+
+it('presents a clear first frame when restored at the dissolved end, without leaving fallback art', async () => {
+  const scene = document.createElement('section')
+  ensureEditionSceneState(scene).progress = 1
+  const { container } = render(<IntelligenceSculpture sceneRef={{ current: scene }} />)
+  await waitFor(() => expect(gpu.environments).toHaveLength(1))
+  const renderer = gpu.renderers[0]
+  visible(true)
+  frame(0)
+  expect(renderer.render).not.toHaveBeenCalled()
+  expect(renderer.clear).toHaveBeenCalledOnce()
+  expect(container.firstChild).toHaveClass('intelligence-sculpture--ready')
+  frame(16)
+  expect(renderer.clear).toHaveBeenCalledOnce()
+  ensureEditionSceneState(scene).progress = 0
+  frame(32)
+  expect(renderer.render).toHaveBeenCalledOnce()
+})
+
+it('adapts only the canvas after sustained slow frames without recreating WebGL', async () => {
+  const { renderer } = await mount()
+  visible(true)
+  frame(0)
+  const sizes = renderer.setSize.mock.calls.length
+  for (let time = 40; time <= 2200; time += 40) frame(time)
+  expect(renderer.setPixelRatio).toHaveBeenLastCalledWith(0.85)
+  expect(renderer.setSize).toHaveBeenCalledTimes(sizes + 1)
+  expect(renderer.dispose).not.toHaveBeenCalled()
+  expect(gpu.renderers).toHaveLength(1)
 })
 
 it('keeps the static decoration for unavailable or lost WebGL contexts', async () => {

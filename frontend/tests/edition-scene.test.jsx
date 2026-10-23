@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import useEditionScene from '../src/hooks/useEditionScene'
+import { getEditionSceneState } from '../src/utils/editionSceneState'
 
 const rectangle = (top, height) => ({ top, height, left: 0, width: 1440, bottom: top + height, right: 1440 })
 
@@ -14,7 +15,13 @@ function Fixture({ bounds, paused = false }) {
   }}>
     <div className="edition-hero__stage" data-testid="stage" ref={(node) => {
       if (node) node.getBoundingClientRect = () => rectangle(0, 1000)
-    }} />
+    }}>
+      <div className="edition-cover" data-testid="cover" />
+      <div className="edition-hero__masthead" data-testid="masthead" />
+      <div className="edition-hero__chapter" data-testid="chapter" />
+      <div className="edition-hero__light-wash" data-testid="wash" />
+      <div className="edition-hero__foot" data-testid="foot" />
+    </div>
   </section>
 }
 
@@ -77,7 +84,8 @@ function motionEnvironment() {
   }
 }
 
-const progressOf = (scene) => Number.parseFloat(scene.style.getPropertyValue('--scene-progress'))
+const progressOf = (scene) => getEditionSceneState(scene).progress
+const pointer = (stage, x, y) => act(() => stage.dispatchEvent(new MouseEvent('pointermove', { clientX: x, clientY: y })))
 const scroll = (bounds, top) => {
   bounds.top = top
   act(() => window.dispatchEvent(new Event('scroll')))
@@ -94,6 +102,8 @@ it('eases a changed scroll target and keeps converging after scrolling stops', (
   const bounds = { top: 0 }
   render(<Fixture bounds={bounds} />)
   const scene = screen.getByTestId('scene')
+  expect(getEditionSceneState(null)).toBeNull()
+  expect(getEditionSceneState(document.createElement('section'))).toBeNull()
   env.tick()
   expect(progressOf(scene)).toBe(0)
   expect(env.frames.size).toBe(0)
@@ -157,7 +167,10 @@ it('cancels pending movement when paused and resumes without jumping to the targ
   const scene = screen.getByTestId('scene')
   env.tick()
   scroll(bounds, -1200)
+  pointer(screen.getByTestId('stage'), 1200, 800)
   env.tick()
+  const state = getEditionSceneState(scene)
+  const pose = { ...state }
   const beforePause = progressOf(scene)
   expect(env.frames.size).toBe(1)
 
@@ -168,22 +181,27 @@ it('cancels pending movement when paused and resumes without jumping to the targ
   env.advance(1000)
   expect(env.frames.size).toBe(0)
   expect(progressOf(scene)).toBe(beforePause)
+  expect(getEditionSceneState(scene)).toBe(state)
+  expect(state).toEqual(pose)
   expect(env.observers[0].disconnect).toHaveBeenCalledOnce()
 
   rerender(<Fixture bounds={bounds} />)
+  expect(getEditionSceneState(scene)).toBe(state)
   expect(env.frames.size).toBe(1)
   env.tick()
   expect(progressOf(scene)).toBeGreaterThan(beforePause)
   expect(progressOf(scene)).toBeLessThan(1)
 })
 
-it('clears motion properties for reduced motion and responds to preference changes', () => {
+it('resets the shared pose and leaf styles for reduced motion and responds to preference changes', () => {
   const env = motionEnvironment()
   const bounds = { top: 0 }
   render(<Fixture bounds={bounds} />)
   const scene = screen.getByTestId('scene')
+  const state = getEditionSceneState(scene)
   env.tick()
   scroll(bounds, -1200)
+  pointer(screen.getByTestId('stage'), 1200, 800)
   env.tick()
   expect(env.frames.size).toBe(1)
 
@@ -193,10 +211,16 @@ it('clears motion properties for reduced motion and responds to preference chang
   expect(scene.dataset.sceneCoverHidden).toBe('false')
   expect(scene.style.getPropertyValue('--scene-progress')).toBe('')
   expect(scene.style.getPropertyValue('--pointer-x')).toBe('')
+  expect(getEditionSceneState(scene)).toBe(state)
+  expect(state).toEqual({ progress: 0, pointerX: 0, pointerY: 0 })
+  expect(screen.getByTestId('cover').style.getPropertyValue('--scene-cover')).toBe('1.00000')
+  expect(screen.getByTestId('chapter').style.getPropertyValue('--scene-reveal')).toBe('0.00000')
+  expect(screen.getByTestId('wash').style.getPropertyValue('--scene-wipe')).toBe('0.00000')
   scroll(bounds, -600)
   env.advance(1000)
   expect(env.frames.size).toBe(0)
   expect(scene.style.getPropertyValue('--scene-progress')).toBe('')
+  expect(state.progress).toBe(0)
 
   env.setReduced(false)
   expect(env.frames.size).toBe(1)
@@ -204,6 +228,75 @@ it('clears motion properties for reduced motion and responds to preference chang
   expect(scene.dataset.sceneMotion).toBe('full')
   expect(progressOf(scene)).toBeGreaterThan(0)
   expect(progressOf(scene)).toBeLessThan(.5)
+})
+
+it('uses cached geometry for pointer-only motion and performs no unchanged DOM writes', () => {
+  const env = motionEnvironment()
+  const bounds = { top: 0 }
+  render(<Fixture bounds={bounds} />)
+  const scene = screen.getByTestId('scene')
+  const stage = screen.getByTestId('stage')
+  env.tick()
+  const sceneMeasure = vi.spyOn(scene, 'getBoundingClientRect')
+  const stageMeasure = vi.spyOn(stage, 'getBoundingClientRect')
+  const mutations = new MutationObserver(() => {})
+  mutations.observe(scene, { attributes: true, subtree: true })
+
+  pointer(stage, 1000, 800)
+  pointer(stage, 1300, 900)
+  expect(env.frames.size).toBe(1)
+  env.tick()
+  const state = getEditionSceneState(scene)
+  expect(state.pointerX).toBeGreaterThan(0)
+  expect(state.pointerY).toBeGreaterThan(0)
+  env.settle()
+  expect(sceneMeasure).not.toHaveBeenCalled()
+  expect(stageMeasure).not.toHaveBeenCalled()
+  expect(mutations.takeRecords()).toHaveLength(0)
+
+  // A geometry change is measured once on its frame, never once per input event.
+  stageMeasure.mockReturnValue({ ...rectangle(0, 1000), left: 1000, right: 2440 })
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+    window.dispatchEvent(new Event('resize'))
+  })
+  expect(sceneMeasure).not.toHaveBeenCalled()
+  env.tick()
+  expect(sceneMeasure).toHaveBeenCalledOnce()
+  expect(stageMeasure).toHaveBeenCalledOnce()
+  env.settle()
+  expect(state.pointerX).toBeLessThan(0)
+  mutations.disconnect()
+})
+
+it('limits DOM pose writes to changed leaf values and keeps the scene root free of animation styles', () => {
+  const env = motionEnvironment()
+  const bounds = { top: 0 }
+  render(<Fixture bounds={bounds} />)
+  const scene = screen.getByTestId('scene')
+  env.tick()
+  scroll(bounds, -600)
+  env.settle()
+  const cover = screen.getByTestId('cover')
+  const masthead = screen.getByTestId('masthead')
+  const chapter = screen.getByTestId('chapter')
+  const wash = screen.getByTestId('wash')
+  const foot = screen.getByTestId('foot')
+  expect(cover.style.getPropertyValue('--scene-cover')).toBe('0.00000')
+  expect(masthead.style.getPropertyValue('--scene-reveal')).toBe('1.00000')
+  expect(chapter.style.getPropertyValue('--scene-reveal')).toBe('1.00000')
+  expect(wash.style.getPropertyValue('--scene-wipe')).toBe('0.00000')
+  expect(foot.style.getPropertyValue('--scene-wipe')).toBe('0.00000')
+  expect(scene.getAttribute('style')).toBeNull()
+
+  const mutations = new MutationObserver(() => {})
+  mutations.observe(scene, { attributes: true, subtree: true })
+  // These poses all share cover=0/reveal=1/wipe=0, while the WebGL pose keeps moving.
+  scroll(bounds, -660)
+  env.settle()
+  expect(progressOf(scene)).toBeGreaterThan(.54)
+  expect(mutations.takeRecords()).toHaveLength(0)
+  mutations.disconnect()
 })
 
 it('stops queued frames while hidden or offscreen, then resumes gradually', () => {

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import buildRenaissanceWorld, { RENAISSANCE_ASSETS } from './buildRenaissanceWorld'
+import { getEditionSceneState } from '../../utils/editionSceneState'
+import { createSceneResolutionController, scenePixelRatio } from '../../utils/sceneResolution'
 import '../../styles/intelligence-sculpture.css'
 
 export default function IntelligenceSculpture({ sceneRef, paused = false }) {
@@ -17,7 +19,7 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
     let cancelled = false
     let failed = false
     let assetsReady = false
-    let firstDrawn = false
+    let firstPresented = false
     let shaderFailed = false
     let renderer
     let sculpture
@@ -28,39 +30,57 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
     let width = 0
     let height = 0
     let staticNeeded = true
+    let drewContent = false
+    let appliedWidth = 0
+    let appliedHeight = 0
+    let pixelRatio = 0
+    const resolution = createSceneResolutionController()
 
     const stop = () => {
       if (frame !== null) cancelAnimationFrame(frame)
       frame = null
       lastTime = null
     }
+    const presented = () => {
+      if (!firstPresented) { firstPresented = true; setReady(true) }
+      staticNeeded = false
+    }
     const render = () => {
       if (!renderer || !sculpture) return
       const source = sceneRef?.current || host
-      // The scene hook writes inline CSS properties, so reading its style avoids
-      // forcing layout on every animation frame.
-      const read = (name, min, max) => {
-        const value = Number.parseFloat(source.style.getPropertyValue(name))
-        return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : 0
-      }
-      const progress = reduced ? 0 : read('--scene-progress', 0, 1)
-      const pointerX = reduced ? 0 : read('--pointer-x', -1, 1)
-      const pointerY = reduced ? 0 : read('--pointer-y', -1, 1)
+      const pose = getEditionSceneState(source)
+      const progress = reduced ? 0 : pose?.progress ?? 0
+      const pointerX = reduced ? 0 : pose?.pointerX ?? 0
+      const pointerY = reduced ? 0 : pose?.pointerY ?? 0
       const time = reduced ? 0 : elapsed
       sculpture.update({ elapsed: time, delta: reduced || pausedRef.current ? 0 : delta, progress, pointerX, pointerY, reduced })
+      if (sculpture.hasVisibleContent === false) {
+        // Clear the previous pose once, then stop submitting an empty scene.
+        // update still runs so reverse scrolling can restore it immediately.
+        // A cold start at a restored scroll position may already be empty;
+        // present that clear frame too so static fallback art does not linger.
+        if (drewContent || !firstPresented) renderer.clear()
+        drewContent = false
+        presented()
+        return
+      }
       renderer.render(sculpture.scene, sculpture.camera)
+      drewContent = true
       if (shaderFailed) throw new Error('The world shader could not be rendered')
-      if (!firstDrawn) { firstDrawn = true; setReady(true) }
-      staticNeeded = false
+      presented()
     }
     const canRender = () => !cancelled && !failed && assetsReady && visible && !document.hidden && renderer && sculpture && width > 0 && height > 0
     const tick = (time) => {
       frame = null
       if (!canRender() || reduced || pausedRef.current) { lastTime = null; return }
-      delta = lastTime === null ? 0 : Math.min((time - lastTime) / 1000, 0.05)
+      const interval = lastTime === null ? 0 : time - lastTime
+      delta = Math.min(interval / 1000, 0.1)
       elapsed += delta
       lastTime = time
-      try { render() } catch { fail(); return }
+      try {
+        if (resolution.sample(interval)) applySize()
+        render()
+      } catch { fail(); return }
       frame = requestAnimationFrame(tick)
     }
     const sync = () => {
@@ -72,17 +92,24 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
         }
       } else if (frame === null) frame = requestAnimationFrame(tick)
     }
+    const applySize = () => {
+      const dpr = scenePixelRatio(width, height, window.devicePixelRatio, resolution.quality)
+      if (pixelRatio === dpr && appliedWidth === width && appliedHeight === height) return
+      pixelRatio = dpr
+      appliedWidth = width
+      appliedHeight = height
+      renderer.setPixelRatio(dpr)
+      renderer.setSize(width, height, false)
+      sculpture.resize(width, height, dpr)
+      staticNeeded = true
+    }
     const resize = () => {
       if (!renderer || !sculpture) return
       const bounds = host.getBoundingClientRect()
       width = Math.max(0, bounds.width)
       height = Math.max(0, bounds.height)
       if (!width || !height) { stop(); return }
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.25)
-      renderer.setPixelRatio(dpr)
-      renderer.setSize(width, height, false)
-      sculpture.resize(width, height, dpr)
-      staticNeeded = true
+      applySize()
       sync()
     }
     const fail = () => {
