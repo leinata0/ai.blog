@@ -6,6 +6,7 @@
 
 - [视觉专刊设计与素材说明](docs/design/intelligence-edition-2026-10-23.md)
 - [动画性能优化与验证记录](docs/design/edition-performance-2026-10-23.md)
+- [转型发布与运营交接](docs/news-transition-2026-10-23.md)
 - [恢复审查与运行清单](docs/blog-revival-audit-2026-10-22.md)
 - [新闻站定位与四周运营计划](docs/blog-positioning-options-2026-10-22.md)
 - [内部恢复记录草稿](docs/drafts/blog-relaunch-case-study.md)
