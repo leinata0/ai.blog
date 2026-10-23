@@ -78,8 +78,11 @@ it('keeps the visual comparison out of private account surfaces', () => {
 it('uses an immersive header only for the public edition and restores paper navigation on comparison', async () => {
   renderNav('/', { immersive: true })
   expect(screen.getByRole('banner')).toHaveClass('news-navbar--immersive')
+  expect(screen.queryByRole('group', { name: '新闻页面风格' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '菜单' }))
   await userEvent.click(screen.getByRole('button', { name: '报刊版' }))
   expect(screen.getByRole('banner')).not.toHaveClass('news-navbar--immersive')
+  expect(screen.queryByRole('navigation', { name: '菜单导航' })).not.toBeInTheDocument()
   expect(window.localStorage.getItem('theme')).toBe('light')
 })
 

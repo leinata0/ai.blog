@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import buildSignalObservatory from './buildSignalObservatory'
+import buildRenaissanceWorld, { RENAISSANCE_ASSETS } from './buildRenaissanceWorld'
 import '../../styles/intelligence-sculpture.css'
 
 export default function IntelligenceSculpture({ sceneRef, paused = false }) {
@@ -16,6 +16,9 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
     let visible = typeof IntersectionObserver !== 'function'
     let cancelled = false
     let failed = false
+    let assetsReady = false
+    let firstDrawn = false
+    let shaderFailed = false
     let renderer
     let sculpture
     let frame = null
@@ -46,9 +49,11 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
       const time = reduced ? 0 : elapsed
       sculpture.update({ elapsed: time, delta: reduced || pausedRef.current ? 0 : delta, progress, pointerX, pointerY, reduced })
       renderer.render(sculpture.scene, sculpture.camera)
+      if (shaderFailed) throw new Error('The world shader could not be rendered')
+      if (!firstDrawn) { firstDrawn = true; setReady(true) }
       staticNeeded = false
     }
-    const canRender = () => !cancelled && !failed && visible && !document.hidden && renderer && sculpture && width > 0 && height > 0
+    const canRender = () => !cancelled && !failed && assetsReady && visible && !document.hidden && renderer && sculpture && width > 0 && height > 0
     const tick = (time) => {
       frame = null
       if (!canRender() || reduced || pausedRef.current) { lastTime = null; return }
@@ -73,7 +78,7 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
       width = Math.max(0, bounds.width)
       height = Math.max(0, bounds.height)
       if (!width || !height) { stop(); return }
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.25)
       renderer.setPixelRatio(dpr)
       renderer.setSize(width, height, false)
       sculpture.resize(width, height, dpr)
@@ -127,13 +132,18 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
         renderer.setClearColor(0x000000, 0)
         renderer.outputColorSpace = THREE.SRGBColorSpace
         renderer.toneMapping = THREE.ACESFilmicToneMapping
-        renderer.toneMappingExposure = 1.05
+        renderer.toneMappingExposure = 1
+        if (renderer.debug) renderer.debug.onShaderError = () => { shaderFailed = true }
         renderer.domElement.setAttribute('aria-hidden', 'true')
         renderer.domElement.addEventListener('webglcontextlost', contextLost)
-        sculpture = buildSignalObservatory(THREE, renderer)
+        sculpture = buildRenaissanceWorld(THREE, renderer)
         host.appendChild(renderer.domElement)
         resize()
-        if (!failed) setReady(true)
+        sculpture.ready.then((loaded) => {
+          if (cancelled || failed || !loaded) return
+          assetsReady = true
+          resize()
+        }).catch(fail)
       } catch {
         fail()
       }
@@ -158,17 +168,10 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
   }, [paused])
 
   return <div ref={hostRef} className={`intelligence-sculpture${ready ? ' intelligence-sculpture--ready' : ''}`} aria-hidden="true">
-    <svg className="intelligence-sculpture__fallback" data-fallback="signal-observatory" viewBox="0 0 1000 800" focusable="false">
-      {Array.from({ length: 40 }, (_, index) => <circle key={index} cx={(index * 197 + 53) % 1000} cy={(index * 137 + 29) % 800} r={index % 3 === 0 ? 1.8 : 0.9} fill="#90bdff" opacity=".5" />)}
-      <g transform="translate(650 350) rotate(-18)">
-        <path d="M-24 100L-24 260H-100V280H100V260H24V100" fill="#344d6b" stroke="#8da9c4" strokeWidth="3" />
-        <path d="M-230 0Q0 310 230 0Q0 155-230 0" fill="#3b5571" stroke="#a0bad3" strokeWidth="4" />
-        <ellipse rx="230" ry="140" fill="#bacddd" stroke="#e1ecf6" strokeWidth="6" />
-        {[-170, -110, -55, 0, 55, 110, 170].map((x) => <ellipse key={x} cx={x / 3} rx={Math.sqrt(230 ** 2 - x ** 2)} ry={Math.max(15, 140 - Math.abs(x) / 2)} fill="none" stroke="#718ea8" strokeWidth="1" opacity=".6" />)}
-        <path d="M-215-45L0-120L180 85M0-120L-25 138" fill="none" stroke="#e0edfa" strokeWidth="5" />
-        <path d="M-20-144H20V-99H-20Z" fill="#237dc6" stroke="#9be6ff" strokeWidth="3" />
-        <ellipse cy="-144" rx="20" ry="7" fill="#79dfff" />
-      </g>
-    </svg>
+    <div className="intelligence-sculpture__fallback" data-fallback="renaissance-world">
+      <div className="intelligence-sculpture__garden" style={{ backgroundImage: `url(${RENAISSANCE_ASSETS.world})` }} />
+      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--left"><img src={RENAISSANCE_ASSETS.figures} alt="" width="1672" height="941" decoding="async" /></div>
+      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--right"><img src={RENAISSANCE_ASSETS.figures} alt="" width="1672" height="941" decoding="async" /></div>
+    </div>
   </div>
 }

@@ -26,6 +26,7 @@ import { openCommandPalette } from '../utils/uiEvents'
 import { formatDate } from '../utils/date'
 import { getSurfaceForPath, SURFACES } from '../utils/surface'
 import { useNewsStyle } from '../hooks/useNewsStyle'
+import '../styles/news-immersive-nav.css'
 
 const NAV_ITEMS = [
   { label: '首页', to: '/' },
@@ -422,6 +423,61 @@ export default function Navbar({ immersive = false }) {
     setTrackingPinned(true)
   }
 
+  const menuPanel = mobileOpen ? (
+    <div id={MOBILE_NAV_PANEL_ID} ref={mobilePanelRef} className={`news-mobile-panel${isImmersive ? ' news-edition-menu' : ''}`}>
+      <nav aria-label={isImmersive ? '主导航' : '菜单导航'} className="news-mobile-primary">
+        {NAV_ITEMS.map((item) => <NavLink key={item.to} to={item.to} active={isNavActive(location.pathname, item.to)} onClick={() => setMobileOpen(false)}>{item.label}</NavLink>)}
+      </nav>
+      <div data-ui="mobile-quick-links" className="news-mobile-quick-links">
+        <Link to="/search" onClick={() => setMobileOpen(false)}><Search size={15} aria-hidden="true" /> 搜索</Link>
+        <Link to={user ? '/account' : '/login'} onClick={() => setMobileOpen(false)}><UserIcon size={15} aria-hidden="true" />{user ? (user.nickname || '个人中心') : '登录'}</Link>
+        <Link to="/feeds" onClick={() => setMobileOpen(false)}>订阅中心 ↗</Link>
+      </div>
+      {isImmersive ? <section className="news-edition-menu__preferences" aria-label="阅读设置">
+        <div className="news-style-switch" role="group" aria-label="新闻页面风格">
+          <button type="button" aria-pressed={newsStyle === 'tech'} onClick={() => setNewsStyle('tech')}>科技版</button>
+          <button type="button" aria-pressed={newsStyle === 'paper'} onClick={() => { setMobileOpen(false); setNewsStyle('paper') }}>报刊版</button>
+        </div>
+        <button type="button" className="news-edition-menu__command" onClick={() => { setMobileOpen(false); openCommandPalette() }} aria-label="打开智能命令搜索"><Command size={14} aria-hidden="true" /> 智能命令搜索 <kbd>⌘K</kbd></button>
+      </section> : null}
+      <section className="news-mobile-section">
+        <button type="button" data-ui="mobile-browse-trigger" onClick={() => { setMobileBrowseOpen((open) => !open); setMobileTrackingOpen(false) }} className="news-mobile-disclosure" aria-label={toggleLabel(mobileBrowseOpen, '浏览菜单')} aria-expanded={mobileBrowseOpen} aria-haspopup="true" aria-controls={MOBILE_BROWSE_PANEL_ID}>
+          更多栏目 <ChevronDown size={16} aria-hidden="true" />
+        </button>
+        {mobileBrowseOpen ? <div id={MOBILE_BROWSE_PANEL_ID} data-ui="mobile-browse-links" className="news-mobile-link-grid">
+          {BROWSE_ITEMS.map((item) => <Link key={item.to} to={item.to} onClick={() => setMobileOpen(false)}>{item.label}</Link>)}
+        </div> : null}
+      </section>
+      <section className="news-mobile-section">
+        <button type="button" data-ui="mobile-tracking-trigger" onClick={() => { setMobileTrackingOpen((open) => !open); setMobileBrowseOpen(false) }} className="news-mobile-disclosure" aria-label={toggleLabel(mobileTrackingOpen, '追踪面板')} aria-expanded={mobileTrackingOpen} aria-haspopup="true" aria-controls={MOBILE_TRACKING_PANEL_ID}>
+          我的阅读 <ChevronDown size={16} aria-hidden="true" />
+        </button>
+        {mobileTrackingOpen ? <div id={MOBILE_TRACKING_PANEL_ID} className="news-mobile-tracking">
+          <TrackingSection icon={BookOpen} title="继续阅读" items={continueReading} emptyText="读过的文章会出现在这里。" renderItem={(item) => <TrackingCard key={item.slug} to={`/posts/${item.slug}`} onNavigate={closeTracking} title={item.title} description={item.topic_display_title || item.topic_key || '最近阅读'} />} />
+          <TrackingSection icon={Compass} title="最近关注" items={followedTopics} emptyText="关注的主题会出现在这里。" renderItem={(item) => <TrackingCard key={item.topic_key} to={`/topics/${item.topic_key}`} onNavigate={closeTracking} title={item.display_title || item.topic_key} description="你已关注的主题" />} />
+          <TrackingSection icon={Clock3} title="最近浏览" items={recentTopics} emptyText="最近浏览的主题会出现在这里。" renderItem={(item) => <TrackingCard key={item.topic_key} to={`/topics/${item.topic_key}`} onNavigate={closeTracking} title={item.display_title || item.topic_key} description={formatDate(item.latest_post_at) ? `最近更新：${formatDate(item.latest_post_at)}` : '最近浏览的主题'} />} />
+          <Link to="/following" onClick={closeTracking} className="news-tracking-all">查看追踪页 <span aria-hidden="true">↗</span></Link>
+        </div> : null}
+      </section>
+    </div>
+  ) : null
+
+  if (isImmersive) return (
+    <header ref={navRef} className="news-navbar news-navbar--immersive news-edition-header" data-surface="editorial" data-ui="news-header">
+      <div className="news-edition-header__bar">
+        <Link to="/" className="news-edition-header__brand" aria-label={`${SITE_COPY.brand}首页`}>{SITE_COPY.brand}</Link>
+        <div className="news-edition-header__actions">
+          <button ref={mobileMenuButtonRef} type="button" className="news-edition-header__action" onClick={() => setMobileOpen((open) => !open)} aria-label="菜单" title={toggleLabel(mobileOpen, '导航菜单')} aria-expanded={mobileOpen} aria-haspopup="true" aria-controls={MOBILE_NAV_PANEL_ID}>
+            {mobileOpen ? <X size={15} aria-hidden="true" /> : <Menu size={15} aria-hidden="true" />}<span>菜单</span>
+          </button>
+          <Link to="/search" className="news-edition-header__action" aria-label="搜索"><Search size={14} aria-hidden="true" /><span>搜索</span></Link>
+          <Link to="/feeds" className="news-edition-header__action">订阅 <span aria-hidden="true">↗</span></Link>
+        </div>
+      </div>
+      {menuPanel}
+    </header>
+  )
+
   return (
     <header ref={navRef} className={`news-navbar${isImmersive ? ' news-navbar--immersive' : ''}`} data-surface="editorial" data-ui="news-header">
       <div className="news-shell-container">
@@ -495,43 +551,7 @@ export default function Navbar({ immersive = false }) {
           </div>
         </nav>
 
-        {mobileOpen ? (
-          <div id={MOBILE_NAV_PANEL_ID} ref={mobilePanelRef} className="news-mobile-panel">
-            <div className="news-mobile-primary">
-              {NAV_ITEMS.map((item) => (
-                <NavLink key={item.to} to={item.to} active={isNavActive(location.pathname, item.to)} onClick={() => setMobileOpen(false)}>{item.label}</NavLink>
-              ))}
-            </div>
-            <div data-ui="mobile-quick-links" className="news-mobile-quick-links">
-              <Link to="/search" onClick={() => setMobileOpen(false)}><Search size={15} aria-hidden="true" /> 搜索</Link>
-              <Link to={user ? '/account' : '/login'} onClick={() => setMobileOpen(false)}><UserIcon size={15} aria-hidden="true" />{user ? (user.nickname || '个人中心') : '登录'}</Link>
-              <Link to="/feeds" onClick={() => setMobileOpen(false)}>订阅中心 ↗</Link>
-            </div>
-            <section className="news-mobile-section">
-              <button type="button" data-ui="mobile-browse-trigger" onClick={() => { setMobileBrowseOpen((open) => !open); setMobileTrackingOpen(false) }} className="news-mobile-disclosure" aria-label={toggleLabel(mobileBrowseOpen, '浏览菜单')} aria-expanded={mobileBrowseOpen} aria-haspopup="true" aria-controls={MOBILE_BROWSE_PANEL_ID}>
-                更多栏目 <ChevronDown size={16} aria-hidden="true" />
-              </button>
-              {mobileBrowseOpen ? (
-                <div id={MOBILE_BROWSE_PANEL_ID} data-ui="mobile-browse-links" className="news-mobile-link-grid">
-                  {BROWSE_ITEMS.map((item) => <Link key={item.to} to={item.to} onClick={() => setMobileOpen(false)}>{item.label}</Link>)}
-                </div>
-              ) : null}
-            </section>
-            <section className="news-mobile-section">
-              <button type="button" data-ui="mobile-tracking-trigger" onClick={() => { setMobileTrackingOpen((open) => !open); setMobileBrowseOpen(false) }} className="news-mobile-disclosure" aria-label={toggleLabel(mobileTrackingOpen, '追踪面板')} aria-expanded={mobileTrackingOpen} aria-haspopup="true" aria-controls={MOBILE_TRACKING_PANEL_ID}>
-                我的阅读 <ChevronDown size={16} aria-hidden="true" />
-              </button>
-              {mobileTrackingOpen ? (
-                <div id={MOBILE_TRACKING_PANEL_ID} className="news-mobile-tracking">
-                  <TrackingSection icon={BookOpen} title="继续阅读" items={continueReading} emptyText="读过的文章会出现在这里。" renderItem={(item) => <TrackingCard key={item.slug} to={`/posts/${item.slug}`} onNavigate={closeTracking} title={item.title} description={item.topic_display_title || item.topic_key || '最近阅读'} />} />
-                  <TrackingSection icon={Compass} title="最近关注" items={followedTopics} emptyText="关注的主题会出现在这里。" renderItem={(item) => <TrackingCard key={item.topic_key} to={`/topics/${item.topic_key}`} onNavigate={closeTracking} title={item.display_title || item.topic_key} description="你已关注的主题" />} />
-                  <TrackingSection icon={Clock3} title="最近浏览" items={recentTopics} emptyText="最近浏览的主题会出现在这里。" renderItem={(item) => <TrackingCard key={item.topic_key} to={`/topics/${item.topic_key}`} onNavigate={closeTracking} title={item.display_title || item.topic_key} description={formatDate(item.latest_post_at) ? `最近更新：${formatDate(item.latest_post_at)}` : '最近浏览的主题'} />} />
-                  <Link to="/following" onClick={closeTracking} className="news-tracking-all">查看追踪页 <span aria-hidden="true">↗</span></Link>
-                </div>
-              ) : null}
-            </section>
-          </div>
-        ) : null}
+        {menuPanel}
       </div>
     </header>
   )

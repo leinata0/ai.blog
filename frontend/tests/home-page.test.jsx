@@ -202,6 +202,7 @@ it('replaces the exhibition hero and chapter directory with the paper front page
   expect(screen.getByRole('region', { name: '智能新纪元视觉专刊' })).toBeInTheDocument()
   expect(screen.getByRole('navigation', { name: '本期展览目录' })).toBeInTheDocument()
 
+  await userEvent.click(screen.getByRole('button', { name: '菜单', exact: true }))
   await userEvent.click(screen.getByRole('button', { name: '报刊版', exact: true }))
 
   expect(screen.queryByRole('region', { name: '智能新纪元视觉专刊' })).not.toBeInTheDocument()

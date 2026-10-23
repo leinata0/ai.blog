@@ -219,7 +219,7 @@ export default function HomePage() {
       <SeoMeta title={SITE_SEO.homeTitle} description={SITE_SEO.homeDescription} path="/" image={heroImage}
         jsonLd={homeJsonLd} rssUrl={buildPublicApiUrl('/feed.xml')} />
       <Navbar immersive={immersiveHome} />
-      {immersiveHome ? <EditionHero total={total} latestDate={latestDate} loading={loading || newsPending} hasError={Boolean(error)} leadPost={posts[0]} /> : null}
+      {immersiveHome ? <EditionHero total={total} latestDate={latestDate} loading={loading || newsPending} hasError={Boolean(error)} /> : null}
       <div className="news-home__paper">
         {immersiveHome ? null : newsStyle === 'tech' ? <TechNewsIntro total={total} latestDate={latestDate} loading={loading} hasError={Boolean(error)} compact={!defaultView} /> : <header className="news-edition">
           <div>
@@ -239,7 +239,7 @@ export default function HomePage() {
         </nav> : null}
 
         {immersiveHome ? <section className="edition-focus" id="edition-focus" data-edition-chapter aria-labelledby="edition-focus-title">
-          <header className="edition-section-heading"><span>I / IN FOCUS</span><h2 id="edition-focus-title"><span className="edition-title-line"><span>变化发生的地方。</span></span><span className="edition-title-line"><span><em>A closer look.</em></span></span></h2><p>从一条具体的报道出发，看见模型、产品与产业正在发生的变化。</p></header>
+          <h2 id="edition-focus-title" className="sr-only">本期焦点</h2>
           {!error && posts.length > 0 ? <TechNewsDesk posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : <a className="news-text-link" href="#edition-news">{loading ? '新闻正在载入' : '查看新闻档案'} <ArrowRight size={15} aria-hidden="true" /></a>}
         </section> : defaultView && !error && posts.length > 0 ? <NewsFrontPage posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : null}
 

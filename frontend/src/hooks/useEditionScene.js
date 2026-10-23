@@ -39,13 +39,13 @@ export default function useEditionScene(ref, paused = false) {
       pointerX += (targetX - pointerX) * pointerEase
       pointerY += (targetY - pointerY) * pointerEase
       element.style.setProperty('--scene-progress', progress.toFixed(5))
-      element.style.setProperty('--scene-cover', (1 - smooth(.04, .29, progress)).toFixed(5))
-      element.style.setProperty('--scene-reveal', (smooth(.26, .48, progress) * (1 - smooth(.68, .86, progress))).toFixed(5))
-      element.style.setProperty('--scene-wipe', smooth(.65, .98, progress).toFixed(5))
+      element.style.setProperty('--scene-cover', (1 - smooth(.02, .20, progress)).toFixed(5))
+      element.style.setProperty('--scene-reveal', (smooth(.20, .38, progress) * (1 - smooth(.58, .78, progress))).toFixed(5))
+      element.style.setProperty('--scene-wipe', smooth(.72, 1, progress).toFixed(5))
       element.style.setProperty('--scene-story', smooth(.58, .82, progress).toFixed(5))
       element.style.setProperty('--pointer-x', pointerX.toFixed(5))
       element.style.setProperty('--pointer-y', pointerY.toFixed(5))
-      element.dataset.sceneCoverHidden = progress > .30 ? 'true' : 'false'
+      element.dataset.sceneCoverHidden = progress > .21 ? 'true' : 'false'
       element.dataset.sceneActive = 'true'
       const unsettled = Math.abs(targetProgress - progress) > .00015 || Math.abs(targetX - pointerX) + Math.abs(targetY - pointerY) > .001
       if (unsettled) frame = requestAnimationFrame(update)

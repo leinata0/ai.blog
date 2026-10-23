@@ -3,7 +3,7 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import IntelligenceSculpture from '../src/components/news/IntelligenceSculpture'
 
-const gpu = vi.hoisted(() => ({ renderers: [], environments: [], fail: false }))
+const gpu = vi.hoisted(() => ({ renderers: [], environments: [], loads: [], autoLoad: true, fail: false }))
 vi.mock('three', async (original) => {
   const THREE = await original()
   return {
@@ -19,11 +19,22 @@ vi.mock('three', async (original) => {
         this.render = vi.fn((scene, camera) => {
           this.scene = scene
           this.camera = camera
-          this.rotations.push(scene.getObjectByName('signal-observatory').rotation.y)
+          this.rotations.push(scene.getObjectByName('renaissance-liquid-chrome').rotation.y)
         })
         this.dispose = vi.fn()
         this.forceContextLoss = vi.fn()
         gpu.renderers.push(this)
+      }
+    },
+    TextureLoader: class {
+      load(url, onLoad, _, onError) {
+        const texture = new THREE.Texture()
+        texture.image = { width: 1672, height: 941 }
+        texture.dispose = vi.fn()
+        const job = { url, texture, complete: () => onLoad(texture), reject: () => onError(new Error('Asset unavailable')) }
+        gpu.loads.push(job)
+        if (gpu.autoLoad) queueMicrotask(job.complete)
+        return texture
       }
     },
     PMREMGenerator: class {
@@ -41,6 +52,8 @@ let frames, nextFrame, intersections, resizes, media, hidden, bounds
 beforeEach(() => {
   gpu.renderers.length = 0
   gpu.environments.length = 0
+  gpu.loads.length = 0
+  gpu.autoLoad = true
   gpu.fail = false
   frames = new Map()
   nextFrame = 0
@@ -70,10 +83,15 @@ async function mount(props = {}) {
   scene.style.setProperty('--pointer-x', '1')
   const sceneRef = { current: scene }
   const view = render(<IntelligenceSculpture sceneRef={sceneRef} {...props} />)
+  await waitFor(() => expect(gpu.environments).toHaveLength(1))
+  visible(true)
+  frame(0)
   await waitFor(() => expect(view.container.firstChild).toHaveClass('intelligence-sculpture--ready'))
+  visible(false)
+  gpu.renderers[0].rotations.length = 0
   return { ...view, sceneRef, renderer: gpu.renderers[0] }
 }
-function visible(value) { act(() => intersections[0].callback([{ isIntersecting: value }])) }
+function visible(value) { act(() => intersections.at(-1).callback([{ isIntersecting: value }])) }
 function frame(time) {
   act(() => {
     const queued = [...frames.values()]
@@ -83,32 +101,33 @@ function frame(time) {
 }
 
 it('prerenders an accessible static decoration without constructing a WebGL renderer', () => {
-  expect(renderToString(<IntelligenceSculpture />)).toContain('data-fallback="signal-observatory"')
+  expect(renderToString(<IntelligenceSculpture />)).toContain('data-fallback="renaissance-world"')
+  expect(renderToString(<IntelligenceSculpture />)).toContain('/images/renaissance-edition/figures.png')
   expect(renderToString(<IntelligenceSculpture />)).toContain('aria-hidden="true"')
   expect(gpu.renderers).toHaveLength(0)
 })
 
-it('builds a concave physical antenna and flies through the star field into a signal array', async () => {
-  const { renderer, sceneRef } = await mount()
-  sceneRef.current.style.setProperty('--scene-progress', '0')
+it('reveals WebGL only after both art textures and the first visible frame are ready', async () => {
+  gpu.autoLoad = false
+  const { container } = render(<IntelligenceSculpture />)
+  await waitFor(() => expect(gpu.loads).toHaveLength(2))
   visible(true)
+  expect(container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
+  expect(frames.size).toBe(0)
+  await act(async () => gpu.loads[0].complete())
+  expect(container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
+  await act(async () => gpu.loads[1].complete())
+  expect(container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
   frame(0)
-  const dish = renderer.scene.getObjectByName('parabolic-dish')
-  expect(dish.getObjectByName('three-feed-supports').children).toHaveLength(3)
-  expect(dish.getObjectByName('blue-signal-receiver')).toBeDefined()
-  const surface = dish.getObjectByName('perforated-reflector-panel')
-  surface.geometry.computeBoundingBox()
-  expect(surface.geometry.boundingBox.max.z - surface.geometry.boundingBox.min.z).toBeGreaterThan(0.9)
-  expect(surface.material.alphaMap).toBeDefined()
-  const layers = renderer.scene.children.filter((object) => object.name.startsWith('signal-stars-'))
-  expect(layers).toHaveLength(3)
-  expect(layers.reduce((sum, layer) => sum + layer.geometry.getAttribute('position').count, 0)).toBe(2040)
-  expect(renderer.camera.position.z).toBeGreaterThan(10)
-  sceneRef.current.style.setProperty('--scene-progress', '0.97')
-  for (let time = 50; time <= 1500; time += 50) frame(time)
-  expect(renderer.camera.position.z).toBeLessThan(-28)
-  expect(renderer.scene.getObjectByName('signal-observatory').visible).toBe(false)
-  expect(layers[0].geometry.getAttribute('position').getZ(0)).toBe(-53)
+  expect(container.firstChild).toHaveClass('intelligence-sculpture--ready')
+  const scene = gpu.renderers[0].scene
+  const woman = scene.getObjectByName('renaissance-woman')
+  const man = scene.getObjectByName('renaissance-man')
+  expect(woman.material.uniforms.uMap.value).toBe(man.material.uniforms.uMap.value)
+  expect(woman.material.uniforms.uHalf.value).toBe(0)
+  expect(man.material.uniforms.uHalf.value).toBe(0.5)
+  expect(woman.position.x).toBeLessThan(0)
+  expect(man.position.x).toBeGreaterThan(0)
 })
 
 it('rotates only while visible and active, and disposes the GPU plus observers on unmount', async () => {
@@ -137,6 +156,17 @@ it('rotates only while visible and active, and disposes the GPU plus observers o
   expect(resizes[0].disconnect).toHaveBeenCalledOnce()
 })
 
+it('keeps a clearly changing foreground pose during eight seconds of idle time', async () => {
+  const { renderer, sceneRef } = await mount()
+  sceneRef.current.style.setProperty('--scene-progress', '0')
+  visible(true)
+  frame(0)
+  const initial = renderer.rotations.at(-1)
+  for (let time = 50; time <= 8000; time += 50) frame(time)
+  expect(renderer.rotations.at(-1) - initial).toBeGreaterThan(0.7)
+  expect(renderer.rotations.at(-1) - initial).toBeLessThan(1)
+})
+
 it('freezes without recreating WebGL when paused, resumes, and respects reduced motion', async () => {
   const { renderer, sceneRef, rerender } = await mount()
   visible(true)
@@ -152,7 +182,7 @@ it('freezes without recreating WebGL when paused, resumes, and respects reduced 
   expect(renderer.rotations.at(-1)).toBeGreaterThan(frozen)
   act(() => { media.matches = true; media.change() })
   expect(frames.size).toBe(0)
-  expect(renderer.rotations.at(-1)).toBe(0)
+  expect(renderer.rotations.at(-1)).toBe(-0.45)
   expect(gpu.renderers).toHaveLength(1)
 })
 
@@ -165,7 +195,7 @@ it('renders one still frame with reduced motion and updates size with a capped p
   expect(frames.size).toBe(0)
   act(() => { bounds = { width: 320, height: 400 }; resizes[0].callback() })
   expect(renderer.setSize).toHaveBeenLastCalledWith(320, 400, false)
-  expect(renderer.setPixelRatio).toHaveBeenLastCalledWith(1.5)
+  expect(renderer.setPixelRatio).toHaveBeenLastCalledWith(1.25)
   expect(renderer.render).toHaveBeenCalledTimes(2)
   expect(frames.size).toBe(0)
 })
@@ -181,7 +211,7 @@ it('keeps the static decoration for unavailable or lost WebGL contexts', async (
   const failed = render(<IntelligenceSculpture />)
   await act(async () => { await import('three') })
   expect(failed.container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
-  expect(failed.container.querySelector('[data-fallback="signal-observatory"]')).toBeInTheDocument()
+  expect(failed.container.querySelector('[data-fallback="renaissance-world"]')).toBeInTheDocument()
   failed.unmount()
   gpu.fail = false
   const { renderer, container } = await mount()
@@ -191,4 +221,25 @@ it('keeps the static decoration for unavailable or lost WebGL contexts', async (
   expect(container.querySelector('canvas')).toBeNull()
   expect(frames.size).toBe(0)
   expect(renderer.dispose).toHaveBeenCalledOnce()
+})
+
+it('releases failed or pending texture loads and cannot reveal WebGL after unmount', async () => {
+  gpu.autoLoad = false
+  const first = render(<IntelligenceSculpture />)
+  await waitFor(() => expect(gpu.loads).toHaveLength(2))
+  await act(async () => gpu.loads[0].reject())
+  expect(first.container.querySelector('canvas')).toBeNull()
+  expect(first.container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
+  expect(gpu.renderers[0].dispose).toHaveBeenCalledOnce()
+  first.unmount()
+  gpu.loads.length = 0
+  const second = render(<IntelligenceSculpture />)
+  await waitFor(() => expect(gpu.loads).toHaveLength(2))
+  const renderer = gpu.renderers.at(-1)
+  second.unmount()
+  await act(async () => gpu.loads.forEach((job) => job.complete()))
+  expect(renderer.render).not.toHaveBeenCalled()
+  expect(renderer.dispose).toHaveBeenCalledOnce()
+  expect(gpu.environments).toHaveLength(0)
+  expect(gpu.loads.every((job) => job.texture.dispose.mock.calls.length > 0)).toBe(true)
 })
