@@ -5,25 +5,20 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { SITE_COPY, SITE_SEO, START_HERE_COPY } from '../src/utils/contentPresentation.js'
+import { createRequestScheduler, fetchWithRetry } from './prerender-fetch.mjs'
+export { fetchWithRetry } from './prerender-fetch.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const distDir = resolve(__dirname, '..', 'dist')
 const templatePath = join(distDir, 'index.html')
 
-// Cap concurrent detail fetches so large archives do not stampede the API.
+// The shared request scheduler caps all categories and retries together.
 const PRERENDER_FETCH_CONCURRENCY = Math.max(
   1,
   Number.parseInt(process.env.PRERENDER_FETCH_CONCURRENCY || '8', 10) || 8,
 )
-const PRERENDER_FETCH_ATTEMPTS = Math.max(
-  1,
-  Math.min(5, Number.parseInt(process.env.PRERENDER_FETCH_ATTEMPTS || '3', 10) || 3),
-)
-const PRERENDER_FETCH_TIMEOUT_MS = Math.max(
-  1000,
-  Number.parseInt(process.env.PRERENDER_FETCH_TIMEOUT_MS || '30000', 10) || 30000,
-)
+const requestScheduler = createRequestScheduler({ concurrency: PRERENDER_FETCH_CONCURRENCY })
 // A detail fetch that fails is silently dropped from the output, and the SPA
 // catch-all then serves the *home page* under that URL (HTTP 200 + wrong canonical
 // = soft 404). Fail the build instead of shipping a partially generated site.
@@ -193,44 +188,13 @@ export async function mapWithConcurrency(items, concurrency, mapper) {
   return results
 }
 
-function wait(delayMs) {
-  return new Promise((resolve) => setTimeout(resolve, delayMs))
-}
-
-export async function fetchWithRetry(url, init = {}, {
-  attempts = PRERENDER_FETCH_ATTEMPTS,
-  fetchImpl = fetch,
-  waitImpl = wait,
-} = {}) {
-  let lastError = null
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      const response = await fetchImpl(url, {
-        ...init,
-        signal: init.signal || AbortSignal.timeout(PRERENDER_FETCH_TIMEOUT_MS),
-      })
-      if (response.status !== 429 && response.status < 500) {
-        return response
-      }
-      lastError = new Error(`Transient prerender response: ${response.status}`)
-      await response.body?.cancel?.()
-    } catch (error) {
-      lastError = error
-    }
-    if (attempt < attempts) {
-      await waitImpl(250 * (2 ** (attempt - 1)))
-    }
-  }
-  throw lastError || new Error(`Failed to fetch ${url}`)
-}
-
 async function fetchJson(apiBase, path) {
   const response = await fetchWithRetry(`${apiBase}${path}`, {
     headers: {
       Accept: 'application/json',
       'User-Agent': 'blog-prerender/1.0',
     },
-  })
+  }, { scheduler: requestScheduler })
   if (!response.ok) {
     throw new Error(`Failed to fetch ${path}: ${response.status}`)
   }
@@ -243,7 +207,7 @@ async function fetchJsonWithStatus(apiBase, path) {
       Accept: 'application/json',
       'User-Agent': 'blog-prerender/1.0',
     },
-  })
+  }, { scheduler: requestScheduler })
 
   let data = null
   if (response.ok) {
@@ -830,7 +794,7 @@ export async function main({
 
   const template = await readTemplate()
   console.log(`[prerender] using api base ${apiBase}`)
-  console.log(`[prerender] detail fetch concurrency ${PRERENDER_FETCH_CONCURRENCY}`)
+  console.log(`[prerender] global fetch concurrency ${PRERENDER_FETCH_CONCURRENCY}, minimum start interval 250ms`)
 
   const homeBootstrap = await loadHomeBootstrap(apiBase)
   await writeRoute('/', renderHomePage(template, homeBootstrap, siteUrl))
