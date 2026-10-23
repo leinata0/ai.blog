@@ -215,7 +215,7 @@ cd scripts && npm test                               # 脚本 node --test
 | 注册/登录或某接口 500 | 是否新增了模型字段但生产库未补列（见 §7 schema 同步） |
 | Render 启动失败并提示 R2 配置不完整 | 补齐全部 R2 变量；只有明确接受实例重启后上传丢失时才设置 `ALLOW_EPHEMERAL_UPLOADS=1` |
 | `/readyz` 返回 503 | 检查 DB 连通性与 schema 是否补齐，并确认 R2 token 对目标 bucket 至少具备 `HeadBucket` 所需访问权限 |
-| Vercel 构建失败 | 构建期预渲染读的是 `PRERENDER_API_BASE`（不是 `VITE_API_BASE`）：确认它已设置且可达后端；`PUBLIC_SITE_URL` 是否与规范域名一致；后端是否已部署预渲染所需公开接口 |
+| Vercel 构建失败 | 构建期预渲染读的是 `PRERENDER_API_BASE`（不是 `VITE_API_BASE`）：确认它已设置且可达后端；`PUBLIC_SITE_URL` 是否与规范域名一致；后端是否已部署预渲染所需公开接口。429 时全部请求/重试共用队列，遵守 Retry-After；缺少有效等待头时退避至少 60 秒。不要关闭 SSG 或降低覆盖率门槛来掩盖缺页 |
 | 首访很慢 | 首页是否命中预渲染 HTML；Render 是否冷启动；一方图片是否走 `VITE_IMAGE_DIRECT_BASES` 直连 |
 | 图片不显示 | `R2_PUBLIC_BASE_URL`、`VITE_IMAGE_DIRECT_BASES`；第三方图片是否仍需经 `/proxy-image` |
 | 注册成功但收不到验证邮件 | Resend 发件域名是否验证；`RESEND_API_KEY` / `EMAIL_FROM` 是否配置 |
