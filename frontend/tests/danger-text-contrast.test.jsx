@@ -295,11 +295,6 @@ const ALLOWED_HARDCODED = [
     reason: '危险操作按钮是不透明实色填充 + 固定白字，两个主题渲染一致；白字对 #dc2626 为 4.83:1、对 hover 的 #b91c1c 为 6.47:1。',
   },
   {
-    file: 'pages/PostDetailPage.jsx',
-    hexes: ['#FEF3C7', '#FBBF24', '#78350F'],
-    reason: '「编辑推荐」药丸是不透明琥珀渐变，不随主题变化；#78350F 在渐变两端为 8.15:1 / 5.43:1。',
-  },
-  {
     file: 'components/SeriesEditorialStack.jsx',
     hexes: ['#2563eb'],
     reason: '这颗药丸压在封面图上的 rgba(255,255,255,0.84) 近白底，不随主题变化，换成 --highlight-text 在暗色下会变成浅蓝配近白底。注意：它本身随封面图明暗在 3.76~5.17:1 之间浮动，属于既有问题，已在收口报告中单列。',
@@ -337,9 +332,6 @@ describe('源码里不再裸写需要走令牌的状态色', () => {
     expect(contrastRatio([255, 255, 255], opaque('#dc2626'))).toBeGreaterThanOrEqual(AA_BODY)
     expect(contrastRatio([255, 255, 255], opaque('#b91c1c'))).toBeGreaterThanOrEqual(AA_BODY)
 
-    // PostDetailPage：琥珀渐变两端 + 深棕字
-    expect(contrastRatio(opaque('#78350F'), opaque('#FEF3C7'))).toBeGreaterThanOrEqual(AA_BODY)
-    expect(contrastRatio(opaque('#78350F'), opaque('#FBBF24'))).toBeGreaterThanOrEqual(AA_BODY)
   })
 
   it('白名单条目都写了保留理由，且对应文件仍然存在', () => {

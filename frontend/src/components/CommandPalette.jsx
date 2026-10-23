@@ -17,7 +17,7 @@ import { fetchSearch } from '../api/posts'
 import { OPEN_COMMAND_PALETTE_EVENT } from '../utils/uiEvents'
 
 const QUICK_DESTINATIONS = [
-  { label: '今日信号台', description: '回到最新 AI 动态', to: '/', icon: Sparkles },
+  { label: '新闻首页', description: '浏览头条与 AI 新闻', to: '/', icon: Sparkles },
   { label: '发现', description: '浏览编辑精选与趋势', to: '/discover', icon: Compass },
   { label: '主题网络', description: '沿主题持续追踪', to: '/topics', icon: Hash },
   { label: '系列', description: '按栏目连续阅读', to: '/series', icon: Layers3 },

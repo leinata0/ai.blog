@@ -1,3 +1,5 @@
+import { findInvalidCitationLinks } from './source-citations.mjs'
+
 const REFERENCES_HEADING = '## 参考来源'
 
 // Default judgment signals. `judgment` used to be satisfied by the presence of the
@@ -265,6 +267,7 @@ export function evaluateQualityGate({
   const citationIds = extractCitationIds(content)
   const uniqueCitationIds = [...new Set(citationIds)]
   const invalidCitationIds = uniqueCitationIds.filter((id) => !sourceMap.has(id))
+  const invalidCitationLinks = findInvalidCitationLinks(authoredBody, researchPack)
   const citedSources = uniqueCitationIds.map((id) => sourceMap.get(id)).filter(Boolean)
   const citedDomains = [...new Set(citedSources.map((item) => item.domain || domainFromUrl(item.url)).filter(Boolean))]
   const sectionsWithoutCitations = sections
@@ -378,6 +381,9 @@ export function evaluateQualityGate({
   if (invalidCitationIds.length > 0) {
     reasons.push(`invalid_citations:${invalidCitationIds.join('|')}`)
   }
+  if (invalidCitationLinks.length > 0) {
+    reasons.push(`invalid_citation_links:${invalidCitationLinks.join('|')}`)
+  }
   if (citationIds.length < (gate.min_inline_citations || 0)) {
     reasons.push(`citations:${citationIds.length}<${gate.min_inline_citations}`)
   }
@@ -434,6 +440,7 @@ export function evaluateQualityGate({
       cited_source_count: uniqueCitationIds.filter((id) => sourceMap.has(id)).length,
       cited_domain_count: citedDomains.length,
       invalid_citation_markers: invalidCitationIds,
+      invalid_citation_links: invalidCitationLinks,
       sections_without_citations: sectionsWithoutCitations,
       duplicate_headings: duplicateHeadings,
       repeated_long_line_count,

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 
 import { ThemeProvider } from '../src/contexts/ThemeContext'
 import { proxyImageUrl } from '../src/utils/proxyImage'
-import { fetchLikeState, fetchRelatedPosts, likePost } from '../src/api/posts'
+import { fetchPostDetail, fetchLikeState, fetchRelatedPosts, likePost } from '../src/api/posts'
 import { MarkdownImage } from '../src/components/ArticleMarkdownRenderer'
 import PostDetailPage from '../src/pages/PostDetailPage'
 
@@ -37,6 +37,10 @@ vi.mock('../src/api/posts', () => ({
       title: 'Python automation with Selenium and Pandas',
       slug: 'python-automation-selenium-pandas',
       summary: 'Mock summary describing Selenium and Pandas automation.',
+      created_at: '2026-07-26T08:00:00Z',
+      updated_at: '2026-07-26T08:00:00+00:00',
+      coverage_date: '2026-07-25',
+      cover_image: 'https://example.com/cover.jpg',
       content_md: `# Python automation with Selenium and Pandas
 
 Combining Selenium flows with Pandas cleansed data enables quick automation scripts.
@@ -125,13 +129,53 @@ it('renders post detail, evidence layer, and conversion actions', async () => {
   expect(await screen.findByText(/来源证据/i)).toBeInTheDocument()
   expect((await screen.findAllByText(/质量洞察/i)).length).toBeGreaterThan(0)
   expect(screen.getAllByText(/值得继续追踪/i).length).toBeGreaterThan(0)
-  expect(await screen.findByText(/把这篇文章变成持续追踪的入口/i)).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '继续追踪这条新闻' })).toBeInTheDocument()
   expect(await screen.findByRole('link', { name: /进入主题页/i })).toHaveAttribute('href', '/topics/topic-follow-up')
   expect(await screen.findByRole('link', { name: /订阅相关更新/i })).toHaveAttribute('href', '/feeds?topic_key=topic-follow-up')
   expect(await screen.findByRole('link', { name: /回到系列：AI 日报/i })).toHaveAttribute('href', '/series/ai-daily-brief')
   expect(await screen.findByText(/同系列继续阅读/i)).toBeInTheDocument()
   expect(await screen.findByText(/同主题相关文章/i)).toBeInTheDocument()
   expect(await screen.findByText(/同周上下文/i)).toBeInTheDocument()
+  expect(container.querySelector('.news-article__headline h1')).toHaveTextContent('Python automation with Selenium and Pandas')
+  expect(container.querySelector('.news-article__byline time[datetime="2026-07-25"]')).toBeTruthy()
+  expect(screen.queryByText(/内容更新/)).not.toBeInTheDocument()
+  expect(screen.getByText('非事实审校')).toBeInTheDocument()
+  expect(container.querySelector('.news-article__quality')).not.toHaveAttribute('open')
+  expect(screen.getByRole('link', { name: /OpenAI Blog/ })).toHaveAttribute('href', 'https://example.com/openai')
+})
+
+it('keeps the reading layout usable when the lead image fails', async () => {
+  const { container } = render(<MemoryRouter><ThemeProvider><PostDetailPage slug="python-automation-selenium-pandas" /></ThemeProvider></MemoryRouter>)
+  const image = await screen.findByRole('img', { name: 'Python automation with Selenium and Pandas' })
+  fireEvent.error(image)
+  expect(await screen.findByText('报道配图暂不可用')).toBeInTheDocument()
+  expect(container.querySelector('.news-article__headline h1')).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: /点赞/ })).toBeInTheDocument()
+})
+
+it('hides internal artifact comments and preserves readable sources without activating malformed links', async () => {
+  fetchPostDetail.mockResolvedValueOnce({
+    slug: 'legacy-source-format', title: '历史来源格式', summary: '正常报道摘要',
+    created_at: '2026-07-26T08:00:00Z', updated_at: '2026-10-22T08:00:00Z',
+    content_md: '## 正文\n\n正常新闻内容。[官方原文](https://example.com/original)\n\n<!-- auto-blog-meta: {"marker":"internal-artifact-marker"} -->',
+    source_summary: JSON.stringify({ summary: '[object Object]', description: '可读的来源说明', cover_prompt: 'INTERNAL COVER PROMPT' }),
+    sources: [
+      { source_name: '格式异常来源', source_url: '[object Object],[object Object]' },
+      { source_name: '异常协议来源', source_url: 'javascript:alert(1)' },
+      { source_name: '正常来源', source_url: 'https://example.com/source' },
+    ],
+    tags: [],
+  })
+  const { container } = render(<MemoryRouter><ThemeProvider><PostDetailPage slug="legacy-source-format" /></ThemeProvider></MemoryRouter>)
+  expect(await screen.findByText('可读的来源说明')).toBeInTheDocument()
+  expect(await screen.findByRole('link', { name: '官方原文' })).toHaveAttribute('href', 'https://example.com/original')
+  expect(screen.getByRole('link', { name: /正常来源/ })).toHaveAttribute('href', 'https://example.com/source')
+  expect(screen.queryByRole('link', { name: /格式异常来源|异常协议来源/ })).not.toBeInTheDocument()
+  expect(screen.getAllByText('原始链接暂不可用')).toHaveLength(2)
+  expect(container.querySelector('.news-article__body')).toHaveTextContent('正常新闻内容')
+  expect(container).not.toHaveTextContent('internal-artifact-marker')
+  expect(container).not.toHaveTextContent('INTERNAL COVER PROMPT')
+  expect(screen.queryByText(/内容更新/)).not.toBeInTheDocument()
 })
 
 it('renders markdown images with proxy and lazy loading', async () => {

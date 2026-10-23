@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({
   fetchFriendLinks: vi.fn(),
   fetchSeriesList: vi.fn(),
   fetchArchive: vi.fn(),
+  fetchDiscover: vi.fn(),
+  fetchPosts: vi.fn(),
 }))
 
 vi.mock('../src/api/posts', () => api)
@@ -19,6 +21,7 @@ vi.mock('../src/contexts/ThemeContext', () => ({
 }))
 
 import ArchivePage from '../src/pages/ArchivePage'
+import ContentTypePage from '../src/pages/ContentTypePage'
 import FriendsPage from '../src/pages/FriendsPage'
 import NotFoundPage from '../src/pages/NotFoundPage'
 import SeriesPage from '../src/pages/SeriesPage'
@@ -36,11 +39,53 @@ beforeEach(() => {
   api.fetchFriendLinks.mockResolvedValue([])
   api.fetchSeriesList.mockResolvedValue([])
   api.fetchArchive.mockResolvedValue([])
+  api.fetchDiscover.mockResolvedValue({ items: [] })
+  api.fetchPosts.mockResolvedValue({ items: [] })
 })
 
 afterEach(cleanup)
 
 describe('failed loads are not disguised as empty states', () => {
+  it.each(['daily_brief', 'weekly_review'])('ContentTypePage recovers from a failed %s load', async (contentType) => {
+    api.fetchDiscover.mockRejectedValueOnce(new Error('HTTP 503'))
+    api.fetchPosts.mockRejectedValueOnce(new Error('Network error'))
+
+    renderPage(<ContentTypePage contentType={contentType} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('栏目暂时无法加载')
+    expect(screen.queryByText(/暂时还没有内容/)).not.toBeInTheDocument()
+
+    api.fetchDiscover.mockResolvedValueOnce({
+      items: [{ slug: 'recovered', title: '恢复后的文章', created_at: '2026-07-26T08:00:00Z' }],
+    })
+    await userEvent.click(screen.getByRole('button', { name: '重新加载栏目' }))
+
+    expect(await screen.findByRole('link', { name: /恢复后的文章/ })).toHaveAttribute('href', '/posts/recovered')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('ContentTypePage keeps a successful empty response distinct from a failed request', async () => {
+    renderPage(<ContentTypePage contentType="daily_brief" />)
+
+    expect(await screen.findByText('AI 日报 暂时还没有内容')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(api.fetchPosts).not.toHaveBeenCalled()
+  })
+
+  it('ContentTypePage still uses the compatible fallback when the discover endpoint fails', async () => {
+    api.fetchDiscover.mockRejectedValueOnce(new Error('HTTP 404'))
+    api.fetchPosts.mockResolvedValueOnce({ items: [
+      { slug: 'weekly', title: '周报回退文章', content_type: 'weekly_review' },
+      { slug: 'daily', title: '不相关的日报', content_type: 'daily_brief' },
+    ] })
+
+    renderPage(<ContentTypePage contentType="weekly_review" />)
+
+    expect(await screen.findByRole('link', { name: /周报回退文章/ })).toHaveAttribute('href', '/posts/weekly')
+    expect(screen.queryByText('不相关的日报')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('TagsPage shows an error with a retry instead of 暂无标签', async () => {
     api.fetchAllTags.mockRejectedValueOnce(new Error('HTTP 500'))
 

@@ -276,7 +276,7 @@ export default function ArticleMarkdownRenderer({ markdown = '', copiedCode = ''
     <div className="prose max-w-none" style={{ color: 'var(--text-secondary)' }}>
       <HeadingIdContext.Provider value={lookupHeadingId}>
         <CodeBlockContext.Provider value={codeBlockValue}>
-          <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+          <ReactMarkdown skipHtml remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
             {markdown}
           </ReactMarkdown>
         </CodeBlockContext.Provider>

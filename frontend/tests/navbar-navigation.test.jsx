@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 
 import Navbar from '../src/components/Navbar'
+import Footer from '../src/components/Footer'
+import { openCommandPalette } from '../src/utils/uiEvents'
+
+vi.mock('../src/utils/uiEvents', () => ({ openCommandPalette: vi.fn() }))
 
 vi.mock('../src/contexts/ThemeContext', () => ({
   useTheme: () => ({ dark: false, toggleTheme: vi.fn() }),
@@ -30,17 +34,68 @@ const BROWSE_LINKS = [
   ['友链', '/friends'],
 ]
 
-function renderNavbar() {
+function renderNavbar(entry = '/', navbarProps = {}) {
   return render(
-    <MemoryRouter>
-      <Navbar />
+    <MemoryRouter initialEntries={[entry]}>
+      <Navbar {...navbarProps} />
     </MemoryRouter>,
   )
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  window.localStorage.removeItem('news-style')
+  window.dispatchEvent(new StorageEvent('storage', { key: 'news-style', newValue: null }))
+})
+
+function renderEditionNavbar() {
+  window.localStorage.setItem('news-style', 'tech')
+  window.dispatchEvent(new StorageEvent('storage', { key: 'news-style', newValue: 'tech' }))
+  return renderNavbar('/', { immersive: true })
+}
 
 describe('Navbar navigation', () => {
+  it('exposes the newspaper masthead, primary sections, and subscription entry', () => {
+    renderNavbar()
+
+    const header = screen.getByRole('banner')
+    expect(header).toHaveAttribute('data-surface', 'editorial')
+    expect(within(header).getByText('AI OBSERVER')).toBeInTheDocument()
+    expect(within(header).getByRole('link', { name: 'AI 资讯观察首页' })).toHaveAttribute('href', '/')
+    const navigation = within(header).getByRole('navigation', { name: '主导航' })
+    for (const [name, href] of BROWSE_LINKS.slice(0, 4)) {
+      expect(within(navigation).getByRole('link', { name })).toHaveAttribute('href', href)
+    }
+    expect(within(header).getByRole('link', { name: '订阅更新' })).toHaveAttribute('href', '/feeds')
+    expect(within(navigation).getByRole('link', { name: '首页' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('removes the public paper surface on unmount while preserving the chosen theme', () => {
+    const previousTheme = document.documentElement.getAttribute('data-theme')
+    document.documentElement.setAttribute('data-theme', 'dark')
+    const { unmount } = renderNavbar()
+
+    expect(document.body).toHaveClass('public-news-shell')
+    unmount()
+    expect(document.body).not.toHaveClass('public-news-shell')
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+
+    if (previousTheme === null) document.documentElement.removeAttribute('data-theme')
+    else document.documentElement.setAttribute('data-theme', previousTheme)
+  })
+
+  it('keeps the parent news section active while reading a topic detail', () => {
+    renderNavbar('/topics/model-updates')
+    const navigation = screen.getByRole('navigation', { name: '主导航' })
+    expect(within(navigation).getByRole('link', { name: '主题' })).toHaveAttribute('aria-current', 'page')
+    expect(within(navigation).getByRole('link', { name: '首页' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('keeps account surfaces outside the public newspaper token scope', () => {
+    renderNavbar('/account')
+    expect(document.body).not.toHaveClass('public-news-shell')
+  })
+
   it('shows the desktop browse menu with every secondary destination', async () => {
     renderNavbar()
     const trigger = document.querySelector('[data-ui="desktop-browse-trigger"]')
@@ -104,5 +159,78 @@ describe('Navbar navigation', () => {
     expect(document.querySelector('[data-ui="mobile-browse-trigger"]')).toBeNull()
     expect(screen.getByRole('button', { name: '菜单' })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByRole('button', { name: '菜单' })).toHaveFocus()
+  })
+})
+
+describe('Immersive edition navigation', () => {
+  it('leaves only the publication name, menu, search and subscription on the artwork', () => {
+    renderEditionNavbar()
+    const header = screen.getByRole('banner')
+    expect(within(header).getByRole('link', { name: 'AI 资讯观察首页' })).toHaveAttribute('href', '/')
+    expect(within(header).getByRole('link', { name: '搜索' })).toHaveAttribute('href', '/search')
+    expect(within(header).getByRole('link', { name: '订阅' })).toHaveAttribute('href', '/feeds')
+    expect(within(header).getAllByRole('button')).toHaveLength(1)
+    expect(within(header).getByRole('button', { name: '菜单' })).toHaveAttribute('aria-expanded', 'false')
+    expect(within(header).queryByRole('navigation')).not.toBeInTheDocument()
+    expect(within(header).queryByRole('group', { name: '新闻页面风格' })).not.toBeInTheDocument()
+  })
+
+  it('retains sections, comparison, account, browse and reading controls inside the menu', async () => {
+    renderEditionNavbar()
+    await userEvent.click(screen.getByRole('button', { name: '菜单' }))
+    const panel = document.getElementById('navbar-mobile-panel')
+    expect(within(panel).getByRole('navigation', { name: '主导航' })).toBeInTheDocument()
+    expect(within(panel).getByRole('link', { name: '开始阅读' })).toHaveAttribute('href', '/start-here')
+    expect(within(panel).getByRole('link', { name: '登录' })).toHaveAttribute('href', '/login')
+    expect(within(panel).getByRole('group', { name: '新闻页面风格' })).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: '科技版' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(panel).getByRole('button', { name: '报刊版' })).toBeInTheDocument()
+    await userEvent.click(within(panel).getByRole('button', { name: '打开浏览菜单' }))
+    const destinations = document.querySelector('[data-ui="mobile-browse-links"]')
+    for (const [label, href] of BROWSE_LINKS) {
+      expect(within(destinations).getByRole('link', { name: label })).toHaveAttribute('href', href)
+    }
+    await userEvent.click(within(panel).getByRole('button', { name: '打开追踪面板' }))
+    expect(within(panel).getByRole('link', { name: '查看追踪页' })).toHaveAttribute('href', '/following')
+  })
+
+  it('restores menu trigger focus with Escape and closes after an outside click', async () => {
+    renderEditionNavbar()
+    const trigger = screen.getByRole('button', { name: '菜单' })
+    await userEvent.click(trigger)
+    within(document.getElementById('navbar-mobile-panel')).getByRole('link', { name: '开始阅读' }).focus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.getElementById('navbar-mobile-panel')).toBeNull()
+    expect(trigger).toHaveFocus()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(trigger)
+    fireEvent.mouseDown(document.body)
+    expect(document.getElementById('navbar-mobile-panel')).toBeNull()
+  })
+
+  it('opens command search from the menu and dismisses the navigation panel', async () => {
+    renderEditionNavbar()
+    await userEvent.click(screen.getByRole('button', { name: '菜单' }))
+    const callsBefore = vi.mocked(openCommandPalette).mock.calls.length
+    await userEvent.click(screen.getByRole('button', { name: '打开智能命令搜索' }))
+    expect(openCommandPalette).toHaveBeenCalledTimes(callsBefore + 1)
+    expect(document.getElementById('navbar-mobile-panel')).toBeNull()
+  })
+})
+
+describe('Newspaper footer', () => {
+  it('links to the news archive, subscriptions and RSS without claiming live updates', async () => {
+    render(<MemoryRouter><Footer /></MemoryRouter>)
+
+    const footer = screen.getByRole('contentinfo')
+    expect(within(footer).getByRole('navigation', { name: '页脚导航' })).toBeInTheDocument()
+    expect(within(footer).getByRole('link', { name: '全部归档' })).toHaveAttribute('href', '/archive')
+    expect(within(footer).getByRole('link', { name: '订阅中心' })).toHaveAttribute('href', '/feeds')
+    expect(within(footer).getByRole('link', { name: 'RSS' })).toHaveAttribute('href', '/feed.xml')
+    expect(footer).not.toHaveTextContent(/Signal online|LIVE SIGNAL/)
+
+    const callsBefore = vi.mocked(openCommandPalette).mock.calls.length
+    await userEvent.click(within(footer).getByRole('button', { name: '搜索文章与主题' }))
+    expect(openCommandPalette).toHaveBeenCalledTimes(callsBefore + 1)
   })
 })

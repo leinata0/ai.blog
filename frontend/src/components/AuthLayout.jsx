@@ -63,7 +63,7 @@ export default function AuthLayout({
             {children}
           </div>
           <Link to="/" className="mx-auto mt-6 flex min-h-11 w-fit items-center gap-2 px-3 text-sm font-semibold" style={{ color: 'var(--text-faint)' }}>
-            <ArrowLeft size={15} aria-hidden="true" /> 返回今日 AI 信号台
+            <ArrowLeft size={15} aria-hidden="true" /> 返回 AI 阅读信号台
           </Link>
         </section>
       </div>

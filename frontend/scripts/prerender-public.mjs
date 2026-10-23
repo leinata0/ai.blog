@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { SITE_SEO } from '../src/utils/contentPresentation.js'
+import { SITE_COPY, SITE_SEO, START_HERE_COPY } from '../src/utils/contentPresentation.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -65,6 +65,25 @@ const PRERENDER_STYLE = `
       .prerender-shell h1{font-size:30px}
       .prerender-shell h2{font-size:22px}
     }
+    [data-news-style="tech"] body:has(.prerender-shell:not(.prerender-private-shell)){background:#f1f5fa;color:#101d35}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell){color:#101d35;background:#f1f5fa;font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;overflow-wrap:anywhere}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) *{box-sizing:border-box}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(h1,h2,h3){color:#101d35;font-family:Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;font-weight:750;letter-spacing:-.035em;line-height:1.4}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero{padding:40px;border:1px solid #cbd9ef;border-radius:8px;background:#e7efff;color:#101d35}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-kicker{border:0;border-radius:0;background:#e3edff;color:#3269f5}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-lead,.prerender-summary){color:#52647b}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-card,.prerender-panel){color:#101d35;background:#ffffff;border-color:rgba(16, 29, 53,.2);border-radius:2px;box-shadow:none}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-card img,.prerender-cover){border:0;border-radius:2px;background:#dce5f2}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) :is(.prerender-meta,.prerender-caption){color:#60728a}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero :is(h1,h2,h3){color:#101d35}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero h1{font-size:clamp(34px,4.6vw,58px);line-height:1.25}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-kicker{background:transparent;color:#2454cf;padding:0}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-lead{color:#52647b}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero .prerender-meta{color:#60728a}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-list-item{border:0;border-top:1px solid rgba(16, 29, 53,.2);border-radius:0;background:transparent;color:#101d35}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-chip{border:1px solid rgba(50, 105, 245,.3);border-radius:0;background:#e3edff;color:#3269f5}
+    [data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) a:focus-visible{outline:2px solid #3269f5;outline-offset:4px}
+    @media (max-width:640px){[data-news-style="tech"] .prerender-shell:not(.prerender-private-shell) .prerender-hero{padding:22px 20px}}
   </style>
 `
 
@@ -87,6 +106,7 @@ function escapeHtml(value) {
 
 function stripMarkdown(value) {
   return String(value || '')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
@@ -442,34 +462,25 @@ function renderListLinks(items, toHref, metaBuilder = () => []) {
 
 export function renderHomePage(template, payload, siteUrl) {
   const posts = payload?.posts?.items || []
+  const lead = posts[0]
+  const label = (post) => post.content_type === 'daily_brief' ? '日报' : post.content_type === 'weekly_review' ? '周报' : '文章'
+  const newsDate = (post) => `${label(post)} · ${post.created_at ? formatDate(post.created_at) : '日期待补充'}${Number(post.source_count) > 0 ? ` · ${post.source_count} 个来源` : ''}`
   const title = `${SITE_TITLE} | ${HOME_TITLE}`
   const description = HOME_DESCRIPTION
   const rootHtml = `
-    <main class="prerender-shell">
-      <section class="prerender-hero">
-        <span class="prerender-kicker">Public First</span>
-        <h1>${escapeHtml(HOME_TITLE)}</h1>
-        <p class="prerender-lead">${escapeHtml(description)}</p>
-        <div class="prerender-chip-row">
-          <a class="prerender-chip" href="/topics">进入主题追踪</a>
-          <a class="prerender-chip" href="/series">进入内容系列</a>
-          <a class="prerender-chip" href="/archive">查看归档</a>
-        </div>
-      </section>
-
-      <section class="prerender-section">
-        <h2>最新文章</h2>
-        <div class="prerender-grid cols-2">
-          ${posts.slice(0, 6).map((post) => renderCard(post, `/posts/${post.slug}`, [
-            post.coverage_date || formatDate(post.created_at),
-            post.content_type || 'post',
-          ])).join('')}
-        </div>
-      </section>
-
+    <main class="prerender-shell prerender-news">
+      <header class="prerender-news-masthead"><a href="/">${escapeHtml(SITE_TITLE)}</a><span>THE AI OBSERVER</span></header>
+      <nav class="prerender-news-nav" aria-label="新闻栏目"><a href="/">首页</a><a href="/daily">日报</a><a href="/weekly">周报</a><a href="/topics">主题</a><a href="/series">系列</a><a href="/archive">归档</a><a href="/feeds">订阅更新</a></nav>
+      <header class="prerender-news-intro"><h1>${escapeHtml(SITE_COPY.homeTitle)}</h1><p>${escapeHtml(description)}</p></header>
+      ${lead ? `<section class="prerender-news-front" aria-label="本期头条">
+        <article><span class="prerender-news-kicker">本期头条 / THE BIG STORY</span><h2><a href="/posts/${escapeHtml(lead.slug)}">${escapeHtml(lead.title)}</a></h2><p>${escapeHtml(lead.summary || '')}</p><div class="prerender-news-meta">${escapeHtml(newsDate(lead))}</div>${lead.cover_image ? `<a href="/posts/${escapeHtml(lead.slug)}"><img src="${escapeHtml(lead.cover_image)}" alt="${escapeHtml(lead.title)}" width="1200" height="630" fetchpriority="high"></a>` : ''}</article>
+        <aside><h2>新闻速览</h2><ol>${posts.slice(1, 6).map((post) => `<li><h3><a href="/posts/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h3><div class="prerender-news-meta">${escapeHtml(newsDate(post))}</div></li>`).join('')}</ol><a href="/archive">浏览历史归档 →</a></aside>
+      </section>` : '<p>新闻正在整理中。你可以先查看历史归档或主题。</p>'}
+      <section class="prerender-news-feed"><h2>新闻一览</h2><form action="/search" method="get"><label for="prerender-news-search">搜索新闻</label><input id="prerender-news-search" type="search" name="q" placeholder="公司、模型或新闻关键词"><button type="submit">搜索</button></form>${posts.slice(1).map((post) => `<article><div class="prerender-news-meta">${escapeHtml(newsDate(post))}</div><h3><a href="/posts/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h3><p>${escapeHtml(post.summary || '')}</p></article>`).join('')}</section>
+      <footer class="prerender-news-nav"><a href="/start-here">阅读指南</a><a href="/feed.xml">RSS 订阅</a><a href="/topics">探索主题</a></footer>
     </main>
   `
-  return injectTemplate(
+  const html = injectTemplate(
     template,
     {
       routePath: '/',
@@ -478,9 +489,51 @@ export function renderHomePage(template, payload, siteUrl) {
       rootHtml,
       siteUrl,
       image: payload?.settings?.hero_image || payload?.settings?.avatar_url || '',
+      extraHead: `<style>
+        .prerender-news{max-width:1360px;padding:24px 40px;background:var(--bg-canvas,#f8f6f1);color:var(--text-primary,#191919)}
+        .prerender-news a{color:inherit;text-decoration:none}.prerender-news a:hover{text-decoration:underline}
+        .prerender-news-masthead{text-align:center;padding:10px 0 26px}.prerender-news-masthead>a{font:900 44px/1.3 Georgia,"Songti SC",serif}.prerender-news-masthead>span{display:block;font-size:10px;letter-spacing:.4em}
+        .prerender-news-nav{display:flex;flex-wrap:wrap;gap:28px;border-top:3px double;border-bottom:1px solid;padding:16px 0;font-size:13px}
+        .prerender-news-intro{padding:24px 0;border-bottom:1px solid #d7d2c8}.prerender-news-intro h1{font-size:27px}.prerender-news-intro p{font-size:13px;line-height:1.8}
+        .prerender-news-front{display:grid;grid-template-columns:2fr 1fr;gap:40px;padding:30px 0;border-bottom:3px solid}.prerender-news-front article>h2{font:800 38px/1.4 Georgia,"Songti SC",serif;margin:14px 0}.prerender-news-front p{font-size:14px;line-height:1.9}.prerender-news-front img{width:100%;height:auto;margin-top:18px}.prerender-news-kicker{font-size:11px;color:#b7351e}.prerender-news-meta{font-size:11px;line-height:1.8;color:var(--text-faint,#716b63)}
+        .prerender-news-front aside{border-left:1px solid #d7d2c8;padding-left:30px}.prerender-news-front aside>h2{font-size:18px}.prerender-news-front ol{margin:0;padding-left:22px}.prerender-news-front li{padding:18px 0;border-bottom:1px solid #d7d2c8}.prerender-news-front li h3{font-size:17px;line-height:1.6}
+        .prerender-news-feed{max-width:950px;padding:30px 0}.prerender-news-feed>h2{font-size:26px}.prerender-news-feed form{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:13px;border-bottom:1px solid;padding-bottom:20px}.prerender-news-feed input{background:transparent;border:1px solid #aaa296;padding:10px}.prerender-news-feed button{padding:10px 18px;border:0;background:#191919;color:#fff}.prerender-news-feed article{padding:23px 0;border-bottom:1px solid #d7d2c8}.prerender-news-feed article h3{font-size:22px;line-height:1.5}.prerender-news-feed article p{font-size:13px;line-height:1.8}
+        @media(max-width:760px){.prerender-news{padding:20px 18px}.prerender-news-masthead>a{font-size:32px}.prerender-news-front{display:block}.prerender-news-front article>h2{font-size:30px}.prerender-news-front aside{border:0;padding:25px 0 0}.prerender-news-nav{gap:20px}.prerender-news-feed input{max-width:100%}}
+        [data-news-style="tech"] .prerender-news{background:#f1f5fa;color:#101d35}
+        [data-news-style="tech"] .prerender-news-masthead{text-align:left;padding:16px 0 24px}
+        [data-news-style="tech"] .prerender-news-masthead>a{font:750 34px/1.3 Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;letter-spacing:-.04em;color:#101d35}
+        [data-news-style="tech"] .prerender-news-masthead>span{margin-top:8px;color:#3269f5;letter-spacing:.24em}
+        [data-news-style="tech"] .prerender-news-nav{border-width:1px 0;border-style:solid;border-color:rgba(16, 29, 53,.24);color:#52647b}
+        [data-news-style="tech"] .prerender-news-intro{margin:24px 0 0;padding:12px 0 0;border:0}
+        [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-intro h1{color:#101d35;font-size:clamp(38px,5vw,68px);font-weight:750;line-height:1.15}
+        [data-news-style="tech"] .prerender-news-intro p{color:#52647b}
+        [data-news-style="tech"] .prerender-news-front{grid-template-columns:minmax(0,1fr);border-color:rgba(16, 29, 53,.22);border-bottom-width:1px;gap:0;padding:32px 0}
+        [data-news-style="tech"] .prerender-news-front>article{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto 1fr auto;column-gap:38px;row-gap:16px;padding:36px;border:1px solid #d0ddef;border-radius:8px;background:#fff;color:#101d35}
+        [data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr) minmax(0,1.05fr)}
+        [data-news-style="tech"] .prerender-news-front>article>:not(a){grid-column:1}
+        [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h2{margin:0;font:750 40px/1.4 Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;color:#101d35}
+        [data-news-style="tech"] .prerender-news-front article>p{margin:0;color:#52647b;font-size:15px;line-height:1.85}
+        [data-news-style="tech"] .prerender-news-front>article>a:has(img){grid-column:2;grid-row:1/span 4;display:block;align-self:stretch;min-width:0;min-height:320px}
+        [data-news-style="tech"] .prerender-news-front img{display:block;width:100%;height:100%;max-height:520px;margin:0;object-fit:cover;border:0;border-radius:2px}
+        [data-news-style="tech"] .prerender-news-kicker{color:#2454cf;letter-spacing:.08em}
+        [data-news-style="tech"] .prerender-news-meta{color:#60728a}
+        [data-news-style="tech"] .prerender-news-front>article .prerender-news-meta{color:#60728a}
+        [data-news-style="tech"] .prerender-news-front aside{padding:30px 0 0;border:0;background:transparent}
+        [data-news-style="tech"] .prerender-news-front aside>h2{color:#101d35;font-size:28px}
+        [data-news-style="tech"] .prerender-news-front aside>a{color:#3269f5;font-size:12px}
+        [data-news-style="tech"] .prerender-news-front ol{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 28px;padding:0;margin:8px 0 18px;list-style:none}
+        [data-news-style="tech"] .prerender-news-front li{padding:18px 0;border-color:rgba(16, 29, 53,.22)}
+        [data-news-style="tech"] .prerender-news-feed :is(form,article){border-color:rgba(16, 29, 53,.22)}
+        [data-news-style="tech"] .prerender-news-feed input{min-width:0;max-width:100%;border-color:rgba(16, 29, 53,.3);border-radius:0;background:#ffffff;color:#101d35}
+        [data-news-style="tech"] .prerender-news-feed input::placeholder{color:#60728a}
+        [data-news-style="tech"] .prerender-news-feed button{border:0;border-radius:5px;background:#3269f5;color:#fff}
+        [data-news-style="tech"] .prerender-news-feed article p{color:#52647b}
+        @media(max-width:760px){[data-news-style="tech"] .prerender-news-masthead>a{font-size:32px}[data-news-style="tech"] .prerender-news-front>article,[data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr);grid-template-rows:auto;gap:18px;padding:26px 22px}[data-news-style="tech"] .prerender-news-front>article>a:has(img){grid-column:1;grid-row:auto;min-height:0;margin-top:8px}[data-news-style="tech"] .prerender-news-front img{height:auto;max-height:none}[data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h2{font-size:34px}[data-news-style="tech"] .prerender-news-front ol{grid-template-columns:minmax(0,1fr);gap:0}[data-news-style="tech"] .prerender-news-intro{padding:12px 0 0}}
+      </style>`,
       extraScript: bootstrapScript(payload),
     },
   )
+  return html.replace('<body>', '<body class="public-news-shell">')
 }
 
 function renderArchivePage(template, archiveGroups, siteUrl) {
@@ -797,7 +850,7 @@ export async function main({
     ['/discover', '发现', '按内容类型、系列和关键词发现值得持续追踪的 AI 内容。'],
     ['/search', '搜索', '搜索文章、主题、系列与关键变化。'],
     ['/following', '追踪', '继续阅读并查看你关注的主题。'],
-    ['/start-here', '开始阅读', '从今日信号、主题与系列开始建立 AI 阅读路径。'],
+    ['/start-here', '开始阅读', START_HERE_COPY.description],
     ['/feeds', '订阅中心', '订阅主题、系列和内容更新。'],
     ['/tags', '标签', '按标签浏览 AI 文章与观察。'],
     ['/friends', '友链', '发现值得关注的技术与 AI 站点。'],
@@ -826,7 +879,7 @@ export async function main({
       template,
       '/daily',
       'AI 日报',
-      '先看今天最值得继续追踪的消息和更新。',
+      '按覆盖日期回看重要消息、产品与研究进展，并沿原始来源继续阅读。',
       dailyDiscover?.items || [],
       siteUrl,
     ),

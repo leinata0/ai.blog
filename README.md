@@ -2,6 +2,15 @@
 
 面向公开访客的**中文 AI 资讯与专题博客**，采用前后端分离 + 自动化内容流水线的架构。它不是一个通用博客模板，而是一个偏「内容系统化运营」的资讯站：内容由自动化流水线采集、清洗、生成、配图并发布，公开页面在构建期预渲染以保证首屏可见与 SEO，访客可注册账号参与评论、点赞与个性化关注。
 
+**2026-10 重启方向**：保留中文 AI 新闻与专题站定位，默认采用 Intelligence Edition 沉浸式视觉专刊：原创古典人物与浮空花园铺满视野，中心窄幅封面与透明导航叠在场景上，独立景层、实时金属扭带与连续滚动镜头接入真实新闻。三条焦点可手动切换，搜索、图片资讯流和章节目录保留；菜单可切换至浅色报刊版，浏览器会记住选择。真实日期、来源、日报、周报、主题与订阅保持清晰可达。每周维护预算 2–4 小时，优先采集整理、来源检查与运行恢复，长文作为可选深读。现有页面展示站内已发布文章；持续供给需另行验收模型、来源与静态刷新，不承诺尚未实现的全天快讯或全量人工审核。
+
+- [视觉专刊设计与素材说明](docs/design/intelligence-edition-2026-10-23.md)
+- [动画性能优化与验证记录](docs/design/edition-performance-2026-10-23.md)
+- [转型发布与运营交接](docs/news-transition-2026-10-23.md)
+- [恢复审查与运行清单](docs/blog-revival-audit-2026-10-22.md)
+- [新闻站定位与四周运营计划](docs/blog-positioning-options-2026-10-22.md)
+- [内部恢复记录草稿](docs/drafts/blog-relaunch-case-study.md)
+
 - **线上地址**：`https://www.563118077.xyz`（canonical host）
 - `PUBLIC_SITE_URL`、SEO canonical、RSS、sitemap、前端路由输出都必须与该域名保持一致。
 
@@ -13,7 +22,7 @@
 
 | 目录 | 职责 | 技术栈 | 部署目标 |
 |------|------|--------|----------|
-| `frontend/` | 公开站点 + 管理后台 + 构建期预渲染 | React 18 · Vite 5 · React Router 6 · Tailwind | Vercel（静态资源 + 预渲染 HTML） |
+| `frontend/` | 公开站点 + 管理后台 + 构建期预渲染 | React 18 · Vite 6 · React Router 7 · Tailwind | Vercel（静态资源 + 预渲染 HTML） |
 | `backend/` | 公开/管理 API、认证、订阅、存储、通知 | FastAPI · SQLAlchemy 2 · Pydantic 2 · Python 3.11 | Render（Docker） |
 | `scripts/` | 自动化内容流水线与运维脚本 | Node.js ESM | CI / 本地按需运行 |
 

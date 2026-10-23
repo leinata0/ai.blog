@@ -1075,8 +1075,13 @@ def get_post_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     if not recent_view and not _is_automated_client(request):
         # Atomic increment so concurrent views don't read-modify-write the same
         # stale value and lose counts (invisible on SQLite, real on Postgres).
+        # Counters are reader activity, not content edits. Explicitly retain the
+        # column so Post.updated_at's onupdate default cannot falsify lastmod.
         db.execute(
-            update(Post).where(Post.id == post.id).values(view_count=Post.view_count + 1)
+            update(Post).where(Post.id == post.id).values(
+                view_count=Post.view_count + 1,
+                updated_at=Post.updated_at,
+            )
         )
         db.add(ViewLog(post_id=post.id, ip_address=client_ip, created_at=viewed_at))
         db.commit()
@@ -1240,7 +1245,8 @@ def like_post(
                         like_count=case(
                             (Post.like_count > 0, Post.like_count - 1),
                             else_=0,
-                        )
+                        ),
+                        updated_at=Post.updated_at,
                     )
                 )
             db.commit()
@@ -1257,7 +1263,10 @@ def like_post(
             refreshed = db.execute(select(Post.like_count).where(Post.id == post.id)).scalar_one_or_none()
             return {"like_count": refreshed or 0, "liked": True}
         db.execute(
-            update(Post).where(Post.id == post.id).values(like_count=Post.like_count + 1)
+            update(Post).where(Post.id == post.id).values(
+                like_count=Post.like_count + 1,
+                updated_at=Post.updated_at,
+            )
         )
         db.commit()
         refreshed = db.execute(select(Post.like_count).where(Post.id == post.id)).scalar_one_or_none()
@@ -1288,7 +1297,10 @@ def like_post(
     # Atomic increment so concurrent likes on different IPs don't lose updates via
     # a read-modify-write on a stale count.
     db.execute(
-        update(Post).where(Post.id == post.id).values(like_count=Post.like_count + 1)
+        update(Post).where(Post.id == post.id).values(
+            like_count=Post.like_count + 1,
+            updated_at=Post.updated_at,
+        )
     )
     db.commit()
 

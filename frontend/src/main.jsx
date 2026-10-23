@@ -5,7 +5,12 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { SiteProvider } from './contexts/SiteContext'
 import { UserProvider } from './contexts/UserContext'
 import App from './App'
+import { initializeNewsStyle } from './hooks/useNewsStyle'
 import './index.css'
+import './styles/news-shell.css'
+import './styles/news-tech-shell.css'
+
+initializeNewsStyle()
 
 const tree = (
   <React.StrictMode>

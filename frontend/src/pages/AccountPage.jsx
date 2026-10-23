@@ -108,16 +108,15 @@ function SectionHeading({ kicker, title, description, actions }) {
 function LibraryCover({ item }) {
   // 封面必须走 proxyImageUrl，并在 R2/CDN 抖动或图片被清理时回退到分区图标。
   const coverSrc = proxyImageUrl(item.cover_image)
-  const [coverBroken, setCoverBroken] = useState(false)
+  const [failedCoverSrc, setFailedCoverSrc] = useState(null)
   const FallbackIcon = item.kind === 'history' ? Clock3 : item.kind === 'likes' ? Heart : MessageSquare
 
-  useEffect(() => {
-    setCoverBroken(false)
-  }, [coverSrc])
+  // Bind errors to their URL. A passive reset effect can run after a cached
+  // image's error event and wrongly restore the broken image.
 
   return (
     <div className="account-library-cover">
-      {coverSrc && !coverBroken ? (
+      {coverSrc && failedCoverSrc !== coverSrc ? (
         <img
           src={coverSrc}
           alt=""
@@ -125,7 +124,7 @@ function LibraryCover({ item }) {
           height="84"
           loading="lazy"
           referrerPolicy="no-referrer"
-          onError={() => setCoverBroken(true)}
+          onError={() => setFailedCoverSrc(coverSrc)}
         />
       ) : (
         <span><FallbackIcon size={22} aria-hidden="true" /></span>

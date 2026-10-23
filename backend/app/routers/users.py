@@ -906,7 +906,8 @@ def remove_like(
                 like_count=case(
                     (current_count > 0, current_count - 1),
                     else_=0,
-                )
+                ),
+                updated_at=Post.updated_at,
             )
         )
     db.commit()
