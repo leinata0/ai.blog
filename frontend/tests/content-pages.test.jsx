@@ -56,8 +56,9 @@ it('renders series list page', async () => {
   expect((await screen.findAllByText('产品战略观察')).length).toBeGreaterThan(0)
   expect((await screen.findAllByText('工具与工作流')).length).toBeGreaterThan(0)
   expect(container.querySelector('[data-ui="series-page-showcase"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="series-stack-stage"]')).toBeTruthy()
-  expect(container.querySelector('[data-ui="series-stack-tabs"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="tech-series-shelf"]')).toBeTruthy()
+  expect(container.querySelector('[data-ui="series-stack-stage"]')).toBeNull()
+  expect(container.querySelector('[data-ui="series-stack-tabs"]')).toBeNull()
 })
 
 // Kept as two separate tests: mounting the series detail and discover trees side

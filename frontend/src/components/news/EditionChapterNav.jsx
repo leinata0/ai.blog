@@ -1,21 +1,15 @@
 import { useEffect, useState } from 'react'
+import { EDITION_CHAPTERS } from '../../utils/editionChapters'
 import '../../styles/news-edition-nav.css'
 
-const CHAPTERS = [
-  { id: 'edition-focus', numeral: 'I', title: '本期焦点' },
-  { id: 'edition-news', numeral: 'II', title: '新闻档案' },
-  { id: 'edition-topics', numeral: 'III', title: '领域探索' },
-  { id: 'edition-reading', numeral: 'IV', title: '阅读与订阅' },
-]
-
 export default function EditionChapterNav({ ready = true }) {
-  const [activeId, setActiveId] = useState(CHAPTERS[0].id)
+  const [activeId, setActiveId] = useState(EDITION_CHAPTERS[0].id)
   const [coverVisible, setCoverVisible] = useState(false)
 
   useEffect(() => {
     if (!ready) return undefined
     const id = window.location.hash.slice(1)
-    if (!CHAPTERS.some((chapter) => chapter.id === id)) return undefined
+    if (!EDITION_CHAPTERS.some((chapter) => chapter.id === id)) return undefined
     // A fresh SPA document has no anchor targets until React and news data
     // mount. Restore the shared chapter URL after the final layout is ready.
     const frame = requestAnimationFrame(() => {
@@ -72,7 +66,7 @@ export default function EditionChapterNav({ ready = true }) {
     }
 
     function observeTargets() {
-      CHAPTERS.forEach(({ id }) => {
+      EDITION_CHAPTERS.forEach(({ id }) => {
         const node = document.getElementById(id)
         if (node && targets.get(id) !== node) {
           if (targets.has(id)) observer.unobserve(targets.get(id))
@@ -80,13 +74,13 @@ export default function EditionChapterNav({ ready = true }) {
           observer.observe(node)
         }
       })
-      if (targets.size === CHAPTERS.length) targetWatcher?.disconnect()
+      if (targets.size === EDITION_CHAPTERS.length) targetWatcher?.disconnect()
     }
 
     resetObserver()
     observeTargets()
     // The news container can mount after its initial data request completes.
-    if (targets.size < CHAPTERS.length && typeof window.MutationObserver === 'function') {
+    if (targets.size < EDITION_CHAPTERS.length && typeof window.MutationObserver === 'function') {
       targetWatcher = new window.MutationObserver(observeTargets)
       targetWatcher.observe(document.getElementById('main-content') || document.body, {
         childList: true, subtree: true,
@@ -104,9 +98,9 @@ export default function EditionChapterNav({ ready = true }) {
     <nav className={`edition-chapter-nav${coverVisible ? ' edition-chapter-nav--cover' : ''}`} aria-label="本期展览目录" aria-hidden={coverVisible || undefined} inert={coverVisible ? '' : undefined}>
       <span className="edition-chapter-nav__heading">本期目录</span>
       <ol>
-        {CHAPTERS.map(({ id, numeral, title }) => (
+        {EDITION_CHAPTERS.map(({ id, numeral, title }) => (
           <li key={id}>
-            <a href={`#${id}`} aria-current={activeId === id ? 'location' : undefined} onClick={() => setActiveId(id)}>
+            <a href={`#${id}`} aria-label={title} aria-current={activeId === id ? 'location' : undefined} onClick={() => setActiveId(id)}>
               <span className="edition-chapter-nav__numeral" aria-hidden="true">{numeral}</span>
               <span>{title}</span>
             </a>

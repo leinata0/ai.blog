@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, Layers3 } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 
-import { fetchSeriesList } from '../api/posts'
+import { fetchSeriesList, prefetchSeriesDetail } from '../api/posts'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
@@ -11,6 +10,8 @@ import EditorialSectionHeader from '../components/EditorialSectionHeader'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import SeriesEditorialStack from '../components/SeriesEditorialStack'
+import TechSeries from '../components/collections/TechSeries'
+import { useNewsStyle } from '../hooks/useNewsStyle'
 import { useSite } from '../contexts/SiteContext'
 import {
   buildBreadcrumbJsonLd,
@@ -20,9 +21,11 @@ import { motionItemVariants } from '../utils/contentPresentation'
 
 export default function SeriesPage() {
   const { settings } = useSite()
+  const { newsStyle } = useNewsStyle()
   const [seriesList, setSeriesList] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
@@ -47,21 +50,26 @@ export default function SeriesPage() {
 
   // A failed request must not be presented as "系列内容正在整理中" — that hides a
   // backend outage behind an empty state and leaves no way to retry.
-  const loadSeries = useCallback(() => {
+  useEffect(() => {
+    const controller = new AbortController()
     setLoading(true)
     setError('')
-    fetchSeriesList()
-      .then((items) => setSeriesList(Array.isArray(items) ? items : []))
+    fetchSeriesList({}, { signal: controller.signal })
+      .then((items) => {
+        if (!controller.signal.aborted) setSeriesList(Array.isArray(items) ? items : [])
+      })
       .catch((err) => {
-        setSeriesList([])
+        if (controller.signal.aborted || err?.name === 'AbortError') return
         setError(err?.message || '系列内容加载失败，请稍后重试。')
       })
-      .finally(() => setLoading(false))
-  }, [])
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [attempt])
 
-  useEffect(() => {
-    loadSeries()
-  }, [loadSeries])
+  function loadSeries() { setAttempt((value) => value + 1) }
+  function prefetchSeries(slug) {
+    prefetchSeriesDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
+  }
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
@@ -72,7 +80,7 @@ export default function SeriesPage() {
         jsonLd={jsonLd}
       />
       <Navbar />
-      <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10">
+      {newsStyle === 'tech' ? <TechSeries items={seriesList} loading={loading} error={error} onRetry={loadSeries} onPrefetch={prefetchSeries} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-series-index">
         <motion.section
           initial="hidden"
           animate="visible"
@@ -119,7 +127,7 @@ export default function SeriesPage() {
             />
           )}
         </div>
-      </div>
+      </div>}
       <Footer />
       <BackToTop />
     </main>

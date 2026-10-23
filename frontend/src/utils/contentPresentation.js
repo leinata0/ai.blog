@@ -151,8 +151,9 @@ export function getSeriesTitle(series) {
 }
 
 export function getTopicDescription(topic) {
+  const description = toDisplayText(topic?.description)
   return toDisplayText(
-    topic?.description,
+    description.toLowerCase() === 'topic metadata captured from post-publish artifact.' ? '' : topic?.description,
     '围绕同一条主线持续聚合日报、周报与延伸解读，帮助你从单点消息回到长期变化。',
   )
 }

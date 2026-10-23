@@ -14,6 +14,8 @@ import { formatDate, parseDate } from '../utils/date'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import { proxyImageUrl } from '../utils/proxyImage'
+import { useNewsStyle } from '../hooks/useNewsStyle'
+import TechContentEdition from '../components/tech/TechContentEdition'
 import '../styles/news-reading.css'
 import '../styles/news-tech-reading.css'
 import {
@@ -79,6 +81,7 @@ function ListCard({ post, index }) {
 }
 
 export default function ContentTypePage({ contentType }) {
+  const { newsStyle } = useNewsStyle()
   const { settings } = useSite()
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -156,7 +159,7 @@ export default function ContentTypePage({ contentType }) {
   const restPosts = orderedPosts.slice(1)
 
   return (
-    <main className="news-section min-h-screen">
+    <main className={newsStyle === 'tech' ? 'tech-content-page min-h-screen' : 'news-section min-h-screen'}>
       <SeoMeta
         title={`${copy.title} - AI 资讯观察`}
         description={copy.description}
@@ -166,7 +169,7 @@ export default function ContentTypePage({ contentType }) {
         rssUrl={feedUrl}
       />
       <Navbar />
-      <div className="news-section__wrap">
+      {newsStyle === 'tech' ? <TechContentEdition contentType={contentType} copy={copy} posts={orderedPosts} loading={loading} error={error} onRetry={() => setRetryKey((value) => value + 1)} feedUrl={feedUrl} /> : <div className="news-section__wrap">
           <header className="news-section__masthead">
             <p className="news-section__kicker">{copy.englishTitle}</p>
             <h1>{copy.title}</h1>
@@ -234,7 +237,7 @@ export default function ContentTypePage({ contentType }) {
               </div>
             )}
           </div>
-      </div>
+      </div>}
       <Footer />
       <BackToTop />
     </main>

@@ -56,6 +56,8 @@ function renderEditionNavbar() {
 
 describe('Navbar navigation', () => {
   it('exposes the newspaper masthead, primary sections, and subscription entry', () => {
+    window.localStorage.setItem('news-style', 'paper')
+    window.dispatchEvent(new StorageEvent('storage', { key: 'news-style', newValue: 'paper' }))
     renderNavbar()
 
     const header = screen.getByRole('banner')

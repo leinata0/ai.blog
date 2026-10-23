@@ -15,13 +15,14 @@ import ArticleQuickPreview from '../components/ArticleQuickPreview'
 import NewsArticle from '../components/news/NewsArticle'
 import NewsFrontPage from '../components/news/NewsFrontPage'
 import TechNewsIntro from '../components/news/TechNewsIntro'
-import TechNewsDesk from '../components/news/TechNewsDesk'
-import TechTopicExplorer from '../components/news/TechTopicExplorer'
+import NewsroomEdition from '../components/news/NewsroomEdition'
 import EditionHero from '../components/news/EditionHero'
 import EditionChapterNav from '../components/news/EditionChapterNav'
 import NewsReadingRail from '../components/news/NewsReadingRail'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import useEditionChoreography from '../hooks/useEditionChoreography'
+import useNewsroomData from '../hooks/useNewsroomData'
+import { buildNewsroomSections, NEWS_BEATS } from '../utils/newsroom'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildCollectionPageJsonLd, buildWebSiteJsonLd } from '../utils/structuredData'
 import { SITE_COPY, SITE_SEO } from '../utils/contentPresentation'
@@ -29,11 +30,6 @@ import '../styles/news-home.css'
 import '../styles/news-tech-home.css'
 import '../styles/news-edition.css'
 import '../styles/news-edition-choreography.css'
-
-const NEWS_BEATS = [
-  ['模型与产品', '模型'], ['开源与工具', '开源'], ['研究前沿', '研究'],
-  ['算力与产业', '算力'], ['治理与安全', '治理'],
-]
 
 export default function HomePage() {
   const { newsStyle } = useNewsStyle()
@@ -43,13 +39,18 @@ export default function HomePage() {
   const searchQuery = searchParams.get('q') || ''
   const parsedPage = Number.parseInt(searchParams.get('page') || '1', 10)
   const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1
+  const queryKey = JSON.stringify([tag, searchQuery, page])
   const [searchInput, setSearchInput] = useState(searchQuery)
-  const [posts, setPosts] = useState(() => (Array.isArray(bootstrap?.posts?.items) ? bootstrap.posts.items : []))
+  const [loadedPosts, setPosts] = useState(() => (Array.isArray(bootstrap?.posts?.items) ? bootstrap.posts.items : []))
+  const [loadedQueryKey, setLoadedQueryKey] = useState(() => bootstrap?.posts ? JSON.stringify(['', '', 1]) : null)
   const [loading, setLoading] = useState(() => !bootstrap?.posts)
   const [slowLoading, setSlowLoading] = useState(false)
   const [error, setError] = useState('')
-  const [total, setTotal] = useState(() => bootstrap?.posts?.total ?? 0)
+  const [loadedTotal, setTotal] = useState(() => bootstrap?.posts?.total ?? 0)
+  const posts = loadedQueryKey === queryKey ? loadedPosts : []
+  const total = loadedQueryKey === queryKey ? loadedTotal : 0
   const [previewPost, setPreviewPost] = useState(null)
+  const [density, setDensity] = useState('summary')
   const [newsPending, startNewsTransition] = useTransition()
   const [pageSize] = useState(10)
   const postsRequestRef = useRef(0)
@@ -100,6 +101,7 @@ export default function HomePage() {
     startNewsTransition(() => {
       setPosts(Array.isArray(payload.posts.items) ? payload.posts.items : [])
       setTotal(payload.posts.total ?? 0)
+      setLoadedQueryKey(JSON.stringify(['', '', 1]))
     })
     setLoading(false)
     setSlowLoading(false)
@@ -139,6 +141,7 @@ export default function HomePage() {
         startNewsTransition(() => {
           setPosts(result.items)
           setTotal(result.total)
+          setLoadedQueryKey(queryKey)
         })
         setLoading(false)
         setSlowLoading(false)
@@ -153,7 +156,7 @@ export default function HomePage() {
         setLoading(false)
         setSlowLoading(false)
       })
-  }, [applyBootstrapPayload, bootstrap, bootstrapLoading, page, pageSize, searchQuery, siteLoading, startNewsTransition, tag])
+  }, [applyBootstrapPayload, bootstrap, bootstrapLoading, page, pageSize, queryKey, searchQuery, siteLoading, startNewsTransition, tag])
 
   useEffect(() => {
     loadPosts()
@@ -208,11 +211,49 @@ export default function HomePage() {
   const defaultView = !tag && !searchQuery && page === 1
   const immersiveHome = newsStyle === 'tech' && defaultView
   useEditionChoreography(choreographyRef, immersiveHome)
-  const feedPosts = defaultView ? posts.slice(3) : posts
+  const newsroom = useNewsroomData(immersiveHome, bootstrap?.home_modules, bootstrap?.home_topics)
+  const sections = useMemo(() => buildNewsroomSections(posts, newsroom.modules || {}), [posts, newsroom.modules])
+  const feedPosts = immersiveHome ? sections.stream : defaultView ? posts.slice(7) : posts
   const latestDate = posts.reduce((latest, post) => {
     const date = parseDate(post.created_at)
     return date && (!latest || date > latest) ? date : latest
   }, null)
+
+  const tagFilters = (
+    <div className="news-tag-bar" data-ui="filter-bar" aria-label="按标签筛选新闻">
+      <button type="button" aria-pressed={!tag} onClick={() => handleTagSelect('')}>全部</button>
+      {tag && !tags.some((item) => item.slug === tag) ? <button type="button" aria-pressed="true" onClick={() => handleTagSelect(tag)}>{tag}</button> : null}
+      {tags.slice(0, 9).map((item) => <button type="button" key={item.slug} aria-pressed={tag === item.slug} onClick={() => handleTagSelect(item.slug)}>{item.name}</button>)}
+    </div>
+  )
+  const newsFeed = (
+    <section className={`news-feed${immersiveHome && density === 'titles' ? ' news-feed--titles' : ''}`} data-density={density} aria-labelledby="news-feed-title">
+      <header className="news-feed__heading">
+        <div><span className="news-kicker">{immersiveHome ? 'II / THE NEWS ARCHIVE' : 'THE NEWSROOM'}</span><h2 id="news-feed-title">{searchQuery ? '搜索结果' : tag ? '主题资讯' : '新闻一览'}</h2></div>
+        <span className="news-feed__count">{loading ? '正在载入…' : error ? '数量暂不可用' : '共 ' + total + ' 篇'}</span>
+      </header>
+      {immersiveHome ? <div className="newsroom-feed-tools"><div className="newsroom-density" role="group" aria-label="新闻显示方式"><button type="button" aria-pressed={density === 'summary'} onClick={() => setDensity('summary')}>摘要</button><button type="button" aria-pressed={density === 'titles'} onClick={() => setDensity('titles')}>标题</button></div><Link to="/archive" className="news-text-link">按日期归档 <ArrowUpRight size={13} aria-hidden="true" /></Link></div> : null}
+      <form className="news-search" onSubmit={handleSearch} role="search" aria-label="站内新闻搜索">
+        <Search size={17} aria-hidden="true" />
+        <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} aria-label="搜索文章"
+          placeholder="搜索公司、模型或新闻关键词" name="home-search" autoComplete="off" />
+        <button type="submit">{SITE_COPY.homeSearchAction}</button>
+        {searchInput || searchQuery || tag ? <button type="button" className="news-search__clear" onClick={clearSearch}>清空</button> : null}
+      </form>
+      {immersiveHome ? <details className="newsroom-tag-drawer"><summary>按标签筛选</summary>{tagFilters}</details> : tagFilters}
+      {searchQuery || tag ? <p className="news-query-note">{searchQuery ? '关键词：“' + searchQuery + '”' : '当前标签：' + tag}<button type="button" onClick={clearSearch}>查看全部资讯 <ArrowRight size={12} aria-hidden="true" /></button></p> : null}
+      <div className="news-article-list" role="region" aria-label="文章列表" aria-busy={loading}>
+        {loading ? <><LoadingSkeletonSet count={3} minHeight="10rem" />{slowLoading ? <p role="status" className="news-status">新闻载入需要一点时间，请稍候。</p> : null}</> : error ? (
+          <div className="news-error" role="alert"><p>{error}</p><button type="button" onClick={loadPosts}>重试加载 <ArrowRight size={14} aria-hidden="true" /></button></div>
+        ) : posts.length === 0 ? (
+          <EmptyStatePanel title="暂时没有匹配的资讯" description="试试其他关键词，或回到新闻首页浏览。"><button type="button" className="news-text-link" onClick={clearSearch}>查看全部资讯 <ArrowRight size={14} aria-hidden="true" /></button></EmptyStatePanel>
+        ) : feedPosts.length > 0 ? feedPosts.map((post) => <NewsArticle key={post.slug} post={post} onPrefetch={prefetchPost} onPreview={setPreviewPost} onTagSelect={handleTagSelect} withCoverFallback={newsStyle === 'tech'} />) : (
+          <p className="news-status">本页资讯已呈现在头条区。<Link to="/archive">继续浏览历史归档 <ArrowRight size={13} aria-hidden="true" /></Link></p>
+        )}
+      </div>
+      <Pagination page={page} total={total} pageSize={pageSize} onPageChange={handlePageChange} />
+    </section>
+  )
 
   return (
     <main ref={choreographyRef} data-ui="home-shell" className={`news-home${immersiveHome ? ' edition-home' : ''}`}>
@@ -234,56 +275,20 @@ export default function HomePage() {
 
         {!immersiveHome ? <nav className="news-beats" aria-label="新闻领域">
           <span>关注领域</span>
-          {NEWS_BEATS.map(([name, query]) => <Link key={query} to={'/search?q=' + encodeURIComponent(query)}>{name}<ArrowUpRight size={12} aria-hidden="true" /></Link>)}
+          {NEWS_BEATS.map(({ title, query }) => <Link key={query} to={'/search?q=' + encodeURIComponent(query)}>{title}<ArrowUpRight size={12} aria-hidden="true" /></Link>)}
           <Link to="/topics" className="news-beats__all">全部主题 <ArrowRight size={13} aria-hidden="true" /></Link>
         </nav> : null}
 
-        {immersiveHome ? <section className="edition-focus" id="edition-focus" data-edition-chapter aria-labelledby="edition-focus-title">
-          <h2 id="edition-focus-title" className="sr-only">本期焦点</h2>
-          {!error && posts.length > 0 ? <TechNewsDesk posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : <a className="news-text-link" href="#edition-news">{loading ? '新闻正在载入' : '查看新闻档案'} <ArrowRight size={15} aria-hidden="true" /></a>}
-        </section> : defaultView && !error && posts.length > 0 ? <NewsFrontPage posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : null}
-
-        <div className="news-feed-layout" id={immersiveHome ? 'edition-news' : undefined} data-edition-chapter={immersiveHome ? '' : undefined}>
-          <section className="news-feed" aria-labelledby="news-feed-title">
-            <header className="news-feed__heading">
-              <div><span className="news-kicker">{immersiveHome ? 'II / THE NEWS ARCHIVE' : 'THE NEWSROOM'}</span><h2 id="news-feed-title">{searchQuery ? '搜索结果' : tag ? '主题资讯' : '新闻一览'}</h2></div>
-              <span className="news-feed__count">{loading ? '正在载入…' : error ? '数量暂不可用' : '共 ' + total + ' 篇'}</span>
-            </header>
-            <form className="news-search" onSubmit={handleSearch} role="search" aria-label="站内新闻搜索">
-              <Search size={17} aria-hidden="true" />
-              <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} aria-label="搜索文章"
-                placeholder="搜索公司、模型或新闻关键词" name="home-search" autoComplete="off" />
-              <button type="submit">{SITE_COPY.homeSearchAction}</button>
-              {searchInput || searchQuery || tag ? <button type="button" className="news-search__clear" onClick={clearSearch}>清空</button> : null}
-            </form>
-            <div className="news-tag-bar" data-ui="filter-bar" aria-label="按标签筛选新闻">
-              <button type="button" aria-pressed={!tag} onClick={() => handleTagSelect('')}>全部</button>
-              {tag && !tags.some((item) => item.slug === tag) ? <button type="button" aria-pressed="true" onClick={() => handleTagSelect(tag)}>{tag}</button> : null}
-              {tags.slice(0, 9).map((item) => <button type="button" key={item.slug} aria-pressed={tag === item.slug} onClick={() => handleTagSelect(item.slug)}>{item.name}</button>)}
-            </div>
-            {searchQuery || tag ? <p className="news-query-note">{searchQuery ? '关键词：“' + searchQuery + '”' : '当前标签：' + tag}<button type="button" onClick={clearSearch}>查看全部资讯 <ArrowRight size={12} aria-hidden="true" /></button></p> : null}
-            <div className="news-article-list" role="region" aria-label="文章列表" aria-busy={loading}>
-              {loading ? <><LoadingSkeletonSet count={3} minHeight="10rem" />{slowLoading ? <p role="status" className="news-status">新闻载入需要一点时间，请稍候。</p> : null}</> : error ? (
-                <div className="news-error" role="alert"><p>{error}</p><button type="button" onClick={loadPosts}>重试加载 <ArrowRight size={14} aria-hidden="true" /></button></div>
-              ) : posts.length === 0 ? (
-                <EmptyStatePanel title="暂时没有匹配的资讯" description="试试其他关键词，或回到新闻首页浏览。"><button type="button" className="news-text-link" onClick={clearSearch}>查看全部资讯 <ArrowRight size={14} aria-hidden="true" /></button></EmptyStatePanel>
-              ) : feedPosts.length > 0 ? feedPosts.map((post) => <NewsArticle key={post.slug} post={post} onPrefetch={prefetchPost} onPreview={setPreviewPost} onTagSelect={handleTagSelect} withCoverFallback={newsStyle === 'tech'} />) : (
-                <p className="news-status">本页资讯已呈现在头条区。<Link to="/archive">继续浏览历史归档 <ArrowRight size={13} aria-hidden="true" /></Link></p>
-              )}
-            </div>
-            <Pagination page={page} total={total} pageSize={pageSize} onPageChange={handlePageChange} />
-          </section>
-
-          {!immersiveHome ? <NewsReadingRail /> : null}
-        </div>
-        {immersiveHome ? <>
-          <div className="edition-topics" id="edition-topics" data-edition-chapter><TechTopicExplorer /></div>
-          <section className="edition-reading" id="edition-reading" data-edition-chapter aria-labelledby="edition-reading-title">
-            <header className="edition-section-heading"><span>IV / KEEP YOUR CURIOSITY</span><h2 id="edition-reading-title"><span className="edition-title-line"><span>让好奇，继续。</span></span><span className="edition-title-line"><span><em>Stay in the loop.</em></span></span></h2><p>按天梳理，按周回看，或者跟随一个长期主题。找到属于你的阅读节奏。</p></header>
-            <NewsReadingRail />
-          </section>
-        </> : null}
-        <div className="news-bottom-note"><span>从一条新闻，读到更完整的背景。</span><Link to="/topics">探索主题 <ArrowRight size={15} aria-hidden="true" /></Link></div>
+        {immersiveHome ? <NewsroomEdition
+          focus={sections.focus} deepReads={sections.deepReads} latestDate={latestDate} loading={loading || newsPending} error={error}
+          modules={newsroom.modules || {}} topics={newsroom.topics || []} moduleLoading={newsroom.loading} moduleError={newsroom.error}
+          deepReadsError={newsroom.modulesError}
+          onRetryModules={newsroom.retry} onPrefetch={prefetchPost} onPreview={setPreviewPost}
+        >{newsFeed}</NewsroomEdition> : <>
+          {defaultView && !error && posts.length > 0 ? <NewsFrontPage posts={posts} onPrefetch={prefetchPost} onPreview={setPreviewPost} /> : null}
+          <div className="news-feed-layout">{newsFeed}<NewsReadingRail /></div>
+          <div className="news-bottom-note"><span>从一条新闻，读到更完整的背景。</span><Link to="/topics">探索主题 <ArrowRight size={15} aria-hidden="true" /></Link></div>
+        </>}
       </div>
       {immersiveHome ? <EditionChapterNav ready={!loading && !newsPending} /> : null}
       <Footer /><BackToTop /><ArticleQuickPreview post={previewPost} onClose={closePreview} />

@@ -7,6 +7,8 @@ import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
+import { useNewsStyle } from '../hooks/useNewsStyle'
+import TechReadingGuide from '../components/tech/TechReadingGuide'
 import {
   buildBreadcrumbJsonLd,
   buildCollectionPageJsonLd,
@@ -71,6 +73,7 @@ const READING_ROUTES = [
 
 export default function StartHerePage() {
   const { settings } = useSite()
+  const { newsStyle } = useNewsStyle()
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
@@ -93,7 +96,7 @@ export default function StartHerePage() {
   ]), [siteUrl])
 
   return (
-    <main className="news-guide">
+    <main className={newsStyle === 'tech' ? 'tech-reading-page' : 'news-guide'}>
       <SeoMeta
         title={`开始阅读 - ${SITE_COPY.brand}`}
         description={START_HERE_COPY.description}
@@ -101,7 +104,7 @@ export default function StartHerePage() {
         jsonLd={jsonLd}
       />
       <Navbar />
-      <div className="news-guide__body">
+      {newsStyle === 'tech' ? <TechReadingGuide routes={READING_ROUTES} /> : <div className="news-guide__body">
         <header className="news-guide__header">
           <div className="news-guide__edition"><span>阅读指南</span><span>READER’S GUIDE</span></div>
           <h1>{START_HERE_COPY.title}</h1>
@@ -145,7 +148,7 @@ export default function StartHerePage() {
             <Link className="news-guide__return" to="/">返回首页阅读 <ArrowRight size={16} aria-hidden="true" /></Link>
           </aside>
         </div>
-      </div>
+      </div>}
       <Footer />
       <BackToTop />
     </main>

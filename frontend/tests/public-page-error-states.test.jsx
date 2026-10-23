@@ -60,7 +60,8 @@ describe('failed loads are not disguised as empty states', () => {
     })
     await userEvent.click(screen.getByRole('button', { name: '重新加载栏目' }))
 
-    expect(await screen.findByRole('link', { name: /恢复后的文章/ })).toHaveAttribute('href', '/posts/recovered')
+    const recovered = await screen.findByRole('heading', { level: 2, name: '恢复后的文章' })
+    expect(recovered.querySelector('a')).toHaveAttribute('href', '/posts/recovered')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -81,7 +82,8 @@ describe('failed loads are not disguised as empty states', () => {
 
     renderPage(<ContentTypePage contentType="weekly_review" />)
 
-    expect(await screen.findByRole('link', { name: /周报回退文章/ })).toHaveAttribute('href', '/posts/weekly')
+    const fallback = await screen.findByRole('heading', { level: 2, name: '周报回退文章' })
+    expect(fallback.querySelector('a')).toHaveAttribute('href', '/posts/weekly')
     expect(screen.queryByText('不相关的日报')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -98,7 +100,7 @@ describe('failed loads are not disguised as empty states', () => {
     api.fetchAllTags.mockResolvedValueOnce([{ slug: 'ai', name: 'AI', post_count: 3 }])
     await userEvent.click(screen.getByRole('button', { name: '重新加载' }))
 
-    expect(await screen.findByText('AI')).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /# AI 3/ })).toHaveAttribute('href', '/?tag=ai')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
