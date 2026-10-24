@@ -60,8 +60,14 @@ describe('failed loads are not disguised as empty states', () => {
     })
     await userEvent.click(screen.getByRole('button', { name: '重新加载栏目' }))
 
-    const recovered = await screen.findByRole('heading', { level: 2, name: '恢复后的文章' })
-    expect(recovered.querySelector('a')).toHaveAttribute('href', '/posts/recovered')
+    if (contentType === 'daily_brief') {
+      const scene = await screen.findByRole('region', { name: '日报焦点报道' })
+      expect(scene.querySelector('h1')).toHaveTextContent('恢复后的文章')
+      expect(scene.querySelector('.issue-read-link')).toHaveAttribute('href', '/posts/recovered')
+    } else {
+      const recovered = await screen.findByRole('heading', { level: 2, name: '恢复后的文章' })
+      expect(recovered.querySelector('a')).toHaveAttribute('href', '/posts/recovered')
+    }
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 

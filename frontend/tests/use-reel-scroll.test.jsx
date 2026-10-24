@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import useReelScroll from '../src/demos/section-ui/useReelScroll'
+import useReelScroll from '../src/components/news/daily/useReelScroll'
 
 let now
 let nextFrame

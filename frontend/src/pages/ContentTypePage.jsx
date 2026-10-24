@@ -4,6 +4,7 @@ import { ArrowRight, Rss } from 'lucide-react'
 
 import { fetchDiscover, fetchPosts } from '../api/posts'
 import Navbar from '../components/Navbar'
+import PrimaryNewsNavigation from '../components/news/PrimaryNewsNavigation'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
 import EmptyStatePanel from '../components/EmptyStatePanel'
@@ -16,6 +17,7 @@ import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import { proxyImageUrl } from '../utils/proxyImage'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import TechContentEdition from '../components/tech/TechContentEdition'
+import DailyEdition from '../components/news/daily/DailyEdition'
 import '../styles/news-reading.css'
 import '../styles/news-tech-reading.css'
 import {
@@ -125,7 +127,7 @@ export default function ContentTypePage({ contentType }) {
     async function loadPosts() {
       try {
         const payload = await fetchDiscover(
-          { content_type: contentType },
+          { content_type: contentType, sections: 'items,total' },
           { signal: controller.signal, dedupe: false },
         )
         if (controller.signal.aborted) return
@@ -157,6 +159,31 @@ export default function ContentTypePage({ contentType }) {
   const orderedPosts = useMemo(() => sortByCreatedTime(posts), [posts])
   const heroPost = orderedPosts[0] || null
   const restPosts = orderedPosts.slice(1)
+
+  if (newsStyle === 'tech' && contentType === 'daily_brief') {
+    return (
+      <>
+        <SeoMeta
+          title={`${copy.title} - AI 资讯观察`}
+          description={copy.description}
+          path={path}
+          image={heroPost?.cover_image || ''}
+          jsonLd={jsonLd}
+          rssUrl={feedUrl}
+        />
+        <DailyEdition
+          posts={orderedPosts}
+          loading={loading}
+          error={error}
+          onRetry={() => setRetryKey((value) => value + 1)}
+          feedUrl={feedUrl}
+          header={<Navbar immersive><PrimaryNewsNavigation className="issue-live-primary" /></Navbar>}
+          footer={<Footer />}
+        />
+        <BackToTop />
+      </>
+    )
+  }
 
   return (
     <main className={newsStyle === 'tech' ? 'tech-content-page min-h-screen' : 'news-section min-h-screen'}>

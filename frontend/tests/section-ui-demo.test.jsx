@@ -127,7 +127,7 @@ it('shows no-result archive feedback and restores all twelve reports without cha
   const user = userEvent.setup()
   renderDemo()
   const archive = screen.getByRole('region', { name: /^新闻档案\s*12$/ })
-  const search = screen.getByRole('searchbox', { name: '搜索新闻档案' })
+  const search = screen.getByRole('searchbox', { name: '搜索已载入报道' })
   await user.type(search, '__issue_no_match_9f3b__')
   expect(screen.getByRole('status')).toHaveTextContent('找到 0 条相关报道')
   expect(within(archive).getByRole('heading', { name: '没有找到相关报道。' })).toBeInTheDocument()

@@ -9,7 +9,7 @@
 .issue-demo :is(div,article,section) { min-width:0; }
 .issue-mono { font:10px/1.5 var(--font-mono,monospace); letter-spacing:.06em; }
 .issue-header { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; justify-content:space-between; min-height:90px; gap:35px; padding:20px 42px; color:#fff; z-index:30; background:linear-gradient(#07151d66,transparent); transition:background .2s,color .2s; }
-.issue-header--paper { background:var(--is-paper); color:var(--is-ink); border-bottom:1px solid #cccfc6; }
+.issue-header--paper,.issue-paper-header .issue-header { background:var(--is-paper); color:var(--is-ink); border-bottom:1px solid #cccfc6; }
 .issue-brand { display:inline-flex; align-items:center; gap:17px; }
 .issue-brand>strong { font:800 52px/.75 Arial,sans-serif; letter-spacing:-.1em; }
 .issue-brand>span { font-size:11px; font-weight:500; letter-spacing:.07em; line-height:1.3; }
@@ -20,7 +20,7 @@
 .issue-header-tools { display:flex; align-items:center; gap:15px; }
 .issue-preview-label { font:9px var(--font-mono,monospace); opacity:.8; letter-spacing:.04em; }
 .issue-header-tools>button { display:none; width:44px; height:44px; border:1px solid #ffffff55; background:none; align-items:center; justify-content:center; }
-.issue-header--paper .issue-header-tools>button { border-color:#bbc0b5; }
+.issue-header--paper .issue-header-tools>button,.issue-paper-header .issue-header-tools>button { border-color:#bbc0b5; }
 #issue-mobile-nav { position:absolute; top:100%; left:0; right:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); background:#ecebe5; color:#171d1d; padding:15px 20px 22px; gap:8px; border-bottom:1px solid #bdc5b8; }
 #issue-mobile-nav>a { font-size:13px; min-height:44px; padding:10px; }
 #issue-mobile-nav>a[aria-current] { color:var(--is-red); }
@@ -69,6 +69,14 @@
 .issue-footer p { font-size:12px; color:#657067; margin-top:10px; }
 .issue-footer nav { display:flex; flex-wrap:wrap; gap:24px; font-size:12px; }
 .issue-footer>span { width:100%; font:9px var(--font-mono,monospace); color:#6b756e; padding-top:10px; }
+.issue-state { min-height:100svh; padding:140px 8% 70px; display:flex; flex-direction:column; justify-content:center; gap:22px; background:#102a35; color:#fff; }
+.issue-state h1 { font-size:clamp(44px,7vw,82px); line-height:1.1; }.issue-state h2 { font-size:23px; font-weight:500; }.issue-state>p,.issue-state [role=alert] { max-width:650px; }.issue-state button { margin-top:24px; padding:12px 20px; border:1px solid #fff8; color:#fff; background:transparent; }
+.issue-subscriptions { display:flex; flex-wrap:wrap; gap:16px 32px; padding:28px 5.2%; border-bottom:1px solid #c4c8bf; background:var(--is-paper); color:var(--is-ink); }
+.issue-subscriptions a { display:inline-flex; align-items:center; gap:10px; min-height:32px; font-size:12px; }.issue-subscriptions a:hover { color:#b33322; }
+[data-news-style='tech'] body.public-news-shell .issue-live .news-navbar.news-edition-header { position:fixed; background:linear-gradient(#07151d88,transparent); }
+[data-news-style='tech'] body.public-news-shell .issue-live.issue-paper-header .news-navbar.news-edition-header { background:var(--is-paper); color:var(--is-ink); border-bottom:1px solid #c4c8bf; }
+.issue-live-primary { display:flex; gap:26px; align-items:center; }.issue-live-primary a { position:relative; padding-block:6px; font-size:12px; white-space:nowrap; }.issue-live-primary a[aria-current]::after { content:''; position:absolute; left:0; right:0; bottom:-4px; height:2px; background:var(--is-red); }
+@media(max-width:900px) { .issue-live-primary { display:none; } }
 .issue-dialog { position:fixed; margin:auto; padding:0; border:0; width:min(780px,calc(100vw - 32px)); max-height:calc(100dvh - 40px); overflow:auto; background:#ecebe5; color:#171d1d; box-shadow:0 24px 100px #001b3b55; }
 .issue-dialog::backdrop { background:#05151dc9; }
 .issue-dialog-close { position:absolute; top:15px; right:15px; width:44px; height:44px; background:#ecebe5; color:#171d1d; border:0; display:grid; place-items:center; z-index:3; }
