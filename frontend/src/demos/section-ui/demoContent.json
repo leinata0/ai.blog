@@ -1,0 +1,847 @@
+{
+  "generatedAt": "2026-10-24T01:44:42.681Z",
+  "note": "公开生产 API 的历史内容快照，仅用于独立界面 Demo；不是实时新闻、更新承诺或新生成内容。文章封面保留原记录的对应 URL；主题与系列篇目来自各自公开详情，不跨主题配图。已确认的内部占位主题描述置空，缺失数据与缺图保留空值。",
+  "source": "https://www.563118077.xyz",
+  "daily": [
+    {
+      "slug": "ai-brief-2026-07-25-helps-scientists-design-next-generation-medicines",
+      "title": "算力不再稀缺，但AI制药的真正瓶颈已转移到临床验证",
+      "summary": "2026年推理专用硬件的规模化部署降低了AI运行成本，NVIDIA BlueField等基础设施正从",
+      "created_at": "2026-07-25T05:36:29.029980+00:00",
+      "coverage_date": "2026-07-25",
+      "source_count": 4,
+      "reading_time": 16,
+      "cover_image": "https://img.563118077.xyz/becaae47167d46d5a1feb3afe58f9efd.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        },
+        {
+          "slug": "nvidia",
+          "name": "nvidia"
+        },
+        {
+          "slug": "huggingface",
+          "name": "huggingface"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-07-24-advancing-next-gen-materials-science-innovation",
+      "title": "材料瓶颈正在成为下一代AI的硬约束",
+      "summary": "在算法与算力的叙事之外，先进材料正从幕后走向前台——存储密度、封装耐热与互连工艺的进步，直接决定了下",
+      "created_at": "2026-07-24T05:56:22.848521+00:00",
+      "coverage_date": "2026-07-24",
+      "source_count": 5,
+      "reading_time": 14,
+      "cover_image": "https://img.563118077.xyz/86a67edc06f646a9b2787a5ccbc0e16f.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-07-24-helps-scientists-design-next-generation-medicines",
+      "title": "候选分子直接生成，才是AI制药的分水岭",
+      "summary": "AI正将生物药研发从加速筛选阶段推向直接生成候选分子，研发经济学因此面临重构，但真正的价值释放仍取决",
+      "created_at": "2026-07-24T05:46:49.956391+00:00",
+      "coverage_date": "2026-07-24",
+      "source_count": 4,
+      "reading_time": 13,
+      "cover_image": "https://img.563118077.xyz/1ff588fff6f446979bf007a282bb4ee5.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-07-21-more-likely-than-humans-form-biases",
+      "title": "算力狂奔、偏见难消：AI治理为何追不上芯片速度",
+      "summary": "MIT新研究证实大模型在招聘场景中比人类更易形成偏见，而Google正加速自研芯片提升推理效率，Hu",
+      "created_at": "2026-07-21T05:42:08.069316+00:00",
+      "coverage_date": "2026-07-21",
+      "source_count": 5,
+      "reading_time": 15,
+      "cover_image": "https://img.563118077.xyz/6beb05a8eba04b31ac30055eefb7b1e8.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-07-20-ibm-misses-8217-mainframe-moat-many",
+      "title": "IBM失速撕开企业AI遮羞布，可靠性正在取代模型军备",
+      "summary": "IBM预披露业绩不及预期并引发软件板块抛售，主机护城河尚能维持现金流却无法填补AI商业化的结构性缺位",
+      "created_at": "2026-07-20T05:54:33.162582+00:00",
+      "coverage_date": "2026-07-20",
+      "source_count": 5,
+      "reading_time": 12,
+      "cover_image": "https://img.563118077.xyz/8e015b24cc5c44db8d9d8ae129f87958.png",
+      "tags": [
+        {
+          "slug": "aiagent",
+          "name": "aiagent"
+        },
+        {
+          "slug": "ai",
+          "name": "AI"
+        },
+        {
+          "slug": "ibm",
+          "name": "ibm"
+        },
+        {
+          "slug": "nvidia",
+          "name": "nvidia"
+        },
+        {
+          "slug": "openai",
+          "name": "openai"
+        },
+        {
+          "slug": "it-bench",
+          "name": "it-bench"
+        },
+        {
+          "slug": "agenticai",
+          "name": "agenticai"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-07-19-neil-rimer-thinks-money-coming-back",
+      "title": "AI造富神话面临重分配拐点：平台、企业与开源的三方博弈",
+      "summary": "硅谷顶级风投Index Ventures联合创始人Neil Rimer预言AI财富必须回流，与学术开",
+      "created_at": "2026-07-19T05:46:50.361793+00:00",
+      "coverage_date": "2026-07-19",
+      "source_count": 4,
+      "reading_time": 11,
+      "cover_image": "https://img.563118077.xyz/88cf63f0c04c48fd9743fb98aa80e615.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        },
+        {
+          "slug": "agenticai",
+          "name": "agenticai"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-07-19-ibm-misses-8217-mainframe-moat-many",
+      "title": "主机的护城河困住了AI野心：IBM研究领先为何卖不动",
+      "summary": "IBM与伯克利的学术团队交出了IT-Bench与MAST两份\"失败尸检报告\"，Vertu 6880美",
+      "created_at": "2026-07-19T05:38:55.496250+00:00",
+      "coverage_date": "2026-07-19",
+      "source_count": 5,
+      "reading_time": 15,
+      "cover_image": "https://img.563118077.xyz/24ee1326faa1431da9d75f7095be5b39.png",
+      "tags": [
+        {
+          "slug": "aiagent",
+          "name": "aiagent"
+        },
+        {
+          "slug": "ai",
+          "name": "AI"
+        },
+        {
+          "slug": "ibm",
+          "name": "ibm"
+        },
+        {
+          "slug": "nvidia",
+          "name": "nvidia"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-07-18-neil-rimer-thinks-money-coming-back",
+      "title": "硅谷 AI 造富神话正走到十字路口",
+      "summary": "Index Ventures 联合创始人 Neil Rimer 警告，AI 在硅谷积累的历史性财富必",
+      "created_at": "2026-07-18T05:01:20.661073+00:00",
+      "coverage_date": "2026-07-18",
+      "source_count": 4,
+      "reading_time": 12,
+      "cover_image": "https://img.563118077.xyz/583e89b4da3e4a08951994ce724012c5.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        },
+        {
+          "slug": "neilrimer",
+          "name": "neilrimer"
+        },
+        {
+          "slug": "indexventures",
+          "name": "indexventures"
+        },
+        {
+          "slug": "vc",
+          "name": "vc"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-06-27-emergence-web-data-infrastructure-layer-booming",
+      "title": "网页数据层浮出水面：AI规模化应用的关键基建之争",
+      "summary": "AI模型能力在端到端游戏生成等复杂任务上实现跃进，但规模化应用正卡在数据基建瓶颈上。一个全新的“网页",
+      "created_at": "2026-06-27T06:08:13.440007+00:00",
+      "coverage_date": "2026-06-27",
+      "source_count": 5,
+      "reading_time": 19,
+      "cover_image": "https://img.563118077.xyz/3eee8f63c3d1408f948bcbd3215c2630.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-06-27-repositioning-retail-era-artificial-intelligence-rapidly",
+      "title": "智能体规模化，考验的已非模型而是‘数字世界’的可靠性",
+      "summary": "AI智能体的竞争焦点正从模型能力转移到如何构建可测试、可治理的运行环境上，以Patronus AI获",
+      "created_at": "2026-06-27T06:04:45.567072+00:00",
+      "coverage_date": "2026-06-27",
+      "source_count": 5,
+      "reading_time": 18,
+      "cover_image": "https://img.563118077.xyz/246e6d877fda4604b78e97be18a5c379.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-06-26-repositioning-retail-era-artificial-intelligence-rapidly",
+      "title": "AI的真正战场已从前台营销转向后台决策的“静默革命”",
+      "summary": "AI对产业的核心价值正从面向消费者的“炫技”转向驱动后台决策的“静默革命”，这一趋势已在零售、软件工",
+      "created_at": "2026-06-26T06:21:40.971422+00:00",
+      "coverage_date": "2026-06-26",
+      "source_count": 4,
+      "reading_time": 14,
+      "cover_image": "https://img.563118077.xyz/761a748380da4f6fb8612f8526196651.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-brief-2026-06-25-400-million-machine-powering-future-chipmaking",
+      "title": "4亿美元光刻机与开源反击：AI算力竞赛走向何方？",
+      "summary": "在AI模型对算力需求爆炸式增长的背景下，单台价值4亿美元的光刻机[S1]标志着硬件军备竞赛已达极端水",
+      "created_at": "2026-06-25T06:27:24.662887+00:00",
+      "coverage_date": "2026-06-25",
+      "source_count": 4,
+      "reading_time": 18,
+      "cover_image": "https://img.563118077.xyz/ee17432fca474f1f9f2174471a78d3bb.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    }
+  ],
+  "weekly": [
+    {
+      "slug": "ai-weekly-review-2026-07-26",
+      "title": "算力竞赛退场：基础设施与制度投入成胜负手",
+      "summary": "AI赛道的竞争轴线正从模型参数层向物理与制度层迁移。Gemini 3.6 Flash系列以分层交付替代大版本跃迁、OpenAI以卡梅利亚项目锁定乔治亚州能源、Genesis Mission将AI嵌入国家科研预算三条线索同",
+      "created_at": "2026-07-26T14:14:07.684594+00:00",
+      "coverage_date": "2026-07-26",
+      "source_count": 35,
+      "reading_time": 38,
+      "cover_image": "https://img.563118077.xyz/2d648302a34741a49319ac73910485e8.png",
+      "tags": [
+        {
+          "slug": "gemini36flash",
+          "name": "gemini36flash"
+        },
+        {
+          "slug": "projectcamellia",
+          "name": "projectcamellia"
+        },
+        {
+          "slug": "genesismission",
+          "name": "genesismission"
+        },
+        {
+          "slug": "huggingface",
+          "name": "huggingface"
+        },
+        {
+          "slug": "ruffv016",
+          "name": "ruffv016"
+        },
+        {
+          "slug": "healthinchatgpt",
+          "name": "healthinchatgpt"
+        },
+        {
+          "slug": "ai",
+          "name": "AI"
+        },
+        {
+          "slug": "2026-w30",
+          "name": "2026-w30"
+        }
+      ]
+    },
+    {
+      "slug": "ai-weekly-review-2026-07-20",
+      "title": "算力与信任双缺口：AI代理化落地重构竞争维度",
+      "summary": "本周AI赛道真正改变的不是新模型发布，而是代理化落地将基础设施与政策同时推入主战场——企业算力购买速度超过成本测量能力，而54%的代理安全事件正在侵蚀信任基础，黄仁勋日本行则把地缘算力竞争推向新阶段。",
+      "created_at": "2026-07-20T06:05:07.743801+00:00",
+      "coverage_date": "2026-07-20",
+      "source_count": 27,
+      "reading_time": 30,
+      "cover_image": "https://img.563118077.xyz/b9615d42444d4e8eb4f82d68128a73a1.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        },
+        {
+          "slug": "openai",
+          "name": "openai"
+        },
+        {
+          "slug": "apple",
+          "name": "apple"
+        },
+        {
+          "slug": "ibm",
+          "name": "ibm"
+        },
+        {
+          "slug": "deepmind",
+          "name": "deepmind"
+        }
+      ]
+    },
+    {
+      "slug": "ai-weekly-review-2026-06-22",
+      "title": "AI竞赛从模型跑分转向全栈系统能力：安全与基础设施成新护城河",
+      "summary": "本周产业核心转向是：领先玩家正从追逐模型基准分，转向构建完整的AI应用系统和安全保障体系。安全合规的前置化、基础设施的工程化、以及垂直场景的深度渗透，共同标志着AI竞赛进入深水区。",
+      "created_at": "2026-06-22T08:49:14.086639+00:00",
+      "coverage_date": "2026-06-22",
+      "source_count": 22,
+      "reading_time": 29,
+      "cover_image": "https://img.563118077.xyz/bfa34ada04ae4d62adf0d69ce473e7e9.png",
+      "tags": [
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-weekly-review-2026-06-20",
+      "title": "技术、基建与监管三角张力期：AI发展进入多维约束下的新阶段",
+      "summary": "本周，AI产业正式进入技术突破、基础设施扩张与强力监管三股力量相互拉扯的“三角张力期”。监管铁拳（对Anthropic的禁令）首次直接击中前沿模型发布，能源与电网瓶颈为算力狂奔踩下刹车，而技术宣称（如数学瓶颈突破）则在加",
+      "created_at": "2026-06-20T14:03:09.087603+00:00",
+      "coverage_date": "2026-06-20",
+      "source_count": 23,
+      "reading_time": 34,
+      "cover_image": "https://img.563118077.xyz/5530a65ce2154bdc8bc962b2d5894034.png",
+      "tags": [
+        {
+          "slug": "aiweeklyreview",
+          "name": "aiweeklyreview"
+        },
+        {
+          "slug": "airegulation",
+          "name": "airegulation"
+        },
+        {
+          "slug": "infrastructureconstraints",
+          "name": "infrastructureconstraints"
+        },
+        {
+          "slug": "llmcompetition",
+          "name": "llmcompetition"
+        },
+        {
+          "slug": "aisafety",
+          "name": "aisafety"
+        },
+        {
+          "slug": "techpolicy",
+          "name": "techpolicy"
+        },
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-weekly-review-2026-06-08",
+      "title": "AI安全危机与资本狂飙：中国初创企业逆势突围的一周",
+      "summary": "Meta AI代理遭黑客攻击暴露安全架构致命缺陷，而中国AI初创企业以华为天才少年创业为首，单月斩获数千万融资，显示全球AI发展路径的显著分化。",
+      "created_at": "2026-06-08T07:23:05.979521+00:00",
+      "coverage_date": "2026-06-08",
+      "source_count": 21,
+      "reading_time": 24,
+      "cover_image": "https://img.563118077.xyz/d741fea1250d423e87c3f86bd79f6c94.png",
+      "tags": [
+        {
+          "slug": "security",
+          "name": "security"
+        },
+        {
+          "slug": "funding",
+          "name": "funding"
+        },
+        {
+          "slug": "startups",
+          "name": "startups"
+        },
+        {
+          "slug": "enterpriseai",
+          "name": "enterpriseai"
+        },
+        {
+          "slug": "chinatech",
+          "name": "chinatech"
+        },
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    },
+    {
+      "slug": "ai-weekly-review-2026-05-25",
+      "title": "AI战略转型周报：从规模竞赛到专业化深耕的关键转折",
+      "summary": "本周AI产业明确转向效率优先策略，Google展示科学路径转型、NVIDIA突破医疗图像合成技术、蚂蚁灵波获顶会认可三大事件共同印证：专业化能力正取代参数规模成为核心竞争力",
+      "created_at": "2026-05-25T07:02:02.682108+00:00",
+      "coverage_date": "2026-05-25",
+      "source_count": 19,
+      "reading_time": 24,
+      "cover_image": "https://img.563118077.xyz/3906db1ec8434170981b785a4244873e.png",
+      "tags": [
+        {
+          "slug": "strategic-shift",
+          "name": "strategic-shift"
+        },
+        {
+          "slug": "cost-optimization",
+          "name": "cost-optimization"
+        },
+        {
+          "slug": "ai-safety",
+          "name": "ai-safety"
+        },
+        {
+          "slug": "specialized-agents",
+          "name": "specialized-agents"
+        },
+        {
+          "slug": "ai",
+          "name": "AI"
+        }
+      ]
+    }
+  ],
+  "topics": [
+    {
+      "topic_key": "daily-topic",
+      "display_title": "全场景语音AI技术与产业发展战略研讨会在北京大学召开",
+      "description": "",
+      "post_count": 5,
+      "source_count": 93,
+      "latest_post_at": "2026-07-20T06:05:07.743801+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-weekly-review-2026-07-20",
+          "title": "算力与信任双缺口：AI代理化落地重构竞争维度",
+          "cover_image": "https://img.563118077.xyz/b9615d42444d4e8eb4f82d68128a73a1.png",
+          "created_at": "2026-07-20T06:05:07.743801+00:00"
+        },
+        {
+          "slug": "ai-weekly-review-2026-06-22",
+          "title": "AI竞赛从模型跑分转向全栈系统能力：安全与基础设施成新护城河",
+          "cover_image": "https://img.563118077.xyz/bfa34ada04ae4d62adf0d69ce473e7e9.png",
+          "created_at": "2026-06-22T08:49:14.086639+00:00"
+        },
+        {
+          "slug": "ai-weekly-review-2026-06-20",
+          "title": "技术、基建与监管三角张力期：AI发展进入多维约束下的新阶段",
+          "cover_image": "https://img.563118077.xyz/5530a65ce2154bdc8bc962b2d5894034.png",
+          "created_at": "2026-06-20T14:03:09.087603+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "evals-becoming-compute-bottleneck-title-url",
+      "display_title": "AI评估成本正成为新的算力瓶颈",
+      "description": "",
+      "post_count": 5,
+      "source_count": 19,
+      "latest_post_at": "2026-05-04T05:48:54.623931+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-05-04-evals-becoming-compute-bottleneck-title-url",
+          "title": "AI评估成本超越训练：计算资源分配的新拐点",
+          "cover_image": "https://img.563118077.xyz/88dde8ffaf854ed1a68bd7d71b201060.png",
+          "created_at": "2026-05-04T05:48:54.623931+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-05-03-evals-becoming-compute-bottleneck-title-url",
+          "title": "AI模型评估成本暴增240%：算力瓶颈背后的产业重构",
+          "cover_image": "https://img.563118077.xyz/588f16d9cef34015804a86f5c637c21a.png",
+          "created_at": "2026-05-03T05:45:51.566289+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-05-02-evals-becoming-compute-bottleneck-title-url",
+          "title": "AI评估成本超越训练成为新瓶颈：大模型时代的隐形天花板",
+          "cover_image": "https://img.563118077.xyz/928b4b151a9a4d01adc4bfdf6c847d5b.png",
+          "created_at": "2026-05-02T05:26:53.726201+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "catch-up-dialogues-stage-2026-img",
+      "display_title": "Google I/O 2026聚焦AI与量子计算",
+      "description": "",
+      "post_count": 4,
+      "source_count": 17,
+      "latest_post_at": "2026-05-28T06:23:29.163677+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-05-28-catch-up-dialogues-stage-2026-img",
+          "title": "Google激进AI搜索变革为何引发用户大规模迁移",
+          "cover_image": "https://img.563118077.xyz/81e1cad40345446da786f9565f9fcb60.png",
+          "created_at": "2026-05-28T06:23:29.163677+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-05-27-catch-up-dialogues-stage-2026-img",
+          "title": "Google搜索全面AI化触发用户流失潮：激进技术革新的代价",
+          "cover_image": "https://img.563118077.xyz/04e1b894331a49c48bd5f6a1c463095a.png",
+          "created_at": "2026-05-27T06:41:20.724157+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-05-26-catch-up-dialogues-stage-2026-img",
+          "title": "Google I/O 2026的战略转向：基础设施投资背后的防御逻辑",
+          "cover_image": "https://img.563118077.xyz/7dfc9831289448229bfe662a7dfae07a.png",
+          "created_at": "2026-05-26T06:18:32.932325+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "just-redesigned-search-box-first-time",
+      "display_title": "谷歌搜索界面重大变革与AI代理安全危机",
+      "description": "",
+      "post_count": 4,
+      "source_count": 18,
+      "latest_post_at": "2026-06-20T06:44:06.382817+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-06-20-just-redesigned-search-box-first-time",
+          "title": "谷歌激进AI整合：是生态进化还是用户绑架？",
+          "cover_image": "https://img.563118077.xyz/99335ae4a32b4fe8850ed099dffe7158.png",
+          "created_at": "2026-06-20T06:44:06.382817+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-06-16-just-redesigned-search-box-first-time",
+          "title": "Google将搜索框改为行动框，AI Agent正将能力边界推向物理与安全的新前线",
+          "cover_image": "https://img.563118077.xyz/00b10ab8ff52484c9996c6ccb02e2430.png",
+          "created_at": "2026-06-16T07:40:30.069967+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-06-14-just-redesigned-search-box-first-time",
+          "title": "AI搜索重塑后，账户劫持只是第一个警钟",
+          "cover_image": "https://img.563118077.xyz/1da7ba4f99684c778df1e98c354721d8.png",
+          "created_at": "2026-06-14T13:07:54.602642+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "learning-lead-hybrid-human-enterprise-adoption",
+      "display_title": "企业AI应用安全：从被动防御到主动控制的转变",
+      "description": "",
+      "post_count": 4,
+      "source_count": 19,
+      "latest_post_at": "2026-06-15T07:35:46.148987+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-06-15-learning-lead-hybrid-human-enterprise-adoption",
+          "title": "智能体狂奔：技术基建就绪，但领导力真空将拖垮企业AI",
+          "cover_image": "https://img.563118077.xyz/7d7da81d77de42adb842da72c5108fd8.png",
+          "created_at": "2026-06-15T07:35:46.148987+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-06-14-learning-lead-hybrid-human-enterprise-adoption",
+          "title": "AI Agent 管理难题：人机协作的指挥权如何交接？",
+          "cover_image": "https://img.563118077.xyz/130decdcf17e4533a753fc4ab5ce6e50.png",
+          "created_at": "2026-06-14T07:02:43.852084+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-06-13-learning-lead-hybrid-human-enterprise-adoption",
+          "title": "企业拥抱AI智能体：生产力狂奔，治理赤字凸显",
+          "cover_image": "https://img.563118077.xyz/d73b3bef15b540e9989ef7354fc4ba6f.png",
+          "created_at": "2026-06-13T06:27:47.831005+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "10-things-matter-right-now-title",
+      "display_title": "激光雷达技术突破与AI物理感知融合",
+      "description": "",
+      "post_count": 3,
+      "source_count": 13,
+      "latest_post_at": "2026-04-24T05:25:45.840851+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-04-24-10-things-matter-right-now-title",
+          "title": "AI智能体技术成熟度与伦理挑战的脱节",
+          "cover_image": "https://img.563118077.xyz/40881cef1a4e41a1808c8ad86e21e53d.jpg",
+          "created_at": "2026-04-24T05:25:45.840851+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-04-23-10-things-matter-right-now-title",
+          "title": "中国AI公司开源机器人大脑背后的生态博弈",
+          "cover_image": "https://img.563118077.xyz/ba888813796c43aba9f00cf5a05e15ba.jpg",
+          "created_at": "2026-04-23T05:17:15.659467+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-04-22-10-things-matter-right-now-title",
+          "title": "禾赛彩色激光雷达如何重塑物理AI感知标准",
+          "cover_image": "https://img.563118077.xyz/6208ef67fbcb496f95b872b1e67c9ab5.jpg",
+          "created_at": "2026-04-22T04:57:05.956993+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "building-blocks-foundation-training-inference-aws",
+      "display_title": "AWS与Hugging Face合作推出基础模型训练新方案",
+      "description": "",
+      "post_count": 3,
+      "source_count": 9,
+      "latest_post_at": "2026-05-14T06:01:23.037369+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-05-14-building-blocks-foundation-training-inference-aws",
+          "title": "AWS与Hugging Face的模块化革命：大模型基建进入组装时代",
+          "cover_image": "https://img.563118077.xyz/49a6b4e5200b4bb7b774cd1fd4d1519b.png",
+          "created_at": "2026-05-14T06:01:23.037369+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-05-13-building-blocks-foundation-training-inference-aws",
+          "title": "AWS与Hugging Face联手重构AI基础设施：技术红利与生态代价",
+          "cover_image": "https://img.563118077.xyz/7c24f05a4ca541b6a30cc51d58494a53.png",
+          "created_at": "2026-05-13T06:02:46.355035+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-05-12-building-blocks-foundation-training-inference-aws",
+          "title": "AWS与Hugging Face合作揭示云计算竞争新维度：从算力供给到工具链整合",
+          "cover_image": "https://img.563118077.xyz/49dd4210ae3c4c17b312b0f924de17da.png",
+          "created_at": "2026-05-12T05:53:10.193399+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "making-operational-constrained-public-sector-environments",
+      "display_title": "公共部门AI应用的困境与突破",
+      "description": "",
+      "post_count": 3,
+      "source_count": 13,
+      "latest_post_at": "2026-04-20T05:28:32.803938+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-04-20-making-operational-constrained-public-sector-environments",
+          "title": "公共部门AI部署面临三重困境：安全、采购与敏捷开发的冲突",
+          "cover_image": "https://img.563118077.xyz/64b700d34f9b4df8b4006a9483c0c042.jpg",
+          "created_at": "2026-04-20T05:28:32.803938+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-04-19-making-operational-constrained-public-sector-environments",
+          "title": "公共部门AI应用的困境与突破：安全与效率的再平衡",
+          "cover_image": "https://img.563118077.xyz/6393719eb23043509dd3ceed62095d9a.jpg",
+          "created_at": "2026-04-19T05:28:40.955810+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-04-17-making-operational-constrained-public-sector-environments",
+          "title": "公共部门AI应用的困境与突破：在约束中寻找适应性路径",
+          "cover_image": "https://img.563118077.xyz/2980a4230cb14a6f9756fbb3a72703b3.jpg",
+          "created_at": "2026-04-17T02:42:29.101911+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "musk-altman-week-fires-back-shivon",
+      "display_title": "马斯克诉OpenAI案第二周：动机与安全承诺的双重审视",
+      "description": "",
+      "post_count": 3,
+      "source_count": 6,
+      "latest_post_at": "2026-05-11T06:17:57.304603+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-05-11-musk-altman-week-fires-back-shivon",
+          "title": "马斯克诉OpenAI案：安全承诺与商业动机的双重审判",
+          "cover_image": "https://img.563118077.xyz/9b38574b0d324e3ea242c9b7caeaf088.png",
+          "created_at": "2026-05-11T06:17:57.304603+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-05-10-musk-altman-week-fires-back-shivon",
+          "title": "马斯克诉OpenAI案：当AI安全承诺撞上法律利刃",
+          "cover_image": "https://img.563118077.xyz/289529bbf49f4aa694dd1a83d9619558.png",
+          "created_at": "2026-05-10T05:50:54.820902+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-05-09-musk-altman-week-fires-back-shivon",
+          "title": "马斯克诉OpenAI案第二周：安全承诺与商业动机的双重审视",
+          "cover_image": "https://img.563118077.xyz/d9f25fa7fbf4418abddb1638e53a62ec.png",
+          "created_at": "2026-05-09T05:34:34.882524+00:00"
+        }
+      ]
+    },
+    {
+      "topic_key": "needs-strong-data-fabric-deliver-business",
+      "display_title": "AI基础设施的范式迁移：从数据孤岛到智能体载体",
+      "description": "",
+      "post_count": 3,
+      "source_count": 12,
+      "latest_post_at": "2026-04-27T05:42:52.340753+00:00",
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-04-27-needs-strong-data-fabric-deliver-business",
+          "title": "AI数据基础设施之争：从芯片到自动驾驶的底层重构",
+          "cover_image": "https://img.563118077.xyz/f6f032a447974249b74f2d3174147d5b.jpg",
+          "created_at": "2026-04-27T05:42:52.340753+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-04-26-needs-strong-data-fabric-deliver-business",
+          "title": "数据架构缺陷正在扼杀AI的商业潜力",
+          "cover_image": "https://img.563118077.xyz/e75e9ded4eef4754a60f61ae968740d0.jpg",
+          "created_at": "2026-04-26T05:30:34.878595+00:00"
+        },
+        {
+          "slug": "ai-brief-2026-04-24-needs-strong-data-fabric-deliver-business",
+          "title": "AI基础设施的范式迁移：从数据孤岛到智能体载体",
+          "cover_image": "https://img.563118077.xyz/b467a024f0704a33942503858d992926.jpg",
+          "created_at": "2026-04-24T05:21:34.090523+00:00"
+        }
+      ]
+    }
+  ],
+  "series": [
+    {
+      "slug": "ai-daily-brief",
+      "title": "AI 日报简报",
+      "description": "聚焦单一主题的 AI 日报，强调背景、影响与判断。",
+      "post_count": 124,
+      "latest_post_at": "2026-07-25T05:36:29.029980+00:00",
+      "cover_image": "https://img.563118077.xyz/f23895c778a547ebb4f1213d8c272dd8.png",
+      "cover_source": {
+        "kind": "series_profile",
+        "series_slug": "ai-daily-brief"
+      },
+      "latest_posts": [
+        {
+          "slug": "ai-brief-2026-07-25-helps-scientists-design-next-generation-medicines",
+          "title": "算力不再稀缺，但AI制药的真正瓶颈已转移到临床验证",
+          "cover_image": "https://img.563118077.xyz/becaae47167d46d5a1feb3afe58f9efd.png",
+          "created_at": "2026-07-25T05:36:29.029980+00:00",
+          "series_order": 100
+        },
+        {
+          "slug": "ai-brief-2026-07-24-advancing-next-gen-materials-science-innovation",
+          "title": "材料瓶颈正在成为下一代AI的硬约束",
+          "cover_image": "https://img.563118077.xyz/86a67edc06f646a9b2787a5ccbc0e16f.png",
+          "created_at": "2026-07-24T05:56:22.848521+00:00",
+          "series_order": 100
+        },
+        {
+          "slug": "ai-brief-2026-07-24-helps-scientists-design-next-generation-medicines",
+          "title": "候选分子直接生成，才是AI制药的分水岭",
+          "cover_image": "https://img.563118077.xyz/1ff588fff6f446979bf007a282bb4ee5.png",
+          "created_at": "2026-07-24T05:46:49.956391+00:00",
+          "series_order": 100
+        }
+      ]
+    },
+    {
+      "slug": "ai-weekly-review",
+      "title": "AI 周报综述",
+      "description": "面向一周趋势的结构化复盘，突出策略脉络与关键结论。",
+      "post_count": 2,
+      "latest_post_at": "2026-04-27T05:57:15.435974+00:00",
+      "cover_image": "https://img.563118077.xyz/ceb8e27291f847fd92d2d7781ba42ee6.png",
+      "cover_source": {
+        "kind": "series_profile",
+        "series_slug": "ai-weekly-review"
+      },
+      "latest_posts": [
+        {
+          "slug": "ai-weekly-review-2026-04-27",
+          "title": "AI战略周报：长文本模型突破与自主经济体雏形",
+          "cover_image": "https://img.563118077.xyz/79d8a916b2ab47beb96ee25c2135bdfe.jpg",
+          "created_at": "2026-04-27T05:57:15.435974+00:00",
+          "series_order": 10
+        },
+        {
+          "slug": "ai-weekly-review-2026-04-20",
+          "title": "AI战略周报：模型部署加速与基础设施竞赛白热化",
+          "cover_image": "https://img.563118077.xyz/c084541469544ac4b81bd8f0ba458f61.jpg",
+          "created_at": "2026-04-20T05:35:59.374870+00:00",
+          "series_order": 10
+        }
+      ]
+    },
+    {
+      "slug": "product-strategy-watch",
+      "title": "产品战略观察",
+      "description": "跟踪 AI 公司与产品战略变化，解读竞争与路线调整。",
+      "post_count": 0,
+      "latest_post_at": null,
+      "cover_image": "https://img.563118077.xyz/20249378d2a142358ea035aafc521b61.png",
+      "cover_source": {
+        "kind": "series_profile",
+        "series_slug": "product-strategy-watch"
+      },
+      "latest_posts": []
+    },
+    {
+      "slug": "paper-to-product",
+      "title": "论文到产品",
+      "description": "连接论文进展与工程落地，关注可用性与产品化价值。",
+      "post_count": 0,
+      "latest_post_at": null,
+      "cover_image": "https://img.563118077.xyz/d05841688eaf44fe9a97d4f4daa6e65e.png",
+      "cover_source": {
+        "kind": "series_profile",
+        "series_slug": "paper-to-product"
+      },
+      "latest_posts": []
+    },
+    {
+      "slug": "tooling-workflow",
+      "title": "工具与工作流",
+      "description": "聚焦开发工具链、自动化流程与构建者效率实践。",
+      "post_count": 0,
+      "latest_post_at": null,
+      "cover_image": "https://img.563118077.xyz/85c0ff5838be47f3b20d954fb44cfcb7.png",
+      "cover_source": {
+        "kind": "series_profile",
+        "series_slug": "tooling-workflow"
+      },
+      "latest_posts": []
+    }
+  ]
+}
