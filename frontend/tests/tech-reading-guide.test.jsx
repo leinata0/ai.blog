@@ -14,7 +14,7 @@ it('updates the visible reading path and destination when a reader changes their
   expect(container.querySelector('[data-tech-page="reading"]')).toBeTruthy()
   const choices = screen.getByRole('group', { name: '选择阅读路径' })
   await userEvent.click(within(choices).getByRole('button', { name: /按周梳理/ }))
-  const preview = container.querySelector('.tech-guide-navigator__selection')
+  const preview = container.querySelector('.cinema-guide-preview')
   expect(within(preview).getByRole('heading', { name: 'AI 周报' })).toBeInTheDocument()
   expect(within(preview).getByRole('link', { name: /进入这条路径/ })).toHaveAttribute('href', '/weekly')
   expect(within(choices).getByRole('button', { name: /按周梳理/ })).toHaveAttribute('aria-pressed', 'true')
@@ -23,6 +23,7 @@ it('updates the visible reading path and destination when a reader changes their
 
 it('switches back to a separate paper guide without the interactive tech layout', async () => {
   const { container } = renderGuide()
+  await userEvent.click(screen.getByRole('button', { name: '菜单', exact: true }))
   await userEvent.click(screen.getByRole('button', { name: '报刊版', exact: true }))
   expect(container.querySelector('[data-tech-page="reading"]')).toBeNull()
   expect(container.querySelector('.news-guide__routes')).toBeTruthy()

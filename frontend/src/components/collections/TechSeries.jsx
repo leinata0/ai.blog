@@ -1,62 +1,107 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, ArrowUpRight, Rss } from 'lucide-react'
-import TechPageFrame from '../TechPageFrame'
-import { proxyImageUrl } from '../../utils/proxyImage'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { ArrowDown, ArrowRight, ArrowUpRight, Rss } from 'lucide-react'
+import SectionCover from '../news/cinematic/SectionCover'
 import { formatDate, parseDate } from '../../utils/date'
 import { getSeriesDescription, getSeriesTitle } from '../../utils/contentPresentation'
-import '../../styles/tech-collections.css'
+import '../../styles/cinematic-series.css'
 
-function SeriesCover({ series, decorative = false }) {
-  const src = proxyImageUrl(series.cover_image)
-  const [failedSrc, setFailedSrc] = useState(null)
-  return <>
-    {src && src !== failedSrc ? <img src={src} alt={decorative ? '' : getSeriesTitle(series)} loading="lazy" width="600" height="800" referrerPolicy="no-referrer" onError={() => setFailedSrc(src)} /> : <div className="tech-series-book__fallback"><span>THE AI OBSERVER</span><strong>{getSeriesTitle(series)}</strong><small>A COLLECTION OF PERSPECTIVES</small></div>}
-    <div className="tech-series-book__sheen" />
-  </>
+function collectionsFrom(items) {
+  const seen = new Set()
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const slug = typeof item?.slug === 'string' ? item.slug.trim() : ''
+    if (!slug || seen.has(slug)) return false
+    seen.add(slug)
+    return true
+  })
 }
 
-function ShelfVisual({ items }) {
-  return <div className="tech-series-shelf-visual" aria-hidden="true"><div className="tech-series-shelf-visual__orbit" />{items.slice(0, 3).map((series, index) => <div key={series.slug} className={`tech-series-shelf-visual__book tech-series-shelf-visual__book--${index + 1}`}><SeriesCover series={series} decorative /><span>{getSeriesTitle(series)}</span></div>)}<span className="tech-series-shelf-visual__label">CURATED / COLLECTED / CONNECTED</span></div>
+function articleCount(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null
+  const count = Number(value)
+  return Number.isFinite(count) && count >= 0 ? count : null
 }
 
-function SeriesVolume({ series, index, onPrefetch }) {
+function recentArticles(series) {
+  const seen = new Set()
+  return (Array.isArray(series.latest_posts) ? series.latest_posts : []).filter((post) => {
+    if (typeof post?.slug !== 'string' || !post.slug.trim() || !post.title || seen.has(post.slug)) return false
+    seen.add(post.slug)
+    return true
+  }).slice(0, 3)
+}
+
+function SeriesDate({ value }) {
+  const date = parseDate(value)
+  return date ? <time dateTime={date.toISOString()}>{formatDate(value)}</time> : <>暂无日期</>
+}
+
+function SeriesRecord({ series, index, onPrefetch }) {
   const title = getSeriesTitle(series)
-  const date = parseDate(series.latest_post_at)
-  const count = series.post_count !== null && series.post_count !== undefined && Number.isFinite(Number(series.post_count)) && Number(series.post_count) >= 0 ? Number(series.post_count) : null
-  const recentPosts = Array.isArray(series.latest_posts) ? series.latest_posts.filter((post) => post?.slug && post?.title).slice(0, 2) : []
   const to = `/series/${encodeURIComponent(series.slug)}`
-  return <article className="tech-series-volume" data-series-slug={series.slug} data-tech-reveal>
-    <div className="tech-series-volume__display"><span className="tech-series-volume__number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><div className="tech-series-volume__shelf" />
-      <Link to={to} className="tech-series-book" aria-label={`阅读${title}`} onMouseEnter={() => onPrefetch(series.slug)} onFocus={() => onPrefetch(series.slug)}>
-        <div className="tech-series-book__pages" /><div className="tech-series-book__spine"><span>{title}</span><small>{String(index + 1).padStart(2, '0')}</small></div>
-        <div className="tech-series-book__front"><SeriesCover series={series} /><div className="tech-series-book__imprint"><span>AI OBSERVER / COLLECTION</span><b>{String(index + 1).padStart(2, '0')}</b></div></div>
+  const posts = recentArticles(series)
+  const count = articleCount(series.post_count)
+  const prefetch = () => onPrefetch?.(series.slug)
+
+  return <article className="cinema-series-record" data-series-slug={series.slug}>
+    <div className="cinema-series-record__identity">
+      <span className="cinema-series-record__number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+      <Link to={to} className="cinema-series-record__cover" onMouseEnter={prefetch} onFocus={prefetch} aria-label={`阅读${title}`}>
+        <SectionCover src={series.cover_image} title={title} />
       </Link>
     </div>
-    <div className="tech-series-volume__copy"><span className="tech-series-volume__eyebrow">COLLECTION {String(index + 1).padStart(2, '0')}{series.is_featured ? ' / 推荐系列' : ''}</span><h2><Link to={to} onMouseEnter={() => onPrefetch(series.slug)} onFocus={() => onPrefetch(series.slug)}>{title}<ArrowUpRight aria-hidden="true" /></Link></h2><p>{getSeriesDescription(series)}</p>
-      <dl className="tech-series-volume__stats"><div><dt>收录文章</dt><dd>{count ?? '—'}<small>篇</small></dd></div><div><dt>最近发布</dt><dd className="tech-series-volume__date">{date ? <time dateTime={date.toISOString()}>{formatDate(series.latest_post_at)}</time> : '暂无日期'}</dd></div></dl>
-      {recentPosts.length ? <div className="tech-series-volume__contents"><span>从最近一篇开始</span>{recentPosts.map((post) => <Link key={post.slug} to={`/posts/${encodeURIComponent(post.slug)}`}>{post.title}<ArrowUpRight size={14} aria-hidden="true" /></Link>)}</div> : null}
-      <div className="tech-series-volume__actions"><Link to={to} onMouseEnter={() => onPrefetch(series.slug)} onFocus={() => onPrefetch(series.slug)}>打开这本收藏 <ArrowRight size={17} aria-hidden="true" /></Link><Link to={`/feeds?series_slug=${encodeURIComponent(series.slug)}`}><Rss size={14} aria-hidden="true" /> 订阅系列</Link></div>
+    <div className="cinema-series-record__copy">
+      <span className="cinema-series-record__eyebrow">{series.is_featured ? '编辑推荐 / COLLECTION' : '内容系列 / COLLECTION'}</span>
+      <h3><Link to={to} onMouseEnter={prefetch} onFocus={prefetch}>{title}<ArrowUpRight aria-hidden="true" /></Link></h3>
+      <p>{getSeriesDescription(series)}</p>
+      <div className="cinema-series-record__meta"><span>{count === null ? '收录数量待更新' : `${count} 篇文章`}</span><span>最近发布 <SeriesDate value={series.latest_post_at} /></span></div>
+      <Link className="cinema-series-record__subscribe" to={`/feeds?series_slug=${encodeURIComponent(series.slug)}`}><Rss size={14} aria-hidden="true" />订阅系列</Link>
+    </div>
+    <div className="cinema-series-record__articles">
+      <span>最近收录</span>
+      {posts.length ? posts.map((post) => <Link key={post.slug} to={`/posts/${encodeURIComponent(post.slug)}`}><span>{post.title}</span><ArrowUpRight size={16} aria-hidden="true" /></Link>) : <p>进入系列，查看已发布内容。</p>}
+      <Link className="cinema-series-record__open" to={to} onMouseEnter={prefetch} onFocus={prefetch}>查看完整系列<ArrowRight size={16} aria-hidden="true" /></Link>
     </div>
   </article>
 }
 
-export default function TechSeries({ items, loading, error, onRetry, onPrefetch }) {
-  const seen = new Set()
-  const collections = items.filter((item) => {
-    if (typeof item?.slug !== 'string' || !item.slug.trim() || seen.has(item.slug)) return false
-    seen.add(item.slug)
-    return true
-  })
-  return <TechPageFrame section="series" index="04 / THE COLLECTION" title="内容书架" accentTitle="值得收藏的，不止一篇。" description="把分散的文章装订成一条阅读路径。选一本感兴趣的内容收藏，从最新一页读起。"
-    meta={<><span>系列总览</span><span>{loading && !collections.length ? '正在整理书架' : error && !collections.length ? '系列数量暂不可用' : `${collections.length} 个内容系列`}</span></>}
-    actions={<a href="#series-bookshelf">浏览内容书架 <ArrowUpRight size={16} aria-hidden="true" /></a>}
-    visual={<ShelfVisual items={collections} />}>
-    <section className="tech-series-library" id="series-bookshelf" aria-labelledby="tech-series-library-title" data-ui="series-page-showcase">
-      <div className="tech-collections-section-heading"><div><span>THE READING COLLECTION</span><h2 id="tech-series-library-title">内容书架<span>选一条主线，慢慢读下去。</span></h2></div><Link to="/discover">发现更多文章 <ArrowUpRight size={17} aria-hidden="true" /></Link></div>
-      {loading && !collections.length ? <div className="tech-collections-loading tech-series-library__loading" role="status"><span>正在打开内容书架…</span><div /><div /></div> : null}
-      {error ? <div className="tech-collections-error" role="alert" data-ui="series-page-error"><p>{error}</p><button type="button" onClick={onRetry}>重新加载系列 <ArrowUpRight size={15} aria-hidden="true" /></button></div> : null}
-      {collections.length ? <div className="tech-series-shelf" data-ui="tech-series-shelf">{collections.map((series, index) => <SeriesVolume key={series.slug} series={series} index={index} onPrefetch={onPrefetch} />)}</div> : !loading && !error ? <div className="tech-collections-empty"><h3>下一本收藏，正在酝酿。</h3><p>系列内容正在整理中，稍后这里会出现完整的阅读路径。</p><Link to="/discover">先从一篇文章开始 <ArrowUpRight size={16} aria-hidden="true" /></Link></div> : null}
+export default function TechSeries({ items = [], loading = false, error = '', onRetry, onPrefetch }) {
+  const collections = useMemo(() => collectionsFrom(items), [items])
+  const [selectedSlug, setSelectedSlug] = useState('')
+  const selectedIndex = Math.max(0, collections.findIndex((series) => series.slug === selectedSlug))
+  const selected = collections[selectedIndex]
+  const reduced = useReducedMotion()
+  const duration = reduced ? 0 : 0.55
+  const selectedCount = selected ? articleCount(selected.post_count) : null
+  const select = (series) => {
+    setSelectedSlug(series.slug)
+    onPrefetch?.(series.slug)
+  }
+
+  return <div className="cinema-layout cinema-series">
+    <section className="cinema-hero cinema-series-hero" aria-labelledby="cinema-series-title">
+      <div className="cinema-series-hero__word" aria-hidden="true">COLLECTIONS</div>
+      <div className="cinema-series-hero__intro"><span className="cinema-kicker">04 / THE READING COLLECTION</span><h1 id="cinema-series-title">内容书架</h1><p>把一条主线，<br />读得更深。</p></div>
+      {selected ? <>
+        <div className="cinema-series-hero__edition">
+          <div className="cinema-series-hero__art" aria-hidden="true"><AnimatePresence initial={false}><motion.div className="cinema-series-hero__image" key={selected.slug} initial={{ opacity: 0, y: reduced ? 0 : 20, rotate: reduced ? 0 : 2 }} animate={{ opacity: 1, y: 0, rotate: 0 }} exit={{ opacity: 0 }} transition={{ duration, ease: [0.22, 1, 0.36, 1] }}><SectionCover src={selected.cover_image} title={getSeriesTitle(selected)} eager /><div className="cinema-series-hero__image-shade" /><div className="cinema-series-hero__imprint"><span>AI OBSERVER<br />COLLECTED PERSPECTIVES</span><strong>{String(selectedIndex + 1).padStart(2, '0')}</strong></div></motion.div></AnimatePresence></div>
+          <motion.div key={selected.slug} className="cinema-series-hero__selection" initial={{ opacity: reduced ? 1 : 0, y: reduced ? 0 : 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : 0.35 }}>
+            <span className="cinema-series-hero__selection-label">{selected.is_featured ? '编辑推荐' : '正在浏览'} / {String(selectedIndex + 1).padStart(2, '0')}</span>
+            <h2>{getSeriesTitle(selected)}</h2><p>{getSeriesDescription(selected)}</p>
+            <div className="cinema-series-hero__stats"><span>{selectedCount === null ? '收录数量待更新' : `${selectedCount} 篇文章`}</span><span>最近发布 <SeriesDate value={selected.latest_post_at} /></span></div>
+            <Link className="cinema-button" to={`/series/${encodeURIComponent(selected.slug)}`} onMouseEnter={() => onPrefetch?.(selected.slug)} onFocus={() => onPrefetch?.(selected.slug)}>打开这个系列<ArrowUpRight size={18} aria-hidden="true" /></Link>
+          </motion.div>
+        </div>
+        <div className="cinema-series-selector" role="group" aria-label="选择预览系列">{collections.map((series, index) => <button type="button" key={series.slug} aria-pressed={series.slug === selected.slug} onClick={() => select(series)} onMouseEnter={() => onPrefetch?.(series.slug)} onFocus={() => onPrefetch?.(series.slug)}><span>{String(index + 1).padStart(2, '0')}</span><strong>{getSeriesTitle(series)}</strong><ArrowUpRight size={18} aria-hidden="true" /></button>)}</div>
+      </> : <div className="cinema-series-hero__waiting"><span className="cinema-kicker">COLLECTED PERSPECTIVES</span>{error ? <div role="alert" data-ui="series-page-error"><p>{error}</p><button type="button" className="cinema-button" onClick={onRetry}>重新加载系列<ArrowRight size={16} aria-hidden="true" /></button></div> : <p role={loading ? 'status' : undefined}>{loading ? '正在打开内容书架…' : '下一条阅读主线，正在酝酿。'}</p>}</div>}
+      <a href="#series-bookshelf" className="cinema-series-hero__browse">浏览全部已载入系列<ArrowDown size={17} aria-hidden="true" /></a>
     </section>
-  </TechPageFrame>
+    <section className="cinema-body cinema-series-library" id="series-bookshelf" aria-labelledby="cinema-series-library-title" data-ui="series-page-showcase">
+      <div className="cinema-section-heading"><div><span className="cinema-kicker">THE CONTINUING STORIES</span><h2 id="cinema-series-library-title">沿着兴趣，继续阅读。</h2></div><p>{loading && !collections.length ? '正在整理系列' : error && !collections.length ? '系列数量暂不可用' : `${collections.length} 个已载入系列`}<br />从最近收录的文章，进入完整主线。</p></div>
+      {error && collections.length ? <div className="cinema-state" role="alert" data-ui="series-page-error"><p>{error}</p><button type="button" className="cinema-button" onClick={onRetry}>重新加载系列<ArrowRight size={16} aria-hidden="true" /></button></div> : null}
+      {collections.length ? <div className="cinema-series-records" data-ui="tech-series-shelf">{collections.map((series, index) => <SeriesRecord key={series.slug} series={series} index={index} onPrefetch={onPrefetch} />)}</div> : !loading && !error ? <div className="cinema-state"><h3>下一本收藏，正在酝酿。</h3><p>系列内容正在整理中，稍后这里会出现可继续阅读的入口。</p><Link className="cinema-button" to="/discover">先从一篇文章开始<ArrowUpRight size={16} aria-hidden="true" /></Link></div> : null}
+      <div className="cinema-series-library__end"><span>保持好奇，持续追踪。</span><Link to="/topics">按主题寻找另一条线索<ArrowUpRight size={17} aria-hidden="true" /></Link></div>
+    </section>
+  </div>
 }

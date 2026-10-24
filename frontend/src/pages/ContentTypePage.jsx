@@ -16,7 +16,8 @@ import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import { proxyImageUrl } from '../utils/proxyImage'
 import { useNewsStyle } from '../hooks/useNewsStyle'
-import TechContentEdition from '../components/tech/TechContentEdition'
+import CinematicWeekly from '../components/tech/CinematicWeekly'
+import CinematicNavigation from '../components/news/cinematic/CinematicNavigation'
 import DailyEdition from '../components/news/daily/DailyEdition'
 import '../styles/news-reading.css'
 import '../styles/news-tech-reading.css'
@@ -186,7 +187,7 @@ export default function ContentTypePage({ contentType }) {
   }
 
   return (
-    <main className={newsStyle === 'tech' ? 'tech-content-page min-h-screen' : 'news-section min-h-screen'}>
+    <main id="main-content" className={newsStyle === 'tech' ? 'cinematic-section min-h-screen' : 'news-section min-h-screen'}>
       <SeoMeta
         title={`${copy.title} - AI 资讯观察`}
         description={copy.description}
@@ -195,8 +196,8 @@ export default function ContentTypePage({ contentType }) {
         jsonLd={jsonLd}
         rssUrl={feedUrl}
       />
-      <Navbar />
-      {newsStyle === 'tech' ? <TechContentEdition contentType={contentType} copy={copy} posts={orderedPosts} loading={loading} error={error} onRetry={() => setRetryKey((value) => value + 1)} feedUrl={feedUrl} /> : <div className="news-section__wrap">
+      {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
+      {newsStyle === 'tech' ? <CinematicWeekly posts={orderedPosts} loading={loading} error={error} onRetry={() => setRetryKey((value) => value + 1)} feedUrl={feedUrl} /> : <div className="news-section__wrap">
           <header className="news-section__masthead">
             <p className="news-section__kicker">{copy.englishTitle}</p>
             <h1>{copy.title}</h1>

@@ -9,6 +9,7 @@ import SeoMeta from '../components/SeoMeta'
 import { useSite } from '../contexts/SiteContext'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import TechReadingGuide from '../components/tech/TechReadingGuide'
+import CinematicNavigation from '../components/news/cinematic/CinematicNavigation'
 import {
   buildBreadcrumbJsonLd,
   buildCollectionPageJsonLd,
@@ -96,14 +97,14 @@ export default function StartHerePage() {
   ]), [siteUrl])
 
   return (
-    <main className={newsStyle === 'tech' ? 'tech-reading-page' : 'news-guide'}>
+    <main id="main-content" className={newsStyle === 'tech' ? 'cinematic-section' : 'news-guide'}>
       <SeoMeta
         title={`开始阅读 - ${SITE_COPY.brand}`}
         description={START_HERE_COPY.description}
         path="/start-here"
         jsonLd={jsonLd}
       />
-      <Navbar />
+      {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
       {newsStyle === 'tech' ? <TechReadingGuide routes={READING_ROUTES} /> : <div className="news-guide__body">
         <header className="news-guide__header">
           <div className="news-guide__edition"><span>阅读指南</span><span>READER’S GUIDE</span></div>

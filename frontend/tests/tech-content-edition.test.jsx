@@ -152,30 +152,30 @@ it('gives the live daily route its canonical, feed and structured data without t
   expect(collection.url).toMatch(/\/daily$/)
 })
 
-it('uses actual cover art and distinct magazine issues for weekly editions', async () => {
+it('uses actual cover art in a cinematic weekly showcase and a searchable issue library', async () => {
   const { container } = render(<MemoryRouter><ContentTypePage contentType="weekly_review" /></MemoryRouter>)
   await screen.findByRole('heading', { level: 2, name: '最新报道的真实标题' })
   expect(screen.getByRole('heading', { level: 1, name: 'AI 周报' })).toBeInTheDocument()
-  const cover = screen.getByRole('link', { name: '阅读最新周报：最新报道的真实标题' })
-  expect(cover).toHaveAttribute('href', '/posts/latest')
+  const cover = container.querySelector('.cweekly-cover-stage')
+  expect(screen.getByRole('link', { name: '阅读这一期：最新报道的真实标题' })).toHaveAttribute('href', '/posts/latest')
   expect(cover.querySelector('img')).toHaveAttribute('src', 'https://img.563118077.xyz/news.jpg')
-  expect(cover.querySelector('time')).toHaveAttribute('datetime', '2026-07-26T08:00:00Z')
-  expect([...container.querySelectorAll('.tech-issue h3')].map((node) => node.textContent)).toEqual(['中间日期报道', '早期报道'])
+  expect(container.querySelector('.cweekly-editorial time')).toHaveAttribute('datetime', '2026-07-26T08:00:00Z')
+  expect([...container.querySelectorAll('.cweekly-library-issue h3')].map((node) => node.textContent)).toEqual(['最新报道的真实标题', '中间日期报道', '早期报道'])
   expect(container.querySelector('.tech-content-timeline')).toBeNull()
   expect(container.querySelector('.tech-content-date-index')).toBeNull()
-  expect(within(screen.getByRole('navigation', { name: '新闻栏目' })).getByRole('link', { name: /周报/ })).toHaveAttribute('aria-current', 'page')
+  expect(screen.getByRole('searchbox', { name: '搜索已载入周报' })).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /订阅 AI 周报 RSS/ }).getAttribute('href')).toContain('/api/feeds/weekly.xml')
 })
 
 it('keeps the weekly cover link and the real publication metadata when the image fails', async () => {
-  render(<MemoryRouter><ContentTypePage contentType="weekly_review" /></MemoryRouter>)
+  const { container } = render(<MemoryRouter><ContentTypePage contentType="weekly_review" /></MemoryRouter>)
   await screen.findByRole('heading', { level: 2, name: '最新报道的真实标题' })
-  const cover = screen.getByRole('link', { name: '阅读最新周报：最新报道的真实标题' })
+  const cover = container.querySelector('.cweekly-cover-stage')
   fireEvent.error(cover.querySelector('img'))
-  expect(within(cover).getByText('配图暂不可用')).toBeInTheDocument()
-  expect(cover).toHaveAttribute('href', '/posts/latest')
+  expect(within(cover).getByText('封面暂不可用')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '阅读这一期：最新报道的真实标题' })).toHaveAttribute('href', '/posts/latest')
   expect(screen.getByRole('heading', { level: 2, name: '最新报道的真实标题' })).toBeInTheDocument()
-  expect(cover.querySelector('time')).toHaveAttribute('datetime', '2026-07-26T08:00:00Z')
+  expect(container.querySelector('.cweekly-editorial time')).toHaveAttribute('datetime', '2026-07-26T08:00:00Z')
 })
 
 it('distinguishes an unavailable feed from an empty edition and recovers through retry', async () => {
