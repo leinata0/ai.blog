@@ -32,7 +32,7 @@
 .issue-scene-images { z-index:0; }
 .issue-scene-image { overflow:hidden; }
 .issue-scene-image-inner img { display:block; width:100%; height:100%; object-fit:cover; object-position:center; }
-.issue-image-fallback { display:flex; height:100%; align-items:center; justify-content:center; padding:50px; font-size:32px; background:#193740; color:#fff; }
+.issue-image-fallback { display:flex; height:100%; align-items:flex-start; justify-content:flex-start; padding:clamp(100px,25vh,230px) 6% 30px; font-size:16px; background:linear-gradient(120deg,#132733,#253e48); color:#d7e1e1; }
 .issue-scene-shade { position:absolute; inset:0; z-index:4; background:linear-gradient(0deg,#03151df2 0%,#04141c99 18%,#06172244 47%,#01132100 74%),linear-gradient(90deg,#06172464,transparent 75%); pointer-events:none; }
 .issue-scene-grid { position:absolute; inset:125px 42px 60px; border:1px solid #ffffff12; z-index:5; pointer-events:none; display:flex; justify-content:space-between; }
 .issue-scene-grid>span { height:100%; width:1px; background:#ffffff0c; margin-inline:28%; }
@@ -71,6 +71,7 @@
 .issue-dialog::backdrop { background:#05151dc9; }
 .issue-dialog-close { position:absolute; top:15px; right:15px; width:44px; height:44px; background:#ecebe5; color:#171d1d; border:0; display:grid; place-items:center; z-index:3; }
 .issue-dialog-image { height:300px; overflow:hidden; }.issue-dialog-image img { display:block; width:100%; height:100%; object-fit:cover; }
+.issue-dialog-image .issue-image-fallback { align-items:center; justify-content:center; padding:30px; }
 .issue-dialog-copy { padding:31px 36px 38px; }.issue-dialog-copy>.issue-mono { color:#bd3827; font-size:9px; }.issue-dialog-copy h2 { font-size:31px; line-height:1.45; font-weight:550; letter-spacing:-.04em; margin-top:16px; }
 .issue-dialog-copy p { font-size:13px; color:#58645f; line-height:1.9; margin-top:20px; }.issue-dialog-copy .issue-dialog-meta { display:flex; gap:20px; font-size:10px; }.issue-dialog-copy .issue-read-link { background:#171d1d; color:#fff!important; margin-top:26px; }
 @media(max-width:1200px) { .issue-header { padding-inline:28px; gap:20px; }.issue-desktop-nav { gap:20px; }.issue-story-heading { max-width:65%; bottom:115px; }.issue-story-heading h1 { font-size:60px; }.issue-story-rail { width:200px; }.issue-focus-tag { margin-bottom:20px!important; } }

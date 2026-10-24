@@ -1,5 +1,7 @@
 # Clinical frontier editorial artwork
 
+Current status: retained as design history only. The daily Demo no longer loads these fixed artworks; its scene and preview both use the selected article's own `cover_image`, with an explicit no-image state when unavailable.
+
 - Created: 2026-10-24 (Asia/Taipei).
 - Method: built-in `image_gen.imagegen` tool; no external model, CLI, source photograph, or reference image.
 - Asset: `clinical-frontier.png` (original generated PNG, copied without conversion or editing).
