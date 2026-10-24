@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, Menu, X } from 'lucide-react'
@@ -58,11 +58,17 @@ function StoryDetails({ post, onClose }) {
   </dialog>
 }
 
-function StoryReel({ stories, request, onPreview }) {
-  const track = useRef(null)
+function StoryReel(props) {
   const reduce = useReducedMotion()
   const wide = useWideScene()
   const animated = wide && !reduce
+  // Each layout owns its scroll measurement and derived image transforms.
+  // A mobile scroll range must not carry into the taller desktop sequence.
+  return <StoryReelScene key={animated ? 'scroll' : 'static'} {...props} animated={animated} reduce={reduce} />
+}
+
+function StoryReelScene({ stories, request, onPreview, animated, reduce }) {
+  const track = useRef(null)
   const [active, setActive] = useState(0)
   const currentChapter = useRef(0)
   const { scrollYProgress } = useScroll({ target: track, offset: ['start start', 'end end'] })
@@ -79,15 +85,9 @@ function StoryReel({ stories, request, onPreview }) {
     const next = chapterAt(progress)
     if (animated && currentChapter.current !== next) { currentChapter.current = next; setActive(next) }
   })
-  useLayoutEffect(() => {
-    if (!animated || !track.current) return
-    // Switching from the short mobile scene changes the scroll range even when
-    // the page stays at scrollY=0, so no scroll event may refresh Motion's value.
-    const element = track.current
-    const travel = element.offsetHeight - window.innerHeight
-    const progress = travel > 0 ? Math.max(0, Math.min(1, -element.getBoundingClientRect().top / travel)) : 0
-    scrollYProgress.set(progress)
-    const next = chapterAt(progress)
+  useEffect(() => {
+    if (!animated) return
+    const next = chapterAt(scrollYProgress.get())
     currentChapter.current = next
     setActive(next)
   }, [animated, scrollYProgress])
