@@ -51,8 +51,8 @@ function renderDemo() {
 
 async function expectFocusedPost(post, index) {
   const stage = screen.getByRole('region', { name: '日报焦点报道' })
-  // AnimatePresence exits the old title before revealing the replacement. Check
-  // the completed transition, including its image, metadata and real read URL.
+  // Wait for the cover dissolve to finish, then verify the current single
+  // headline together with its image, metadata and real read URL.
   await waitFor(() => {
     expect(within(stage).getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(within(stage).getByRole('heading', { level: 1, name: post.title, exact: true })).toBeInTheDocument()

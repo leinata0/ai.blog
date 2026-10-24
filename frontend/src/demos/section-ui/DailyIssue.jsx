@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform } from 'framer-motion'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, Menu, X } from 'lucide-react'
 import SeoMeta from '../../components/SeoMeta'
 import { formatDate } from '../../utils/date'
 import { proxyImageUrl } from '../../utils/proxyImage'
 import IssueNewsIndex from './IssueNewsIndex'
+import useReelScroll from './useReelScroll'
 import data from './demoContent.json'
 import './issue.css'
 
@@ -13,7 +14,9 @@ const posts = data.daily
 const defaultFocus = [posts[0], posts[1], posts[4]]
 const sectionLinks = [{ label: '首页', to: '/' }, { label: '日报', to: '/demo/sections/daily' }, { label: '周报', to: '/weekly' }, { label: '主题', to: '/topics' }, { label: '系列', to: '/series' }, { label: '开始阅读', to: '/start-here' }]
 const postPath = (post) => `/posts/${encodeURIComponent(post.slug)}`
-const chapterAt = (progress) => progress < .34 ? 0 : progress < .68 ? 1 : 2
+const chapterAt = (progress) => progress < 1 / 3 ? 0 : progress < 2 / 3 ? 1 : 2
+const sceneSpring = { stiffness: 260, damping: 32, mass: .45, restDelta: .0001 }
+const sceneEase = [.22, 1, .36, 1]
 
 function useWideScene() {
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(min-width: 901px)').matches))
@@ -34,13 +37,27 @@ export function ArticleCover({ post, eager = false }) {
   return src && failed !== src ? <img src={src} alt="" width="1672" height="941" loading={eager ? 'eager' : 'lazy'} fetchpriority={eager ? 'high' : undefined} decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(src)} /> : <span className="issue-image-fallback" role="img" aria-label={`${post.title}：${unavailable}`}>{unavailable}</span>
 }
 
-function SceneImage({ post, progress, index, animated, selected }) {
-  const start = index === 1 ? .25 : .59
-  const end = index === 1 ? .4 : .74
-  const curtain = useTransform(progress, [start, end], ['inset(100% 0 0 0)', 'inset(0% 0 0 0)'])
-  const scale = useTransform(progress, [index / 3, (index + 1) / 3], [1.12, 1])
-  return <motion.div className="issue-scene-image" aria-hidden="true" style={animated ? { clipPath: index ? curtain : undefined, zIndex: index } : { opacity: selected ? 1 : 0, zIndex: selected ? 1 : 0 }}>
-    <motion.div className="issue-scene-image-inner" style={animated ? { scale } : undefined}><ArticleCover post={post} eager={index === 0} /></motion.div>
+function SceneImage({ post, progress, index, animated, reduce }) {
+  const boundary = index / 3
+  const opacity = useTransform(progress, [boundary - .09, boundary + .09], [0, 1])
+  const scale = useTransform(progress, [Math.max(0, boundary - 1 / 3), Math.min(1, boundary + 1 / 3)], [1.045, 1])
+  const y = useTransform(progress, [0, 1], [10, -10])
+  return <motion.div className="issue-scene-image" aria-hidden="true" style={animated ? { opacity: index ? opacity : 1, zIndex: index } : undefined} initial={animated || reduce ? false : { opacity: 0 }} animate={animated ? undefined : { opacity: 1 }} exit={animated ? undefined : { opacity: 0 }} transition={{ duration: reduce ? 0 : .45, ease: sceneEase }}>
+    <motion.div className="issue-scene-image-inner" style={animated ? { scale, y } : undefined} initial={animated || reduce ? false : { scale: 1.025 }} animate={animated ? undefined : { scale: 1 }} transition={{ duration: reduce ? 0 : .65, ease: sceneEase }}><ArticleCover post={post} eager={index === 0} /></motion.div>
+  </motion.div>
+}
+
+function StoryCopy({ post, index, progress, animated, reduce, onPreview }) {
+  const start = index / 3
+  const end = (index + 1) / 3
+  // Swap the single readable headline at the quiet midpoint of the dissolve,
+  // rather than queueing an exit animation behind every scroll threshold.
+  const opacity = useTransform(progress, [start, start + .065, end - .065, end], [index ? 0 : 1, 1, 1, index === 2 ? 1 : 0])
+  const y = useTransform(progress, [start, start + .065, end - .065, end], [index ? 10 : 0, 0, 0, index === 2 ? 0 : -10])
+  return <motion.div className="issue-story-copy" style={animated ? { opacity, y } : undefined} initial={animated || reduce ? false : { opacity: 0, y: 8 }} animate={animated ? undefined : { opacity: 1, y: 0 }} transition={{ duration: reduce ? 0 : .22, ease: sceneEase }}>
+    <h1>{post.title}</h1>
+    <div className="issue-story-meta"><time dateTime={post.created_at}>{formatDate(post.created_at)}</time><span>{post.source_count} 个原始来源</span><span>{post.reading_time} 分钟阅读</span></div>
+    <div className="issue-story-actions"><Link to={postPath(post)} className="issue-read-link">阅读报道 <ArrowUpRight size={20} /></Link><button onClick={() => onPreview(post)}>先看摘要 <span>↗</span></button></div>
   </motion.div>
 }
 
@@ -72,25 +89,30 @@ function StoryReelScene({ stories, request, onPreview, animated, reduce }) {
   const [active, setActive] = useState(0)
   const currentChapter = useRef(0)
   const { scrollYProgress } = useScroll({ target: track, offset: ['start start', 'end end'] })
+  // Keep the image layers and selected report on one damped clock. A derived
+  // spring also avoids a separate native ViewTimeline for each image property.
+  const progress = useSpring(scrollYProgress, sceneSpring)
+  const goTo = useReelScroll(track)
   const selected = stories[active] || stories[0]
   const select = useCallback((index) => {
     if (!animated) { currentChapter.current = index; setActive(index); track.current?.scrollIntoView?.({ behavior: reduce ? 'instant' : 'smooth', block: 'start' }); return }
-    const element = track.current
-    if (!element) return
-    const start = window.scrollY + element.getBoundingClientRect().top
-    const travel = Math.max(0, element.offsetHeight - window.innerHeight)
-    window.scrollTo({ top: start + travel * [0, .5, .94][index], behavior: 'smooth' })
-  }, [animated, reduce])
-  useMotionValueEvent(scrollYProgress, 'change', (progress) => {
-    const next = chapterAt(progress)
+    goTo(index)
+  }, [animated, reduce, goTo])
+  const step = (direction) => {
+    const next = (pending) => ((pending ?? currentChapter.current) + direction + stories.length) % stories.length
+    if (animated) goTo(next)
+    else select(next())
+  }
+  useMotionValueEvent(progress, 'change', (value) => {
+    const next = chapterAt(value)
     if (animated && currentChapter.current !== next) { currentChapter.current = next; setActive(next) }
   })
   useEffect(() => {
     if (!animated) return
-    const next = chapterAt(scrollYProgress.get())
+    const next = chapterAt(progress.get())
     currentChapter.current = next
     setActive(next)
-  }, [animated, scrollYProgress])
+  }, [animated, progress])
   useEffect(() => {
     if (!request) return
     const index = stories.findIndex((post) => post.slug === request.slug)
@@ -98,12 +120,12 @@ function StoryReelScene({ stories, request, onPreview, animated, reduce }) {
   }, [request, stories, select])
   return <section ref={track} className={`issue-reel${animated ? ' issue-reel--scroll' : ''}`} aria-label="日报焦点报道">
     <div className="issue-stage">
-      <div className="issue-scene-images">{animated ? stories.map((post, index) => <SceneImage key={`${index}:${post.slug}`} post={post} index={index} progress={scrollYProgress} animated selected={index === active} />) : <SceneImage key={selected.slug} post={selected} index={0} progress={scrollYProgress} animated={false} selected />}</div>
+      <div className="issue-scene-images">{animated ? stories.map((post, index) => <SceneImage key={`${index}:${post.slug}`} post={post} index={index} progress={progress} animated reduce={reduce} />) : <AnimatePresence initial={false}><SceneImage key={selected.slug} post={selected} index={0} progress={progress} animated={false} reduce={reduce} /></AnimatePresence>}</div>
       <div className="issue-scene-shade" />
       <div className="issue-edition-label"><span>AI DAILY</span><span>新闻 / 观点 / 原始来源</span><span className="issue-edition-number">03</span></div>
       <div className="issue-scene-grid" aria-hidden="true"><span /><span /></div>
-      <div className="issue-story-heading"><p className="issue-focus-tag"><span />AI 日报<span className="issue-focus-divider">/</span>焦点报道 <span className="issue-focus-order">{String(active + 1).padStart(2, '0')} — {String(stories.length).padStart(2, '0')}</span></p><AnimatePresence mode="wait" initial={false}><motion.div key={selected.slug} initial={{ opacity: 0, y: reduce ? 0 : 26 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reduce ? 0 : -18 }} transition={{ duration: reduce ? 0 : .25 }}><h1>{selected.title}</h1><div className="issue-story-meta"><time dateTime={selected.created_at}>{formatDate(selected.created_at)}</time><span>{selected.source_count} 个原始来源</span><span>{selected.reading_time} 分钟阅读</span></div><div className="issue-story-actions"><Link to={postPath(selected)} className="issue-read-link">阅读报道 <ArrowUpRight size={20} /></Link><button onClick={() => onPreview(selected)}>先看摘要 <span>↗</span></button></div></motion.div></AnimatePresence></div>
-      <div className="issue-story-rail"><div className="issue-rail-caption"><ArrowDown size={15} /><span>{animated ? '向下滚动，进入下一条报道' : '选择一条焦点报道'}</span></div><nav aria-label="选择焦点报道">{stories.map((post, index) => <button key={post.slug} onClick={() => select(index)} aria-label={`切换焦点：${post.title}`} aria-pressed={active === index}><span className="issue-rail-number">{String(index + 1).padStart(2, '0')}</span><span>{post.title}</span><ArrowUpRight size={15} /></button>)}</nav><div className="issue-rail-arrows"><button onClick={() => select((active + stories.length - 1) % stories.length)} aria-label="上一条焦点报道"><ArrowLeft size={19} /></button><button onClick={() => select((active + 1) % stories.length)} aria-label="下一条焦点报道"><ArrowRight size={19} /></button></div></div>
+      <div className="issue-story-heading"><p className="issue-focus-tag"><span />AI 日报<span className="issue-focus-divider">/</span>焦点报道 <span className="issue-focus-order">{String(active + 1).padStart(2, '0')} — {String(stories.length).padStart(2, '0')}</span></p><StoryCopy key={selected.slug} post={selected} index={active} progress={progress} animated={animated} reduce={reduce} onPreview={onPreview} /></div>
+      <div className="issue-story-rail"><div className="issue-rail-caption"><ArrowDown size={15} /><span>{animated ? '向下滚动，进入下一条报道' : '选择一条焦点报道'}</span></div><nav aria-label="选择焦点报道">{stories.map((post, index) => <button key={post.slug} onClick={() => select(index)} aria-label={`切换焦点：${post.title}`} aria-pressed={active === index}><span className="issue-rail-number">{String(index + 1).padStart(2, '0')} </span><span>{post.title}</span><ArrowUpRight size={15} /></button>)}</nav><div className="issue-rail-arrows"><button onClick={() => step(-1)} aria-label="上一条焦点报道"><ArrowLeft size={19} /></button><button onClick={() => step(1)} aria-label="下一条焦点报道"><ArrowRight size={19} /></button></div></div>
       <div className="issue-scene-caption"><span>当前报道配图</span><span>历史内容样本 · 按原发布日期展示</span></div>
     </div>
   </section>
