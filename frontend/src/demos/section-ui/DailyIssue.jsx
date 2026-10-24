@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, Menu, X } from 'lucide-react'
@@ -79,9 +79,15 @@ function StoryReel({ stories, request, onPreview }) {
     const next = chapterAt(progress)
     if (animated && currentChapter.current !== next) { currentChapter.current = next; setActive(next) }
   })
-  useEffect(() => {
-    if (!animated) return
-    const next = chapterAt(scrollYProgress.get())
+  useLayoutEffect(() => {
+    if (!animated || !track.current) return
+    // Switching from the short mobile scene changes the scroll range even when
+    // the page stays at scrollY=0, so no scroll event may refresh Motion's value.
+    const element = track.current
+    const travel = element.offsetHeight - window.innerHeight
+    const progress = travel > 0 ? Math.max(0, Math.min(1, -element.getBoundingClientRect().top / travel)) : 0
+    scrollYProgress.set(progress)
+    const next = chapterAt(progress)
     currentChapter.current = next
     setActive(next)
   }, [animated, scrollYProgress])
@@ -92,7 +98,7 @@ function StoryReel({ stories, request, onPreview }) {
   }, [request, stories, select])
   return <section ref={track} className={`issue-reel${animated ? ' issue-reel--scroll' : ''}`} aria-label="日报焦点报道">
     <div className="issue-stage">
-      <div className="issue-scene-images">{animated ? stories.map((post, index) => <SceneImage key={post.slug} post={post} index={index} progress={scrollYProgress} animated selected={index === active} />) : <SceneImage key={selected.slug} post={selected} index={0} progress={scrollYProgress} animated={false} selected />}</div>
+      <div className="issue-scene-images">{animated ? stories.map((post, index) => <SceneImage key={`${index}:${post.slug}`} post={post} index={index} progress={scrollYProgress} animated selected={index === active} />) : <SceneImage key={selected.slug} post={selected} index={0} progress={scrollYProgress} animated={false} selected />}</div>
       <div className="issue-scene-shade" />
       <div className="issue-edition-label"><span>AI DAILY</span><span>新闻 / 观点 / 原始来源</span><span className="issue-edition-number">03</span></div>
       <div className="issue-scene-grid" aria-hidden="true"><span /><span /></div>
