@@ -211,3 +211,26 @@ it('restores the unchanged paper story layout through the existing style prefere
   expect(container.querySelector('.tech-content-date-index')).toBeNull()
   expect(container.querySelector('.tech-content-timeline')).toBeNull()
 })
+
+it('keeps the header readable after a direct jump past the hero and restores its overlay on return', async () => {
+  const { container } = render(<MemoryRouter><ContentTypePage contentType="daily_brief" /></MemoryRouter>)
+  await screen.findByRole('region', { name: '日报焦点报道' })
+  const edition = container.querySelector('.issue-live')
+  const boundary = container.querySelector('main > div[aria-hidden="true"]')
+  let top = 1200
+  const measure = vi.spyOn(boundary, 'getBoundingClientRect').mockImplementation(() => ({ top }))
+  try {
+    fireEvent.scroll(window)
+    await waitFor(() => expect(edition).not.toHaveClass('issue-paper-header'))
+    // Jump over the entire hero in one step; the one-pixel marker never enters
+    // the viewport, so an intersection-only implementation misses this change.
+    top = -1800
+    fireEvent.scroll(window)
+    await waitFor(() => expect(edition).toHaveClass('issue-paper-header'))
+    top = 1200
+    fireEvent.resize(window)
+    await waitFor(() => expect(edition).not.toHaveClass('issue-paper-header'))
+  } finally {
+    measure.mockRestore()
+  }
+})

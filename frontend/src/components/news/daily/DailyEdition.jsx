@@ -155,11 +155,26 @@ export default function DailyEdition({ posts = EMPTY_POSTS, featuredPosts, loadi
     setRequest({ slug })
   }
   useEffect(() => {
-    if (!sceneEnd.current || typeof IntersectionObserver !== 'function') return undefined
-    const observer = new IntersectionObserver(([entry]) => setPaperHeader(entry.boundingClientRect.top < 90), { rootMargin: '-90px 0px 0px 0px' })
-    observer.observe(sceneEnd.current)
-    return () => observer.disconnect()
-  }, [])
+    let frame = 0
+    let previous
+    const update = () => {
+      frame = 0
+      if (!sceneEnd.current) return
+      const next = sceneEnd.current.getBoundingClientRect().top < 90
+      if (next !== previous) { previous = next; setPaperHeader(next) }
+    }
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update) }
+    // A direct jump can skip a one-pixel IntersectionObserver sentinel entirely.
+    // Coalesce passive scroll reads and only render when the surface changes.
+    window.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule)
+    update()
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+    }
+  }, [loading, error, posts.length])
   return <div className={`issue-demo ${className}${paperHeader ? ' issue-paper-header' : ''}`} data-design="cinematic-03">
     {header}
     <main id="main-content">
