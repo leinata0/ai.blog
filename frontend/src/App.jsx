@@ -25,6 +25,7 @@ const DiscoverPage = lazy(() => import('./pages/DiscoverPage'))
 const SearchPage = lazy(() => import('./pages/SearchPage'))
 const FollowingPage = lazy(() => import('./pages/FollowingPage'))
 const StartHerePage = lazy(() => import('./pages/StartHerePage'))
+const SectionUiDemo = lazy(() => import('./demos/section-ui/SectionUiDemo'))
 const FeedsPage = lazy(() => import('./pages/FeedsPage'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))
 const FriendsPage = lazy(() => import('./pages/FriendsPage'))
@@ -100,6 +101,7 @@ export default function App() {
               <Route path="/topics/:topicKey" element={<TopicDetailPage />} />
               <Route path="/following" element={<FollowingPage />} />
               <Route path="/start-here" element={<StartHerePage />} />
+              <Route path="/demo/sections/:view?" element={<SectionUiDemo />} />
               <Route path="/daily" element={<ContentTypePage contentType="daily_brief" />} />
               <Route path="/weekly" element={<ContentTypePage contentType="weekly_review" />} />
               <Route path="/feeds" element={<FeedsPage />} />

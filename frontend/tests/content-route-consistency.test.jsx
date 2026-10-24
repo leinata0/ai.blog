@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 
@@ -94,7 +94,9 @@ it('keeps content-type data aligned with the latest prop and resets while loadin
     })
     await freshDaily.promise
   })
-  expect(await screen.findByText('Fresh daily response')).toBeInTheDocument()
+  const dailyScene = await screen.findByRole('region', { name: '日报焦点报道' })
+  expect(within(dailyScene).getByRole('heading', { level: 1, name: 'Fresh daily response' })).toBeInTheDocument()
+  expect(within(dailyScene).getByRole('link', { name: /阅读报道/ })).toHaveAttribute('href', '/posts/fresh-daily')
   expect(postApiMocks.fetchPosts).not.toHaveBeenCalled()
 })
 

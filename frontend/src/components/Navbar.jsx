@@ -22,21 +22,13 @@ import {
   getRecentTopics,
 } from '../utils/topicRetention'
 import { SITE_COPY } from '../utils/contentPresentation'
+import { NEWS_NAV_ITEMS as NAV_ITEMS, isNewsNavActive as isNavActive } from '../utils/newsNavigation'
 import { openCommandPalette } from '../utils/uiEvents'
 import { formatDate } from '../utils/date'
 import { getSurfaceForPath, SURFACES } from '../utils/surface'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import '../styles/news-immersive-nav.css'
 import '../styles/tech-navigation.css'
-
-const NAV_ITEMS = [
-  { label: '首页', to: '/' },
-  { label: '日报', to: '/daily' },
-  { label: '周报', to: '/weekly' },
-  { label: '主题', to: '/topics' },
-  { label: '系列', to: '/series' },
-  { label: '开始阅读', to: '/start-here' },
-]
 
 const BROWSE_ITEMS = [
   { label: '发现', to: '/discover' },
@@ -63,10 +55,6 @@ let publicShellMounts = 0
 
 function toggleLabel(open, name) {
   return `${open ? '关闭' : '打开'}${name}`
-}
-
-function isNavActive(pathname, to) {
-  return pathname === to || (to !== '/' && pathname.startsWith(`${to}/`))
 }
 
 function NavLink({ to, active, children, onClick }) {
@@ -217,7 +205,7 @@ function TrackingPreview({
   )
 }
 
-export default function Navbar({ immersive = false }) {
+export default function Navbar({ immersive = false, children }) {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [mobileBrowseOpen, setMobileBrowseOpen] = useState(false)
@@ -492,6 +480,7 @@ export default function Navbar({ immersive = false }) {
     <header ref={navRef} className="news-navbar news-navbar--immersive news-edition-header" data-surface="editorial" data-ui="news-header">
       <div className="news-edition-header__bar">
         <Link to="/" className="news-edition-header__brand" aria-label={`${SITE_COPY.brand}首页`}>{SITE_COPY.brand}</Link>
+        {children}
         <div className="news-edition-header__actions">
           <button ref={mobileMenuButtonRef} type="button" className="news-edition-header__action" onClick={() => setMobileOpen((open) => !open)} aria-label="菜单" title={toggleLabel(mobileOpen, '导航菜单')} aria-expanded={mobileOpen} aria-haspopup="true" aria-controls={MOBILE_NAV_PANEL_ID}>
             {mobileOpen ? <X size={15} aria-hidden="true" /> : <Menu size={15} aria-hidden="true" />}<span>菜单</span>
