@@ -1933,6 +1933,11 @@ def list_topics(
             "title": title,
             "display_title": title,
             "description": description,
+            "cover_image": (
+                ((profile.cover_image if profile else "") or "").strip()
+                or (latest_post.cover_image if latest_post else "")
+                or ""
+            ),
             "content_types": content_types,
             "series_slug": (profile.series_slug if profile else (latest_post.series_slug if latest_post else None)),
             "taxonomy_type": "topic",
