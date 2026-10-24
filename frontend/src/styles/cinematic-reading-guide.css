@@ -1,0 +1,44 @@
+.cinema-guide-hero { min-height:max(900px,100svh); padding:170px 6% 90px; display:grid; grid-template-columns:1fr 1.08fr; align-items:center; column-gap:8%; background:#182421; }
+.cinema-guide-lines { position:absolute; inset:40px -10% 50px 30%; z-index:-1; transform:rotate(-28deg); pointer-events:none; opacity:.5; }
+.cinema-guide-lines>div { display:flex; align-items:center; gap:30px; height:145px; }
+.cinema-guide-lines span { font:12px var(--font-mono,monospace); color:#e5a58a; }
+.cinema-guide-lines i { display:block; height:1px; width:100%; background:linear-gradient(90deg,#e79b73,transparent); }
+.cinema-guide-intro h1 { max-width:650px; font-size:clamp(45px,5.15vw,85px); font-weight:500; letter-spacing:-.065em; line-height:1.28; margin:35px 0 30px; text-wrap:balance; }
+.cinema-guide-intro>p { max-width:430px; color:#bac6ba; font-size:13px; line-height:2; }
+.cinema-guide-explore { margin-top:45px; display:inline-flex; align-items:center; gap:50px; padding-bottom:10px; border-bottom:1px solid #a2b3a070; font-size:12px!important; }
+.cinema-guide-console { border-top:1px solid #a4b5a45c; }
+.cinema-guide-console-head { display:flex; justify-content:space-between; padding:16px 0; font:9px var(--font-mono,monospace); letter-spacing:.09em; color:#c5d2c0; }
+.cinema-guide-choices { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border-top:1px solid #a4b5a435; border-left:1px solid #a4b5a435; }
+.cinema-guide-choices button { display:flex; align-items:center; flex-wrap:wrap; gap:12px; min-height:85px; padding:18px; background:#18242177; color:#bbc6b8; border:0; border-right:1px solid #a4b5a435; border-bottom:1px solid #a4b5a435; transition:background .25s,color .25s; text-align:left; }
+.cinema-guide-choices button span { font:9px var(--font-mono,monospace); }
+.cinema-guide-choices button b { font-size:12px; font-weight:400; flex:1; white-space:nowrap; }
+.cinema-guide-choices button[aria-pressed=true] { background:#e57750; color:#182421; }
+.cinema-guide-choices button:hover:not([aria-pressed=true]) { background:#d6e1c122; color:#fff; }
+.cinema-guide-preview { position:relative; padding:45px 8% 35px; min-height:350px; background:#ced8ba; color:#202b24; display:grid; grid-template-columns:80px 1fr; gap:25px; }
+.cinema-guide-preview-no { font:300 83px/.9 Georgia,serif; letter-spacing:-.09em; color:#617251; }
+.cinema-guide-preview small { font:9px var(--font-mono,monospace); letter-spacing:.12em; color:#54664a; }
+.cinema-guide-preview h2 { font-size:clamp(24px,2.2vw,38px); font-weight:500; letter-spacing:-.04em; margin:14px 0; line-height:1.4; }
+.cinema-guide-preview p { font-size:12px; line-height:1.9; color:#4a5c43; margin-bottom:25px; }
+.cinema-guide-preview .cinema-button { border-color:#7f9070; }
+.cinema-guide-bottom { position:absolute; left:6%; right:6%; bottom:30px; display:flex; justify-content:space-between; gap:20px; padding-top:15px; border-top:1px solid #a4b5a435; font:9px var(--font-mono,monospace); letter-spacing:.09em; color:#b6c3b1; }
+.cinema-guide-bottom a { display:inline-flex; align-items:center; gap:10px; }
+.cinema-guide-route-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border-top:1px solid #bfc3b5; border-left:1px solid #bfc3b5; }
+.cinema-guide-route-grid article { padding:32px; border-right:1px solid #bfc3b5; border-bottom:1px solid #bfc3b5; display:flex; flex-direction:column; transition:background .3s; }
+.cinema-guide-route-grid article.is-selected { background:#dee3d3; }
+.cinema-guide-route-top { display:flex; justify-content:space-between; gap:15px; font:10px var(--font-mono,monospace); color:#64725b; margin-bottom:36px; }
+.cinema-guide-route-grid h3 { font-size:23px; font-weight:500; letter-spacing:-.04em; margin-bottom:15px; }
+.cinema-guide-route-grid article>p { font-size:12px; line-height:2; color:#636c63; margin-bottom:35px; }
+.cinema-guide-route-links { display:flex; flex-wrap:wrap; justify-content:space-between; gap:20px; margin-top:auto; }
+.cinema-guide-route-links a { display:inline-flex; align-items:center; gap:15px; font-size:12px; border-bottom:1px solid #8d9982; padding-bottom:8px; }
+.cinema-guide-notes { padding:75px 6%; background:#dfe2d4; display:grid; grid-template-columns:.85fr 1.3fr; gap:40px 10%; }
+.cinema-guide-notes h2 { font-size:clamp(32px,3.4vw,56px); letter-spacing:-.055em; font-weight:500; line-height:1.4; margin-top:25px; }
+.cinema-guide-notes dl { margin:0; }
+.cinema-guide-notes dl>div { display:grid; grid-template-columns:30px 110px 1fr; gap:15px; padding:22px 0; border-top:1px solid #b6bfaa; }
+.cinema-guide-notes dl span { font:10px/2 var(--font-mono,monospace); color:#6b785f; }
+.cinema-guide-notes dt { font-size:14px; }
+.cinema-guide-notes dd { font-size:12px; line-height:2; color:#5e6c56; margin:0; }
+.cinema-guide-notes>p { grid-column:2; color:#69765f; font-size:11px; }
+@media(min-width:1800px) { .cinema-guide-hero { column-gap:12%; padding-inline:9%; } .cinema-guide-console { max-width:760px; } }
+@media(max-width:1100px) { .cinema-guide-hero { column-gap:5%; } .cinema-guide-preview { grid-template-columns:55px 1fr; gap:20px; padding-inline:6%; } .cinema-guide-preview-no { font-size:65px; } .cinema-guide-choices button { padding:12px; gap:8px; } .cinema-guide-route-grid article { padding:25px; } }
+@media(max-width:760px) { .cinema-guide-hero { padding:130px 6% 95px; grid-template-columns:1fr; gap:45px; min-height:auto; } .cinema-guide-intro h1 { font-size:43px; max-width:500px; margin-top:25px; } .cinema-guide-intro>p { max-width:500px; } .cinema-guide-explore { margin-top:25px; } .cinema-guide-lines { left:10%; opacity:.25; } .cinema-guide-choices button { min-height:78px; gap:8px; } .cinema-guide-choices button svg { display:none; } .cinema-guide-preview { min-height:320px; padding-top:35px; } .cinema-guide-preview h2 { font-size:26px; } .cinema-guide-bottom>span { max-width:180px; font-size:8px; } .cinema-guide-route-grid { grid-template-columns:1fr; } .cinema-guide-route-grid article { padding:27px; } .cinema-guide-route-top { margin-bottom:20px; } .cinema-guide-notes { grid-template-columns:1fr; gap:35px; } .cinema-guide-notes dl>div { grid-template-columns:23px 1fr; gap:10px; } .cinema-guide-notes dd { grid-column:2; } .cinema-guide-notes>p { grid-column:1; } }
+.cinema-guide #reading-routes { scroll-margin-top:100px; }

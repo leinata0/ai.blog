@@ -76,7 +76,7 @@ it('distinguishes topic failures from an empty atlas and recovers through retry'
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
 
-it('renders real series as dimensional books with reading, subscription and recent article routes', async () => {
+it('renders real series with reading, subscription and recent article routes', async () => {
   const { container } = mount(<SeriesPage />)
   const shelf = await waitFor(() => {
     const node = container.querySelector('[data-ui="tech-series-shelf"]')
@@ -89,20 +89,19 @@ it('renders real series as dimensional books with reading, subscription and rece
   const book = within(volume).getByRole('link', { name: '阅读研究收藏' })
   expect(book).toHaveAttribute('href', '/series/research%2Flibrary')
   expect(book.querySelector('img')).toHaveAttribute('src', series[0].cover_image)
-  expect(volume.querySelector('.tech-series-book__spine')).toBeTruthy()
   expect(within(volume).getByRole('link', { name: '订阅系列' })).toHaveAttribute('href', '/feeds?series_slug=research%2Flibrary')
   expect(within(volume).getByRole('link', { name: '最新研究手记' })).toHaveAttribute('href', '/posts/paper-note')
-  expect(within(volume).getByText('8')).toBeInTheDocument()
+  expect(within(volume).getByText('8 篇文章')).toBeInTheDocument()
   fireEvent.focus(book)
   expect(prefetchSeriesDetail).toHaveBeenCalledWith('research/library', expect.any(Object))
   fireEvent.error(book.querySelector('img'))
   expect(book.querySelector('img')).toBeNull()
-  expect(book.querySelector('.tech-series-book__fallback')).toBeTruthy()
+  expect(within(book).getByRole('img', { name: '研究收藏：封面暂不可用' })).toBeInTheDocument()
 })
 
 it('retains the paper series editorial stack and switches structures without another request', async () => {
   const { container } = mount(<SeriesPage />)
-  await screen.findByRole('heading', { name: '研究收藏' })
+  await screen.findByRole('heading', { level: 3, name: '研究收藏' })
   act(() => setNewsStyle('paper'))
   expect(container.querySelector('[data-ui="tech-series-shelf"]')).toBeNull()
   expect(container.querySelector('[data-ui="paper-series-index"]')).toBeTruthy()
@@ -116,7 +115,7 @@ it('recovers a failed series request and aborts an outstanding request on unmoun
   const view = mount(<SeriesPage />)
   expect(await screen.findByRole('alert')).toHaveTextContent('系列服务暂不可用')
   await userEvent.click(screen.getByRole('button', { name: '重新加载系列' }))
-  expect(await screen.findByRole('heading', { name: '研究收藏' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { level: 3, name: '研究收藏' })).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   view.unmount()
 

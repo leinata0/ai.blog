@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, ArrowUpRight, Rss, Route } from 'lucide-react'
-import TechPageFrame from '../TechPageFrame'
+import { motion, useReducedMotion } from 'framer-motion'
+import { ArrowDown, ArrowRight, ArrowUpRight, Rss } from 'lucide-react'
 import { START_HERE_COPY } from '../../utils/contentPresentation'
-import '../../styles/tech-reading-guide.css'
+import '../../styles/cinematic-reading-guide.css'
 
 const NOTES = [
   ['发布日期', '表示文章何时在本站发布。打开文章时，先确认它是近期更新还是历史记录。'],
@@ -13,30 +13,26 @@ const NOTES = [
 
 export default function TechReadingGuide({ routes }) {
   const [selected, setSelected] = useState(0)
+  const reduce = useReducedMotion()
   const current = routes[selected]
-  const visual = <div className="tech-guide-navigator">
-    <div className="tech-guide-navigator__bar"><span>READING PATH / {current.number}</span><Route size={16} aria-hidden="true" /></div>
-    <div className="tech-guide-navigator__map" aria-hidden="true">{routes.map((route, index) => <span key={route.number} className={selected === index ? 'is-selected' : ''}>{route.number}</span>)}</div>
-    <div className="tech-guide-navigator__selection" aria-live="polite"><small>{current.time}</small><h2>{current.title}</h2><p>{current.description}</p><Link to={current.to}>进入这条路径 <ArrowUpRight size={18} aria-hidden="true" /></Link></div>
-    <span className="tech-guide-navigator__edge" aria-hidden="true">READ / CONNECT / UNDERSTAND</span>
-  </div>
-
-  return <TechPageFrame section="reading" index="05 / READING PATHS" title={START_HERE_COPY.title} accentTitle="从信息，走向理解。" description={START_HERE_COPY.description}
-    meta={<span>选择一种节奏，找到你的阅读入口。</span>}
-    actions={<><Link to="/">查看最新资讯 <ArrowRight size={16} aria-hidden="true" /></Link><Link to="/feeds"><Rss size={15} aria-hidden="true" /> 订阅更新</Link></>}
-    visual={visual}>
-    <section className="tech-guide-routes" aria-labelledby="reading-routes">
-      <header className="tech-guide-section-head"><div><span>FIND YOUR WAY</span><h2 id="reading-routes">选择你的阅读方式</h2></div><p>按下一个入口，预览它能带你去哪里。</p></header>
-      <div className="tech-guide-route-switch" role="group" aria-label="选择阅读路径">{routes.map((route, index) => <button type="button" key={route.number} aria-pressed={selected === index} onClick={() => setSelected(index)}><span>{route.number}</span>{route.time}<ArrowUpRight size={15} aria-hidden="true" /></button>)}</div>
-      <div className="tech-guide-route-grid">{routes.map((route, index) => <article key={route.number} className={`tech-guide-route${selected === index ? ' is-selected' : ''}`} data-tech-reveal>
-        <div className="tech-guide-route__index"><span>{route.number}</span><small>{route.time}</small></div>
-        <h3>{route.title}</h3><p>{route.description}</p><div className="tech-guide-route__links"><Link to={route.to}>{route.label} <ArrowUpRight size={16} aria-hidden="true" /></Link>{route.secondary ? <Link to={route.secondary.to}>{route.secondary.label} <ArrowRight size={14} aria-hidden="true" /></Link> : null}</div>
-      </article>)}</div>
+  const reveal = !reduce && typeof IntersectionObserver !== 'undefined'
+  return <div className="cinema-layout cinema-guide" data-tech-page="reading">
+    <header className="cinema-hero cinema-guide-hero">
+      <div className="cinema-guide-lines" aria-hidden="true">{routes.map((route, index) => <motion.div key={route.number} animate={{ opacity:selected === index ? 1 : .17, x:selected === index ? 0 : 24 }} transition={{ duration:reduce ? 0 : .55 }}><span>{route.number}</span><i /></motion.div>)}</div>
+      <div className="cinema-guide-intro"><span className="cinema-kicker">05 / FIND YOUR READING ORBIT</span><h1>{START_HERE_COPY.title}</h1><p>{START_HERE_COPY.description}</p><a href="#reading-routes" className="cinema-guide-explore">探索阅读路径 <ArrowDown size={18} /></a></div>
+      <div className="cinema-guide-console">
+        <div className="cinema-guide-console-head"><span>READING SELECTOR</span><span>{current.number} / 06</span></div>
+        <div className="cinema-guide-choices" role="group" aria-label="选择阅读路径">{routes.map((route, index) => <button type="button" key={route.number} aria-pressed={selected === index} onClick={() => setSelected(index)}><span>{route.number}</span><b>{route.time}</b><ArrowUpRight size={17} aria-hidden="true" /></button>)}</div>
+        <motion.div key={current.number} className="cinema-guide-preview" aria-live="polite" initial={reduce ? false : { opacity:0, y:10 }} animate={{ opacity:1, y:0 }} transition={{ duration:reduce ? 0 : .3 }}>
+          <span className="cinema-guide-preview-no" aria-hidden="true">{current.number}</span><div><small>YOUR NEXT STOP</small><h2>{current.title}</h2><p>{current.description}</p><Link to={current.to} className="cinema-button">进入这条路径 <ArrowUpRight size={18} aria-hidden="true" /></Link></div>
+        </motion.div>
+      </div>
+      <div className="cinema-guide-bottom"><span>CHOOSE YOUR PACE. FOLLOW YOUR CURIOSITY.</span><Link to="/feeds"><Rss size={14} /> 订阅更新</Link></div>
+    </header>
+    <section className="cinema-body cinema-guide-directory" aria-labelledby="reading-routes">
+      <header className="cinema-section-heading"><div><span className="cinema-kicker">THE ROUTE DIRECTORY</span><h2 id="reading-routes">选择你的阅读方式</h2></div><p>从快速浏览到持续追踪，入口始终在这里。<br />按你的节奏，往下读。</p></header>
+      <div className="cinema-guide-route-grid">{routes.map((route, index) => <motion.article key={route.number} className={selected === index ? 'is-selected' : ''} initial={reveal ? { opacity:0, y:16 } : false} whileInView={reveal ? { opacity:1, y:0 } : undefined} viewport={{ once:true, amount:.1 }} transition={{ duration:reduce ? 0 : .4 }}><div className="cinema-guide-route-top"><span>{route.number}</span><small>{route.time}</small></div><h3>{route.title}</h3><p>{route.description}</p><div className="cinema-guide-route-links"><Link to={route.to}>{route.label} <ArrowUpRight size={17} /></Link>{route.secondary ? <Link to={route.secondary.to}>{route.secondary.label} <ArrowRight size={14} /></Link> : null}</div></motion.article>)}</div>
     </section>
-    <aside className="tech-guide-notes" aria-labelledby="reading-notes" data-tech-reveal>
-      <header><span>BEFORE YOU READ</span><h2 id="reading-notes">读一条消息，<br />先看这三处。</h2></header>
-      <dl>{NOTES.map(([title, description], index) => <div key={title}><span aria-hidden="true">0{index + 1}</span><dt>{title}</dt><dd>{description}</dd></div>)}</dl>
-      <p className="tech-guide-notice">首页展示站内已发布的资讯。日报、周报是内容栏目，实际更新以公开发布日期为准；自动化参与采集与整理。</p>
-    </aside>
-  </TechPageFrame>
+    <aside className="cinema-guide-notes" aria-labelledby="reading-notes"><div><span className="cinema-kicker">BEFORE YOU READ</span><h2 id="reading-notes">看见消息，<br />也看清来处。</h2></div><dl>{NOTES.map(([title, description], index) => <div key={title}><span aria-hidden="true">0{index + 1}</span><dt>{title}</dt><dd>{description}</dd></div>)}</dl><p>首页展示站内已发布的资讯。日报、周报是内容栏目，实际更新以公开发布日期为准；自动化参与采集与整理。</p></aside>
+  </div>
 }

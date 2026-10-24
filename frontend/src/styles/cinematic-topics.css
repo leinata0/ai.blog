@@ -1,0 +1,68 @@
+.cinema-topics-hero { min-height:min(1040px,100svh); padding:135px 5% 48px; display:flex; flex-direction:column; }
+.cinema-topics-hero__images,.cinema-topics-hero__image,.cinema-topics-hero__shade { position:absolute; inset:0; z-index:-1; pointer-events:none; }
+.cinema-topics-hero__image { overflow:hidden; }
+.cinema-topics-hero__image>img { width:100%; height:100%; object-fit:cover; }
+.cinema-topics-hero__shade { background:linear-gradient(90deg,#10201ef0 0%,#10201e5c 68%,#10201e77),linear-gradient(0deg,#101e1df5,transparent 70%); }
+.cinema-topics-hero__image .cinema-cover-fallback { background:#243a32; padding:9% 37%; }
+.cinema-topics-hero__image .cinema-cover-fallback strong { font-size:clamp(56px,8vw,150px); opacity:.18; line-height:1.2; }
+.cinema-topics-hero__image .cinema-cover-fallback>span,.cinema-topics-hero__image .cinema-cover-fallback>small { visibility:hidden; }
+.cinema-topics-hero__masthead { display:grid; grid-template-columns:1fr 1fr auto; gap:30px; align-items:end; padding-bottom:28px; border-bottom:1px solid #f2f0e440; }
+.cinema-topics-hero__masthead h1 { font-size:clamp(26px,3vw,44px); font-weight:500; letter-spacing:-.06em; margin-top:12px; line-height:1.1; }
+.cinema-topics-hero__masthead>p { font-size:13px; line-height:1.8; color:#f1f0e4c7; }
+.cinema-topics-hero__count { display:flex; gap:14px; align-items:end; }
+.cinema-topics-hero__count b { font-size:52px; font-weight:400; line-height:.85; letter-spacing:-.06em; }
+.cinema-topics-hero__count>span { font-size:10px; color:#f1f0e4b8; }
+.cinema-topics-stage { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,.38fr); gap:10%; align-items:end; flex:1; padding:70px 0 45px; }
+.cinema-topics-spotlight { max-width:950px; }
+.cinema-topics-spotlight__label { font:10px/1.6 var(--font-mono,monospace); letter-spacing:.12em; color:#f2b4a0; }
+.cinema-topics-spotlight .cinema-topics-spotlight__title { font-size:clamp(44px,5.9vw,108px); font-weight:450; letter-spacing:-.055em; line-height:1.17; text-wrap:balance; margin:20px 0 25px; }
+.cinema-topics-spotlight__description { max-width:620px; font-size:clamp(13px,1.05vw,16px); line-height:1.9; color:#f1f0e4d6; }
+.cinema-topics-spotlight__meta { display:flex; flex-wrap:wrap; gap:10px 22px; margin:22px 0 28px; font-size:11px; color:#f1f0e4b8; }
+.cinema-topics-spotlight .cinema-button { min-width:200px; }
+.cinema-topics-selector { border-top:1px solid #f1f0e46b; align-self:end; }
+.cinema-topics-selector__caption { display:flex; justify-content:space-between; gap:10px; font-size:10px; padding:16px 0; color:#f1f0e4c4; }
+.cinema-topics-selector__caption>span { font:9px/1.6 var(--font-mono,monospace); letter-spacing:.08em; }
+.cinema-topics-selector__items { max-height:325px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:#d6c8b966 transparent; }
+.cinema-topics-selector__items>button { width:100%; padding:17px 5px; display:grid; grid-template-columns:27px minmax(0,1fr) 17px; gap:9px; align-items:center; text-align:left; border:0; border-top:1px solid #f1f0e429; background:transparent; color:#f1f0e4a6; min-height:58px; transition:color .2s,background .2s; }
+.cinema-topics-selector__items>button>span:first-child { font:10px/1.6 var(--font-mono,monospace); color:#f1f0e45e; }
+.cinema-topics-selector__items>button>span:nth-child(2) { min-width:0; overflow-wrap:anywhere; font-size:12px; }
+.cinema-topics-selector__items>button[aria-pressed=true] { color:#fff; background:#f1f0e413; }
+.cinema-topics-selector__items>button[aria-pressed=true]>span:first-child { color:#f1a38b; }
+.cinema-topics-selector__items>button:hover { color:#fff; background:#f1f0e40d; }
+.cinema-topics-hero__scroll { display:flex; gap:15px; align-items:center; font-size:10px; align-self:start; color:#f1f0e4b8!important; }
+.cinema-topics-hero__state { margin-block:auto; min-height:320px; display:flex; flex-direction:column; justify-content:center; align-items:start; }
+.cinema-topics-index { scroll-margin-top:90px; }
+.cinema-topics-search { display:flex; align-items:center; gap:18px; min-height:70px; border-block:1px solid #18201e66; margin-bottom:10px; }
+.cinema-topics-search>svg { color:#d95130; flex:none; }
+.cinema-topics-search>input { flex:1; min-width:0; background:transparent; border:0; color:#18201e; min-height:68px; outline:none; font-size:14px; }
+.cinema-topics-search>input::placeholder { color:#6e756b; }
+.cinema-topics-search>button { display:grid; place-items:center; width:44px; height:44px; border:0; background:transparent; color:#18201e; }
+.cinema-topics-search>span { font:11px/1.6 var(--font-mono,monospace); color:#636c63; white-space:nowrap; }
+.cinema-topics-search:focus-within { outline:2px solid #d95130; outline-offset:5px; }
+.cinema-topics-entries { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 5%; }
+.cinema-topic-entry { display:grid; grid-template-columns:28px 1fr; column-gap:13px; padding:30px 0 20px; border-bottom:1px solid #18201e33; }
+.cinema-topic-entry__number { font:10px/1.6 var(--font-mono,monospace); color:#7c8176; padding-top:3px; }
+.cinema-topic-entry__link { display:grid; grid-template-columns:135px 1fr 28px; gap:24px; align-items:center; }
+.cinema-topic-entry__image { height:112px; overflow:hidden; background:#26342f; }
+.cinema-topic-entry__image>img { width:100%; height:100%; object-fit:cover; transition:transform .5s cubic-bezier(.2,.65,.3,1); }
+.cinema-topic-entry__link:hover .cinema-topic-entry__image>img { transform:scale(1.045); }
+.cinema-topic-entry__image .cinema-cover-fallback { padding:14px; gap:8px; }
+.cinema-topic-entry__image .cinema-cover-fallback strong { font-size:15px; line-height:1.5; }
+.cinema-topic-entry__image .cinema-cover-fallback>span { font-size:6px; letter-spacing:.01em; }
+.cinema-topic-entry__image .cinema-cover-fallback>small { display:none; }
+.cinema-topic-entry__copy>span { font-size:9px; color:#8a513c; }
+.cinema-topic-entry__copy h3 { font-size:clamp(21px,1.9vw,30px); line-height:1.35; font-weight:500; letter-spacing:-.035em; margin-top:8px; }
+.cinema-topic-entry__meta { display:flex; flex-wrap:wrap; gap:5px 17px; font-size:10px; color:#637065; margin-top:14px; }
+.cinema-topic-entry__arrow { color:#d95130; transition:transform .25s; }
+.cinema-topic-entry__link:hover .cinema-topic-entry__arrow { transform:translate(3px,-3px); }
+.cinema-topic-entry__date { grid-column:2; font-size:10px; color:#6d766a; margin-top:13px; }
+.cinema-topic-entry__date time { font-family:var(--font-mono,monospace); margin-left:8px; }
+.cinema-topics-error { color:#a63b26; }
+.cinema-topics-error button { display:inline-flex; align-items:center; gap:20px; }
+.cinema-topics-follow { margin-top:70px; display:flex; justify-content:space-between; align-items:center; gap:25px; padding-top:35px; border-top:1px solid #18201e66; }
+.cinema-topics-follow>p { font-size:clamp(22px,2.5vw,36px); letter-spacing:-.035em; }
+@media(min-width:1800px) { .cinema-topics-hero { padding-inline:max(5%,calc((100vw - 1700px)/2)); } .cinema-topics-stage { gap:12%; } }
+@media(max-width:1150px) { .cinema-topics-stage { gap:6%; grid-template-columns:minmax(0,1fr) 260px; } .cinema-topic-entry__link { grid-template-columns:100px 1fr 22px; gap:16px; } .cinema-topic-entry__image { height:100px; } .cinema-topics-entries { column-gap:4%; } .cinema-topic-entry { grid-template-columns:20px 1fr; column-gap:8px; } .cinema-topic-entry__meta { gap:6px 12px; } }
+@media(max-width:900px) { .cinema-topics-hero { min-height:900px; padding-top:115px; } .cinema-topics-hero__masthead { grid-template-columns:1fr auto; } .cinema-topics-hero__masthead>p { display:none; } .cinema-topics-stage { grid-template-columns:1fr; gap:48px; align-items:start; padding-top:50px; } .cinema-topics-spotlight .cinema-topics-spotlight__title { max-width:650px; font-size:clamp(43px,7.8vw,70px); } .cinema-topics-selector { width:100%; } .cinema-topics-selector__items { display:flex; max-height:none; gap:0; overflow-x:auto; padding-bottom:6px; } .cinema-topics-selector__items>button { width:220px; min-width:220px; border-top:0; border-left:1px solid #f1f0e433; padding:14px 13px; } .cinema-topics-selector__items>button:first-child { border-left:0; } .cinema-topics-entries { grid-template-columns:1fr; } .cinema-topic-entry__link { grid-template-columns:135px 1fr 28px; gap:24px; } .cinema-topic-entry__image { height:110px; } .cinema-topics-hero__shade { background:linear-gradient(90deg,#10201ee0,#10201e66),linear-gradient(0deg,#101e1dfa 8%,transparent 85%); } }
+@media(max-width:560px) { .cinema-topics-hero { padding:105px 5.5% 30px; min-height:900px; } .cinema-topics-hero__masthead { gap:20px; padding-bottom:22px; } .cinema-topics-hero__count b { font-size:35px; } .cinema-topics-hero__count { gap:9px; } .cinema-topics-hero__count>span { font-size:9px; } .cinema-topics-stage { padding-block:44px 30px; gap:36px; } .cinema-topics-spotlight .cinema-topics-spotlight__title { font-size:clamp(40px,11.5vw,61px); margin-top:17px; line-height:1.25; } .cinema-topics-spotlight__description { font-size:12px; line-height:1.9; } .cinema-topics-spotlight__meta { gap:8px 15px; font-size:10px; margin-block:20px 25px; } .cinema-topics-spotlight__meta>span:last-child:not(:nth-child(2)) { width:100%; } .cinema-topics-selector__caption { font-size:9px; } .cinema-topics-selector__caption>span { font-size:8px; } .cinema-topics-selector__items>button { min-width:190px; width:190px; } .cinema-topics-search { gap:10px; } .cinema-topics-search>input { font-size:12px; } .cinema-topics-search>span { font-size:10px; } .cinema-topic-entry { padding:23px 0 18px; grid-template-columns:18px 1fr; column-gap:8px; } .cinema-topic-entry__link { grid-template-columns:76px 1fr 18px; gap:13px; } .cinema-topic-entry__image { height:89px; } .cinema-topic-entry__copy h3 { font-size:21px; margin-top:7px; } .cinema-topic-entry__copy>span { font-size:8px; } .cinema-topic-entry__meta { font-size:9px; gap:5px 10px; margin-top:10px; } .cinema-topic-entry__image .cinema-cover-fallback { padding:8px; } .cinema-topic-entry__image .cinema-cover-fallback strong { font-size:12px; } .cinema-topic-entry__image .cinema-cover-fallback>span { display:none; } .cinema-topic-entry__arrow { width:18px; } .cinema-topic-entry__date { font-size:9px; margin-top:10px; } .cinema-topics-follow { flex-direction:column; align-items:start; margin-top:45px; } .cinema-topics-follow>p { font-size:25px; } }
+@media(prefers-reduced-motion:reduce) { .cinema-topics-hero__image { transform:none!important; } .cinema-topic-entry__link:hover .cinema-topic-entry__image>img,.cinema-topic-entry__link:hover .cinema-topic-entry__arrow { transform:none; } }

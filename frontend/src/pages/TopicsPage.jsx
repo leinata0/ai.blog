@@ -12,6 +12,7 @@ import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import TechTopics from '../components/collections/TechTopics'
+import CinematicNavigation from '../components/news/cinematic/CinematicNavigation'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
@@ -87,14 +88,14 @@ export default function TopicsPage() {
   }
 
   return (
-    <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+    <main id="main-content" className={newsStyle === 'tech' ? 'cinematic-section min-h-screen' : 'min-h-screen'} style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <SeoMeta
         title="主题追踪 - AI 资讯观察"
         description="围绕公司、模型、产品方向和事件链持续聚合内容主线，帮助你从单点消息回到长期变化。"
         path="/topics"
         jsonLd={jsonLd}
       />
-      <Navbar />
+      {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
       {newsStyle === 'tech' ? <TechTopics topics={topics} loading={loading} error={error} onRetry={() => setAttempt((value) => value + 1)} onPrefetch={prefetchTopic} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-topic-index">
         <motion.section
           initial="hidden"

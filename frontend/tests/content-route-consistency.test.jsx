@@ -66,7 +66,7 @@ it('keeps content-type data aligned with the latest prop and resets while loadin
     await staleDaily.promise
   })
   expect(screen.queryByText('Stale daily response')).not.toBeInTheDocument()
-  expect(container.querySelector('.loading-skeleton')).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('正在载入 AI 周报')
 
   await act(async () => {
     currentWeekly.resolve({

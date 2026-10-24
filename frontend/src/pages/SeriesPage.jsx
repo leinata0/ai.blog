@@ -11,6 +11,7 @@ import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
 import SeoMeta from '../components/SeoMeta'
 import SeriesEditorialStack from '../components/SeriesEditorialStack'
 import TechSeries from '../components/collections/TechSeries'
+import CinematicNavigation from '../components/news/cinematic/CinematicNavigation'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import { useSite } from '../contexts/SiteContext'
 import {
@@ -72,14 +73,14 @@ export default function SeriesPage() {
   }
 
   return (
-    <main className="min-h-screen" style={{ backgroundColor: 'var(--bg-canvas)' }}>
+    <main id="main-content" className={newsStyle === 'tech' ? 'cinematic-section min-h-screen' : 'min-h-screen'} style={{ backgroundColor: 'var(--bg-canvas)' }}>
       <SeoMeta
         title="内容系列 - AI 资讯观察"
         description="把日报、周报与专题文章整理成更容易持续阅读的栏目路径，帮助你沿着同一条阅读节奏继续往下看。"
         path="/series"
         jsonLd={jsonLd}
       />
-      <Navbar />
+      {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
       {newsStyle === 'tech' ? <TechSeries items={seriesList} loading={loading} error={error} onRetry={loadSeries} onPrefetch={prefetchSeries} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-series-index">
         <motion.section
           initial="hidden"
