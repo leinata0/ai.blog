@@ -44,7 +44,21 @@
       ]
     },
     {
-      "source": "/api/(.*)",
+      "source": "/api/((?!(?:discover|topics|series)$).*)",
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
+      ]
+    },
+    {
+      "source": "/api/(discover|topics|series)",
+      "has": [{ "type": "header", "key": "authorization" }],
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
+      ]
+    },
+    {
+      "source": "/api/(discover|topics|series)",
+      "has": [{ "type": "header", "key": "cookie" }],
       "headers": [
         { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
       ]

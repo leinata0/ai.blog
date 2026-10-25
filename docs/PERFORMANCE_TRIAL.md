@@ -12,11 +12,20 @@
 | 试行前紧邻部署 | <https://ai-blog-aa98jp43n-leinata0s-projects.vercel.app>，后端基础 PR 触发的同版前端构建，可用作 Instant Rollback 目标 |
 | 前端试行分支 | `codex/performance-trial` |
 | 后端基础合并 | [PR #82](https://github.com/leinata0/ai.blog/pull/82)，`830381f10f37ef01f64c5cb62b9993fa6f562dc2` |
+| 前端试行合并 | [PR #83](https://github.com/leinata0/ai.blog/pull/83)，`69743f3dc4747107aa18eb8781ed71fa43dea88d` |
+| 试行版远程标记 | `trial/performance-20261025`，固定指向 PR #83 合并 SHA |
+| 首次试行生产部署 | <https://ai-blog-n6dcp2zn6-leinata0s-projects.vercel.app>，deployment `7308921897` |
 | 正式域名 | <https://www.563118077.xyz> |
 
 本次拆成后端缓存基础、前端性能试行两个 PR。发布时应在两个 PR 中分别记录最终合并 SHA 和部署结果，并在前端试行 PR 记录新生产部署 URL、紧邻的前端回退目标、Render 源站头部及实际 `x-vercel-cache` 结果。配置和测试通过不等于已经命中 CDN 缓存。
 
 后端基础验收：2026-10-25 04:54:22 UTC，Render 直接请求 `GET /api/discover?content_type=daily_brief&sections=items,total` 为 200，已确认 `Cache-Control: public,max-age=0,must-revalidate`、`CDN-Cache-Control: no-store`、`Vercel-CDN-Cache-Control: public,max-age=60,stale-while-revalidate=120` 和 `Vercel-Cache-Tag: public-collections-trial`。对应 Vercel Production deployment ID 为 `7308781031`。
+
+前端验收：PR #83 最终 CI 为前端 571 项、后端 939 项、脚本 487 项通过与 1 项跳过；完成四个栏目的桌面与手机实页检查，以及首页场景初始化、暂停和继续。没有测得整页 LCP 或 FPS。相同周报封面原 PNG 为 2,390,857 字节，960w WebP 为 79,750 字节（减少 96.66%）；分组顺序测量的资源下载中位耗时为 5.477 秒与 0.771 秒，包含不同资源域名及网络/缓存差异，不能当作整页提速倍数。
+
+首次上线后，日报和周报匿名查询各连续 3 次均为 `x-vercel-cache: MISS`、Cloudflare `DYNAMIC`、无 `Age`。Cookie、Authorization、401 和 422 响应禁止共享缓存的检查通过。API 缓存加速尚未验收通过，不能与图片优化一并宣称已生效。
+
+后续缓存路由补丁在 `codex/performance-cache-routing` 独立分支：原 `/api/(.*)` 禁用规则也匹配三个公开列表。补丁让默认禁用路径排除这三个精确路径，凭证请求单独禁用，匿名公开列表才启用；所有匹配规则不能同时给出 `0` 和 `1`。这是排除配置歧义的试行修复，是否解决 `MISS` 必须在部署后实测。该补丁的最终 SHA、部署与结果记在其发布 PR；已有两个版本 tag 不移动。
 
 ## 试行内容与边界
 
@@ -25,7 +34,7 @@
 - 预取：主导航在明确悬停/聚焦意图后预取栏目代码，避免启动时无差别下载全部栏目。
 - 公共 API：只对精确路径 `/api/discover`、`/api/topics`、`/api/series` 进行 Vercel 单层短缓存试行。保留原完整查询参数；日报/周报、分页/筛选等不能合并为同一个缓存键。
 
-Vercel 配置仅负责为没有 `Authorization`、`Cookie` 请求头的三个列表开启外部重写缓存，其他 `/api/…` 明确关闭。缓存 TTL 由源站决定，不能在 Vercel 配置中用公共 TTL 覆盖私有或错误响应。
+Vercel 配置仅负责为没有 `Authorization`、`Cookie` 请求头的三个列表开启外部重写缓存，其他 `/api/…` 明确关闭。默认禁用规则与匿名公开列表启用规则不重叠；带凭证的列表单独禁用。缓存 TTL 由源站决定，不能在 Vercel 配置中用公共 TTL 覆盖私有或错误响应。
 
 源站仅允许匿名 `GET`、`200/304`、公开 JSON（或对应的 304）进入缓存；带 `Authorization`、`Cookie`、`Range`，返回 `Set-Cookie`，原策略已是 `private`、`no-store`、`no-cache`，以及其他方法、非 JSON、错误与重定向都返回禁止边缘缓存的策略。三个列表以外的源站缓存行为保持原样。
 
@@ -56,7 +65,7 @@ Instant Rollback **不会回退独立部署在 Render 的后端**，也不会修
 
 ### 完整恢复代码和两端部署
 
-在干净工作树从最新 `origin/master` 新建回退分支，按发布的反向顺序先执行 `git revert <前端试行PR的squash合并SHA>`，再执行 `git revert <后端基础PR的squash合并SHA>`，经 PR 检查后合并。只想恢复可见体验时可仅撤销前端 PR，保留兼容的后端短缓存策略。不要 `reset --hard`、强推或移动基线 tag；保留版本历史，避免覆盖试行之后其他独立修改。若试行后已有相关改动，先审查 revert diff 并处理冲突。
+在干净工作树从最新 `origin/master` 新建回退分支，按发布的反向顺序撤销：若缓存路由后续补丁也已上线，先 `git revert <该补丁PR的squash合并SHA>`；然后 `git revert 69743f3dc4747107aa18eb8781ed71fa43dea88d`（前端试行），最后 `git revert 830381f10f37ef01f64c5cb62b9993fa6f562dc2`（后端基础），经 PR 检查后合并。只想恢复可见体验时可保留兼容的后端短缓存策略。不要 `reset --hard`、强推或移动基线 tag；保留版本历史，避免覆盖试行之后其他独立修改。若试行后已有相关改动，先审查 revert diff 并处理冲突。
 
 Git revert 合并后，分别确认 Vercel 和 Render 部署成功，再验证正式站和 API。完整回退会恢复原图片选择与数据加载方式，并移除此次专用边缘缓存策略；衍生文件可保留在历史中，原图始终可用。此方案无需回滚数据库。
 
