@@ -1,8 +1,7 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, ArrowUpRight, Rss } from 'lucide-react'
 import { formatDate, parseDate } from '../../utils/date'
-import { proxyImageUrl } from '../../utils/proxyImage'
+import useResponsiveCover from '../../hooks/useResponsiveCover'
 import { buildPublicApiUrl } from '../../utils/publicApiUrl'
 import '../../styles/newsroom-collections.css'
 
@@ -29,11 +28,10 @@ function CollectionMeta({ item }) {
 }
 
 function SeriesFeature({ series }) {
-  const src = proxyImageUrl(series.cover_image)
-  const [failedSrc, setFailedSrc] = useState(null)
-  const hasCover = Boolean(src && src !== failedSrc)
+  const { imageProps, unavailable } = useResponsiveCover(series.cover_image, { sizes: '(max-width: 760px) 90vw, 30vw' })
+  const hasCover = !unavailable
   return <Link className={`newsroom-series-feature${hasCover ? ' newsroom-series-feature--with-cover' : ''}`} to={`/series/${encodeURIComponent(series.slug)}`}>
-    {hasCover ? <div className="newsroom-series-feature__cover"><img src={src} alt="" width="480" height="360" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailedSrc(src)} /></div> : null}
+    {hasCover ? <div className="newsroom-series-feature__cover"><img width="480" height="360" {...imageProps} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /></div> : null}
     <div className="newsroom-series-feature__body">
       <span className="newsroom-collections__eyebrow">内容系列 / SERIES</span>
       <h3>{series.title}<ArrowUpRight size={19} aria-hidden="true" /></h3>

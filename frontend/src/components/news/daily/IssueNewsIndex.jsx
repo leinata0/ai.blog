@@ -1,20 +1,19 @@
 import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, ArrowUpRight, Focus, ImageOff, Search, X } from 'lucide-react'
-import { proxyImageUrl } from '../../../utils/proxyImage'
+import useResponsiveCover from '../../../hooks/useResponsiveCover'
 import { formatDate } from '../../../utils/date'
 import './issue-news-index.css'
 
 const EMPTY_POSTS = []
 const postPath = (post) => `/posts/${encodeURIComponent(post.slug)}`
 
-function NewsImage({ post, className = '' }) {
-  const src = proxyImageUrl(post?.cover_image)
-  const [failed, setFailed] = useState('')
+function NewsImage({ post, className = '', sizes = '(max-width: 760px) 32vw, 18vw' }) {
+  const { imageProps, unavailable } = useResponsiveCover(post?.cover_image, { sizes })
   return <span className={`inx-image ${className}`}>
-    {src && failed !== src
-      ? <img src={src} alt="" width="1200" height="800" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(src)} />
-      : <span className="inx-image-fallback"><ImageOff size={24} strokeWidth={1.25} aria-hidden="true" /><span>{src ? '封面暂不可用' : '文字报道'}</span></span>}
+    {!unavailable
+      ? <img width="1200" height="800" {...imageProps} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+      : <span className="inx-image-fallback"><ImageOff size={24} strokeWidth={1.25} aria-hidden="true" /><span>{post?.cover_image ? '封面暂不可用' : '文字报道'}</span></span>}
   </span>
 }
 
@@ -42,7 +41,7 @@ function FeaturedNews({ posts, onFocus, note }) {
     <div className="inx-feature-grid">
       <article className="inx-lead">
         <Link className="inx-lead-image-link" to={postPath(lead)} aria-label={`阅读：${lead.title}`}>
-          <NewsImage post={lead} /><span className="inx-image-arrow"><ArrowUpRight size={23} strokeWidth={1.5} aria-hidden="true" /></span>
+          <NewsImage post={lead} sizes="(max-width: 760px) 90vw, 45vw" /><span className="inx-image-arrow"><ArrowUpRight size={23} strokeWidth={1.5} aria-hidden="true" /></span>
         </Link>
         <div className="inx-lead-details">
           <div className="inx-meta"><NewsDate post={lead} /><SourceCount post={lead} /></div>

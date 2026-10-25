@@ -29,7 +29,7 @@ function TopicNode({ topic, index, onPrefetch }) {
   return <article className="cinema-topic-entry tech-topic-node" data-topic-key={topic.topic_key}>
     <span className="cinema-topic-entry__number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
     <Link className="cinema-topic-entry__link" to={topicUrl(topic)} onMouseEnter={() => onPrefetch?.(topic.topic_key)} onFocus={() => onPrefetch?.(topic.topic_key)}>
-      <div className="cinema-topic-entry__image"><SectionCover src={topic.cover_image} title={getTopicTitle(topic)} /></div>
+      <div className="cinema-topic-entry__image"><SectionCover src={topic.cover_image} title={getTopicTitle(topic)} sizes="(max-width: 760px) 24vw, 135px" /></div>
       <div className="cinema-topic-entry__copy"><span>{topic.is_featured ? '推荐主题' : '持续追踪'}</span><h3>{getTopicTitle(topic)}</h3><div className="cinema-topic-entry__meta"><span>{quantity(topic.post_count)} 篇文章</span><span>{quantity(topic.source_count)} 条来源</span></div></div>
       <ArrowUpRight className="cinema-topic-entry__arrow" size={27} aria-hidden="true" />
     </Link>

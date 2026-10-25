@@ -48,7 +48,7 @@ function SeriesRecord({ series, index, onPrefetch }) {
     <div className="cinema-series-record__identity">
       <span className="cinema-series-record__number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
       <Link to={to} className="cinema-series-record__cover" onMouseEnter={prefetch} onFocus={prefetch} aria-label={`阅读${title}`}>
-        <SectionCover src={series.cover_image} title={title} />
+        <SectionCover src={series.cover_image} title={title} sizes="(max-width: 760px) 32vw, 18vw" />
       </Link>
     </div>
     <div className="cinema-series-record__copy">
@@ -85,7 +85,7 @@ export default function TechSeries({ items = [], loading = false, error = '', on
       <div className="cinema-series-hero__intro"><span className="cinema-kicker">04 / THE READING COLLECTION</span><h1 id="cinema-series-title">内容书架</h1><p>把一条主线，<br />读得更深。</p></div>
       {selected ? <>
         <div className="cinema-series-hero__edition">
-          <div className="cinema-series-hero__art" aria-hidden="true"><AnimatePresence initial={false}><motion.div className="cinema-series-hero__image" key={selected.slug} initial={{ opacity: 0, y: reduced ? 0 : 20, rotate: reduced ? 0 : 2 }} animate={{ opacity: 1, y: 0, rotate: 0 }} exit={{ opacity: 0 }} transition={{ duration, ease: [0.22, 1, 0.36, 1] }}><SectionCover src={selected.cover_image} title={getSeriesTitle(selected)} eager /><div className="cinema-series-hero__image-shade" /><div className="cinema-series-hero__imprint"><span>AI OBSERVER<br />COLLECTED PERSPECTIVES</span><strong>{String(selectedIndex + 1).padStart(2, '0')}</strong></div></motion.div></AnimatePresence></div>
+          <div className="cinema-series-hero__art" aria-hidden="true"><AnimatePresence initial={false}><motion.div className="cinema-series-hero__image" key={selected.slug} initial={{ opacity: 0, y: reduced ? 0 : 20, rotate: reduced ? 0 : 2 }} animate={{ opacity: 1, y: 0, rotate: 0 }} exit={{ opacity: 0 }} transition={{ duration, ease: [0.22, 1, 0.36, 1] }}><SectionCover src={selected.cover_image} title={getSeriesTitle(selected)} eager sizes="(max-width: 760px) 42vw, 24vw" /><div className="cinema-series-hero__image-shade" /><div className="cinema-series-hero__imprint"><span>AI OBSERVER<br />COLLECTED PERSPECTIVES</span><strong>{String(selectedIndex + 1).padStart(2, '0')}</strong></div></motion.div></AnimatePresence></div>
           <motion.div key={selected.slug} className="cinema-series-hero__selection" initial={{ opacity: reduced ? 1 : 0, y: reduced ? 0 : 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : 0.35 }}>
             <span className="cinema-series-hero__selection-label">{selected.is_featured ? '编辑推荐' : '正在浏览'} / {String(selectedIndex + 1).padStart(2, '0')}</span>
             <h2>{getSeriesTitle(selected)}</h2><p>{getSeriesDescription(selected)}</p>
