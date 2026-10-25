@@ -44,6 +44,8 @@ export default function HomePage() {
   const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1
   const defaultView = !tag && !searchQuery && page === 1
   const managedHome = Boolean(homeDataManaged) && defaultView
+  const legacyBootstrap = !homeDataManaged && defaultView ? bootstrap : null
+  const waitForLegacyBootstrap = !homeDataManaged && defaultView && (siteLoading || bootstrapLoading) && !legacyBootstrap?.posts
   const queryKey = JSON.stringify([tag, searchQuery, page])
   const [searchInput, setSearchInput] = useState(searchQuery)
   const [loadedPosts, setPosts] = useState(() => (Array.isArray(bootstrap?.posts?.items) ? bootstrap.posts.items : []))
@@ -105,6 +107,7 @@ export default function HomePage() {
     postsAbortRef.current?.abort()
     postsAbortRef.current = null
     postsRequestRef.current += 1
+    clearTimeout(postsSlowTimerRef.current)
 
     startNewsTransition(() => {
       setPosts(Array.isArray(payload.posts.items) ? payload.posts.items : [])
@@ -128,11 +131,9 @@ export default function HomePage() {
       return
     }
     const isDefaultView = !tag && !searchQuery && page === 1
-    if ((siteLoading || bootstrapLoading) && !bootstrap?.posts && isDefaultView) {
-      return
-    }
+    if (waitForLegacyBootstrap) return
 
-    if (isDefaultView && !hasInteractedRef.current && applyBootstrapPayload(bootstrap)) {
+    if (isDefaultView && !hasInteractedRef.current && applyBootstrapPayload(legacyBootstrap)) {
       return
     }
 
@@ -181,7 +182,7 @@ export default function HomePage() {
         clearTimeout(timer)
         if (postsSlowTimerRef.current === timer) postsSlowTimerRef.current = null
       })
-  }, [applyBootstrapPayload, bootstrap, bootstrapLoading, managedHome, page, pageSize, queryKey, searchQuery, siteLoading, startNewsTransition, tag])
+  }, [applyBootstrapPayload, legacyBootstrap, waitForLegacyBootstrap, managedHome, page, pageSize, queryKey, searchQuery, startNewsTransition, tag])
 
   useEffect(() => {
     loadPosts()
