@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import buildRenaissanceWorld, { RENAISSANCE_ASSETS } from './buildRenaissanceWorld'
 import { getEditionSceneState } from '../../utils/editionSceneState'
 import { createSceneResolutionController, scenePixelRatio } from '../../utils/sceneResolution'
+import { optimizedImageUrl } from '../../utils/responsiveImage'
 import '../../styles/intelligence-sculpture.css'
 
 export default function IntelligenceSculpture({ sceneRef, paused = false }) {
@@ -9,6 +10,9 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
   const pausedRef = useRef(paused)
   const syncRef = useRef(null)
   const [ready, setReady] = useState(false)
+  const [failedAssets, setFailedAssets] = useState({})
+  const artwork = (key) => failedAssets[key] ? RENAISSANCE_ASSETS[key] : optimizedImageUrl(RENAISSANCE_ASSETS[key])
+  const originalArtwork = (key) => setFailedAssets((previous) => previous[key] ? previous : { ...previous, [key]: true })
 
   useEffect(() => {
     const host = hostRef.current
@@ -196,9 +200,9 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
 
   return <div ref={hostRef} className={`intelligence-sculpture${ready ? ' intelligence-sculpture--ready' : ''}`} aria-hidden="true">
     <div className="intelligence-sculpture__fallback" data-fallback="renaissance-world">
-      <div className="intelligence-sculpture__garden" style={{ backgroundImage: `url(${RENAISSANCE_ASSETS.world})` }} />
-      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--left"><img src={RENAISSANCE_ASSETS.figures} alt="" width="1672" height="941" decoding="async" /></div>
-      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--right"><img src={RENAISSANCE_ASSETS.figures} alt="" width="1672" height="941" decoding="async" /></div>
+      <img className="intelligence-sculpture__garden" src={artwork('world')} onError={() => originalArtwork('world')} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" width="1672" height="941" decoding="async" />
+      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--left"><img src={artwork('figures')} onError={() => originalArtwork('figures')} alt="" width="1672" height="941" decoding="async" /></div>
+      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--right"><img src={artwork('figures')} onError={() => originalArtwork('figures')} alt="" width="1672" height="941" decoding="async" /></div>
     </div>
   </div>
 }

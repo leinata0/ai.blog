@@ -1,8 +1,9 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import IntelligenceSculpture from '../src/components/news/IntelligenceSculpture'
 import { ensureEditionSceneState } from '../src/utils/editionSceneState'
+import { optimizedImageUrl } from '../src/utils/responsiveImage'
 
 const gpu = vi.hoisted(() => ({ renderers: [], environments: [], loads: [], autoLoad: true, fail: false }))
 vi.mock('three', async (original) => {
@@ -103,7 +104,7 @@ function frame(time) {
 
 it('prerenders an accessible static decoration without constructing a WebGL renderer', () => {
   expect(renderToString(<IntelligenceSculpture />)).toContain('data-fallback="renaissance-world"')
-  expect(renderToString(<IntelligenceSculpture />)).toContain('/images/renaissance-edition/figures.png')
+  expect(renderToString(<IntelligenceSculpture />)).toContain(optimizedImageUrl('/images/renaissance-edition/figures.png'))
   expect(renderToString(<IntelligenceSculpture />)).toContain('aria-hidden="true"')
   expect(gpu.renderers).toHaveLength(0)
 })
@@ -275,6 +276,9 @@ it('releases failed or pending texture loads and cannot reveal WebGL after unmou
   const first = render(<IntelligenceSculpture />)
   await waitFor(() => expect(gpu.loads).toHaveLength(2))
   await act(async () => gpu.loads[0].reject())
+  await waitFor(() => expect(gpu.loads).toHaveLength(3))
+  expect(gpu.loads[2].url).toBe('/images/renaissance-edition/world.jpg')
+  await act(async () => gpu.loads[2].reject())
   expect(first.container.querySelector('canvas')).toBeNull()
   expect(first.container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
   expect(gpu.renderers[0].dispose).toHaveBeenCalledOnce()
@@ -289,4 +293,21 @@ it('releases failed or pending texture loads and cannot reveal WebGL after unmou
   expect(renderer.dispose).toHaveBeenCalledOnce()
   expect(gpu.environments).toHaveLength(0)
   expect(gpu.loads.every((job) => job.texture.dispose.mock.calls.length > 0)).toBe(true)
+})
+
+it('recovers missing optimized artwork with original textures and static fallback images', async () => {
+  gpu.autoLoad = false
+  const { container } = render(<IntelligenceSculpture />)
+  await waitFor(() => expect(gpu.loads).toHaveLength(2))
+  await act(async () => gpu.loads[1].reject())
+  await waitFor(() => expect(gpu.loads).toHaveLength(3))
+  expect(gpu.loads[2].url).toBe('/images/renaissance-edition/figures.png')
+  await act(async () => { gpu.loads[0].complete(); gpu.loads[2].complete() })
+  expect(gpu.environments).toHaveLength(1)
+  const garden = container.querySelector('.intelligence-sculpture__garden')
+  const figure = container.querySelector('.intelligence-sculpture__figure img')
+  fireEvent.error(garden)
+  fireEvent.error(figure)
+  expect(garden).toHaveAttribute('src', '/images/renaissance-edition/world.jpg')
+  expect(figure).toHaveAttribute('src', '/images/renaissance-edition/figures.png')
 })

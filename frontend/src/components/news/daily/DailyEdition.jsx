@@ -5,6 +5,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight, Rss, X } from 'lucide-r
 import LoadingSkeletonSet from '../../LoadingSkeletonSet'
 import { formatDate } from '../../../utils/date'
 import { proxyImageUrl } from '../../../utils/proxyImage'
+import { responsiveImageAttrs } from '../../../utils/responsiveImage'
 import { buildSubscriptionCenterHref } from '../../../utils/subscriptionLinks'
 import IssueNewsIndex from './IssueNewsIndex'
 import useReelScroll from './useReelScroll'
@@ -38,11 +39,17 @@ function useWideScene() {
   return wide
 }
 
-export function ArticleCover({ post, eager = false }) {
+export function ArticleCover({ post, eager = false, sizes = '100vw' }) {
   const src = proxyImageUrl(post.cover_image)
   const [failed, setFailed] = useState('')
+  const [variantFailed, setVariantFailed] = useState('')
+  const image = responsiveImageAttrs(post.cover_image, { sizes, disabled: variantFailed === src })
+  const handleError = () => {
+    if (image.srcSet) setVariantFailed(src)
+    else setFailed(src)
+  }
   const unavailable = src ? '本报道封面暂不可用' : '本报道暂无封面'
-  return src && failed !== src ? <img src={src} alt="" width="1672" height="941" loading={eager ? 'eager' : 'lazy'} fetchpriority={eager ? 'high' : undefined} decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(src)} /> : <span className="issue-image-fallback" role="img" aria-label={`${post.title}：${unavailable}`}>{unavailable}</span>
+  return src && failed !== src ? <img width="1672" height="941" {...image} alt="" loading={eager ? 'eager' : 'lazy'} fetchpriority={eager ? 'high' : undefined} decoding="async" referrerPolicy="no-referrer" onError={handleError} /> : <span className="issue-image-fallback" role="img" aria-label={`${post.title}：${unavailable}`}>{unavailable}</span>
 }
 
 function SceneImage({ post, progress, index, animated, reduce }) {

@@ -1,3 +1,5 @@
+import { optimizedImageUrl } from '../../utils/responsiveImage'
+
 export const RENAISSANCE_ASSETS = {
   world: '/images/renaissance-edition/world.jpg',
   figures: '/images/renaissance-edition/figures.png',
@@ -155,7 +157,7 @@ export default function buildRenaissanceWorld(THREE, renderer) {
     resources.clear()
     scene.clear()
   }
-  const loadTexture = (url) => new Promise((resolve, reject) => {
+  const loadTexture = (url, original = url) => new Promise((resolve, reject) => {
     const loader = new THREE.TextureLoader()
     let texture
     texture = loader.load(url, () => {
@@ -163,7 +165,10 @@ export default function buildRenaissanceWorld(THREE, renderer) {
       texture.colorSpace = THREE.SRGBColorSpace
       texture.anisotropy = Math.min(4, renderer.capabilities?.getMaxAnisotropy?.() || 1)
       resolve(texture)
-    }, undefined, reject)
+    }, undefined, (error) => {
+      if (!disposed && url !== original) loadTexture(original).then(resolve, reject)
+      else reject(error)
+    })
     own(texture)
   })
   try {
@@ -232,7 +237,7 @@ export default function buildRenaissanceWorld(THREE, renderer) {
         cloud.scale.set(height * Math.max(worldAspect, aspect * 1.1), height, 1)
       })
     }
-    const ready = Promise.all([loadTexture(RENAISSANCE_ASSETS.world), loadTexture(RENAISSANCE_ASSETS.figures)]).then(([worldTexture, pairTexture]) => {
+    const ready = Promise.all([loadTexture(optimizedImageUrl(RENAISSANCE_ASSETS.world), RENAISSANCE_ASSETS.world), loadTexture(optimizedImageUrl(RENAISSANCE_ASSETS.figures), RENAISSANCE_ASSETS.figures)]).then(([worldTexture, pairTexture]) => {
       if (disposed || !worldTexture || !pairTexture) return false
       worldAspect = worldTexture.image.width / worldTexture.image.height
       pairAspect = pairTexture.image.width / pairTexture.image.height
