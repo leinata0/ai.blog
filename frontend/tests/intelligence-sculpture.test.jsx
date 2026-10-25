@@ -6,6 +6,8 @@ import { ensureEditionSceneState } from '../src/utils/editionSceneState'
 import { optimizedImageUrl } from '../src/utils/responsiveImage'
 
 const gpu = vi.hoisted(() => ({ renderers: [], environments: [], loads: [], autoLoad: true, fail: false }))
+const trial = vi.hoisted(() => ({ enabled: true }))
+vi.mock('../src/utils/performanceTrial', () => ({ get PERFORMANCE_TRIAL_ENABLED() { return trial.enabled } }))
 vi.mock('three', async (original) => {
   const THREE = await original()
   return {
@@ -51,15 +53,18 @@ vi.mock('three', async (original) => {
   }
 })
 
-let frames, nextFrame, intersections, resizes, media, hidden, bounds
+let frames, nextFrame, idles, nextIdle, intersections, resizes, media, hidden, bounds
 beforeEach(() => {
   gpu.renderers.length = 0
   gpu.environments.length = 0
   gpu.loads.length = 0
   gpu.autoLoad = true
   gpu.fail = false
+  trial.enabled = true
   frames = new Map()
   nextFrame = 0
+  idles = new Map()
+  nextIdle = 0
   intersections = []
   resizes = []
   hidden = false
@@ -69,6 +74,8 @@ beforeEach(() => {
   vi.stubGlobal('WebGL2RenderingContext', class {})
   vi.stubGlobal('requestAnimationFrame', vi.fn((callback) => { frames.set(++nextFrame, callback); return nextFrame }))
   vi.stubGlobal('cancelAnimationFrame', vi.fn((id) => frames.delete(id)))
+  vi.stubGlobal('requestIdleCallback', vi.fn((callback) => { idles.set(++nextIdle, callback); return nextIdle }))
+  vi.stubGlobal('cancelIdleCallback', vi.fn((id) => idles.delete(id)))
   vi.stubGlobal('IntersectionObserver', class {
     constructor(callback) { this.callback = callback; this.observe = vi.fn(); this.disconnect = vi.fn(); intersections.push(this) }
   })
@@ -85,8 +92,8 @@ async function mount(props = {}) {
   Object.assign(ensureEditionSceneState(scene), { progress: 0.5, pointerX: 1 })
   const sceneRef = { current: scene }
   const view = render(<IntelligenceSculpture sceneRef={sceneRef} {...props} />)
+  beginStartup()
   await waitFor(() => expect(gpu.environments).toHaveLength(1))
-  visible(true)
   frame(0)
   await waitFor(() => expect(view.container.firstChild).toHaveClass('intelligence-sculpture--ready'))
   visible(false)
@@ -94,6 +101,14 @@ async function mount(props = {}) {
   return { ...view, sceneRef, renderer: gpu.renderers[0] }
 }
 function visible(value) { act(() => intersections.at(-1).callback([{ isIntersecting: value }])) }
+function idle() {
+  act(() => {
+    const queued = [...idles.values()]
+    idles.clear()
+    queued.forEach((callback) => callback({ didTimeout: false, timeRemaining: () => 20 }))
+  })
+}
+function beginStartup() { visible(true); frame(-1); idle() }
 function frame(time) {
   act(() => {
     const queued = [...frames.values()]
@@ -112,6 +127,7 @@ it('prerenders an accessible static decoration without constructing a WebGL rend
 it('reveals WebGL only after both art textures and the first visible frame are ready', async () => {
   gpu.autoLoad = false
   const { container } = render(<IntelligenceSculpture />)
+  beginStartup()
   await waitFor(() => expect(gpu.loads).toHaveLength(2))
   visible(true)
   expect(container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
@@ -222,6 +238,7 @@ it('presents a clear first frame when restored at the dissolved end, without lea
   const scene = document.createElement('section')
   ensureEditionSceneState(scene).progress = 1
   const { container } = render(<IntelligenceSculpture sceneRef={{ current: scene }} />)
+  beginStartup()
   await waitFor(() => expect(gpu.environments).toHaveLength(1))
   const renderer = gpu.renderers[0]
   visible(true)
@@ -257,6 +274,7 @@ it('keeps the static decoration for unavailable or lost WebGL contexts', async (
   vi.stubGlobal('WebGL2RenderingContext', class {})
   gpu.fail = true
   const failed = render(<IntelligenceSculpture />)
+  beginStartup()
   await act(async () => { await import('three') })
   expect(failed.container.firstChild).not.toHaveClass('intelligence-sculpture--ready')
   expect(failed.container.querySelector('[data-fallback="renaissance-world"]')).toBeInTheDocument()
@@ -274,6 +292,7 @@ it('keeps the static decoration for unavailable or lost WebGL contexts', async (
 it('releases failed or pending texture loads and cannot reveal WebGL after unmount', async () => {
   gpu.autoLoad = false
   const first = render(<IntelligenceSculpture />)
+  beginStartup()
   await waitFor(() => expect(gpu.loads).toHaveLength(2))
   await act(async () => gpu.loads[0].reject())
   await waitFor(() => expect(gpu.loads).toHaveLength(3))
@@ -285,6 +304,7 @@ it('releases failed or pending texture loads and cannot reveal WebGL after unmou
   first.unmount()
   gpu.loads.length = 0
   const second = render(<IntelligenceSculpture />)
+  beginStartup()
   await waitFor(() => expect(gpu.loads).toHaveLength(2))
   const renderer = gpu.renderers.at(-1)
   second.unmount()
@@ -298,6 +318,7 @@ it('releases failed or pending texture loads and cannot reveal WebGL after unmou
 it('recovers missing optimized artwork with original textures and static fallback images', async () => {
   gpu.autoLoad = false
   const { container } = render(<IntelligenceSculpture />)
+  beginStartup()
   await waitFor(() => expect(gpu.loads).toHaveLength(2))
   await act(async () => gpu.loads[1].reject())
   await waitFor(() => expect(gpu.loads).toHaveLength(3))
@@ -310,4 +331,58 @@ it('recovers missing optimized artwork with original textures and static fallbac
   fireEvent.error(figure)
   expect(garden).toHaveAttribute('src', '/images/renaissance-edition/world.jpg')
   expect(figure).toHaveAttribute('src', '/images/renaissance-edition/figures.png')
+})
+
+it('starts the trial only after entering the viewport, painting, and yielding idle time', async () => {
+  render(<IntelligenceSculpture />)
+  await act(async () => {})
+  expect(gpu.renderers).toHaveLength(0)
+  expect(frames.size).toBe(0)
+  visible(true)
+  expect(gpu.renderers).toHaveLength(0)
+  expect(idles.size).toBe(0)
+  frame(0)
+  expect(gpu.renderers).toHaveLength(0)
+  expect(requestIdleCallback).toHaveBeenCalledWith(expect.any(Function), { timeout: 700 })
+  idle()
+  await waitFor(() => expect(gpu.renderers).toHaveLength(1))
+})
+
+it('cancels pending startup when hidden or offscreen and resumes once visible', async () => {
+  render(<IntelligenceSculpture />)
+  visible(true)
+  frame(0)
+  expect(idles.size).toBe(1)
+  act(() => { hidden = true; document.dispatchEvent(new Event('visibilitychange')) })
+  expect(idles.size).toBe(0)
+  expect(gpu.renderers).toHaveLength(0)
+  act(() => { hidden = false; document.dispatchEvent(new Event('visibilitychange')) })
+  expect(frames.size).toBe(1)
+  visible(false)
+  expect(frames.size).toBe(0)
+  expect(gpu.renderers).toHaveLength(0)
+  beginStartup()
+  await waitFor(() => expect(gpu.renderers).toHaveLength(1))
+})
+
+it('cancels a pending startup on unmount without allocating WebGL', async () => {
+  const { unmount } = render(<IntelligenceSculpture />)
+  visible(true)
+  frame(0)
+  expect(idles.size).toBe(1)
+  unmount()
+  expect(idles.size).toBe(0)
+  expect(frames.size).toBe(0)
+  await act(async () => {})
+  expect(gpu.renderers).toHaveLength(0)
+})
+
+it('restores immediate offscreen startup with the trial disabled', async () => {
+  trial.enabled = false
+  render(<IntelligenceSculpture />)
+  await waitFor(() => expect(gpu.renderers).toHaveLength(1))
+  expect(requestIdleCallback).not.toHaveBeenCalled()
+  expect(frames.size).toBe(0)
+  expect(gpu.loads[0].url).toBe('/images/renaissance-edition/world.jpg')
+  expect(gpu.loads[1].url).toBe('/images/renaissance-edition/figures.png')
 })
