@@ -6,9 +6,13 @@ const images = { 'https://img.563118077.xyz/cover.png': { variants:[{url:'/perfo
 afterEach(() => vi.unstubAllEnvs())
 it('discovers an optimized first cover from HTML with the same responsive sizes as the scene', () => {
   const hint = collectionImageHints('/weekly', [{cover_image:'https://img.563118077.xyz/cover.png'}], images)
-  expect(hint).toContain('href="/performance-images/abc123-1600.webp"')
-  expect(hint).toContain('imagesrcset="/performance-images/abc123-480.webp 480w, /performance-images/abc123-1600.webp 1600w"')
-  expect(hint).toContain('imagesizes="(max-width: 900px) 82vw, 44vw"')
+  const attributes = {}
+  runInNewContext(hint.replace(/^<script[^>]*>|<\/script>$/g, ''), {
+    document:{ createElement:() => ({setAttribute:(key,value) => {attributes[key] = value}}), head:{appendChild:vi.fn()} },
+  })
+  expect(attributes.href).toBe('/performance-images/abc123-1600.webp')
+  expect(attributes.imagesrcset).toBe('/performance-images/abc123-480.webp 480w, /performance-images/abc123-1600.webp 1600w')
+  expect(attributes.imagesizes).toBe('(max-width: 900px) 82vw, 44vw')
   expect(hint).not.toContain('https://img.')
 })
 it('does not preload an unknown image or an arbitrary/private route', () => {
@@ -32,4 +36,20 @@ it('never preloads expired build covers or older covers after a newer empty resp
   expect(append).not.toHaveBeenCalled()
   run(time + 1000)
   expect(append).toHaveBeenCalledTimes(1)
+})
+
+it('skips technology-layout preloads in paper mode on all four routes', () => {
+  for (const route of ['/daily', '/weekly', '/topics', '/series']) {
+    const script = collectionImageHints(route, [{cover_image:'https://img.563118077.xyz/cover.png'}], images).replace(/^<script[^>]*>|<\/script>$/g, '')
+    const append = vi.fn()
+    const run = (getItem) => runInNewContext(script, {
+      localStorage:{getItem}, document:{createElement:() => ({setAttribute:vi.fn()}),head:{appendChild:append}},
+    })
+    run(() => 'paper')
+    expect(append).not.toHaveBeenCalled()
+    run(() => 'tech')
+    expect(append).toHaveBeenCalledTimes(1)
+    run(() => { throw new Error('Storage denied') })
+    expect(append).toHaveBeenCalledTimes(2)
+  }
 })

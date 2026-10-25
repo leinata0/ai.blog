@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Rss } from 'lucide-react'
 
@@ -14,7 +14,7 @@ import { useSite } from '../contexts/SiteContext'
 import { formatDate, parseDate } from '../utils/date'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
-import { proxyImageUrl } from '../utils/proxyImage'
+import useResponsiveCover from '../hooks/useResponsiveCover'
 import { useNewsStyle } from '../hooks/useNewsStyle'
 import usePublicCollection from '../hooks/usePublicCollection'
 import CollectionRefreshNotice from '../components/CollectionRefreshNotice'
@@ -34,11 +34,14 @@ function sortByCreatedTime(posts) {
 }
 
 function NewsCover({ post, eager = false }) {
-  const [unavailable, setUnavailable] = useState(false)
+  const sizes = eager
+    ? '(max-width: 639px) calc(100vw - 36px), (max-width: 1263px) 46vw, 579px'
+    : '(max-width: 639px) 92px, 170px'
+  const { imageProps, unavailable } = useResponsiveCover(post.cover_image, { sizes })
   if (!post.cover_image) return null
   return (
     <div className="news-section__image">
-      {unavailable ? <span>配图暂不可用</span> : <img src={proxyImageUrl(post.cover_image)} alt="" width="800" height="500" loading={eager ? 'eager' : 'lazy'} onError={() => setUnavailable(true)} />}
+      {unavailable ? <span>配图暂不可用</span> : <img width="800" height="500" {...imageProps} alt="" loading={eager ? 'eager' : 'lazy'} fetchpriority={eager ? 'high' : undefined} decoding="async" referrerPolicy="no-referrer" />}
     </div>
   )
 }

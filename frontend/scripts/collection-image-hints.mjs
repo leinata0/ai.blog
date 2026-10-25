@@ -10,9 +10,7 @@ const sizes = {
   '/topics': '100vw',
   '/series': '(max-width: 760px) 42vw, 24vw',
 }
-const escape = (value) => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-export function collectionImageHints(route, items, images = manifest.images, generatedAt) {
+export function collectionImageHints(route, items, images = manifest.images, generatedAt = new Date().toISOString()) {
   if (process.env.VITE_PERFORMANCE_TRIAL === '0' || !sizes[route]) return ''
   const source = items?.[0]?.cover_image
   if (typeof source !== 'string' || !source.trim()) return ''
@@ -23,7 +21,6 @@ export function collectionImageHints(route, items, images = manifest.images, gen
   const first = variants.find(v => v.width >= 1600) || variants.at(-1)
   const srcSet = variants.map(v => `${v.url} ${v.width}w`).join(', ')
   const attributes = { rel:'preload', as:'image', href:first.url, imagesrcset:srcSet, imagesizes:sizes[route], fetchpriority:'high', referrerpolicy:'no-referrer' }
-  if (!generatedAt) return `<link ${Object.entries(attributes).map(([key,value]) => `${key}="${escape(value)}"`).join(' ')}>`
   const timestamp = Date.parse(generatedAt)
   if (!Number.isFinite(timestamp)) return ''
   // A saved HTML page can outlive its data snapshot. Do not preload a withdrawn
@@ -31,5 +28,5 @@ export function collectionImageHints(route, items, images = manifest.images, gen
   const attrs = JSON.stringify(attributes).replace(/</g, '\\u003c')
   const key = JSON.stringify(`blog.collection-trial:${route}`)
   const path = JSON.stringify(route)
-  return `<script data-collection-image-hint>(function(){var t=${timestamp},n=Date.now();if(n-t>1800000||t-n>60000)return;try{var s=JSON.parse(sessionStorage.getItem(${key}));if(s&&s.schemaVersion===1&&s.route===${path}&&Date.parse(s.generatedAt)>=t)return}catch(e){}var l=document.createElement('link'),a=${attrs};Object.keys(a).forEach(function(k){l.setAttribute(k,a[k])});document.head.appendChild(l)})();</script>`
+  return `<script data-collection-image-hint>(function(){try{if(localStorage.getItem('news-style')==='paper')return}catch(e){}var t=${timestamp},n=Date.now();if(n-t>1800000||t-n>60000)return;try{var s=JSON.parse(sessionStorage.getItem(${key}));if(s&&s.schemaVersion===1&&s.route===${path}&&Date.parse(s.generatedAt)>=t)return}catch(e){}var l=document.createElement('link'),a=${attrs};Object.keys(a).forEach(function(k){l.setAttribute(k,a[k])});document.head.appendChild(l)})();</script>`
 }
