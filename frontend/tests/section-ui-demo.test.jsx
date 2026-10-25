@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SectionUiDemo from '../src/demos/section-ui/SectionUiDemo'
 import { ArticleCover } from '../src/demos/section-ui/DailyIssue'
 import data from '../src/demos/section-ui/demoContent.json'
+import { responsiveImageAttrs } from '../src/utils/responsiveImage'
 
 vi.mock('../src/components/SeoMeta', () => ({ default: () => null }))
 
@@ -61,7 +62,7 @@ async function expectFocusedPost(post, index) {
     expect(stage.querySelector('.issue-story-meta')).toHaveTextContent(`${post.source_count} 个原始来源`)
     expect(stage.querySelector('.issue-story-meta')).toHaveTextContent(`${post.reading_time} 分钟阅读`)
     expect(stage.querySelector('.issue-focus-order')).toHaveTextContent(`${String(index + 1).padStart(2, '0')} — 03`)
-    expect(stage.querySelector('.issue-scene-images img')).toHaveAttribute('src', post.cover_image)
+    expect(stage.querySelector('.issue-scene-images img')).toHaveAttribute('src', responsiveImageAttrs(post.cover_image).src)
   })
   expect(within(stage).getByRole('button', { name: `切换焦点：${post.title}`, exact: true })).toHaveAttribute('aria-pressed', 'true')
   return stage
@@ -96,7 +97,7 @@ it('keeps all three static-mode focus stories and their images in sync when navi
   await expectFocusedPost(focusPosts[2], 2)
 })
 
-it('previews the selected report with its original cover and closes the native dialog by button or cancel', async () => {
+it('previews the selected report with its own responsive cover and closes the native dialog by button or cancel', async () => {
   const user = userEvent.setup()
   renderDemo()
   const post = focusPosts[1]
@@ -107,7 +108,7 @@ it('previews the selected report with its original cover and closes the native d
   expect(dialog).toHaveAttribute('open')
   expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalledTimes(1)
   expect(within(dialog).getByRole('link', { name: /阅读全文/ })).toHaveAttribute('href', postHref(post))
-  expect(dialog.querySelector('img')).toHaveAttribute('src', post.cover_image)
+  expect(dialog.querySelector('img')).toHaveAttribute('src', responsiveImageAttrs(post.cover_image).src)
   expect(dialog.querySelector('time')).toHaveAttribute('datetime', post.created_at)
   expect(dialog).toHaveTextContent(`${post.source_count} 个原始来源`)
   expect(dialog).toHaveTextContent(post.summary)
@@ -154,7 +155,7 @@ it('promotes a report outside the default three from the archive with the matchi
   expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
   await user.click(within(stage).getByRole('button', { name: /先看摘要/ }))
   const dialog = screen.getByRole('dialog', { name: post.title })
-  expect(dialog.querySelector('img')).toHaveAttribute('src', post.cover_image)
+  expect(dialog.querySelector('img')).toHaveAttribute('src', responsiveImageAttrs(post.cover_image).src)
   expect(within(dialog).getByRole('link', { name: /阅读全文/ })).toHaveAttribute('href', postHref(post))
   expect(dialog).toHaveTextContent(post.summary)
 })
@@ -185,6 +186,9 @@ it('keeps a failed report cover as a stable placeholder without borrowing artwor
   const stage = await expectFocusedPost(focusPosts[0], 0)
   const image = stage.querySelector('.issue-scene-images img')
   fireEvent.error(image)
+  expect(image).toHaveAttribute('src', focusPosts[0].cover_image)
+  expect(image).not.toHaveAttribute('srcset')
+  fireEvent.error(image)
   expect(stage.querySelector('.issue-scene-images img')).not.toBeInTheDocument()
   expect(stage.querySelector('.issue-image-fallback')).toHaveTextContent('本报道封面暂不可用')
   expect(stage.querySelector('.issue-image-fallback')).toHaveAccessibleName(`${focusPosts[0].title}：本报道封面暂不可用`)
@@ -211,10 +215,15 @@ it('uses the next report own cover after a previous report cover fails', () => {
   const post = data.daily[8]
   const nextPost = data.daily[10]
   const { container, rerender } = render(<ArticleCover post={post} />)
-  fireEvent.error(container.querySelector('img'))
+  const image = container.querySelector('img')
+  expect(image).toHaveAttribute('src', responsiveImageAttrs(post.cover_image).src)
+  fireEvent.error(image)
+  expect(image).toHaveAttribute('src', post.cover_image)
+  expect(image).not.toHaveAttribute('srcset')
+  fireEvent.error(image)
   expect(screen.getByRole('img', { name: `${post.title}：本报道封面暂不可用` })).toBeInTheDocument()
   rerender(<ArticleCover post={nextPost} />)
   expect(container.querySelectorAll('img')).toHaveLength(1)
-  expect(container.querySelector('img')).toHaveAttribute('src', nextPost.cover_image)
+  expect(container.querySelector('img')).toHaveAttribute('src', responsiveImageAttrs(nextPost.cover_image).src)
   expect(container.querySelector('.issue-image-fallback')).not.toBeInTheDocument()
 })
