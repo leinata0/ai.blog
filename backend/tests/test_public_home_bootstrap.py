@@ -121,7 +121,9 @@ def test_public_topics_set_cache_headers(client, seeded_db):
     response = client.get("/api/topics")
     assert response.status_code == 200
     assert "etag" in response.headers
-    assert "s-maxage" in response.headers["cache-control"]
+    assert response.headers["cache-control"] == "public, max-age=0, must-revalidate"
+    assert "max-age=60" in response.headers["vercel-cdn-cache-control"]
+    assert response.headers["cdn-cache-control"] == "no-store"
 
 
 def test_public_feeds_set_cache_headers(client, seeded_db):
