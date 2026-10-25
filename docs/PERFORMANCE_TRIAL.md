@@ -9,11 +9,14 @@
 | Git 提交 | `15cff8f1f8c08aca75a28091af0d97e3eb229e46`，四个栏目沉浸式改版完成后的正式版本（PR #81） |
 | 远程标记 | `rollback/pre-performance-trial-20261025`（带说明的 tag） |
 | 原生产部署 | <https://ai-blog-9ettsxdrp-leinata0s-projects.vercel.app> |
+| 试行前紧邻部署 | <https://ai-blog-aa98jp43n-leinata0s-projects.vercel.app>，后端基础 PR 触发的同版前端构建，可用作 Instant Rollback 目标 |
 | 前端试行分支 | `codex/performance-trial` |
 | 后端基础合并 | [PR #82](https://github.com/leinata0/ai.blog/pull/82)，`830381f10f37ef01f64c5cb62b9993fa6f562dc2` |
 | 正式域名 | <https://www.563118077.xyz> |
 
 本次拆成后端缓存基础、前端性能试行两个 PR。发布时应在两个 PR 中分别记录最终合并 SHA 和部署结果，并在前端试行 PR 记录新生产部署 URL、紧邻的前端回退目标、Render 源站头部及实际 `x-vercel-cache` 结果。配置和测试通过不等于已经命中 CDN 缓存。
+
+后端基础验收：2026-10-25 04:54:22 UTC，Render 直接请求 `GET /api/discover?content_type=daily_brief&sections=items,total` 为 200，已确认 `Cache-Control: public,max-age=0,must-revalidate`、`CDN-Cache-Control: no-store`、`Vercel-CDN-Cache-Control: public,max-age=60,stale-while-revalidate=120` 和 `Vercel-Cache-Tag: public-collections-trial`。对应 Vercel Production deployment ID 为 `7308781031`。
 
 ## 试行内容与边界
 
