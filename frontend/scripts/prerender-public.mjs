@@ -9,6 +9,7 @@ import { buildNewsroomSections } from '../src/utils/newsroom.js'
 import { createRequestScheduler, fetchWithRetry } from './prerender-fetch.mjs'
 import { createCollectionSnapshot, serializeCollectionSnapshot } from '../src/utils/publicCollectionSnapshot.js'
 import { collectionImageHints } from './collection-image-hints.mjs'
+import { collectionBootstrapBundleScript, injectCollectionBootstrapBundle } from './collection-bootstrap-bundle.mjs'
 export { fetchWithRetry } from './prerender-fetch.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -579,8 +580,8 @@ function renderArchivePage(template, archiveGroups, siteUrl) {
   })
 }
 
-export function renderSeriesListPage(template, seriesItems, siteUrl) {
-  const snapshot = createCollectionSnapshot('/series', seriesItems)
+export function renderSeriesListPage(template, seriesItems, siteUrl, generatedAt) {
+  const snapshot = createCollectionSnapshot('/series', seriesItems, generatedAt)
   const rootHtml = `
     <main class="prerender-shell">
       <section class="prerender-hero">
@@ -609,8 +610,8 @@ export function renderSeriesListPage(template, seriesItems, siteUrl) {
   })
 }
 
-export function renderTopicsListPage(template, topicItems, siteUrl) {
-  const snapshot = createCollectionSnapshot('/topics', topicItems)
+export function renderTopicsListPage(template, topicItems, siteUrl, generatedAt) {
+  const snapshot = createCollectionSnapshot('/topics', topicItems, generatedAt)
   const rootHtml = `
     <main class="prerender-shell">
       <section class="prerender-hero">
@@ -639,8 +640,8 @@ export function renderTopicsListPage(template, topicItems, siteUrl) {
   })
 }
 
-export function renderContentTypePage(template, routePath, title, description, items, siteUrl) {
-  const snapshot = createCollectionSnapshot(routePath, items)
+export function renderContentTypePage(template, routePath, title, description, items, siteUrl, generatedAt) {
+  const snapshot = createCollectionSnapshot(routePath, items, generatedAt)
   const rootHtml = `
     <main class="prerender-shell">
       <section class="prerender-hero">
@@ -859,6 +860,14 @@ export async function main({
     fetchJson(apiBase, '/api/discover?content_type=weekly_review&limit=24'),
   ])
 
+  const collectionGeneratedAt = new Date().toISOString()
+  const publicTemplate = injectCollectionBootstrapBundle(template, collectionBootstrapBundleScript({
+    '/daily': dailyDiscover?.items,
+    '/weekly': weeklyDiscover?.items,
+    '/topics': topicsPayload?.items,
+    '/series': seriesList,
+  }, collectionGeneratedAt))
+
   // Reuse collection data already required by the full-site build. The homepage
   // still fetches its lightweight bootstrap once; no extra modules request is made.
   const homePayload = {
@@ -893,11 +902,11 @@ export async function main({
       })),
     },
   }
-  await writeRoute('/', renderHomePage(template, homePayload, siteUrl))
+  await writeRoute('/', renderHomePage(publicTemplate, homePayload, siteUrl))
 
-  await writeRoute('/archive', renderArchivePage(template, archiveGroups, siteUrl))
-  await writeRoute('/topics', renderTopicsListPage(template, topicsPayload?.items || [], siteUrl))
-  await writeRoute('/series', renderSeriesListPage(template, Array.isArray(seriesList) ? seriesList : [], siteUrl))
+  await writeRoute('/archive', renderArchivePage(publicTemplate, archiveGroups, siteUrl))
+  await writeRoute('/topics', renderTopicsListPage(publicTemplate, topicsPayload?.items || [], siteUrl, collectionGeneratedAt))
+  await writeRoute('/series', renderSeriesListPage(publicTemplate, Array.isArray(seriesList) ? seriesList : [], siteUrl, collectionGeneratedAt))
   const staticRoutes = [
     ['/discover', '发现', '按内容类型、系列和关键词发现值得持续追踪的 AI 内容。'],
     ['/search', '搜索', '搜索文章、主题、系列与关键变化。'],
@@ -908,7 +917,7 @@ export async function main({
     ['/friends', '友链', '发现值得关注的技术与 AI 站点。'],
   ]
   await Promise.all(staticRoutes.map(([routePath, title, description]) =>
-    writeRoute(routePath, renderStaticPage(template, { routePath, title, description }, siteUrl))))
+    writeRoute(routePath, renderStaticPage(publicTemplate, { routePath, title, description }, siteUrl))))
 
   const privateRoutes = [
     ['/login', '登录', '登录后同步你的关注、阅读历史与互动记录。', 'auth'],
@@ -928,23 +937,25 @@ export async function main({
   await writeRoute(
     '/daily',
     renderContentTypePage(
-      template,
+      publicTemplate,
       '/daily',
       'AI 日报',
       '按覆盖日期回看重要消息、产品与研究进展，并沿原始来源继续阅读。',
       dailyDiscover?.items || [],
       siteUrl,
+      collectionGeneratedAt,
     ),
   )
   await writeRoute(
     '/weekly',
     renderContentTypePage(
-      template,
+      publicTemplate,
       '/weekly',
       'AI 周报',
       '优先拿到一周关键变化的结构化总览。',
       weeklyDiscover?.items || [],
       siteUrl,
+      collectionGeneratedAt,
     ),
   )
 
@@ -971,21 +982,21 @@ export async function main({
   for (const topic of topicDetails.filter(Boolean)) {
     await writeRoute(
       `/topics/${encodeURIComponent(topic.topic_key)}`,
-      renderTopicDetailPage(template, topic, siteUrl),
+      renderTopicDetailPage(publicTemplate, topic, siteUrl),
     )
   }
 
   for (const series of seriesDetails.filter(Boolean)) {
     await writeRoute(
       `/series/${encodeURIComponent(series.slug)}`,
-      renderSeriesDetailPage(template, series, siteUrl),
+      renderSeriesDetailPage(publicTemplate, series, siteUrl),
     )
   }
 
   for (const post of postDetails.filter(Boolean)) {
     await writeRoute(
       `/posts/${encodeURIComponent(post.slug)}`,
-      renderPostDetailPage(template, post, siteUrl),
+      renderPostDetailPage(publicTemplate, post, siteUrl),
     )
   }
 

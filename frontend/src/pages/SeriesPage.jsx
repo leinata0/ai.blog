@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 
 import { fetchSeriesList, prefetchSeriesDetail } from '../api/posts'
+import { fetchPublicCollection, usesPublicCollectionEndpoint } from '../api/publicCollections'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
@@ -25,10 +26,11 @@ import { motionItemVariants } from '../utils/contentPresentation'
 export default function SeriesPage() {
   const { settings } = useSite()
   const { newsStyle } = useNewsStyle()
-  const { items: seriesList, loading, error, refreshError, retry: loadSeries } = usePublicCollection({
+  const { items: seriesList, loading, error, refreshError, preview, generatedAt, retry: loadSeries } = usePublicCollection({
     route: '/series',
     errorMessage: '系列内容加载失败，请稍后重试。',
     load: async (options) => {
+      if (usesPublicCollectionEndpoint()) return fetchPublicCollection('/series', options)
       const items = await fetchSeriesList({}, options)
       return Array.isArray(items) ? items : []
     },
@@ -68,7 +70,7 @@ export default function SeriesPage() {
         jsonLd={jsonLd}
       />
       {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
-      <CollectionRefreshNotice error={refreshError} onRetry={loadSeries} />
+      <CollectionRefreshNotice error={refreshError} preview={preview} generatedAt={generatedAt} onRetry={loadSeries} />
       {newsStyle === 'tech' ? <TechSeries items={seriesList} loading={loading} error={error} onRetry={loadSeries} onPrefetch={prefetchSeries} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-series-index">
         <motion.section
           initial="hidden"

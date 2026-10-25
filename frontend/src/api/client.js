@@ -319,7 +319,34 @@ async function readErrorMessage(resp) {
   return text
 }
 
-async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal, includeResponseMeta = false } = {}) {
+// Keep each response phase bounded even when a fetch implementation or body
+// reader does not reject on abort. The underlying fetch still receives the same
+// signal so browsers can cancel the connection and body download as well.
+function awaitWithAbort(operation, signal) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', onAbort)
+    const onAbort = () => {
+      cleanup()
+      reject(createAbortError('请求已取消'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    try {
+      Promise.resolve(operation()).then(
+        (value) => { cleanup(); resolve(value) },
+        (error) => { cleanup(); reject(error) },
+      )
+    } catch (error) {
+      cleanup()
+      reject(error)
+    }
+  })
+}
+
+async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal, includeResponseMeta = false, credentials } = {}) {
   const base = resolveApiBase()
   const authMode = normalizeAuth(auth)
   const headers = {}
@@ -336,15 +363,13 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
   const timer = setTimeout(() => timeoutController.abort(), timeout)
 
   try {
-    const resp = await fetch(`${base}${path}`, {
+    const resp = await awaitWithAbort(() => fetch(`${base}${path}`, {
       method,
       headers,
+      ...(credentials === undefined ? {} : { credentials }),
       body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
       signal: merged.signal,
-    })
-
-    clearTimeout(timer)
-    merged.cleanup()
+    }), merged.signal)
 
     if (!resp.ok) {
       if (resp.status === 401 && authMode === 'admin') {
@@ -360,11 +385,11 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
         notifyUserUnauthorized()
         throw new Error('登录已过期，请重新登录')
       }
-      throw new Error(await readErrorMessage(resp))
+      throw new Error(await awaitWithAbort(() => readErrorMessage(resp), merged.signal))
     }
 
     const contentType = resp.headers.get('content-type') || ''
-    const data = contentType.includes('json') ? await resp.json() : await resp.text()
+    const data = await awaitWithAbort(() => contentType.includes('json') ? resp.json() : resp.text(), merged.signal)
     if (!includeResponseMeta) return data
     // Some endpoints put pagination state in a response header rather than the body
     // (e.g. GET /api/admin/images returns a bare JSON array + `X-Next-Cursor`).
@@ -373,8 +398,6 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
     // work for headers the backend lists in CORS `expose_headers`.
     return { data, headers: Object.fromEntries(resp.headers.entries()) }
   } catch (err) {
-    clearTimeout(timer)
-    merged.cleanup()
     if (isAbortError(err)) {
       if (signal?.aborted) throw createAbortError('请求已取消')
       throw createAbortError('请求超时，请稍后重试')
@@ -383,6 +406,9 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
       throw createNetworkError(path)
     }
     throw err
+  } finally {
+    clearTimeout(timer)
+    merged.cleanup()
   }
 }
 
