@@ -7,6 +7,7 @@
     { "source": "/public-data/weekly.json", "destination": "/api/collection-snapshot?route=weekly" },
     { "source": "/public-data/topics.json", "destination": "/api/collection-snapshot?route=topics" },
     { "source": "/public-data/series.json", "destination": "/api/collection-snapshot?route=series" },
+    { "source": "/public-data/home.json", "destination": "/api/collection-snapshot?route=home" },
     { "source": "/api/((?!collection-snapshot$).*)", "destination": "https://ai-blog-hbur.onrender.com/api/$1" },
     { "source": "/proxy-image", "destination": "https://ai-blog-hbur.onrender.com/proxy-image" },
     { "source": "/uploads/(.*)", "destination": "https://ai-blog-hbur.onrender.com/uploads/$1" },

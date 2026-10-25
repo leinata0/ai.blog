@@ -201,3 +201,28 @@ it('does not publish any pending results after unmount', async () => {
   await act(async () => { modules.resolve({ latest_weekly: [] }); topics.reject(new Error('offline')) })
   expect(result.current).toBe(beforeUnmount)
 })
+
+it('uses complete managed homepage data without launching duplicate module or topic requests', () => {
+  const modules = { latest_weekly: [{ slug: 'weekly' }], featured_series: [] }
+  const topics = [{ topic_key: 'models' }]
+  const retry = vi.fn()
+  const { result } = renderHook(() => useNewsroomData(true, modules, topics, { managed: true, loading: false, retry }))
+  expect(result.current.modules).toBe(modules)
+  expect(result.current.topics).toBe(topics)
+  expect(result.current.loading).toBe(false)
+  result.current.retry()
+  expect(retry).toHaveBeenCalledOnce()
+  expect(fetchHomeModules).not.toHaveBeenCalled()
+  expect(fetchTopics).not.toHaveBeenCalled()
+})
+
+it('lets a managed empty result clear both sections instead of reviving their old nonempty refs', () => {
+  const { result, rerender } = renderHook(({ modules, topics }) => useNewsroomData(true, modules, topics, { managed: true }), {
+    initialProps: { modules: { latest_weekly: [{ slug: 'withdrawn' }] }, topics: [{ topic_key: 'withdrawn' }] },
+  })
+  rerender({ modules: { latest_weekly: [], featured_series: [] }, topics: [] })
+  expect(result.current.modules.latest_weekly).toEqual([])
+  expect(result.current.topics).toEqual([])
+  expect(fetchHomeModules).not.toHaveBeenCalled()
+  expect(fetchTopics).not.toHaveBeenCalled()
+})

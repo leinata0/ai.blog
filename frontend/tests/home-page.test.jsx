@@ -8,6 +8,7 @@ import { ThemeProvider } from '../src/contexts/ThemeContext'
 import { fetchHomeBootstrap, fetchHomeModules } from '../src/api/home'
 import { fetchPosts } from '../src/api/posts'
 import HomePage from '../src/pages/HomePage'
+import { createPublicHomeSnapshot } from '../src/utils/publicHomeSnapshot'
 
 function LocationProbe() {
   const location = useLocation()
@@ -126,13 +127,16 @@ vi.mock('../src/api/home', () => ({
 }))
 
 const defaultFetchPosts = fetchPosts.getMockImplementation()
+const defaultFetchHomeBootstrap = fetchHomeBootstrap.getMockImplementation()
 
 beforeEach(() => {
   vi.clearAllMocks()
   fetchPosts.mockReset().mockImplementation(defaultFetchPosts)
+  fetchHomeBootstrap.mockReset().mockImplementation(defaultFetchHomeBootstrap)
   window.localStorage.clear()
   window.sessionStorage.clear()
   delete window.__BLOG_BOOTSTRAP__
+  delete window.__BLOG_HOME_BOOTSTRAP__
 })
 
 afterEach(cleanup)
@@ -209,8 +213,8 @@ it('allocates each story to one board and supports the title-only reading mode',
     content_type: index === 0 || index === 4 ? 'weekly_review' : 'daily_brief',
     created_at: '2026-07-26T08:00:00Z', tags: [],
   }))
-  fetchHomeBootstrap.mockResolvedValueOnce({ settings: { site_url: 'https://www.563118077.xyz' }, posts: { items: posts, total: 10 } })
-  fetchHomeModules.mockResolvedValueOnce({ latest_weekly: [posts[0], posts[4], { ...posts[4], slug: 'older-week', title: '历史周报' }], featured_series: [] })
+  fetchHomeBootstrap.mockResolvedValueOnce({ settings: { site_url: 'https://www.563118077.xyz' }, posts: { items: posts, total: 10 },
+    home_modules: { latest_weekly: [posts[0], posts[4], { ...posts[4], slug: 'older-week', title: '历史周报' }], featured_series: [] } })
   const { container } = render(<MemoryRouter><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>)
   await waitFor(() => expect(container.querySelectorAll('article[data-story-slug]')).toHaveLength(11))
   const slugs = [...container.querySelectorAll('article[data-story-slug]')].map((node) => node.dataset.storySlug)
@@ -226,15 +230,18 @@ it('allocates each story to one board and supports the title-only reading mode',
   expect(container.querySelectorAll('article[data-story-slug]')).toHaveLength(11)
 })
 
-it('keeps lead stories readable when supplementary modules fail, then retries independently', async () => {
-  fetchHomeModules.mockRejectedValueOnce(new Error('Module unavailable'))
+it('keeps a valid complete home snapshot readable when revalidation fails and retries the complete request', async () => {
+  const home = await defaultFetchHomeBootstrap()
+  window.__BLOG_HOME_BOOTSTRAP__ = createPublicHomeSnapshot({ ...home, home_modules: { latest_weekly: [], featured_series: [] }, home_topics: [] })
+  fetchHomeBootstrap.mockRejectedValueOnce(new Error('Home unavailable'))
   render(<MemoryRouter><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>)
   await screen.findByRole('heading', { name: 'Python automation with Selenium and Pandas' })
-  expect(await screen.findByText('周报与专栏暂时无法加载，请稍后重试。')).toBeInTheDocument()
+  expect(await screen.findByText(/最近载入的内容仍可阅读，更新暂时失败/)).toBeInTheDocument()
   expect(screen.getByRole('region', { name: '本期头条' })).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: '重试深读' }))
-  await waitFor(() => expect(screen.queryByText('周报与专栏暂时无法加载，请稍后重试。')).not.toBeInTheDocument())
-  expect(fetchHomeModules).toHaveBeenCalledTimes(2)
+  await userEvent.click(screen.getByRole('button', { name: '重试更新' }))
+  await waitFor(() => expect(screen.queryByText(/最近载入的内容仍可阅读，更新暂时失败/)).not.toBeInTheDocument())
+  expect(fetchHomeBootstrap).toHaveBeenCalledTimes(2)
+  expect(fetchHomeModules).not.toHaveBeenCalled()
   expect(fetchPosts).not.toHaveBeenCalled()
 })
 
@@ -256,24 +263,12 @@ it('replaces the exhibition hero and chapter directory with the paper front page
   expect(screen.getByRole('textbox', { name: '搜索文章' })).toBeInTheDocument()
 })
 
-it('does not let a stale filtered request overwrite the restored latest-post view', async () => {
+it('restores known homepage data immediately and ignores a late filtered response', async () => {
   let resolveFilteredRequest
   fetchPosts
     .mockImplementationOnce(() => new Promise((resolve) => {
       resolveFilteredRequest = resolve
     }))
-    .mockResolvedValueOnce({
-      items: [{
-        title: 'Newest unfiltered article',
-        slug: 'newest-unfiltered-article',
-        summary: 'Fresh homepage content.',
-        content_type: 'post',
-        tags: [{ name: 'Fresh', slug: 'fresh' }],
-      }],
-      total: 1,
-      page: 1,
-      page_size: 10,
-    })
 
   render(
     <MemoryRouter>
@@ -293,8 +288,8 @@ it('does not let a stale filtered request overwrite the restored latest-post vie
   await waitFor(() => expect(fetchPosts).toHaveBeenCalledTimes(1))
 
   await userEvent.click(screen.getByRole('button', { name: '清空' }))
-  expect((await screen.findAllByText('Newest unfiltered article')).length).toBeGreaterThan(0)
-  expect(fetchPosts.mock.calls[1][0]).toEqual(expect.objectContaining({ page: 1, tag: undefined, q: undefined }))
+  expect(screen.getAllByText('Python automation with Selenium and Pandas').length).toBeGreaterThan(0)
+  expect(fetchPosts).toHaveBeenCalledTimes(1)
 
   resolveFilteredRequest({
     items: [{
@@ -310,7 +305,7 @@ it('does not let a stale filtered request overwrite the restored latest-post vie
   })
 
   await waitFor(() => expect(screen.queryAllByText('Stale filtered response')).toHaveLength(0))
-  expect(screen.getAllByText('Newest unfiltered article').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('Python automation with Selenium and Pandas').length).toBeGreaterThan(0)
 })
 
 it('does not present old search results as homepage headlines after a failed reset', async () => {
@@ -320,9 +315,9 @@ it('does not present old search results as homepage headlines after a failed res
   })
   render(<MemoryRouter initialEntries={['/?q=Python']}><ThemeProvider><SiteProvider><HomePage /></SiteProvider></ThemeProvider></MemoryRouter>)
   await screen.findByRole('heading', { name: '只属于搜索结果的文章' })
-  fetchPosts.mockRejectedValue(new Error('Home unavailable'))
+  fetchHomeBootstrap.mockRejectedValueOnce(new Error('首页暂时不可用'))
   await userEvent.click(screen.getByRole('button', { name: '清空', exact: true }))
-  await screen.findByText('暂时无法加载文章列表，请稍后再试。')
+  await waitFor(() => expect(within(screen.getByRole('region', { name: '文章列表' })).getByRole('alert')).toHaveTextContent('首页暂时不可用'))
   const focus = screen.getByRole('region', { name: '本期头条' })
   expect(within(focus).queryByRole('heading', { name: '只属于搜索结果的文章' })).not.toBeInTheDocument()
   expect(within(focus).queryByText('2026/07/20')).not.toBeInTheDocument()

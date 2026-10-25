@@ -1,4 +1,5 @@
 import { createCollectionSnapshot, serializeCollectionSnapshot } from '../src/utils/publicCollectionSnapshot.js'
+import { createPublicHomeSnapshot, serializePublicHomeSnapshot } from '../src/utils/publicHomeSnapshot.js'
 
 // This is a public summary endpoint, not a general proxy. Both the host and every
 // upstream query are fixed so request headers and query strings cannot select
@@ -8,7 +9,9 @@ const UPSTREAMS = Object.freeze({
   weekly: 'https://ai-blog-hbur.onrender.com/api/discover?content_type=weekly_review&sections=items%2Ctotal&limit=24',
   topics: 'https://ai-blog-hbur.onrender.com/api/topics?limit=24',
   series: 'https://ai-blog-hbur.onrender.com/api/series?limit=24',
+  home: 'https://ai-blog-hbur.onrender.com/api/public/home-bootstrap?page=1&page_size=10&include_modules=true',
 })
+const HOME_TOPICS_UPSTREAM = 'https://ai-blog-hbur.onrender.com/api/topics?limit=4'
 
 export const UPSTREAM_TIMEOUT_MS = 5000
 export const UPSTREAM_MAX_BYTES = 1024 * 1024
@@ -28,7 +31,7 @@ function collectionRoute(request) {
   const queryValue = Object.hasOwn(query, 'route') ? query.route : undefined
   if (queryValue !== undefined && typeof queryValue !== 'string') return null
   if (queryValue !== undefined && rawValues.length && queryValue !== rawValues[0]) return null
-  const alias = /^\/public-data\/(daily|weekly|topics|series)\.json$/.exec(url.pathname)?.[1]
+  const alias = /^\/public-data\/(daily|weekly|topics|series|home)\.json$/.exec(url.pathname)?.[1]
   const route = queryValue ?? rawValues[0] ?? alias
   if (alias && route !== alias) return null
   return typeof route === 'string' && Object.hasOwn(UPSTREAMS, route) ? route : null
@@ -85,6 +88,15 @@ async function readJson(response, signal) {
   return JSON.parse(new TextDecoder().decode(body))
 }
 
+async function readPublicUpstream(url, signal) {
+  const response = await fetch(url, {
+    method: 'GET', headers: { Accept: 'application/json' },
+    credentials: 'omit', redirect: 'error', signal,
+  })
+  if (!publicJson(response)) throw new Error('Unsafe or unsuccessful public upstream response')
+  return readJson(response, signal)
+}
+
 export default async function collectionSnapshot(request, response) {
   if (request.method !== 'GET') {
     response.setHeader('Allow', 'GET')
@@ -109,12 +121,20 @@ export default async function collectionSnapshot(request, response) {
   try {
     const body = await Promise.race([
       (async () => {
-        const upstream = await fetch(UPSTREAMS[route], {
-          method: 'GET', headers: { Accept: 'application/json' },
-          credentials: 'omit', redirect: 'error', signal: controller.signal,
-        })
-        if (!publicJson(upstream)) throw new Error('Unsafe or unsuccessful public upstream response')
-        const payload = await readJson(upstream, controller.signal)
+        if (route === 'home') {
+          // One bounded public response replaces the reader's bootstrap/modules/
+          // topics requests. Both origins must succeed: never invent an empty
+          // section when a supplemental request fails or returns malformed JSON.
+          const [home, topics] = await Promise.all([
+            readPublicUpstream(UPSTREAMS.home, controller.signal),
+            readPublicUpstream(HOME_TOPICS_UPSTREAM, controller.signal),
+          ])
+          const snapshot = createPublicHomeSnapshot({ ...home, home_topics: Array.isArray(topics) ? topics : topics?.items }, new Date().toISOString())
+          const serialized = serializePublicHomeSnapshot(snapshot)
+          if (!serialized) throw new Error('Invalid or oversized public home snapshot')
+          return serialized
+        }
+        const payload = await readPublicUpstream(UPSTREAMS[route], controller.signal)
         const items = Array.isArray(payload) ? payload : payload?.items
         if (!Array.isArray(items)) throw new Error('Invalid public collection payload')
         const snapshot = createCollectionSnapshot(`/${route}`, items)

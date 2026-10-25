@@ -11,6 +11,7 @@ import Pagination from '../components/Pagination'
 import SeoMeta from '../components/SeoMeta'
 import EmptyStatePanel from '../components/EmptyStatePanel'
 import LoadingSkeletonSet from '../components/LoadingSkeletonSet'
+import CollectionRefreshNotice from '../components/CollectionRefreshNotice'
 import ArticleQuickPreview from '../components/ArticleQuickPreview'
 import NewsArticle from '../components/news/NewsArticle'
 import NewsFrontPage from '../components/news/NewsFrontPage'
@@ -26,6 +27,7 @@ import { buildNewsroomSections, NEWS_BEATS } from '../utils/newsroom'
 import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildCollectionPageJsonLd, buildWebSiteJsonLd } from '../utils/structuredData'
 import { SITE_COPY, SITE_SEO } from '../utils/contentPresentation'
+import { PERFORMANCE_TRIAL_ENABLED } from '../utils/performanceTrial'
 import '../styles/news-home.css'
 import '../styles/news-tech-home.css'
 import '../styles/news-edition.css'
@@ -33,28 +35,36 @@ import '../styles/news-edition-choreography.css'
 
 export default function HomePage() {
   const { newsStyle } = useNewsStyle()
-  const { settings, bootstrap, bootstrapLoading, loading: siteLoading } = useSite()
+  const { settings, bootstrap, bootstrapLoading, loading: siteLoading, homeDataManaged,
+    bootstrapError, bootstrapRefreshError, bootstrapPreview, bootstrapGeneratedAt, retryHomeBootstrap } = useSite()
   const [searchParams, setSearchParams] = useSearchParams()
   const tag = searchParams.get('tag') || ''
   const searchQuery = searchParams.get('q') || ''
   const parsedPage = Number.parseInt(searchParams.get('page') || '1', 10)
   const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1
+  const defaultView = !tag && !searchQuery && page === 1
+  const managedHome = Boolean(homeDataManaged) && defaultView
+  const legacyBootstrap = !homeDataManaged && defaultView ? bootstrap : null
+  const waitForLegacyBootstrap = !homeDataManaged && defaultView && (siteLoading || bootstrapLoading) && !legacyBootstrap?.posts
   const queryKey = JSON.stringify([tag, searchQuery, page])
   const [searchInput, setSearchInput] = useState(searchQuery)
   const [loadedPosts, setPosts] = useState(() => (Array.isArray(bootstrap?.posts?.items) ? bootstrap.posts.items : []))
   const [loadedQueryKey, setLoadedQueryKey] = useState(() => bootstrap?.posts ? JSON.stringify(['', '', 1]) : null)
-  const [loading, setLoading] = useState(() => !bootstrap?.posts)
+  const [postsLoading, setLoading] = useState(() => !bootstrap?.posts)
   const [slowLoading, setSlowLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [postsError, setError] = useState('')
   const [loadedTotal, setTotal] = useState(() => bootstrap?.posts?.total ?? 0)
-  const posts = loadedQueryKey === queryKey ? loadedPosts : []
-  const total = loadedQueryKey === queryKey ? loadedTotal : 0
+  const posts = managedHome ? bootstrap?.posts?.items || [] : loadedQueryKey === queryKey ? loadedPosts : []
+  const total = managedHome ? bootstrap?.posts?.total ?? 0 : loadedQueryKey === queryKey ? loadedTotal : 0
+  const loading = managedHome ? Boolean(bootstrapLoading) : postsLoading
+  const error = managedHome ? bootstrapError || '' : postsError
   const [previewPost, setPreviewPost] = useState(null)
   const [density, setDensity] = useState('summary')
   const [newsPending, startNewsTransition] = useTransition()
   const [pageSize] = useState(10)
   const postsRequestRef = useRef(0)
   const postsAbortRef = useRef(null)
+  const postsSlowTimerRef = useRef(null)
   const hasInteractedRef = useRef(false)
   const choreographyRef = useRef(null)
 
@@ -97,6 +107,7 @@ export default function HomePage() {
     postsAbortRef.current?.abort()
     postsAbortRef.current = null
     postsRequestRef.current += 1
+    clearTimeout(postsSlowTimerRef.current)
 
     startNewsTransition(() => {
       setPosts(Array.isArray(payload.posts.items) ? payload.posts.items : [])
@@ -110,16 +121,24 @@ export default function HomePage() {
   }, [startNewsTransition])
 
   const loadPosts = useCallback(() => {
-    const isDefaultView = !tag && !searchQuery && page === 1
-    if ((siteLoading || bootstrapLoading) && !bootstrap?.posts && isDefaultView) {
+    if (managedHome) {
+      // Default homepage content is owned by the bounded snapshot request. A
+      // settings failure must not trigger a second serial posts request.
+      postsAbortRef.current?.abort()
+      postsAbortRef.current = null
+      postsRequestRef.current += 1
+      clearTimeout(postsSlowTimerRef.current)
       return
     }
+    const isDefaultView = !tag && !searchQuery && page === 1
+    if (waitForLegacyBootstrap) return
 
-    if (isDefaultView && !hasInteractedRef.current && applyBootstrapPayload(bootstrap)) {
+    if (isDefaultView && !hasInteractedRef.current && applyBootstrapPayload(legacyBootstrap)) {
       return
     }
 
     postsAbortRef.current?.abort()
+    clearTimeout(postsSlowTimerRef.current)
     const controller = new AbortController()
     postsAbortRef.current = controller
     const requestId = postsRequestRef.current + 1
@@ -129,11 +148,16 @@ export default function HomePage() {
     setSlowLoading(false)
     setError('')
 
-    const timer = setTimeout(() => setSlowLoading(true), 3000)
+    const timer = setTimeout(() => {
+      if (!controller.signal.aborted && requestId === postsRequestRef.current) setSlowLoading(true)
+    }, 3000)
+    postsSlowTimerRef.current = timer
 
     fetchPosts(
       { tag: tag || undefined, q: searchQuery || undefined, page, pageSize },
-      { signal: controller.signal, dedupe: false, staleWhileRevalidate: true, cacheTtl: 10000, staleTtl: 45000 },
+      PERFORMANCE_TRIAL_ENABLED
+        ? { signal: controller.signal, timeout: 8000, dedupe: false, cache: false, staleWhileRevalidate: false }
+        : { signal: controller.signal, dedupe: false, staleWhileRevalidate: true, cacheTtl: 10000, staleTtl: 45000 },
     )
       .then((result) => {
         if (controller.signal.aborted || requestId !== postsRequestRef.current) return
@@ -147,16 +171,18 @@ export default function HomePage() {
         setSlowLoading(false)
       })
       .catch((err) => {
-        if (controller.signal.aborted || err?.name === 'AbortError') {
-          clearTimeout(timer)
-          return
-        }
-        clearTimeout(timer)
+        // The transport uses AbortError for its deadline too. Only this
+        // consumer's cancellation or a superseded query is a silent exit.
+        if (controller.signal.aborted || requestId !== postsRequestRef.current) return
         setError('暂时无法加载文章列表，请稍后再试。')
         setLoading(false)
         setSlowLoading(false)
       })
-  }, [applyBootstrapPayload, bootstrap, bootstrapLoading, page, pageSize, queryKey, searchQuery, siteLoading, startNewsTransition, tag])
+      .finally(() => {
+        clearTimeout(timer)
+        if (postsSlowTimerRef.current === timer) postsSlowTimerRef.current = null
+      })
+  }, [applyBootstrapPayload, legacyBootstrap, waitForLegacyBootstrap, managedHome, page, pageSize, queryKey, searchQuery, startNewsTransition, tag])
 
   useEffect(() => {
     loadPosts()
@@ -164,6 +190,7 @@ export default function HomePage() {
 
   useEffect(() => () => {
     postsAbortRef.current?.abort()
+    clearTimeout(postsSlowTimerRef.current)
   }, [])
 
   const tags = useMemo(() => {
@@ -208,10 +235,11 @@ export default function HomePage() {
 
   const closePreview = useCallback(() => setPreviewPost(null), [])
 
-  const defaultView = !tag && !searchQuery && page === 1
   const immersiveHome = newsStyle === 'tech' && defaultView
   useEditionChoreography(choreographyRef, immersiveHome)
-  const newsroom = useNewsroomData(immersiveHome, bootstrap?.home_modules, bootstrap?.home_topics)
+  const newsroom = useNewsroomData(immersiveHome, bootstrap?.home_modules, bootstrap?.home_topics, {
+    managed: Boolean(homeDataManaged), loading: bootstrapLoading, error: bootstrapError, retry: retryHomeBootstrap,
+  })
   const sections = useMemo(() => buildNewsroomSections(posts, newsroom.modules || {}), [posts, newsroom.modules])
   const feedPosts = immersiveHome ? sections.stream : defaultView ? posts.slice(7) : posts
   const latestDate = posts.reduce((latest, post) => {
@@ -244,7 +272,7 @@ export default function HomePage() {
       {searchQuery || tag ? <p className="news-query-note">{searchQuery ? '关键词：“' + searchQuery + '”' : '当前标签：' + tag}<button type="button" onClick={clearSearch}>查看全部资讯 <ArrowRight size={12} aria-hidden="true" /></button></p> : null}
       <div className="news-article-list" role="region" aria-label="文章列表" aria-busy={loading}>
         {loading ? <><LoadingSkeletonSet count={3} minHeight="10rem" />{slowLoading ? <p role="status" className="news-status">新闻载入需要一点时间，请稍候。</p> : null}</> : error ? (
-          <div className="news-error" role="alert"><p>{error}</p><button type="button" onClick={loadPosts}>重试加载 <ArrowRight size={14} aria-hidden="true" /></button></div>
+          <div className="news-error" role="alert"><p>{error}</p><button type="button" onClick={managedHome ? retryHomeBootstrap : loadPosts}>重试加载 <ArrowRight size={14} aria-hidden="true" /></button></div>
         ) : posts.length === 0 ? (
           <EmptyStatePanel title="暂时没有匹配的资讯" description="试试其他关键词，或回到新闻首页浏览。"><button type="button" className="news-text-link" onClick={clearSearch}>查看全部资讯 <ArrowRight size={14} aria-hidden="true" /></button></EmptyStatePanel>
         ) : feedPosts.length > 0 ? feedPosts.map((post) => <NewsArticle key={post.slug} post={post} onPrefetch={prefetchPost} onPreview={setPreviewPost} onTagSelect={handleTagSelect} withCoverFallback={newsStyle === 'tech'} />) : (
@@ -260,6 +288,7 @@ export default function HomePage() {
       <SeoMeta title={SITE_SEO.homeTitle} description={SITE_SEO.homeDescription} path="/" image={heroImage}
         jsonLd={homeJsonLd} rssUrl={buildPublicApiUrl('/feed.xml')} />
       <Navbar immersive={immersiveHome} />
+      {managedHome ? <CollectionRefreshNotice error={bootstrapRefreshError} preview={bootstrapPreview} generatedAt={bootstrapGeneratedAt} onRetry={retryHomeBootstrap} /> : null}
       {immersiveHome ? <EditionHero total={total} latestDate={latestDate} loading={loading || newsPending} hasError={Boolean(error)} /> : null}
       <div className="news-home__paper">
         {immersiveHome ? null : newsStyle === 'tech' ? <TechNewsIntro total={total} latestDate={latestDate} loading={loading} hasError={Boolean(error)} compact={!defaultView} /> : <header className="news-edition">

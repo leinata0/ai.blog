@@ -8,7 +8,7 @@ const text = (value, limit = 1200) => typeof value === 'string' ? value.slice(0,
 const count = (value) => value !== null && value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null
 const isPublic = (item) => item && typeof item === 'object' && item.is_published !== false && !['draft', 'private', 'archived', 'unpublished'].includes(item.status)
 
-function postSummary(item) {
+export function postSummary(item) {
   if (!isPublic(item) || !text(item.slug, 200).trim() || !text(item.title, 300).trim()) return null
   return {
     slug: text(item.slug, 200), title: text(item.title, 300), summary: text(item.summary),

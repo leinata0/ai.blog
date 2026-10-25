@@ -8,7 +8,8 @@ function hasEditorialModules(modules) {
 }
 
 /** Supplementary sections load independently of the homepage's lead stories. */
-export default function useNewsroomData(enabled, bootstrapModules, bootstrapTopics) {
+export default function useNewsroomData(enabled, bootstrapModules, bootstrapTopics, managedHome = {}) {
+  const managed = managedHome.managed === true
   const [modules, setModules] = useState(null)
   const [topics, setTopics] = useState(null)
   const [loading, setLoading] = useState(Boolean(enabled))
@@ -26,7 +27,7 @@ export default function useNewsroomData(enabled, bootstrapModules, bootstrapTopi
   const retry = useCallback(() => setAttempt((value) => value + 1), [])
 
   useEffect(() => {
-    if (!enabled) return undefined
+    if (!enabled || managed) return undefined
     let active = true
     setLoading(true)
     setError('')
@@ -51,7 +52,19 @@ export default function useNewsroomData(enabled, bootstrapModules, bootstrapTopi
     })
 
     return () => { active = false }
-  }, [enabled, attempt])
+  }, [enabled, managed, attempt])
+
+  // A complete homepage snapshot is verified together. Do not launch duplicate
+  // modules/topics requests or let a nonempty ref resurrect an authoritative []
+  // after an editor has removed a topic or series.
+  if (managed) return {
+    modules: bootstrapModules ?? null,
+    topics: Array.isArray(bootstrapTopics) ? bootstrapTopics : null,
+    loading: Boolean(enabled && managedHome.loading),
+    error: managedHome.error || '',
+    modulesError: managedHome.error || '',
+    retry: managedHome.retry || retry,
+  }
 
   return {
     modules: modules ?? bootstrapRef.current,
