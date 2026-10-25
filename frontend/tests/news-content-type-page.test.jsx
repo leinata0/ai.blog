@@ -15,11 +15,11 @@ beforeEach(() => {
   window.localStorage.setItem('news-style', 'paper')
   window.sessionStorage.clear()
   api.fetchPosts.mockResolvedValue({ items: [] })
-  api.fetchDiscover.mockResolvedValue({ items: [
+  api.fetchDiscover.mockImplementation(async ({ content_type }) => ({ items: [
     { slug: 'older', title: '早期报道', summary: '早期报道摘要', created_at: '2026-07-20T08:00:00Z', content_type: 'daily_brief' },
     { slug: 'latest', title: '最近报道的真实标题', summary: '来自接口的报道摘要', created_at: '2026-07-26T08:00:00Z', coverage_date: '2026-07-25', source_count: 3, cover_image: 'https://example.com/news.jpg', content_type: 'daily_brief' },
     { slug: 'middle', title: '中间日期报道', summary: '补充背景', created_at: '2026-07-23T08:00:00Z', content_type: 'daily_brief' },
-  ] })
+  ].map((post) => ({ ...post, content_type })) }))
 })
 afterEach(() => { cleanup(); window.localStorage.removeItem('news-style') })
 

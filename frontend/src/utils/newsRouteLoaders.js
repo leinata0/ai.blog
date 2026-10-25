@@ -1,4 +1,5 @@
 import { PERFORMANCE_TRIAL_ENABLED } from './performanceTrial'
+import { prefetchPublicCollection } from '../api/publicCollections'
 
 // Share these exact import functions with React.lazy so navigation can reuse
 // a chunk requested on deliberate pointer/keyboard intent.
@@ -21,7 +22,9 @@ export function preloadNewsRoute(path) {
   const connection = typeof navigator !== 'undefined' ? navigator.connection : null
   if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType || '')) return
   const loader = loaders[path]
-  if (!loader || requested.has(loader)) return
+  if (!loader) return
+  prefetchPublicCollection(path)
+  if (requested.has(loader)) return
   const promise = loader().catch(() => {
     // A speculative failure must not poison a later navigation or reload the page.
     if (requested.get(loader) === promise) requested.delete(loader)

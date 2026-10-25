@@ -17,7 +17,7 @@ it('shows build data synchronously without awaiting the real background request'
   expect(result.current.items[0].slug).toBe('existing')
   expect(result.current.loading).toBe(false)
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1))
-  expect(load.mock.calls[0][0]).toEqual(expect.objectContaining({ cache: false, forceRefresh: true, staleWhileRevalidate: false, dedupe: false }))
+  expect(load.mock.calls[0][0]).toEqual(expect.objectContaining({ cache: false, forceRefresh: false, timeout: 8000, staleWhileRevalidate: false, dedupe: false }))
   await act(async () => pending.resolve([{ ...story, slug: 'latest' }]))
   expect(result.current.items[0].slug).toBe('latest')
 })

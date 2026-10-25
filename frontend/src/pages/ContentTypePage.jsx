@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, Rss } from 'lucide-react'
 
 import { fetchDiscover, fetchPosts } from '../api/posts'
+import { fetchPublicCollection, usesPublicCollectionEndpoint } from '../api/publicCollections'
 import Navbar from '../components/Navbar'
 import PrimaryNewsNavigation from '../components/news/PrimaryNewsNavigation'
 import Footer from '../components/Footer'
@@ -96,11 +97,12 @@ export default function ContentTypePage({ contentType }) {
     contentType === 'weekly_review' ? '/api/feeds/weekly.xml' : '/api/feeds/daily.xml'
   )
   const path = contentType === 'weekly_review' ? '/weekly' : '/daily'
-  const { items: posts, loading, error, refreshError, retry } = usePublicCollection({
+  const { items: posts, loading, error, refreshError, preview, generatedAt, retry } = usePublicCollection({
     route: path,
     errorMessage: '栏目暂时无法加载，请稍后重试。',
     legacyOptions: { dedupe: false },
     load: async (options) => {
+      if (usesPublicCollectionEndpoint()) return fetchPublicCollection(path, options)
       try {
         const payload = await fetchDiscover({ content_type: contentType, sections: 'items,total' }, options)
         return Array.isArray(payload?.items) ? payload.items : []
@@ -167,7 +169,7 @@ export default function ContentTypePage({ contentType }) {
           header={<Navbar immersive><PrimaryNewsNavigation className="issue-live-primary" /></Navbar>}
           footer={<Footer />}
         />
-        <CollectionRefreshNotice error={refreshError} onRetry={retry} />
+        <CollectionRefreshNotice error={refreshError} preview={preview} generatedAt={generatedAt} onRetry={retry} />
         <BackToTop />
       </>
     )
@@ -184,7 +186,7 @@ export default function ContentTypePage({ contentType }) {
         rssUrl={feedUrl}
       />
       {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
-      <CollectionRefreshNotice error={refreshError} onRetry={retry} />
+      <CollectionRefreshNotice error={refreshError} preview={preview} generatedAt={generatedAt} onRetry={retry} />
       {newsStyle === 'tech' ? <CinematicWeekly posts={orderedPosts} loading={loading} error={error} onRetry={retry} feedUrl={feedUrl} /> : <div className="news-section__wrap">
           <header className="news-section__masthead">
             <p className="news-section__kicker">{copy.englishTitle}</p>

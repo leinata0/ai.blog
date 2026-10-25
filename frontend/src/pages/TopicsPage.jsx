@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Compass, Flame, Sparkles } from 'lucide-react'
 
 import { fetchTopics, prefetchTopicDetail } from '../api/posts'
+import { fetchPublicCollection, usesPublicCollectionEndpoint } from '../api/publicCollections'
 import Navbar from '../components/Navbar'
 import Footer from '../components/Footer'
 import BackToTop from '../components/BackToTop'
@@ -34,11 +35,12 @@ import {
 export default function TopicsPage() {
   const { settings } = useSite()
   const { newsStyle } = useNewsStyle()
-  const { items: topics, loading, error, refreshError, retry } = usePublicCollection({
+  const { items: topics, loading, error, refreshError, preview, generatedAt, retry } = usePublicCollection({
     route: '/topics',
     errorMessage: '主题暂时无法加载，请稍后重试。',
     legacyOptions: { staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
     load: async (options) => {
+      if (usesPublicCollectionEndpoint()) return fetchPublicCollection('/topics', options)
       const payload = await fetchTopics({ limit: 24 }, options)
       return Array.isArray(payload?.items) ? payload.items : []
     },
@@ -78,7 +80,7 @@ export default function TopicsPage() {
         jsonLd={jsonLd}
       />
       {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
-      <CollectionRefreshNotice error={refreshError} onRetry={retry} />
+      <CollectionRefreshNotice error={refreshError} preview={preview} generatedAt={generatedAt} onRetry={retry} />
       {newsStyle === 'tech' ? <TechTopics topics={topics} loading={loading} error={error} onRetry={retry} onPrefetch={prefetchTopic} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-topic-index">
         <motion.section
           initial="hidden"

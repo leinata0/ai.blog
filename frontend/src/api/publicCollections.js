@@ -15,8 +15,8 @@ export async function fetchPublicCollection(route, options = {}) {
   if (!options.forceRefresh && saved?.source === 'session') return saved
   const name = route.slice(1)
   // Protected deployment previews need their existing Vercel session. The
-  // public production domain omits cookies; the function never forwards either
-  // kind of browser credential upstream and marks credentialed replies private.
+  // public production domain omits cookies. This resource always contains the
+  // same public fields; browser credentials are never forwarded upstream.
   const credentials = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') ? 'same-origin' : 'omit'
   // Shared inflight work is bounded and anonymous. One navigation cancelling
   // must not abort an intent-prefetch that another consumer is about to use.
