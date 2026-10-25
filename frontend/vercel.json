@@ -36,6 +36,42 @@
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
+      ]
+    },
+    {
+      "source": "/api/discover",
+      "missing": [
+        { "type": "header", "key": "authorization" },
+        { "type": "header", "key": "cookie" }
+      ],
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "1" }
+      ]
+    },
+    {
+      "source": "/api/topics",
+      "missing": [
+        { "type": "header", "key": "authorization" },
+        { "type": "header", "key": "cookie" }
+      ],
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "1" }
+      ]
+    },
+    {
+      "source": "/api/series",
+      "missing": [
+        { "type": "header", "key": "authorization" },
+        { "type": "header", "key": "cookie" }
+      ],
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "1" }
+      ]
     }
   ]
 }
