@@ -258,7 +258,7 @@ describe('vercel public route delivery', () => {
   it('declares an explicit rewrite for every prerendered top-level public route', () => {
     const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'))
     const rewrites = config.rewrites
-    const catchAllIndex = rewrites.findIndex(({ source }) => source === '/(.*)')
+    const catchAllIndex = rewrites.findIndex(({ destination }) => destination === '/index.html')
 
     ;['/archive', '/topics', '/series', '/daily', '/weekly', '/discover', '/search',
       '/start-here', '/feeds', '/following', '/tags', '/friends'].forEach((source) => {
