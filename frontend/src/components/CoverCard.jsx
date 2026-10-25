@@ -1,23 +1,15 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { proxyImageUrl } from '../utils/proxyImage'
+import useResponsiveCover from '../hooks/useResponsiveCover'
 
 function CardMedia({ image, imageAlt, overlay, loading = 'lazy', fetchPriority }) {
-  // R2/CDN 抖动或封面被删时不要留一个破图框，退回和"无封面"完全一致的占位样式。
-  const [broken, setBroken] = useState(false)
-  useEffect(() => {
-    setBroken(false)
-  }, [image])
-
-  const src = image ? proxyImageUrl(image) : ''
-
-  if (src && !broken) {
+  const { imageProps: responsive, unavailable } = useResponsiveCover(image, { sizes: '(max-width: 760px) 90vw, 32vw' })
+  if (!unavailable) {
     const imageProps = fetchPriority ? { fetchPriority } : {}
     return (
       <div className={`cover-card__media ${overlay ? 'cover-card__media--overlay' : ''}`.trim()}>
         <img
-          src={src}
+          {...responsive}
           alt={imageAlt}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
           loading={loading}
@@ -25,7 +17,6 @@ function CardMedia({ image, imageAlt, overlay, loading = 'lazy', fetchPriority }
           width="1200"
           height="630"
           referrerPolicy="no-referrer"
-          onError={() => setBroken(true)}
           {...imageProps}
         />
       </div>

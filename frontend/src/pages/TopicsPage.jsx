@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { Compass, Flame, Sparkles } from 'lucide-react'
 
@@ -14,6 +14,8 @@ import SeoMeta from '../components/SeoMeta'
 import TechTopics from '../components/collections/TechTopics'
 import CinematicNavigation from '../components/news/cinematic/CinematicNavigation'
 import { useNewsStyle } from '../hooks/useNewsStyle'
+import usePublicCollection from '../hooks/usePublicCollection'
+import CollectionRefreshNotice from '../components/CollectionRefreshNotice'
 import { useSite } from '../contexts/SiteContext'
 import { formatDate } from '../utils/date'
 import {
@@ -32,10 +34,15 @@ import {
 export default function TopicsPage() {
   const { settings } = useSite()
   const { newsStyle } = useNewsStyle()
-  const [topics, setTopics] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [attempt, setAttempt] = useState(0)
+  const { items: topics, loading, error, refreshError, retry } = usePublicCollection({
+    route: '/topics',
+    errorMessage: '主题暂时无法加载，请稍后重试。',
+    legacyOptions: { staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
+    load: async (options) => {
+      const payload = await fetchTopics({ limit: 24 }, options)
+      return Array.isArray(payload?.items) ? payload.items : []
+    },
+  })
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
@@ -58,31 +65,6 @@ export default function TopicsPage() {
     }),
   ]), [siteUrl])
 
-  useEffect(() => {
-    const controller = new AbortController()
-    setLoading(true)
-    setError('')
-    fetchTopics(
-      { limit: 24 },
-      { signal: controller.signal, staleWhileRevalidate: true, cacheTtl: 30000, staleTtl: 120000 },
-    )
-      .then((payload) => {
-        if (controller.signal.aborted) return
-        setTopics(Array.isArray(payload?.items) ? payload.items : [])
-      })
-      .catch((err) => {
-        if (controller.signal.aborted || err?.name === 'AbortError') return
-        setError(err?.message || '主题暂时无法加载，请稍后重试。')
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false)
-        }
-      })
-
-    return () => controller.abort()
-  }, [attempt])
-
   function prefetchTopic(topicKey) {
     prefetchTopicDetail(topicKey, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
   }
@@ -96,7 +78,8 @@ export default function TopicsPage() {
         jsonLd={jsonLd}
       />
       {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
-      {newsStyle === 'tech' ? <TechTopics topics={topics} loading={loading} error={error} onRetry={() => setAttempt((value) => value + 1)} onPrefetch={prefetchTopic} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-topic-index">
+      <CollectionRefreshNotice error={refreshError} onRetry={retry} />
+      {newsStyle === 'tech' ? <TechTopics topics={topics} loading={loading} error={error} onRetry={retry} onPrefetch={prefetchTopic} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-topic-index">
         <motion.section
           initial="hidden"
           animate="visible"
@@ -121,7 +104,7 @@ export default function TopicsPage() {
             <LoadingSkeletonSet count={6} className="contents" itemClassName="rounded-[1.8rem]" minHeight="20rem" />
           ) : error ? (
             <div role="alert" className="md:col-span-2 xl:col-span-3 editorial-panel rounded-[1.8rem] p-6">
-              <p>{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)} className="mt-4 min-h-11 px-4" style={{ color: 'var(--accent)' }}>重新加载主题</button>
+              <p>{error}</p><button type="button" onClick={retry} className="mt-4 min-h-11 px-4" style={{ color: 'var(--accent)' }}>重新加载主题</button>
             </div>
           ) : topics.length > 0 ? (
             topics.map((topic) => (

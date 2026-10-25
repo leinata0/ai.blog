@@ -8,6 +8,7 @@ import CommandPalette from './components/CommandPalette'
 import PageTransition from './components/PageTransition'
 import { subscribeToAdminUnauthorized } from './api/client'
 import { applyDocumentSurface, getSurfaceForPath, SURFACES } from './utils/surface'
+import { loadContentTypePage, loadTopicsPage, loadSeriesPage, loadStartHerePage } from './utils/newsRouteLoaders'
 import './styles/auth-surface.css'
 
 // Keep first-paint routes eager; secondary public pages stay code-split.
@@ -16,15 +17,15 @@ import PostDetailPage from './pages/PostDetailPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 const ArchivePage = lazy(() => import('./pages/ArchivePage'))
-const SeriesPage = lazy(() => import('./pages/SeriesPage'))
+const SeriesPage = lazy(loadSeriesPage)
 const SeriesDetailPage = lazy(() => import('./pages/SeriesDetailPage'))
-const TopicsPage = lazy(() => import('./pages/TopicsPage'))
+const TopicsPage = lazy(loadTopicsPage)
 const TopicDetailPage = lazy(() => import('./pages/TopicDetailPage'))
-const ContentTypePage = lazy(() => import('./pages/ContentTypePage'))
+const ContentTypePage = lazy(loadContentTypePage)
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage'))
 const SearchPage = lazy(() => import('./pages/SearchPage'))
 const FollowingPage = lazy(() => import('./pages/FollowingPage'))
-const StartHerePage = lazy(() => import('./pages/StartHerePage'))
+const StartHerePage = lazy(loadStartHerePage)
 const SectionUiDemo = lazy(() => import('./demos/section-ui/SectionUiDemo'))
 const FeedsPage = lazy(() => import('./pages/FeedsPage'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))

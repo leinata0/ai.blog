@@ -40,11 +40,11 @@ function WeeklyShowcase({ posts }) {
     <div className="cweekly-heading"><h1 id="cweekly-title">AI 周报<span aria-hidden="true">.</span></h1><p>从一周的消息，看到更长的脉络。</p></div>
 
     <motion.div className="cweekly-exhibition" style={reduced ? undefined : { y: coverY, rotate: coverRotate }} aria-hidden="true">
-      {posts.length > 1 ? <div className="cweekly-cover-behind" key={`behind:${next.slug}`}><SectionCover src={next.cover_image} title={next.title} /><span>THE NEXT PERSPECTIVE</span></div> : null}
+      {posts.length > 1 ? <div className="cweekly-cover-behind" key={`behind:${next.slug}`}><SectionCover src={next.cover_image} title={next.title} sizes="(max-width: 900px) 82vw, 44vw" /><span>THE NEXT PERSPECTIVE</span></div> : null}
       <div className="cweekly-cover-stage">
         <AnimatePresence initial={false}>
           <motion.div className="cweekly-cover-panel" key={current.slug} initial={{ opacity: 0, x: reduced ? 0 : 30, scale: reduced ? 1 : 1.025 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: reduced ? 0 : -20 }} transition={timing}>
-            <SectionCover src={current.cover_image} title={current.title} eager={selectedIndex === 0} />
+            <SectionCover src={current.cover_image} title={current.title} eager={selectedIndex === 0} sizes="(max-width: 900px) 82vw, 44vw" />
             <div className="cweekly-cover-ink"><span>AI OBSERVER <b>WEEKLY</b></span><span>{parseDate(current.created_at) ? formatDate(current.created_at) : '日期待补充'}</span></div>
           </motion.div>
         </AnimatePresence>
@@ -81,7 +81,7 @@ function WeeklyLibrary({ posts }) {
     <header className="cinema-section-heading cweekly-library-heading"><div><span className="cinema-kicker">THE WEEKLY LIBRARY</span><h2 id="cweekly-library-title">周报书架<span>{String(posts.length).padStart(2, '0')}</span></h2></div><p>不是滚动的消息流。<br />挑一期，留一点时间读完整。</p></header>
     <div className="cweekly-library-toolbar"><p>按原发布日期排列 · 本页已载入 {posts.length} 期</p><div className="cweekly-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="搜索已载入周报" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题、日期、关键词" />{query ? <button type="button" onClick={() => setQuery('')} aria-label="清空周报搜索"><X size={16} aria-hidden="true" /></button> : null}</div></div>
     {filtered.length ? <div className="cweekly-library-grid">{filtered.map((post, index) => <motion.article className="cweekly-library-issue" key={post.slug} initial={canReveal ? { opacity: 0, y: 24 } : false} whileInView={canReveal ? { opacity: 1, y: 0 } : undefined} viewport={{ once: true, amount: 0.08 }} transition={{ duration: reduced ? 0 : 0.45, delay: reduced ? 0 : Math.min(index % 2 * 0.07, 0.07) }} data-story-slug={post.slug}>
-      <Link to={articleHref(post)} className="cweekly-library-cover" aria-label={`阅读周报封面：${post.title}`}><SectionCover src={post.cover_image} title={post.title} /><span className="cweekly-library-cover__label">AI OBSERVER / WEEKLY<ArrowUpRight size={20} aria-hidden="true" /></span></Link>
+      <Link to={articleHref(post)} className="cweekly-library-cover" aria-label={`阅读周报封面：${post.title}`}><SectionCover src={post.cover_image} title={post.title} sizes="(max-width: 760px) 90vw, 45vw" /><span className="cweekly-library-cover__label">AI OBSERVER / WEEKLY<ArrowUpRight size={20} aria-hidden="true" /></span></Link>
       <div className="cweekly-library-copy"><span className="cweekly-library-number" aria-hidden="true">{issueNumber(posts.indexOf(post))}</span><div><IssueMetadata post={post} /><h3><Link to={articleHref(post)}>{post.title}</Link></h3>{post.summary ? <p>{post.summary}</p> : null}<Link className="cweekly-library-read" to={articleHref(post)} aria-label={`阅读全文：${post.title}`}>阅读这一期 <ArrowUpRight size={16} aria-hidden="true" /></Link></div></div>
     </motion.article>)}</div> : <p className="cweekly-no-results" role="status">没有找到相关周报。试试其他关键词。</p>}
     <div className="cweekly-archive-end"><span>搜索范围为本页已载入周报。</span><Link to="/archive">进入全部归档 <ArrowRight size={17} aria-hidden="true" /></Link></div>

@@ -1,9 +1,8 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Pin } from 'lucide-react'
 import { formatDate, parseDate } from '../../utils/date'
 import { getContentTypeLabel } from '../../utils/contentPresentation'
-import { proxyImageUrl } from '../../utils/proxyImage'
+import useResponsiveCover from '../../hooks/useResponsiveCover'
 
 export function NewsMeta({ post, showSources = true }) {
   const published = parseDate(post.created_at)
@@ -18,14 +17,13 @@ export function NewsMeta({ post, showSources = true }) {
 }
 
 export function NewsCover({ post, className = '', priority = false, onPrefetch, fallback = null }) {
-  const src = proxyImageUrl(post.cover_image)
-  const [failedSrc, setFailedSrc] = useState(null)
-  if (!src || failedSrc === src) return fallback
+  const { imageProps, unavailable } = useResponsiveCover(post.cover_image, { sizes: '(max-width: 760px) 90vw, 50vw' })
+  if (unavailable) return fallback
   return (
     <Link to={`/posts/${post.slug}`} className={`news-cover ${className}`} aria-label={`阅读：${post.title}`}
       onMouseEnter={() => onPrefetch?.(post.slug)} onFocus={() => onPrefetch?.(post.slug)}>
-      <img src={src} alt={post.title} width="1200" height="630" loading={priority ? 'eager' : 'lazy'}
-        fetchpriority={priority ? 'high' : undefined} referrerPolicy="no-referrer" onError={() => setFailedSrc(src)} />
+      <img width="1200" height="630" {...imageProps} alt={post.title} loading={priority ? 'eager' : 'lazy'} decoding="async"
+        fetchpriority={priority ? 'high' : undefined} referrerPolicy="no-referrer" />
     </Link>
   )
 }

@@ -1,0 +1,1526 @@
+{
+  "version": 1,
+  "images": {
+    "https://img.563118077.xyz/1ff588fff6f446979bf007a282bb4ee5.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/4e53b39326ef164c4756b0fe-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 16854,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/4e53b39326ef164c4756b0fe-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 51362,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/4e53b39326ef164c4756b0fe-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 98476,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/20249378d2a142358ea035aafc521b61.png": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/d1d85f77bbe909b547ab2015-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 24992,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/d1d85f77bbe909b547ab2015-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 85352,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/d1d85f77bbe909b547ab2015-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 184490,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/246e6d877fda4604b78e97be18a5c379.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/ecfae73a63868f9011e5fc37-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 16002,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ecfae73a63868f9011e5fc37-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 51342,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ecfae73a63868f9011e5fc37-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 106720,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/24839cbf19ee4c83a9ad8e0f5cc4e580.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/2ffe3a0d2299f8f30a2c2600-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 37240,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/2ffe3a0d2299f8f30a2c2600-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 118852,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/2ffe3a0d2299f8f30a2c2600-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 244166,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/24ee1326faa1431da9d75f7095be5b39.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/3f6cb2df7fdfa96ed10088d7-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 32000,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/3f6cb2df7fdfa96ed10088d7-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 110000,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/3f6cb2df7fdfa96ed10088d7-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 232590,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/2d648302a34741a49319ac73910485e8.png": {
+      "width": 1672,
+      "height": 941,
+      "variants": [
+        {
+          "url": "/performance-images/737670c1c37657e7693aa0cf-480.webp",
+          "width": 480,
+          "height": 270,
+          "bytes": 22822,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/737670c1c37657e7693aa0cf-960.webp",
+          "width": 960,
+          "height": 540,
+          "bytes": 79750,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/737670c1c37657e7693aa0cf-1600.webp",
+          "width": 1600,
+          "height": 900,
+          "bytes": 180202,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/737670c1c37657e7693aa0cf-1672.webp",
+          "width": 1672,
+          "height": 941,
+          "bytes": 194748,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/3906db1ec8434170981b785a4244873e.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/1e7d8370320adb8d46158446-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 10350,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/1e7d8370320adb8d46158446-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 38430,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/1e7d8370320adb8d46158446-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 90384,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/3a2a768b59b542a9b5d6e62dda3ef4aa.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/d706b4f4376a1c46abcbb0a4-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 31040,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/d706b4f4376a1c46abcbb0a4-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 96600,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/d706b4f4376a1c46abcbb0a4-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 194502,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/3eee8f63c3d1408f948bcbd3215c2630.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/021eadcfed2d8e1809569343-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 23130,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/021eadcfed2d8e1809569343-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 78856,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/021eadcfed2d8e1809569343-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 164000,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/40aa3ef4a6d5460a9130857e4706b5f3.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/546fce95fb54a9e7ec604654-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 19654,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/546fce95fb54a9e7ec604654-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 59528,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/546fce95fb54a9e7ec604654-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 121026,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/49a6b4e5200b4bb7b774cd1fd4d1519b.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/fd69bddb3be7a02930656a5c-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 10866,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/fd69bddb3be7a02930656a5c-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 34992,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/fd69bddb3be7a02930656a5c-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 71688,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/4e5905fc05a643d4829f51cd4e717bd4.png": {
+      "width": 1774,
+      "height": 887,
+      "variants": [
+        {
+          "url": "/performance-images/ad972eb52965dd58c067d358-480.webp",
+          "width": 480,
+          "height": 240,
+          "bytes": 19354,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ad972eb52965dd58c067d358-960.webp",
+          "width": 960,
+          "height": 480,
+          "bytes": 54958,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ad972eb52965dd58c067d358-1600.webp",
+          "width": 1600,
+          "height": 800,
+          "bytes": 112758,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ad972eb52965dd58c067d358-1774.webp",
+          "width": 1774,
+          "height": 887,
+          "bytes": 128442,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/5530a65ce2154bdc8bc962b2d5894034.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/fa503d70c45de9ee7569c156-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 8466,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/fa503d70c45de9ee7569c156-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 22800,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/fa503d70c45de9ee7569c156-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 46210,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/583e89b4da3e4a08951994ce724012c5.png": {
+      "width": 1774,
+      "height": 887,
+      "variants": [
+        {
+          "url": "/performance-images/d7a0aae81bd93b6ea1516c4a-480.webp",
+          "width": 480,
+          "height": 240,
+          "bytes": 12366,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/d7a0aae81bd93b6ea1516c4a-960.webp",
+          "width": 960,
+          "height": 480,
+          "bytes": 40130,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/d7a0aae81bd93b6ea1516c4a-1600.webp",
+          "width": 1600,
+          "height": 800,
+          "bytes": 93724,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/d7a0aae81bd93b6ea1516c4a-1774.webp",
+          "width": 1774,
+          "height": 887,
+          "bytes": 110522,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/59e7e3853bde4f14a8bf2f6d63276e9a.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/3c182747872cad8b9069ef6d-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 17560,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/3c182747872cad8b9069ef6d-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 51878,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/3c182747872cad8b9069ef6d-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 101440,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/5a358ae0c8784efea111c01dae2a692e.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/e132d6598c77f054a3401cbe-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 22956,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/e132d6598c77f054a3401cbe-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 76070,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/e132d6598c77f054a3401cbe-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 162176,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/68ed3984e4134e2cbaa4a781ce97add6.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/0bd4d77eb23e7df581bae449-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 43088,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/0bd4d77eb23e7df581bae449-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 157958,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/0bd4d77eb23e7df581bae449-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 344324,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/6beb05a8eba04b31ac30055eefb7b1e8.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/2d3a2c7a6bd0a7ef1b58f010-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 31686,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/2d3a2c7a6bd0a7ef1b58f010-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 115398,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/2d3a2c7a6bd0a7ef1b58f010-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 309034,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/761a748380da4f6fb8612f8526196651.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/67bf5784860fb414d483d941-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 20824,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/67bf5784860fb414d483d941-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 63568,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/67bf5784860fb414d483d941-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 132320,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/79d8a916b2ab47beb96ee25c2135bdfe.jpg": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/195e59708ef91aa1e56926a5-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 36092,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/195e59708ef91aa1e56926a5-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 121976,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/195e59708ef91aa1e56926a5-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 240082,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/7d7da81d77de42adb842da72c5108fd8.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/cdb28dc5bcb953b9409f60a4-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 20776,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/cdb28dc5bcb953b9409f60a4-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 63560,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/cdb28dc5bcb953b9409f60a4-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 125474,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/8006d97dad274e649ded6299154820f1.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/9dd4ac9de9d0719e19c22c89-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 15126,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/9dd4ac9de9d0719e19c22c89-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 46112,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/9dd4ac9de9d0719e19c22c89-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 97494,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/81e1cad40345446da786f9565f9fcb60.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/6813758fa412bfd54973a129-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 17042,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6813758fa412bfd54973a129-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 53216,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6813758fa412bfd54973a129-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 110246,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/85c0ff5838be47f3b20d954fb44cfcb7.png": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/ed4f2154c2ca01ee5d672f7b-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 23528,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ed4f2154c2ca01ee5d672f7b-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 78686,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ed4f2154c2ca01ee5d672f7b-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 161282,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/86a67edc06f646a9b2787a5ccbc0e16f.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/724631c7c5693ad17e541b16-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 19640,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/724631c7c5693ad17e541b16-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 67628,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/724631c7c5693ad17e541b16-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 144410,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/88cf63f0c04c48fd9743fb98aa80e615.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/86322a97c2bbda70e46bd405-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 26324,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/86322a97c2bbda70e46bd405-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 94208,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/86322a97c2bbda70e46bd405-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 231074,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/88dde8ffaf854ed1a68bd7d71b201060.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/34930f0a50fa9fd579bfe337-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 15186,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/34930f0a50fa9fd579bfe337-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 49582,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/34930f0a50fa9fd579bfe337-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 108522,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/8e015b24cc5c44db8d9d8ae129f87958.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/aa32c229a6fde156acbcc7c3-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 18864,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/aa32c229a6fde156acbcc7c3-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 52074,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/aa32c229a6fde156acbcc7c3-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 99060,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/99335ae4a32b4fe8850ed099dffe7158.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/cd173c02970b6a77a4594d27-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 8474,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/cd173c02970b6a77a4594d27-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 26890,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/cd173c02970b6a77a4594d27-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 55078,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/9b38574b0d324e3ea242c9b7caeaf088.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/6e1bb020791206f03615f8c5-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 15722,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6e1bb020791206f03615f8c5-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 50280,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6e1bb020791206f03615f8c5-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 104402,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/af00ca742c2e4f9a85def5c5ad88a082.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/67c675cc2c330ef2edbdb5ac-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 25396,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/67c675cc2c330ef2edbdb5ac-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 86132,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/67c675cc2c330ef2edbdb5ac-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 187244,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/b9615d42444d4e8eb4f82d68128a73a1.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/f6c269206b3413c32437707a-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 12102,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/f6c269206b3413c32437707a-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 39256,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/f6c269206b3413c32437707a-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 82814,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/b9ec00274c564dea8d151caa850d2a72.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/4e97cad9395723109e00df7a-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 26134,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/4e97cad9395723109e00df7a-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 83530,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/4e97cad9395723109e00df7a-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 174272,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/becaae47167d46d5a1feb3afe58f9efd.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/51cfdd70c64ac9ced2fb5399-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 29546,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/51cfdd70c64ac9ced2fb5399-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 99262,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/51cfdd70c64ac9ced2fb5399-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 245884,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/bfa34ada04ae4d62adf0d69ce473e7e9.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/b60d3fc78dd58fa6ae6b772f-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 24510,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/b60d3fc78dd58fa6ae6b772f-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 75612,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/b60d3fc78dd58fa6ae6b772f-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 155662,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/c084541469544ac4b81bd8f0ba458f61.jpg": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/92c54008d33f1ecae07ddecd-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 35838,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/92c54008d33f1ecae07ddecd-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 121010,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/92c54008d33f1ecae07ddecd-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 236846,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/c74015f2aae94c33acf2317993536a57.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/ce4cc67f6c7fe79ce1886db5-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 16022,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ce4cc67f6c7fe79ce1886db5-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 56160,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ce4cc67f6c7fe79ce1886db5-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 126864,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/ca2fed8ebb3d4f308ee3d6f4ef404493.jpg": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/aa316bf7560c4e375968f101-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 9446,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/aa316bf7560c4e375968f101-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 29468,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/aa316bf7560c4e375968f101-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 55480,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/cad36d17cfbf4b0483ac63cba8b9f480.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/bac2d26963aa744b80cda80b-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 18296,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/bac2d26963aa744b80cda80b-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 54118,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/bac2d26963aa744b80cda80b-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 110058,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/ceb8e27291f847fd92d2d7781ba42ee6.png": {
+      "width": 1796,
+      "height": 876,
+      "variants": [
+        {
+          "url": "/performance-images/ee81351ffd4e994a633c6ba0-480.webp",
+          "width": 480,
+          "height": 234,
+          "bytes": 18294,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ee81351ffd4e994a633c6ba0-960.webp",
+          "width": 960,
+          "height": 468,
+          "bytes": 58784,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ee81351ffd4e994a633c6ba0-1600.webp",
+          "width": 1600,
+          "height": 780,
+          "bytes": 131816,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ee81351ffd4e994a633c6ba0-1796.webp",
+          "width": 1796,
+          "height": 876,
+          "bytes": 153426,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/d05841688eaf44fe9a97d4f4daa6e65e.png": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/0e0fa916ff7f4985c448cbf1-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 25122,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/0e0fa916ff7f4985c448cbf1-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 82626,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/0e0fa916ff7f4985c448cbf1-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 169014,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/d17306ba1eed4c61b2078503037a1c20.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/19b5de7131a5ec3efbc842c2-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 15456,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/19b5de7131a5ec3efbc842c2-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 47282,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/19b5de7131a5ec3efbc842c2-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 97766,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/d741fea1250d423e87c3f86bd79f6c94.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/01b55c634e09eb8836737a2c-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 13048,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/01b55c634e09eb8836737a2c-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 45606,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/01b55c634e09eb8836737a2c-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 101020,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/da08f29511e743ce8f93778925b94753.jpg": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/8428189a2ec40eab34a11bb5-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 10024,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/8428189a2ec40eab34a11bb5-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 31552,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/8428189a2ec40eab34a11bb5-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 61150,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/da40435845124ea48cbb5b0c45f292c6.png": {
+      "width": 1706,
+      "height": 922,
+      "variants": [
+        {
+          "url": "/performance-images/ba2ddc7742cb97d2e793e122-480.webp",
+          "width": 480,
+          "height": 259,
+          "bytes": 16218,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ba2ddc7742cb97d2e793e122-960.webp",
+          "width": 960,
+          "height": 519,
+          "bytes": 53332,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ba2ddc7742cb97d2e793e122-1600.webp",
+          "width": 1600,
+          "height": 865,
+          "bytes": 118326,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/ba2ddc7742cb97d2e793e122-1706.webp",
+          "width": 1706,
+          "height": 922,
+          "bytes": 130478,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/dfffe9f817014cff804f953d9c34c699.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/4f6e0d9e22536f5675f7ac9a-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 33622,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/4f6e0d9e22536f5675f7ac9a-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 113906,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/4f6e0d9e22536f5675f7ac9a-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 241848,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/e683fc760a86437ba655d0fc73bffec0.png": {
+      "width": 1692,
+      "height": 929,
+      "variants": [
+        {
+          "url": "/performance-images/fb96783b3e55b03e14b27aca-480.webp",
+          "width": 480,
+          "height": 264,
+          "bytes": 24832,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/fb96783b3e55b03e14b27aca-960.webp",
+          "width": 960,
+          "height": 527,
+          "bytes": 83528,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/fb96783b3e55b03e14b27aca-1600.webp",
+          "width": 1600,
+          "height": 878,
+          "bytes": 181328,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/fb96783b3e55b03e14b27aca-1692.webp",
+          "width": 1692,
+          "height": 929,
+          "bytes": 197312,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/ee17432fca474f1f9f2174471a78d3bb.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/6bba6b3640597747b4ba5234-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 34662,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6bba6b3640597747b4ba5234-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 108936,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6bba6b3640597747b4ba5234-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 217064,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/f0570630cfd340fcbe46c75dad19fb73.png": {
+      "width": 1536,
+      "height": 1024,
+      "variants": [
+        {
+          "url": "/performance-images/8799afaad99b7a968d4f5cc1-480.webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 8430,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/8799afaad99b7a968d4f5cc1-960.webp",
+          "width": 960,
+          "height": 640,
+          "bytes": 27582,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/8799afaad99b7a968d4f5cc1-1536.webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 63232,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/f23895c778a547ebb4f1213d8c272dd8.png": {
+      "width": 1923,
+      "height": 818,
+      "variants": [
+        {
+          "url": "/performance-images/6a96f94e8ce6982f0b49e0f7-480.webp",
+          "width": 480,
+          "height": 204,
+          "bytes": 21268,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6a96f94e8ce6982f0b49e0f7-960.webp",
+          "width": 960,
+          "height": 408,
+          "bytes": 65054,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6a96f94e8ce6982f0b49e0f7-1600.webp",
+          "width": 1600,
+          "height": 681,
+          "bytes": 137500,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/6a96f94e8ce6982f0b49e0f7-1923.webp",
+          "width": 1923,
+          "height": 818,
+          "bytes": 175760,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/f34406bf4c0742928b954f34d68e6879.jpg": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/10e0d44d836dfbb93e8c2756-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 31264,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/10e0d44d836dfbb93e8c2756-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 98824,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/10e0d44d836dfbb93e8c2756-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 189628,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://img.563118077.xyz/f6f032a447974249b74f2d3174147d5b.jpg": {
+      "width": 1408,
+      "height": 768,
+      "variants": [
+        {
+          "url": "/performance-images/f7d9a60bb78449023cfea907-480.webp",
+          "width": 480,
+          "height": 262,
+          "bytes": 14918,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/f7d9a60bb78449023cfea907-960.webp",
+          "width": 960,
+          "height": 524,
+          "bytes": 48844,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/f7d9a60bb78449023cfea907-1408.webp",
+          "width": 1408,
+          "height": 768,
+          "bytes": 96564,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://www.563118077.xyz/images/renaissance-edition/figures.png": {
+      "width": 1672,
+      "height": 941,
+      "variants": [
+        {
+          "url": "/performance-images/a8e4ee8074945b9626901ab6-480.webp",
+          "width": 480,
+          "height": 270,
+          "bytes": 45386,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/a8e4ee8074945b9626901ab6-960.webp",
+          "width": 960,
+          "height": 540,
+          "bytes": 143872,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/a8e4ee8074945b9626901ab6-1600.webp",
+          "width": 1600,
+          "height": 900,
+          "bytes": 324560,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/a8e4ee8074945b9626901ab6-1672.webp",
+          "width": 1672,
+          "height": 941,
+          "bytes": 340240,
+          "format": "webp"
+        }
+      ]
+    },
+    "https://www.563118077.xyz/images/renaissance-edition/world.jpg": {
+      "width": 1672,
+      "height": 941,
+      "variants": [
+        {
+          "url": "/performance-images/412a752feccab66dfca3ba8e-480.webp",
+          "width": 480,
+          "height": 270,
+          "bytes": 36082,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/412a752feccab66dfca3ba8e-960.webp",
+          "width": 960,
+          "height": 540,
+          "bytes": 119848,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/412a752feccab66dfca3ba8e-1600.webp",
+          "width": 1600,
+          "height": 900,
+          "bytes": 254818,
+          "format": "webp"
+        },
+        {
+          "url": "/performance-images/412a752feccab66dfca3ba8e-1672.webp",
+          "width": 1672,
+          "height": 941,
+          "bytes": 278554,
+          "format": "webp"
+        }
+      ]
+    }
+  }
+}

@@ -40,6 +40,7 @@ vi.mock('../src/api/posts', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.sessionStorage.clear()
 })
 
 it('renders series list page', async () => {

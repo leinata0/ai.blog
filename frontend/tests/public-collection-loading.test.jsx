@@ -1,0 +1,178 @@
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import usePublicCollection from '../src/hooks/usePublicCollection'
+import { COLLECTION_CACHE_PREFIX, COLLECTION_SESSION_MAX_AGE_MS, saveCollectionSnapshot } from '../src/utils/collectionBootstrap'
+import { createCollectionSnapshot } from '../src/utils/publicCollectionSnapshot'
+
+const story = { slug: 'existing', title: 'Already available', content_type: 'daily_brief' }
+const deferred = () => { let resolve, reject; const promise = new Promise((res, rej) => { resolve = res; reject = rej }); return { promise, resolve, reject } }
+beforeEach(() => { sessionStorage.clear(); delete window.__BLOG_COLLECTION_BOOTSTRAP__ })
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); delete window.__BLOG_COLLECTION_BOOTSTRAP__ })
+
+it('shows build data synchronously without awaiting the real background request', async () => {
+  window.__BLOG_COLLECTION_BOOTSTRAP__ = createCollectionSnapshot('/daily', [story])
+  const pending = deferred()
+  const load = vi.fn(() => pending.promise)
+  const { result } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  expect(result.current.items[0].slug).toBe('existing')
+  expect(result.current.loading).toBe(false)
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(1))
+  expect(load.mock.calls[0][0]).toEqual(expect.objectContaining({ cache: false, forceRefresh: true, staleWhileRevalidate: false, dedupe: false }))
+  await act(async () => pending.resolve([{ ...story, slug: 'latest' }]))
+  expect(result.current.items[0].slug).toBe('latest')
+})
+
+it('retains valid cached content on refresh failure and retry requests fresh data', async () => {
+  saveCollectionSnapshot('/daily', [story])
+  const load = vi.fn().mockRejectedValueOnce(new Error('Failed')).mockResolvedValueOnce([])
+  const { result } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  await waitFor(() => expect(result.current.refreshError).toBe('Failed'))
+  expect(result.current.error).toBe('')
+  expect(result.current.items[0].slug).toBe('existing')
+  act(() => result.current.retry())
+  await waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(result.current.items).toEqual([]))
+  expect(result.current.refreshError).toBe('')
+  expect(JSON.parse(sessionStorage.getItem(`${COLLECTION_CACHE_PREFIX}/daily`)).items).toEqual([])
+})
+
+it('does not keep stale cached content indefinitely when refresh fails', async () => {
+  vi.useFakeTimers()
+  saveCollectionSnapshot('/daily', [story])
+  const load = vi.fn().mockRejectedValue(new Error('Offline'))
+  const { result } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  await act(async () => { await Promise.resolve(); await Promise.resolve() })
+  expect(result.current.items).toHaveLength(1)
+  await act(async () => vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS))
+  expect(result.current.items).toEqual([])
+  expect(result.current.error).toBe('Offline')
+})
+
+it('aborts route changes, ignores late responses, and restores the returning route cache', async () => {
+  const daily = deferred(), weekly = deferred()
+  const loadDaily = vi.fn(() => daily.promise), loadWeekly = vi.fn(() => weekly.promise)
+  const { result, rerender } = renderHook(({ route }) => usePublicCollection({ route, load: route === '/daily' ? loadDaily : loadWeekly, errorMessage: 'Failed' }), { initialProps: { route: '/daily' } })
+  await waitFor(() => expect(loadDaily).toHaveBeenCalledTimes(1))
+  const signal = loadDaily.mock.calls[0][0].signal
+  rerender({ route: '/weekly' })
+  expect(signal.aborted).toBe(true)
+  await act(async () => daily.resolve([story]))
+  expect(result.current.items).toEqual([])
+  await act(async () => weekly.resolve([{ ...story, slug: 'weekly', content_type: 'weekly_review' }]))
+  expect(result.current.items[0].slug).toBe('weekly')
+  saveCollectionSnapshot('/daily', [story])
+  loadDaily.mockReturnValue(new Promise(() => {}))
+  rerender({ route: '/daily' })
+  expect(result.current.items[0].slug).toBe('existing')
+  expect(result.current.loading).toBe(false)
+})
+
+it('refreshes a successful mounted collection at five minutes and retains it only while pending', async () => {
+  vi.useFakeTimers()
+  const pending = deferred()
+  const load = vi.fn().mockResolvedValueOnce([story]).mockReturnValueOnce(pending.promise)
+  const { result } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  await act(async () => { await Promise.resolve() })
+  const expiresAt = result.current.expiresAt
+  expect(expiresAt).toBe(Date.now() + COLLECTION_SESSION_MAX_AGE_MS)
+  await act(async () => vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS - 1))
+  expect(load).toHaveBeenCalledTimes(1)
+  await act(async () => vi.advanceTimersByTime(1))
+  expect(load).toHaveBeenCalledTimes(2)
+  expect(result.current.items[0].slug).toBe('existing')
+  expect(result.current.loading).toBe(false)
+  await act(async () => pending.reject(new Error('Offline')))
+  expect(result.current.items).toEqual([])
+  expect(result.current.error).toBe('Offline')
+  expect(result.current.expiresAt).toBe(0)
+  await act(async () => vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS * 2))
+  expect(load).toHaveBeenCalledTimes(2)
+})
+
+it('periodically refreshes a successful empty response rather than leaving the mounted empty state forever', async () => {
+  vi.useFakeTimers()
+  const load = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([story]).mockResolvedValueOnce([])
+  const { result } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  await act(async () => { await Promise.resolve() })
+  expect(result.current.items).toEqual([])
+  expect(result.current.loading).toBe(false)
+  await act(async () => vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS))
+  expect(result.current.items[0].slug).toBe('existing')
+  expect(result.current.expiresAt).toBe(Date.now() + COLLECTION_SESSION_MAX_AGE_MS)
+  await act(async () => vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS))
+  expect(load).toHaveBeenCalledTimes(3)
+  expect(result.current.items).toEqual([])
+  expect(result.current.error).toBe('')
+})
+
+it('refreshes on return and coalesces focus/visibility events without overlapping API calls', async () => {
+  vi.useFakeTimers()
+  const pending = deferred()
+  const load = vi.fn().mockResolvedValueOnce([story]).mockReturnValueOnce(pending.promise).mockResolvedValueOnce([])
+  const { result } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  await act(async () => { await Promise.resolve() })
+  await act(async () => vi.advanceTimersByTime(1500))
+  act(() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')) })
+  expect(load).toHaveBeenCalledTimes(2)
+  expect(result.current.items[0].slug).toBe('existing')
+  await act(async () => pending.resolve([{ ...story, slug: 'returned' }]))
+  act(() => document.dispatchEvent(new Event('visibilitychange')))
+  expect(load).toHaveBeenCalledTimes(2)
+  await act(async () => vi.advanceTimersByTime(1000))
+  await act(async () => window.dispatchEvent(new Event('focus')))
+  expect(load).toHaveBeenCalledTimes(3)
+  expect(result.current.items).toEqual([])
+})
+
+it('defers expired hidden-page refresh until visible, then removes expired content if the refresh fails', async () => {
+  vi.useFakeTimers()
+  let visibility = 'visible'
+  vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
+  const pending = deferred()
+  const load = vi.fn().mockResolvedValueOnce([story]).mockReturnValueOnce(pending.promise)
+  const { result } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  await act(async () => { await Promise.resolve() })
+  visibility = 'hidden'
+  act(() => document.dispatchEvent(new Event('visibilitychange')))
+  await act(async () => vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS * 2))
+  expect(load).toHaveBeenCalledTimes(1)
+  visibility = 'visible'
+  act(() => { document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')) })
+  expect(load).toHaveBeenCalledTimes(2)
+  expect(result.current.items[0].slug).toBe('existing')
+  await act(async () => pending.reject(new Error('Offline')))
+  expect(result.current.items).toEqual([])
+  expect(result.current.error).toBe('Offline')
+})
+
+it('treats a request timeout as an error and cleans up listeners and timers on unmount', async () => {
+  vi.useFakeTimers()
+  const pending = deferred()
+  const load = vi.fn().mockResolvedValueOnce([story]).mockReturnValueOnce(pending.promise)
+  const { result, unmount } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  await act(async () => { await Promise.resolve() })
+  await act(async () => vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS))
+  await act(async () => pending.reject(Object.assign(new Error('请求超时'), { name: 'AbortError' })))
+  expect(result.current.items).toEqual([])
+  expect(result.current.error).toBe('请求超时')
+  const storedBeforeUnmount = sessionStorage.getItem(`${COLLECTION_CACHE_PREFIX}/daily`)
+  unmount()
+  await act(async () => { vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS * 2); window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')) })
+  expect(load).toHaveBeenCalledTimes(2)
+  expect(sessionStorage.getItem(`${COLLECTION_CACHE_PREFIX}/daily`)).toBe(storedBeforeUnmount)
+})
+
+it('aborts a periodic refresh and never persists its late success after unmount', async () => {
+  vi.useFakeTimers()
+  const pending = deferred()
+  const load = vi.fn().mockResolvedValueOnce([story]).mockReturnValueOnce(pending.promise)
+  const { unmount } = renderHook(() => usePublicCollection({ route: '/daily', load, errorMessage: 'Failed' }))
+  await act(async () => { await Promise.resolve() })
+  const saved = sessionStorage.getItem(`${COLLECTION_CACHE_PREFIX}/daily`)
+  await act(async () => vi.advanceTimersByTime(COLLECTION_SESSION_MAX_AGE_MS))
+  const signal = load.mock.calls[1][0].signal
+  unmount()
+  expect(signal.aborted).toBe(true)
+  await act(async () => pending.resolve([{ ...story, slug: 'late-unmounted' }]))
+  expect(sessionStorage.getItem(`${COLLECTION_CACHE_PREFIX}/daily`)).toBe(saved)
+})

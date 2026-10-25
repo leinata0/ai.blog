@@ -24,6 +24,7 @@ const mount = (page) => render(<MemoryRouter>{page}</MemoryRouter>)
 
 beforeEach(() => {
   vi.resetAllMocks()
+  window.sessionStorage.clear()
   window.localStorage.clear()
   fetchTopics.mockResolvedValue({ items: topics })
   fetchSeriesList.mockResolvedValue(series)

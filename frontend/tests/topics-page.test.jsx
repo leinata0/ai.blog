@@ -25,6 +25,7 @@ vi.mock('../src/api/posts', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.sessionStorage.clear()
   window.localStorage.clear()
 })
 

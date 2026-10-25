@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import buildRenaissanceWorld, { RENAISSANCE_ASSETS } from './buildRenaissanceWorld'
 import { getEditionSceneState } from '../../utils/editionSceneState'
 import { createSceneResolutionController, scenePixelRatio } from '../../utils/sceneResolution'
+import { optimizedImageUrl } from '../../utils/responsiveImage'
+import { PERFORMANCE_TRIAL_ENABLED } from '../../utils/performanceTrial'
+import { createSceneStartup } from '../../utils/sceneStartup'
 import '../../styles/intelligence-sculpture.css'
 
 export default function IntelligenceSculpture({ sceneRef, paused = false }) {
@@ -9,6 +12,9 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
   const pausedRef = useRef(paused)
   const syncRef = useRef(null)
   const [ready, setReady] = useState(false)
+  const [failedAssets, setFailedAssets] = useState({})
+  const artwork = (key) => failedAssets[key] ? RENAISSANCE_ASSETS[key] : optimizedImageUrl(RENAISSANCE_ASSETS[key])
+  const originalArtwork = (key) => setFailedAssets((previous) => previous[key] ? previous : { ...previous, [key]: true })
 
   useEffect(() => {
     const host = hostRef.current
@@ -23,6 +29,7 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
     let shaderFailed = false
     let renderer
     let sculpture
+    let startup
     let frame = null
     let lastTime = null
     let elapsed = 0
@@ -84,6 +91,7 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
       frame = requestAnimationFrame(tick)
     }
     const sync = () => {
+      startup?.sync()
       if (!canRender()) { stop(); return }
       if (reduced || pausedRef.current) {
         stop()
@@ -114,6 +122,7 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
     }
     const fail = () => {
       failed = true
+      startup?.dispose()
       stop()
       release()
       if (!cancelled) setReady(false)
@@ -150,34 +159,42 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
     preference?.addEventListener?.('change', onPreference)
     syncRef.current = () => { staticNeeded = true; sync() }
 
-    // Dynamic import keeps the renderer out of article/private route startup and
-    // is safe when this decorative component is rendered during prerendering.
-    import('three').then((THREE) => {
-      if (cancelled) return
-      try {
-        renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' })
-        renderer.setClearColor(0x000000, 0)
-        renderer.outputColorSpace = THREE.SRGBColorSpace
-        renderer.toneMapping = THREE.ACESFilmicToneMapping
-        renderer.toneMappingExposure = 1
-        if (renderer.debug) renderer.debug.onShaderError = () => { shaderFailed = true }
-        renderer.domElement.setAttribute('aria-hidden', 'true')
-        renderer.domElement.addEventListener('webglcontextlost', contextLost)
-        sculpture = buildRenaissanceWorld(THREE, renderer)
-        host.appendChild(renderer.domElement)
-        resize()
-        sculpture.ready.then((loaded) => {
-          if (cancelled || failed || !loaded) return
-          assetsReady = true
+    // Keep the accepted scene intact while letting text and fallback art paint
+    // before the trial allocates a visible WebGL renderer.
+    startup = createSceneStartup({
+      deferred: PERFORMANCE_TRIAL_ENABLED,
+      isEligible: () => !cancelled && !failed && visible && !document.hidden,
+      load: () => import('three'),
+      start: (THREE) => {
+        if (cancelled) return
+        try {
+          renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' })
+          renderer.setClearColor(0x000000, 0)
+          renderer.outputColorSpace = THREE.SRGBColorSpace
+          renderer.toneMapping = THREE.ACESFilmicToneMapping
+          renderer.toneMappingExposure = 1
+          if (renderer.debug) renderer.debug.onShaderError = () => { shaderFailed = true }
+          renderer.domElement.setAttribute('aria-hidden', 'true')
+          renderer.domElement.addEventListener('webglcontextlost', contextLost)
+          sculpture = buildRenaissanceWorld(THREE, renderer)
+          host.appendChild(renderer.domElement)
           resize()
-        }).catch(fail)
-      } catch {
-        fail()
-      }
-    }).catch(fail)
+          sculpture.ready.then((loaded) => {
+            if (cancelled || failed || !loaded) return
+            assetsReady = true
+            resize()
+          }).catch(fail)
+        } catch {
+          fail()
+        }
+      },
+      onError: fail,
+    })
+    startup.sync()
 
     return () => {
       cancelled = true
+      startup.dispose()
       stop()
       observer?.disconnect()
       resizeObserver?.disconnect()
@@ -196,9 +213,9 @@ export default function IntelligenceSculpture({ sceneRef, paused = false }) {
 
   return <div ref={hostRef} className={`intelligence-sculpture${ready ? ' intelligence-sculpture--ready' : ''}`} aria-hidden="true">
     <div className="intelligence-sculpture__fallback" data-fallback="renaissance-world">
-      <div className="intelligence-sculpture__garden" style={{ backgroundImage: `url(${RENAISSANCE_ASSETS.world})` }} />
-      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--left"><img src={RENAISSANCE_ASSETS.figures} alt="" width="1672" height="941" decoding="async" /></div>
-      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--right"><img src={RENAISSANCE_ASSETS.figures} alt="" width="1672" height="941" decoding="async" /></div>
+      <img className="intelligence-sculpture__garden" src={artwork('world')} onError={() => originalArtwork('world')} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" width="1672" height="941" decoding="async" />
+      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--left"><img src={artwork('figures')} onError={() => originalArtwork('figures')} alt="" width="1672" height="941" decoding="async" /></div>
+      <div className="intelligence-sculpture__figure intelligence-sculpture__figure--right"><img src={artwork('figures')} onError={() => originalArtwork('figures')} alt="" width="1672" height="941" decoding="async" /></div>
     </div>
   </div>
 }
