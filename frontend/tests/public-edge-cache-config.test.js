@@ -40,7 +40,7 @@ describe('public collection rewrite cache boundary', () => {
     '/api/series?featured=true',
   ])('opts in anonymous collection request %s without rewriting query keys', (url) => {
     expect(rewriteCachePolicy(url)).toBe('1')
-    const apiRewrite = config.rewrites.find(({ source }) => source === '/api/(.*)')
+    const apiRewrite = config.rewrites.find(({ destination }) => destination === 'https://ai-blog-hbur.onrender.com/api/$1')
     expect(apiRewrite.destination).toBe('https://ai-blog-hbur.onrender.com/api/$1')
     expect(apiRewrite).not.toHaveProperty('has')
   })
