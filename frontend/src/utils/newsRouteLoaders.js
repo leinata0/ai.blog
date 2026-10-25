@@ -1,5 +1,6 @@
 import { PERFORMANCE_TRIAL_ENABLED } from './performanceTrial'
 import { prefetchPublicCollection } from '../api/publicCollections'
+import { prefetchPublicHome } from '../api/publicHome'
 
 // Share these exact import functions with React.lazy so navigation can reuse
 // a chunk requested on deliberate pointer/keyboard intent.
@@ -21,6 +22,10 @@ export function preloadNewsRoute(path) {
   if (!PERFORMANCE_TRIAL_ENABLED) return
   const connection = typeof navigator !== 'undefined' ? navigator.connection : null
   if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType || '')) return
+  if (path === '/') {
+    prefetchPublicHome()
+    return
+  }
   const loader = loaders[path]
   if (!loader) return
   prefetchPublicCollection(path)
