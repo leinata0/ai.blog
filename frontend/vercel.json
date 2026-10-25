@@ -3,7 +3,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://ai-blog-hbur.onrender.com/api/$1" },
+    { "source": "/public-data/daily.json", "destination": "/api/collection-snapshot?route=daily" },
+    { "source": "/public-data/weekly.json", "destination": "/api/collection-snapshot?route=weekly" },
+    { "source": "/public-data/topics.json", "destination": "/api/collection-snapshot?route=topics" },
+    { "source": "/public-data/series.json", "destination": "/api/collection-snapshot?route=series" },
+    { "source": "/api/((?!collection-snapshot$).*)", "destination": "https://ai-blog-hbur.onrender.com/api/$1" },
     { "source": "/proxy-image", "destination": "https://ai-blog-hbur.onrender.com/proxy-image" },
     { "source": "/uploads/(.*)", "destination": "https://ai-blog-hbur.onrender.com/uploads/$1" },
     { "source": "/feed.xml", "destination": "https://ai-blog-hbur.onrender.com/feed.xml" },
@@ -28,7 +32,7 @@
     { "source": "/following", "destination": "/following/index.html" },
     { "source": "/tags", "destination": "/tags/index.html" },
     { "source": "/friends", "destination": "/friends/index.html" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/collection-snapshot$).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
