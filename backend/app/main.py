@@ -37,6 +37,7 @@ from app.feed_meta import RSS_SITE_DESCRIPTION, RSS_SITE_TITLE
 from app.frontend_refresh import trigger_frontend_refresh_safe
 from app.http_cache import build_public_cache_control, public_json_response, public_text_response
 from app.models import Post, Series, SiteSettings, Tag
+from app.public_edge_cache import public_collection_edge_cache
 from app.rate_limit import limiter
 from app.request_limits import (
     DEFAULT_MAX_REQUEST_BODY_BYTES,
@@ -125,7 +126,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         content=json.dumps({"detail": "Internal server error", "code": "internal_error", "request_id": request_id}).encode(),
         status_code=500,
         media_type="application/json",
-        headers={REQUEST_ID_HEADER: request_id},
+        headers={REQUEST_ID_HEADER: request_id, "Cache-Control": "no-store", "Vercel-CDN-Cache-Control": "no-store"},
     )
 
 
@@ -155,6 +156,8 @@ app.add_middleware(
     # can never read it and pagination silently stops after the first page.
     expose_headers=["X-Next-Cursor", REQUEST_ID_HEADER],
 )
+
+app.middleware("http")(public_collection_edge_cache)
 
 app.include_router(posts_router)
 app.include_router(admin_router)
