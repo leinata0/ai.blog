@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 import { SITE_COPY, SITE_SEO, START_HERE_COPY } from '../src/utils/contentPresentation.js'
 import { buildNewsroomSections } from '../src/utils/newsroom.js'
 import { createRequestScheduler, fetchWithRetry } from './prerender-fetch.mjs'
+import { createCollectionSnapshot, serializeCollectionSnapshot } from '../src/utils/publicCollectionSnapshot.js'
+import { collectionImageHints } from './collection-image-hints.mjs'
 export { fetchWithRetry } from './prerender-fetch.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -161,6 +163,12 @@ export function bootstrapScript(payload) {
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029')
   return `<script>window.__BLOG_BOOTSTRAP__=${serialized};</script>`
+}
+
+export function collectionBootstrapScript(route, items, generatedAt) {
+  if (String(process.env.VITE_PERFORMANCE_TRIAL ?? '1') === '0') return ''
+  const serialized = serializeCollectionSnapshot(createCollectionSnapshot(route, items, generatedAt))
+  return serialized ? `<script>window.__BLOG_COLLECTION_BOOTSTRAP__=${serialized};</script>` : ''
 }
 
 /**
@@ -562,7 +570,8 @@ function renderArchivePage(template, archiveGroups, siteUrl) {
   })
 }
 
-function renderSeriesListPage(template, seriesItems, siteUrl) {
+export function renderSeriesListPage(template, seriesItems, siteUrl) {
+  const snapshot = createCollectionSnapshot('/series', seriesItems)
   const rootHtml = `
     <main class="prerender-shell">
       <section class="prerender-hero">
@@ -586,10 +595,13 @@ function renderSeriesListPage(template, seriesItems, siteUrl) {
     description: '沿着栏目路径继续阅读，把分散文章组织成长期阅读主线。',
     rootHtml,
     siteUrl,
+    extraScript: collectionBootstrapScript('/series', snapshot?.items || [], snapshot?.generatedAt),
+    extraHead: collectionImageHints('/series', snapshot?.items || [], undefined, snapshot?.generatedAt),
   })
 }
 
-function renderTopicsListPage(template, topicItems, siteUrl) {
+export function renderTopicsListPage(template, topicItems, siteUrl) {
+  const snapshot = createCollectionSnapshot('/topics', topicItems)
   const rootHtml = `
     <main class="prerender-shell">
       <section class="prerender-hero">
@@ -613,10 +625,13 @@ function renderTopicsListPage(template, topicItems, siteUrl) {
     description: '围绕长期变化构建主题入口，帮助陌生访客先看到可见内容。',
     rootHtml,
     siteUrl,
+    extraScript: collectionBootstrapScript('/topics', snapshot?.items || [], snapshot?.generatedAt),
+    extraHead: collectionImageHints('/topics', snapshot?.items || [], undefined, snapshot?.generatedAt),
   })
 }
 
-function renderContentTypePage(template, routePath, title, description, items, siteUrl) {
+export function renderContentTypePage(template, routePath, title, description, items, siteUrl) {
+  const snapshot = createCollectionSnapshot(routePath, items)
   const rootHtml = `
     <main class="prerender-shell">
       <section class="prerender-hero">
@@ -640,6 +655,8 @@ function renderContentTypePage(template, routePath, title, description, items, s
     description,
     rootHtml,
     siteUrl,
+    extraScript: collectionBootstrapScript(routePath, snapshot?.items || [], snapshot?.generatedAt),
+    extraHead: collectionImageHints(routePath, snapshot?.items || [], undefined, snapshot?.generatedAt),
   })
 }
 

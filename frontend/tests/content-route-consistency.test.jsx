@@ -26,6 +26,7 @@ function deferred() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.sessionStorage.clear()
 })
 
 it('keeps content-type data aligned with the latest prop and resets while loading', async () => {

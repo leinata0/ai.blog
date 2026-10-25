@@ -34,6 +34,7 @@ function renderPage(ui, initialEntries = ['/']) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.sessionStorage.clear()
   document.head.querySelectorAll('meta[name="robots"], link[rel="canonical"]').forEach((node) => node.remove())
   api.fetchAllTags.mockResolvedValue([])
   api.fetchFriendLinks.mockResolvedValue([])

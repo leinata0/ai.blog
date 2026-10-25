@@ -16,6 +16,8 @@ import { buildPublicApiUrl } from '../utils/publicApiUrl'
 import { buildSubscriptionCenterHref } from '../utils/subscriptionLinks'
 import { proxyImageUrl } from '../utils/proxyImage'
 import { useNewsStyle } from '../hooks/useNewsStyle'
+import usePublicCollection from '../hooks/usePublicCollection'
+import CollectionRefreshNotice from '../components/CollectionRefreshNotice'
 import CinematicWeekly from '../components/tech/CinematicWeekly'
 import CinematicNavigation from '../components/news/cinematic/CinematicNavigation'
 import DailyEdition from '../components/news/daily/DailyEdition'
@@ -86,15 +88,31 @@ function ListCard({ post, index }) {
 export default function ContentTypePage({ contentType }) {
   const { newsStyle } = useNewsStyle()
   const { settings } = useSite()
-  const [posts, setPosts] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [retryKey, setRetryKey] = useState(0)
   const copy = CONTENT_TYPE_META[contentType] || CONTENT_TYPE_META.daily_brief
   const feedUrl = buildPublicApiUrl(
     contentType === 'weekly_review' ? '/api/feeds/weekly.xml' : '/api/feeds/daily.xml'
   )
   const path = contentType === 'weekly_review' ? '/weekly' : '/daily'
+  const { items: posts, loading, error, refreshError, retry } = usePublicCollection({
+    route: path,
+    errorMessage: '栏目暂时无法加载，请稍后重试。',
+    legacyOptions: { dedupe: false },
+    load: async (options) => {
+      try {
+        const payload = await fetchDiscover({ content_type: contentType, sections: 'items,total' }, options)
+        return Array.isArray(payload?.items) ? payload.items : []
+      } catch (err) {
+        if (options.signal.aborted || err?.name === 'AbortError') throw err
+        try {
+          const fallback = await fetchPosts({ pageSize: 50 }, options)
+          return (fallback.items || []).filter((post) => post.content_type === contentType)
+        } catch (fallbackError) {
+          if (options.signal.aborted || fallbackError?.name === 'AbortError') throw fallbackError
+          throw new Error('栏目暂时无法加载，请稍后重试。')
+        }
+      }
+    },
+  })
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
@@ -119,43 +137,8 @@ export default function ContentTypePage({ contentType }) {
   ]), [copy.description, copy.title, path, posts, siteUrl])
 
   useEffect(() => {
-    const controller = new AbortController()
     document.title = `${copy.title} - AI 资讯观察`
-    setPosts([])
-    setLoading(true)
-    setError('')
-
-    async function loadPosts() {
-      try {
-        const payload = await fetchDiscover(
-          { content_type: contentType, sections: 'items,total' },
-          { signal: controller.signal, dedupe: false },
-        )
-        if (controller.signal.aborted) return
-        setPosts(Array.isArray(payload?.items) ? payload.items : [])
-      } catch (err) {
-        if (controller.signal.aborted || err?.name === 'AbortError') return
-
-        try {
-          const fallback = await fetchPosts(
-            { pageSize: 50 },
-            { signal: controller.signal, dedupe: false },
-          )
-          if (controller.signal.aborted) return
-          setPosts((fallback.items || []).filter((post) => post.content_type === contentType))
-        } catch (fallbackErr) {
-          if (controller.signal.aborted || fallbackErr?.name === 'AbortError') return
-          setPosts([])
-          setError('栏目暂时无法加载，请稍后重试。')
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoading(false)
-      }
-    }
-
-    loadPosts()
-    return () => controller.abort()
-  }, [contentType, copy.title, retryKey])
+  }, [copy.title])
 
   const orderedPosts = useMemo(() => sortByCreatedTime(posts), [posts])
   const heroPost = orderedPosts[0] || null
@@ -176,11 +159,12 @@ export default function ContentTypePage({ contentType }) {
           posts={orderedPosts}
           loading={loading}
           error={error}
-          onRetry={() => setRetryKey((value) => value + 1)}
+          onRetry={retry}
           feedUrl={feedUrl}
           header={<Navbar immersive><PrimaryNewsNavigation className="issue-live-primary" /></Navbar>}
           footer={<Footer />}
         />
+        <CollectionRefreshNotice error={refreshError} onRetry={retry} />
         <BackToTop />
       </>
     )
@@ -197,7 +181,8 @@ export default function ContentTypePage({ contentType }) {
         rssUrl={feedUrl}
       />
       {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
-      {newsStyle === 'tech' ? <CinematicWeekly posts={orderedPosts} loading={loading} error={error} onRetry={() => setRetryKey((value) => value + 1)} feedUrl={feedUrl} /> : <div className="news-section__wrap">
+      <CollectionRefreshNotice error={refreshError} onRetry={retry} />
+      {newsStyle === 'tech' ? <CinematicWeekly posts={orderedPosts} loading={loading} error={error} onRetry={retry} feedUrl={feedUrl} /> : <div className="news-section__wrap">
           <header className="news-section__masthead">
             <p className="news-section__kicker">{copy.englishTitle}</p>
             <h1>{copy.title}</h1>
@@ -241,7 +226,7 @@ export default function ContentTypePage({ contentType }) {
                 <p style={{ color: 'var(--danger-text)' }}>{error}</p>
                 <button
                   type="button"
-                  onClick={() => setRetryKey((value) => value + 1)}
+                  onClick={retry}
                   className="signal-button signal-button--primary mt-4"
                 >
                   重新加载栏目

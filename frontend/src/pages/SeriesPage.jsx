@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 
@@ -13,6 +13,8 @@ import SeriesEditorialStack from '../components/SeriesEditorialStack'
 import TechSeries from '../components/collections/TechSeries'
 import CinematicNavigation from '../components/news/cinematic/CinematicNavigation'
 import { useNewsStyle } from '../hooks/useNewsStyle'
+import usePublicCollection from '../hooks/usePublicCollection'
+import CollectionRefreshNotice from '../components/CollectionRefreshNotice'
 import { useSite } from '../contexts/SiteContext'
 import {
   buildBreadcrumbJsonLd,
@@ -23,10 +25,14 @@ import { motionItemVariants } from '../utils/contentPresentation'
 export default function SeriesPage() {
   const { settings } = useSite()
   const { newsStyle } = useNewsStyle()
-  const [seriesList, setSeriesList] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [attempt, setAttempt] = useState(0)
+  const { items: seriesList, loading, error, refreshError, retry: loadSeries } = usePublicCollection({
+    route: '/series',
+    errorMessage: '系列内容加载失败，请稍后重试。',
+    load: async (options) => {
+      const items = await fetchSeriesList({}, options)
+      return Array.isArray(items) ? items : []
+    },
+  })
   const siteUrl = useMemo(() => {
     const configured = String(settings?.site_url || '').trim().replace(/\/$/, '')
     if (configured) return configured
@@ -49,25 +55,6 @@ export default function SeriesPage() {
     }),
   ]), [siteUrl])
 
-  // A failed request must not be presented as "系列内容正在整理中" — that hides a
-  // backend outage behind an empty state and leaves no way to retry.
-  useEffect(() => {
-    const controller = new AbortController()
-    setLoading(true)
-    setError('')
-    fetchSeriesList({}, { signal: controller.signal })
-      .then((items) => {
-        if (!controller.signal.aborted) setSeriesList(Array.isArray(items) ? items : [])
-      })
-      .catch((err) => {
-        if (controller.signal.aborted || err?.name === 'AbortError') return
-        setError(err?.message || '系列内容加载失败，请稍后重试。')
-      })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => controller.abort()
-  }, [attempt])
-
-  function loadSeries() { setAttempt((value) => value + 1) }
   function prefetchSeries(slug) {
     prefetchSeriesDetail(slug, { staleWhileRevalidate: true, cacheTtl: 120000, staleTtl: 300000 })
   }
@@ -81,6 +68,7 @@ export default function SeriesPage() {
         jsonLd={jsonLd}
       />
       {newsStyle === 'tech' ? <CinematicNavigation /> : <Navbar />}
+      <CollectionRefreshNotice error={refreshError} onRetry={loadSeries} />
       {newsStyle === 'tech' ? <TechSeries items={seriesList} loading={loading} error={error} onRetry={loadSeries} onPrefetch={prefetchSeries} /> : <div className="mx-auto max-w-6xl px-6 py-16 sm:px-10" data-ui="paper-series-index">
         <motion.section
           initial="hidden"
