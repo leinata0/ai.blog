@@ -6,6 +6,8 @@ import { MemoryRouter, Link, Route, Routes } from 'react-router-dom'
 import { SiteProvider, useSite } from '../src/contexts/SiteContext'
 import { fetchHomeBootstrap } from '../src/api/home'
 
+vi.mock('../src/utils/performanceTrial', () => ({ PERFORMANCE_TRIAL_ENABLED: false }))
+
 vi.mock('../src/api/client', () => ({
   apiGet: vi.fn(() => Promise.resolve({})),
   apiPost: vi.fn(),

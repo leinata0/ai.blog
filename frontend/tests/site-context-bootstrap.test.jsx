@@ -6,6 +6,8 @@ import { SiteProvider, useSite } from '../src/contexts/SiteContext'
 import { fetchHomeBootstrap } from '../src/api/home'
 import { apiGet } from '../src/api/client'
 
+vi.mock('../src/utils/performanceTrial', () => ({ PERFORMANCE_TRIAL_ENABLED: false }))
+
 vi.mock('../src/api/client', () => ({
   apiGet: vi.fn((path) => {
     if (path === '/api/stats') {

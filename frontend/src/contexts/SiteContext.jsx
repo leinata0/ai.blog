@@ -3,6 +3,8 @@ import { useLocation } from 'react-router-dom'
 import { apiGet } from '../api/client'
 import { fetchHomeBootstrap } from '../api/home'
 import { normalizePostList } from '../api/posts'
+import { PERFORMANCE_TRIAL_ENABLED } from '../utils/performanceTrial'
+import useHomeBootstrap from '../hooks/useHomeBootstrap'
 
 const defaultSiteContextValue = {
   settings: null,
@@ -12,6 +14,7 @@ const defaultSiteContextValue = {
   loading: false,
   refreshSettings: async () => {},
   refreshStats: async () => {},
+  homeDataManaged: false,
 }
 
 const SiteContext = createContext(defaultSiteContextValue)
@@ -86,7 +89,7 @@ function scheduleBackgroundTask(task) {
   return () => window.clearTimeout(id)
 }
 
-export function SiteProvider({ children }) {
+function LegacySiteProvider({ children }) {
   const location = useLocation()
   const [bootstrap, setBootstrap] = useState(() => readRuntimeBootstrap())
   const [settings, setSettings] = useState(() => readRuntimeBootstrap()?.settings ?? null)
@@ -236,6 +239,61 @@ export function SiteProvider({ children }) {
       {children}
     </SiteContext.Provider>
   )
+}
+
+function TrialSiteProvider({ children }) {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  const isDefaultHome = location.pathname === '/' && !params.get('q') && !params.get('tag') && !(Number.parseInt(params.get('page') || '1', 10) > 1)
+  const home = useHomeBootstrap(isDefaultHome)
+  const [settings, setSettings] = useState(() => home.snapshot?.settings || readRuntimeBootstrap()?.settings || null)
+  const [stats, setStats] = useState(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const effectiveSettings = settings || home.snapshot?.settings
+
+  useEffect(() => {
+    if (home.snapshot?.settings) setSettings(home.snapshot.settings)
+  }, [home.snapshot])
+
+  useEffect(() => {
+    // A missing identity never blocks reading. The full home request already
+    // includes settings; only fall back after it settles or on another route.
+    if (effectiveSettings || (isDefaultHome && home.loading)) return undefined
+    let active = true
+    setSettingsLoading(true)
+    apiGet('/api/settings', { timeout: 8000, cache: true, cacheTtl: 60000, staleTtl: 180000, staleWhileRevalidate: true })
+      .then((payload) => { if (active && payload) setSettings(payload) })
+      .catch(() => {})
+      .finally(() => { if (active) setSettingsLoading(false) })
+    return () => { active = false }
+  }, [effectiveSettings, home.loading, isDefaultHome])
+
+  useEffect(() => {
+    if (!effectiveSettings) return undefined
+    let active = true
+    const cancel = scheduleBackgroundTask(() => {
+      apiGet('/api/stats', { timeout: 8000, cache: true, cacheTtl: 45000, staleTtl: 180000, staleWhileRevalidate: true })
+        .then((payload) => { if (active) setStats(payload) }).catch(() => {})
+    })
+    return () => { active = false; cancel() }
+  }, [effectiveSettings])
+
+  const refreshSettings = useCallback(() => apiGet('/api/settings', { timeout: 8000, forceRefresh: true })
+    .then((payload) => { if (payload) setSettings(payload) }).catch(() => {}), [])
+  const refreshStats = useCallback(() => apiGet('/api/stats', { timeout: 8000, forceRefresh: true })
+    .then(setStats).catch(() => {}), [])
+  const value = useMemo(() => ({
+    settings: effectiveSettings, stats, bootstrap: home.snapshot, loading: !effectiveSettings && settingsLoading,
+    homeDataManaged: true, bootstrapLoading: home.loading,
+    bootstrapError: home.error, bootstrapRefreshError: home.refreshError,
+    bootstrapPreview: home.preview, bootstrapGeneratedAt: home.generatedAt,
+    retryHomeBootstrap: home.retry, refreshSettings, refreshStats,
+  }), [effectiveSettings, stats, settingsLoading, home.snapshot, home.loading, home.error, home.refreshError, home.preview, home.generatedAt, home.retry, refreshSettings, refreshStats])
+  return <SiteContext.Provider value={value}>{children}</SiteContext.Provider>
+}
+
+export function SiteProvider({ children }) {
+  return PERFORMANCE_TRIAL_ENABLED ? <TrialSiteProvider>{children}</TrialSiteProvider> : <LegacySiteProvider>{children}</LegacySiteProvider>
 }
 
 export function useSite() {
