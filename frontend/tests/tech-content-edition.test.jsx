@@ -145,7 +145,7 @@ it('gives the live daily route its canonical, feed and structured data without t
   expect(document.title).toBe('AI 日报 - AI 资讯观察')
   expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute('href', 'https://www.563118077.xyz/daily')
   expect(document.head.querySelector('meta[name="robots"]')).toBeNull()
-  expect(document.head.querySelector('meta[property="og:image"]')).toHaveAttribute('content', 'https://img.563118077.xyz/news.jpg')
+  await waitFor(() => expect(document.head.querySelector('meta[property="og:image"]')).toHaveAttribute('content', 'https://img.563118077.xyz/news.jpg'))
   expect(document.head.querySelector('link[rel="alternate"][type="application/rss+xml"]')?.getAttribute('href')).toContain('/api/feeds/daily.xml')
   const collection = [...document.head.querySelectorAll('script[type="application/ld+json"]')].map((node) => JSON.parse(node.textContent)).find((entry) => entry['@type'] === 'CollectionPage')
   expect(collection).toMatchObject({ '@type': 'CollectionPage', name: 'AI 日报' })
