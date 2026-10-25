@@ -38,6 +38,12 @@
       ]
     },
     {
+      "source": "/performance-images/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
       "source": "/api/(.*)",
       "headers": [
         { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
