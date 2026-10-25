@@ -152,3 +152,16 @@ it('never caches a response body that resolves after its request timed out', asy
   await expect(apiGet('/api/discover', { ...requestOptions, cache: true })).resolves.toEqual({ version: 'fresh' })
   expect(fetchSpy).toHaveBeenCalledTimes(2)
 })
+
+it('forwards explicit credentials without changing the default fetch policy', async () => {
+  const fetchSpy = vi.fn().mockImplementation(async () => ({
+    ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }),
+    json: async () => ({ items: [] }),
+  }))
+  vi.stubGlobal('fetch', fetchSpy)
+
+  await apiGet('/api/discover', { ...requestOptions, credentials: 'omit' })
+  expect(fetchSpy.mock.calls[0][1].credentials).toBe('omit')
+  await apiGet('/api/settings', requestOptions)
+  expect(fetchSpy.mock.calls[1][1]).not.toHaveProperty('credentials')
+})

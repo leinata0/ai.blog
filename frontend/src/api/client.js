@@ -346,7 +346,7 @@ function awaitWithAbort(operation, signal) {
   })
 }
 
-async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal, includeResponseMeta = false } = {}) {
+async function request(method, path, { body, auth = false, timeout = TIMEOUT, signal, includeResponseMeta = false, credentials } = {}) {
   const base = resolveApiBase()
   const authMode = normalizeAuth(auth)
   const headers = {}
@@ -366,6 +366,7 @@ async function request(method, path, { body, auth = false, timeout = TIMEOUT, si
     const resp = await awaitWithAbort(() => fetch(`${base}${path}`, {
       method,
       headers,
+      ...(credentials === undefined ? {} : { credentials }),
       body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
       signal: merged.signal,
     }), merged.signal)
