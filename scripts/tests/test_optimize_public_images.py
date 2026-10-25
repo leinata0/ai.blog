@@ -55,6 +55,10 @@ class PublicImageOptimizerTests(unittest.TestCase):
         ]})
         self.assertEqual(urls, {"https://www.563118077.xyz/uploads/actual.png", "https://img.563118077.xyz/actual.png"})
 
+    def test_redirect_is_rejected_before_following_an_untrusted_target(self):
+        with self.assertRaises(ValueError):
+            optimizer.TrustedRedirects().redirect_request(None, None, 302, "Found", {}, "http://127.0.0.1/private.png")
+
     def test_committed_manifest_contains_only_existing_exact_assets(self):
         root = SCRIPT.parents[1]
         manifest = json.loads((root / "frontend/src/data/image-variants.json").read_text(encoding="utf-8"))

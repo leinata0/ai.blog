@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 import time
 from urllib.parse import urljoin, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from PIL import Image, ImageOps
 
@@ -25,6 +25,12 @@ ALLOWED_HOSTS = {"www.563118077.xyz", "563118077.xyz", "img.563118077.xyz", "ai-
 MAX_BYTES = 12 * 1024 * 1024
 WIDTHS = (480, 960, 1600, 2400)
 ENCODER_VERSION = b"webp-q82-m6-alpha100-v1"
+
+
+class TrustedRedirects(HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        canonical_url(new_url)  # Validate before urllib follows the redirect.
+        return super().redirect_request(request, response, code, message, headers, new_url)
 
 
 def canonical_url(value: str) -> str:
@@ -38,7 +44,7 @@ def canonical_url(value: str) -> str:
 def download(url: str, *, timeout: float = 25, limit: int = MAX_BYTES) -> bytes:
     url = canonical_url(url)
     request = Request(url, headers={"User-Agent": "ai-blog-public-image-optimizer/1.0"})
-    with urlopen(request, timeout=timeout) as response:
+    with build_opener(TrustedRedirects()).open(request, timeout=timeout) as response:
         canonical_url(response.url)  # Reject an unexpected redirected host too.
         size = response.headers.get("Content-Length")
         if size and int(size) > limit:
