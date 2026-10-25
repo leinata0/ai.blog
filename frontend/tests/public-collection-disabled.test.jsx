@@ -6,7 +6,7 @@ import { readCollectionBootstrap, saveCollectionSnapshot } from '../src/utils/co
 import { createCollectionSnapshot } from '../src/utils/publicCollectionSnapshot'
 
 beforeEach(() => sessionStorage.clear())
-afterEach(() => { delete window.__BLOG_COLLECTION_BOOTSTRAP__ })
+afterEach(() => { vi.useRealTimers(); delete window.__BLOG_COLLECTION_BOOTSTRAP__ })
 
 it('disables build/session seeding and keeps legacy request options when the trial is off', async () => {
   window.__BLOG_COLLECTION_BOOTSTRAP__ = createCollectionSnapshot('/topics', [{ topic_key: 'old' }])
@@ -22,4 +22,7 @@ it('disables build/session seeding and keeps legacy request options when the tri
   await act(async () => resolve([{ topic_key: 'fresh' }]))
   expect(result.current.items).toEqual([{ topic_key: 'fresh' }])
   expect(sessionStorage.length).toBe(0)
+  vi.useFakeTimers()
+  await act(async () => { vi.advanceTimersByTime(6 * 60 * 1000); window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')) })
+  expect(load).toHaveBeenCalledTimes(1)
 })

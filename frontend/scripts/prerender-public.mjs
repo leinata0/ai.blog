@@ -402,10 +402,17 @@ async function writeRouteHtml(routePath, html) {
   await writeFile(targetFile, html, 'utf8')
 }
 
+function prerenderImage(image) {
+  // React selects the responsive derivative. An eager HTML scanner must not
+  // download the original as well before React replaces the SEO shell.
+  return String(process.env.VITE_PERFORMANCE_TRIAL ?? '1') !== '0' ? `<noscript>${image}</noscript>` : image
+}
+
 function renderCard(item, href, meta = []) {
-  const image = item?.cover_image
+  const cover = item?.cover_image
     ? `<img src="${escapeHtml(item.cover_image)}" alt="${escapeHtml(item.title || item.display_title || '')}" loading="lazy">`
     : '<div class="prerender-cover"></div>'
+  const image = item?.cover_image ? prerenderImage(cover) : cover
   const title = item?.title || item?.display_title || '未命名内容'
   const summary = item?.summary || item?.description || ''
   return `
@@ -452,7 +459,7 @@ export function renderHomePage(template, payload, siteUrl) {
   const newsDate = (post) => `${label(post)} · ${post.created_at ? formatDate(post.created_at) : '日期待补充'}${Number(post.source_count) > 0 ? ` · ${post.source_count} 个来源` : ''}${Number(post.reading_time) > 0 ? ` · ${post.reading_time} 分钟阅读` : ''}`
   const renderStory = (post, { lead = false, compact = false } = {}) => {
     const href = `/posts/${encodeURIComponent(post.slug)}`
-    return `<article data-story-slug="${escapeHtml(post.slug)}">${lead ? '<span class="prerender-news-kicker">本期头条 / THE BIG STORY</span>' : ''}<h3><a href="${escapeHtml(href)}">${escapeHtml(post.title)}</a></h3>${!compact && post.summary ? `<p>${escapeHtml(post.summary)}</p>` : ''}<div class="prerender-news-meta">${escapeHtml(newsDate(post))}</div>${post.cover_image ? `<a href="${escapeHtml(href)}"><img src="${escapeHtml(post.cover_image)}" alt="${escapeHtml(post.title)}" width="1200" height="630" ${lead ? 'fetchpriority="high"' : 'loading="lazy"'}></a>` : ''}</article>`
+    return `<article data-story-slug="${escapeHtml(post.slug)}">${lead ? '<span class="prerender-news-kicker">本期头条 / THE BIG STORY</span>' : ''}<h3><a href="${escapeHtml(href)}">${escapeHtml(post.title)}</a></h3>${!compact && post.summary ? `<p>${escapeHtml(post.summary)}</p>` : ''}<div class="prerender-news-meta">${escapeHtml(newsDate(post))}</div>${post.cover_image ? `<a href="${escapeHtml(href)}">${prerenderImage(`<img src="${escapeHtml(post.cover_image)}" alt="${escapeHtml(post.title)}" width="1200" height="630" ${lead ? 'fetchpriority="high"' : 'loading="lazy"'}>`)}</a>` : ''}</article>`
   }
   const collectionMeta = (item) => `<div class="prerender-news-meta"><span>${escapeHtml(item.post_count)} 篇文章</span>${item.latest_post_at ? `<span>最近发布 <time datetime="${escapeHtml(item.latest_post_at)}">${escapeHtml(formatDate(item.latest_post_at))}</time></span>` : ''}</div>`
   const title = `${SITE_TITLE} | ${HOME_TITLE}`
@@ -471,7 +478,7 @@ export function renderHomePage(template, payload, siteUrl) {
         <section class="prerender-news-feed" aria-labelledby="prerender-news-feed-title"><h2 id="prerender-news-feed-title">新闻一览</h2><form action="/search" method="get"><label for="prerender-news-search">搜索新闻</label><input id="prerender-news-search" type="search" name="q" placeholder="公司、模型或新闻关键词"><button type="submit">搜索</button></form>${stream.length ? stream.map((post) => renderStory(post)).join('') : '<p>本页资讯已呈现在焦点与深读区域。<a href="/archive">浏览历史归档 →</a></p>'}</section>
         <aside class="prerender-news-deepreads" aria-label="周报深读"><span class="prerender-news-kicker">THE LONG VIEW</span><h2>换个尺度，看清变化。</h2><p>用一份周报，把分散的消息连成脉络。</p>${deepReads.map((post) => renderStory(post, { compact: true })).join('')}<a href="/weekly">浏览全部周报 →</a><p>先看日期，再看来源。历史报道保留当时的背景。</p><a href="/start-here">阅读指南 →</a></aside>
       </div>
-      <section id="edition-topics" class="prerender-news-collections" data-edition-chapter aria-labelledby="prerender-news-topics-title"><header><span class="prerender-news-kicker">III / TOPICS & SERIES</span><h2 id="prerender-news-topics-title">主题档案</h2><p>沿一条线索，读得更深。</p><a href="/topics">全部主题 →</a></header>${homeTopics.length ? `<div class="prerender-news-topic-grid">${homeTopics.map((topic) => `<a href="/topics/${escapeHtml(encodeURIComponent(topic.topic_key))}"><h3>${escapeHtml(topic.display_title || topic.title)}</h3>${topic.description ? `<p>${escapeHtml(topic.description)}</p>` : ''}${collectionMeta(topic)}</a>`).join('')}</div>` : `<p>${featuredSeries.length ? '暂时没有可展示的主题，先沿已有系列继续阅读。' : '暂时没有可展示的主题与系列，可从完整主题档案继续查找。'}</p>`}${featuredSeries.length ? `<div class="prerender-news-series-grid" aria-label="内容系列">${featuredSeries.map((series) => `<a href="/series/${escapeHtml(encodeURIComponent(series.slug))}">${series.cover_image ? `<img src="${escapeHtml(series.cover_image)}" alt="" loading="lazy" width="480" height="360">` : ''}<div><span class="prerender-news-kicker">内容系列 / SERIES</span><h3>${escapeHtml(series.title)}</h3>${series.description ? `<p>${escapeHtml(series.description)}</p>` : ''}${collectionMeta(series)}</div></a>`).join('')}</div>` : ''}</section>
+      <section id="edition-topics" class="prerender-news-collections" data-edition-chapter aria-labelledby="prerender-news-topics-title"><header><span class="prerender-news-kicker">III / TOPICS & SERIES</span><h2 id="prerender-news-topics-title">主题档案</h2><p>沿一条线索，读得更深。</p><a href="/topics">全部主题 →</a></header>${homeTopics.length ? `<div class="prerender-news-topic-grid">${homeTopics.map((topic) => `<a href="/topics/${escapeHtml(encodeURIComponent(topic.topic_key))}"><h3>${escapeHtml(topic.display_title || topic.title)}</h3>${topic.description ? `<p>${escapeHtml(topic.description)}</p>` : ''}${collectionMeta(topic)}</a>`).join('')}</div>` : `<p>${featuredSeries.length ? '暂时没有可展示的主题，先沿已有系列继续阅读。' : '暂时没有可展示的主题与系列，可从完整主题档案继续查找。'}</p>`}${featuredSeries.length ? `<div class="prerender-news-series-grid" aria-label="内容系列">${featuredSeries.map((series) => `<a href="/series/${escapeHtml(encodeURIComponent(series.slug))}">${series.cover_image ? prerenderImage(`<img src="${escapeHtml(series.cover_image)}" alt="" loading="lazy" width="480" height="360">`) : ''}<div><span class="prerender-news-kicker">内容系列 / SERIES</span><h3>${escapeHtml(series.title)}</h3>${series.description ? `<p>${escapeHtml(series.description)}</p>` : ''}${collectionMeta(series)}</div></a>`).join('')}</div>` : ''}</section>
       <section id="edition-reading" class="prerender-news-subscribe" data-edition-chapter aria-labelledby="prerender-news-reading-title"><div><span>IV / KEEP READING</span><h2 id="prerender-news-reading-title">让阅读继续。</h2><p>订阅后续发布，或者用日报与周报回看重要变化。</p></div><nav aria-label="继续阅读"><a href="/feeds">打开订阅中心 →</a><a href="/feed.xml">RSS 订阅</a><a href="/daily">AI 日报</a><a href="/weekly">AI 周报</a><a href="/archive">历史归档</a></nav></section>
     </main>
   `
@@ -504,7 +511,9 @@ export function renderHomePage(template, payload, siteUrl) {
         [data-news-style="tech"] .prerender-news-intro p{color:#52647b}
         [data-news-style="tech"] .prerender-news-front{grid-template-columns:minmax(0,1fr);border-color:rgba(16, 29, 53,.22);border-bottom-width:1px;gap:0;padding:32px 0}
         [data-news-style="tech"] .prerender-news-front>article{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto 1fr auto;column-gap:38px;row-gap:16px;padding:36px;border:1px solid #d0ddef;border-radius:8px;background:#fff;color:#101d35}
-        [data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr) minmax(0,1.05fr)}
+        [data-news-style="tech"] .prerender-news-front>article:has(>a>img,>a>noscript>img){grid-template-columns:minmax(0,1fr) minmax(0,1.05fr)}
+        .prerender-news-series-grid>a>noscript{width:30%;max-width:200px;flex-shrink:0}.prerender-news-series-grid>a>noscript>img{width:100%;max-width:none}
+        @media(max-width:760px){[data-news-style="tech"] .prerender-news-front>article:has(>a>noscript>img){grid-template-columns:minmax(0,1fr)}.prerender-news-series-grid>a>noscript{width:100%;max-width:none}}
         [data-news-style="tech"] .prerender-news-front>article>:not(a){grid-column:1}
         [data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h3{margin:0;font:750 40px/1.4 Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;color:#101d35}
         [data-news-style="tech"] .prerender-news-front article>p{margin:0;color:#52647b;font-size:15px;line-height:1.85}
@@ -738,7 +747,7 @@ export function renderPostDetailPage(template, post, siteUrl) {
         </div>
       </section>
       <section class="prerender-section">
-        ${post.cover_image ? `<img class="prerender-cover" src="${escapeHtml(post.cover_image)}" alt="${escapeHtml(post.title)}">` : ''}
+        ${post.cover_image ? prerenderImage(`<img class="prerender-cover" src="${escapeHtml(post.cover_image)}" alt="${escapeHtml(post.title)}">`) : ''}
         <div class="prerender-panel">
           <h2>内容摘要</h2>
           <p class="prerender-summary">${escapeHtml(excerpt || post.summary || '这篇文章的详细内容会在前端接管后完整显示。')}</p>
