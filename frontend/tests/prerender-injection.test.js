@@ -78,16 +78,16 @@ describe('injection safety', () => {
     const lineSeparator = String.fromCharCode(0x2028)
     const paragraphSeparator = String.fromCharCode(0x2029)
     const summary = `line${lineSeparator}break${paragraphSeparator}end`
-    const script = bootstrapScript({ summary })
+    const script = bootstrapScript({ settings: {}, posts: { items: [{ slug: 'separators', title: 'Separators', summary }], total: 1 }, home_modules: { latest_weekly: [], featured_series: [] }, home_topics: [] })
 
     expect(script).not.toContain(lineSeparator)
     expect(script).not.toContain(paragraphSeparator)
     expect(script).toContain('\\u2028')
     expect(script).toContain('\\u2029')
 
-    const serialized = script.replace(/^<script>window\.__BLOG_BOOTSTRAP__=/, '').replace(/;<\/script>$/, '')
+    const serialized = script.match(/<script>window\.__BLOG_BOOTSTRAP__=([\s\S]*?);<\/script>/)[1]
     // eslint-disable-next-line no-new-func
-    expect(new Function(`return ${serialized}`)().summary).toBe(summary)
+    expect(new Function(`return ${serialized}`)().posts.items[0].summary).toBe(summary)
   })
 
   it('fails loudly when a template marker is missing instead of silently no-op injecting', async () => {
@@ -198,7 +198,7 @@ function buildFetchStub({ failingPostSlugs = new Set() } = {}) {
     const json = (data) => ({ ok: true, status: 200, json: async () => data })
 
     if (path.startsWith('/api/public/home-bootstrap')) {
-      return json({ settings: {}, home_modules: {}, posts: { items: [] } })
+      return json({ settings: {}, home_modules: {}, posts: { items: [], total: 0, page: 1, page_size: 10 } })
     }
     if (path === '/api/archive') {
       return json([{ year: '2026', posts: [{ slug: 'post-a', title: 'A' }, { slug: 'post-b', title: 'B' }] }])

@@ -2,7 +2,7 @@
 import { JSDOM } from 'jsdom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { collectionBootstrapBundleScript, injectCollectionBootstrapBundle } from '../scripts/collection-bootstrap-bundle.mjs'
-import { main } from '../scripts/prerender-public.mjs'
+import { bootstrapScript, main } from '../scripts/prerender-public.mjs'
 import { COLLECTION_ITEM_LIMIT, COLLECTION_ROUTES, COLLECTION_SNAPSHOT_MAX_BYTES } from '../src/utils/publicCollectionSnapshot.js'
 
 const GENERATED_AT = '2026-10-25T08:00:00.000Z'
@@ -12,6 +12,7 @@ const weekly = { ...daily, slug: 'weekly-actual', title: '本周真实报道', c
 const topic = { topic_key: 'model-release', display_title: '模型更新', post_count: 1 }
 const series = { slug: 'weekly-series', title: '周报系列', post_count: 1 }
 const sources = { '/daily': [daily], '/weekly': [weekly], '/topics': [topic], '/series': [series] }
+const homePost = { ...daily, is_pinned: true, source_count: 7, reading_time: 12, tags: [{ name: '模型', slug: 'models' }] }
 const docs = []
 function parse(html) {
   const dom = new JSDOM(html, { runScripts: 'dangerously' })
@@ -34,7 +35,7 @@ async function build({ disabled = false } = {}) {
   const json = (data) => ({ ok: true, status: 200, json: async () => data })
   const fetchMock = vi.fn(async (url) => {
     const path = String(url).replace('https://api.example.com', '')
-    if (path.startsWith('/api/public/home-bootstrap?')) return json({ settings: {}, posts: { items: [] }, home_modules: {} })
+    if (path.startsWith('/api/public/home-bootstrap?')) return json({ settings: { author_name: '新闻编辑', site_url: 'https://example.com' }, posts: { items: [homePost], total: 141, page: 1, page_size: 10 }, home_modules: {} })
     if (path === '/api/archive') return json([{ year: '2026', posts: [daily] }])
     if (path === '/api/topics?limit=200') return json({ items: [topic] })
     if (path === '/api/series?limit=100') return json([series])
@@ -77,6 +78,8 @@ describe('cross-route public collection bootstrap bundle', () => {
     for (const [route, html] of written) {
       if (privateRoutes.has(route)) {
         expect(html).not.toContain('__BLOG_COLLECTION_BOOTSTRAP')
+        expect(html).not.toContain('__BLOG_BOOTSTRAP__')
+        expect(html).not.toContain('__BLOG_HOME_BOOTSTRAP__')
         continue
       }
       const window = parse(html)
@@ -87,6 +90,27 @@ describe('cross-route public collection bootstrap bundle', () => {
       }
     }
     for (const route of ['/archive', '/start-here', `/posts/${daily.slug}`, `/topics/${topic.topic_key}`, `/series/${series.slug}`]) expect(written.has(route)).toBe(true)
+  }, 15_000)
+
+  it('supplies the same complete, dated home snapshot on every public document before the module without overwriting it on the homepage', async () => {
+    const { written } = await build()
+    const expectedHome = parse(written.get('/')).__BLOG_BOOTSTRAP__
+    expect(expectedHome).toMatchObject({
+      schemaVersion: 1, route: '/',
+      settings: { author_name: '新闻编辑', site_url: 'https://example.com' },
+      posts: { total: 141, page: 1, page_size: 10, items: [homePost] },
+      home_modules: { latest_weekly: [weekly], featured_series: [] },
+      home_topics: [topic],
+    })
+    for (const [route, html] of written) {
+      const window = parse(html)
+      if (window.document.querySelector('[data-prerender-private]')) continue
+      expect(window.__BLOG_HOME_BOOTSTRAP__).toBe(window.__BLOG_BOOTSTRAP__)
+      expect(window.__BLOG_HOME_BOOTSTRAP__, `home snapshot for ${route}`).toEqual(expectedHome)
+      expect(html.match(/window\.__BLOG_BOOTSTRAP__=/g)).toHaveLength(1)
+      expect(html.indexOf('window.__BLOG_BOOTSTRAP__=')).toBeLessThan(html.indexOf('<script type="module"'))
+      for (const snapshot of Object.values(window.__BLOG_COLLECTION_BOOTSTRAPS__)) expect(snapshot.generatedAt).toBe(expectedHome.generatedAt)
+    }
   }, 15_000)
 
   it('whitelists summaries, removes drafts and internal data, and keeps successful empty lists', () => {
@@ -108,6 +132,26 @@ describe('cross-route public collection bootstrap bundle', () => {
     expect(bundle['/weekly']).toMatchObject({ route: '/weekly', generatedAt: GENERATED_AT, items: [] })
     expect(bundle['/series'].items[0].latest_posts).toHaveLength(1)
     expect(bundle['/topics'].items[0]).not.toHaveProperty('profile')
+  })
+
+  it('embeds only public home summaries and preserves a valid empty homepage without renewing its source timestamp', () => {
+    const raw = {
+      settings: { author_name: '公开作者', admin_email: 'PRIVATE_HOME_SETTING' },
+      posts: { items: [
+        { ...homePost, content_md: 'PRIVATE_HOME_BODY', source_prompt: 'PRIVATE_HOME_PROMPT' },
+      ], total: 141, page: 1, page_size: 10 },
+      home_modules: { latest_weekly: [weekly], featured_series: [series], internal_notes: 'PRIVATE_HOME_NOTES' },
+      home_topics: [{ ...topic, profile: { editor_notes: 'PRIVATE_HOME_PROFILE' } }],
+    }
+    const script = bootstrapScript(raw, GENERATED_AT)
+    expect(script).not.toContain('PRIVATE_HOME_')
+    const window = parse(script)
+    expect(window.__BLOG_HOME_BOOTSTRAP__).toBe(window.__BLOG_BOOTSTRAP__)
+    expect(window.__BLOG_HOME_BOOTSTRAP__.generatedAt).toBe(GENERATED_AT)
+    expect(window.__BLOG_HOME_BOOTSTRAP__.posts).toMatchObject({ total: 141, items: [homePost] })
+    expect(() => bootstrapScript({ ...raw, posts: { ...raw.posts, items: [{ ...daily, title: 'PRIVATE_HOME_DRAFT', is_published: false }] } }, GENERATED_AT)).toThrow(/homepage snapshot is invalid/)
+    const empty = parse(bootstrapScript({ settings: {}, posts: { items: [], total: 0 }, home_modules: { latest_weekly: [], featured_series: [] }, home_topics: [] }, GENERATED_AT)).__BLOG_HOME_BOOTSTRAP__
+    expect(empty).toMatchObject({ generatedAt: GENERATED_AT, posts: { total: 0, items: [] }, home_modules: { latest_weekly: [], featured_series: [] }, home_topics: [] })
   })
 
   it('safely parses HTML terminators, JS separators and dollar substitution sequences through literal template insertion', () => {
@@ -139,7 +183,14 @@ describe('cross-route public collection bootstrap bundle', () => {
 
   it('omits both bundle and legacy collection scripts throughout the site when the trial is disabled', async () => {
     const { written } = await build({ disabled: true })
-    for (const html of written.values()) expect(html).not.toContain('__BLOG_COLLECTION_BOOTSTRAP')
+    for (const [route, html] of written) {
+      expect(html).not.toContain('__BLOG_COLLECTION_BOOTSTRAP')
+      expect(html).not.toContain('__BLOG_HOME_BOOTSTRAP__')
+      if (route !== '/') expect(html).not.toContain('__BLOG_BOOTSTRAP__')
+    }
+    const legacyHome = parse(written.get('/')).__BLOG_BOOTSTRAP__
+    expect(legacyHome.posts).toMatchObject({ total: 141, items: [homePost] })
+    expect(legacyHome).not.toHaveProperty('schemaVersion')
     expect(collectionBootstrapBundleScript(sources, GENERATED_AT)).toBe('')
     expect(injectCollectionBootstrapBundle(TEMPLATE, '')).toBe(TEMPLATE)
   }, 15_000)

@@ -8,6 +8,7 @@ import { SITE_COPY, SITE_SEO, START_HERE_COPY } from '../src/utils/contentPresen
 import { buildNewsroomSections } from '../src/utils/newsroom.js'
 import { createRequestScheduler, fetchWithRetry } from './prerender-fetch.mjs'
 import { createCollectionSnapshot, serializeCollectionSnapshot } from '../src/utils/publicCollectionSnapshot.js'
+import { createPublicHomeSnapshot, serializePublicHomeSnapshot } from '../src/utils/publicHomeSnapshot.js'
 import { collectionImageHints } from './collection-image-hints.mjs'
 import { collectionBootstrapBundleScript, injectCollectionBootstrapBundle } from './collection-bootstrap-bundle.mjs'
 export { fetchWithRetry } from './prerender-fetch.mjs'
@@ -153,8 +154,15 @@ function canonicalUrl(siteUrl, routePath) {
   return `${siteUrl}${routePath}`
 }
 
-export function bootstrapScript(payload) {
+export function bootstrapScript(payload, generatedAt) {
   if (!payload) return ''
+  if (String(process.env.VITE_PERFORMANCE_TRIAL ?? '1') !== '0') {
+    const serialized = serializePublicHomeSnapshot(createPublicHomeSnapshot(payload, generatedAt))
+    if (!serialized) throw new Error('[prerender] homepage snapshot is invalid or exceeds its byte budget')
+    // Keep the original global for older clients and give the shared home store
+    // its own explicit name. Both references point at the same bounded object.
+    return `<script>window.__BLOG_BOOTSTRAP__=${serialized};</script><script>window.__BLOG_HOME_BOOTSTRAP__=window.__BLOG_BOOTSTRAP__;</script>`
+  }
   // The payload is embedded in an inline <script>: `</` would close the element early,
   // and U+2028 / U+2029 are literal line terminators in JS source even though JSON
   // allows them raw inside strings.
@@ -453,6 +461,15 @@ function selectHomeCollections(items, key, limit) {
 }
 
 export function renderHomePage(template, payload, siteUrl) {
+  // Standalone renderer callers may supply just stories for the no-JS shell.
+  // main() validates and injects its complete fetched payload separately.
+  const rendererBootstrap = String(process.env.VITE_PERFORMANCE_TRIAL ?? '1') === '0' ? payload : {
+    ...payload,
+    settings: payload?.settings ?? {},
+    posts: { items: [], total: 0, ...payload?.posts },
+    home_modules: { latest_weekly: [], featured_series: [], ...payload?.home_modules },
+    home_topics: payload?.home_topics ?? [],
+  }
   const { focus, stream, deepReads } = buildNewsroomSections(payload?.posts?.items, payload?.home_modules)
   const homeTopics = selectHomeCollections(payload?.home_topics, 'topic_key', 4)
   const featuredSeries = selectHomeCollections(payload?.home_modules?.featured_series, 'slug', 2)
@@ -539,7 +556,9 @@ export function renderHomePage(template, payload, siteUrl) {
         .prerender-news-subscribe{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:center;padding:28px 32px;background:#253329;color:#edf1e6;scroll-margin-top:24px}.prerender-news-subscribe>div>span{font-size:10px;letter-spacing:.12em}.prerender-shell.prerender-news .prerender-news-subscribe h2{margin:12px 0;color:#edf1e6}.prerender-news-subscribe p{font-size:13px;line-height:1.8;color:#bfcbb9}.prerender-news-subscribe nav{display:flex;flex-wrap:wrap;gap:16px 24px;font-size:13px}.prerender-news-subscribe nav>a:first-child{background:#d7ed94;color:#253329;padding:12px 16px}.prerender-news-subscribe nav>a{display:inline-flex;align-items:center;min-height:40px}
         @media(max-width:760px){[data-news-style="tech"] .prerender-news-masthead>a{font-size:32px}[data-news-style="tech"] .prerender-news-front>article,[data-news-style="tech"] .prerender-news-front>article:has(>a>img){grid-template-columns:minmax(0,1fr);grid-template-rows:auto;gap:18px;padding:26px 22px}[data-news-style="tech"] .prerender-news-front>article>a:has(img){grid-column:1;grid-row:auto;min-height:0;margin-top:8px}[data-news-style="tech"] .prerender-news-front img{height:auto;max-height:none}[data-news-style="tech"] .prerender-shell.prerender-news .prerender-news-front>article>h3{font-size:34px}[data-news-style="tech"] .prerender-news-intro{padding:12px 0 0}.prerender-news-support,.prerender-news-reading-grid,.prerender-news-topic-grid,.prerender-news-subscribe{grid-template-columns:minmax(0,1fr)}.prerender-news-series-grid>a{display:block}.prerender-news-series-grid img{width:100%;max-width:none;max-height:180px;margin-bottom:18px}.prerender-news-subscribe{padding:25px 22px}}
       </style>`,
-      extraScript: bootstrapScript(payload),
+      // main() supplies the shared snapshot before the module for every public
+      // document. Standalone renderers still receive one, without duplicating it.
+      extraScript: template.includes('window.__BLOG_HOME_BOOTSTRAP__=') ? '' : bootstrapScript(rendererBootstrap, payload?.generatedAt),
     },
   )
   return html.replace('<body>', '<body class="public-news-shell">')
@@ -861,12 +880,12 @@ export async function main({
   ])
 
   const collectionGeneratedAt = new Date().toISOString()
-  const publicTemplate = injectCollectionBootstrapBundle(template, collectionBootstrapBundleScript({
+  const collectionScript = collectionBootstrapBundleScript({
     '/daily': dailyDiscover?.items,
     '/weekly': weeklyDiscover?.items,
     '/topics': topicsPayload?.items,
     '/series': seriesList,
-  }, collectionGeneratedAt))
+  }, collectionGeneratedAt)
 
   // Reuse collection data already required by the full-site build. The homepage
   // still fetches its lightweight bootstrap once; no extra modules request is made.
@@ -902,6 +921,12 @@ export async function main({
       })),
     },
   }
+  // Every public document can enter the homepage through SPA navigation. Send
+  // its complete initial data ahead of the main module using the same original
+  // build timestamp as the four collections, without another API request.
+  const homeScript = String(process.env.VITE_PERFORMANCE_TRIAL ?? '1') === '0'
+    ? '' : bootstrapScript(homePayload, collectionGeneratedAt)
+  const publicTemplate = injectCollectionBootstrapBundle(template, `${homeScript}${collectionScript}`)
   await writeRoute('/', renderHomePage(publicTemplate, homePayload, siteUrl))
 
   await writeRoute('/archive', renderArchivePage(publicTemplate, archiveGroups, siteUrl))
